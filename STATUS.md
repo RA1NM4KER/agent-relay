@@ -2,11 +2,13 @@
 
 ## Current milestone
 
-M2B complete — crash-safe transactional handoff (durable journal/state machine, project-level
-writer lease, genuine OS-release-on-crash orchestration lock) proven live in both directions
-(Erika -> Megan -> Erika) on the disposable repo. M2A's SESSION_CONTINUATION guarantee and M1.5's
-real Erika/Megan adoption remain complete underneath it. No automatic/quota-triggered handoff and
-no Herdr integration exist yet; both are explicitly out of scope until separately approved.
+M2B.5 complete — writer-liveness hardened from ps-text-scanning to an exact pid+fingerprint check
+corroborated by Claude's own session bookkeeping, and explicit target-transcript conflict
+resolution added, closing both weaknesses M2B flagged. Both live-validated on the disposable repo,
+including a real competing-writer block and a real crash/stale-ownership recovery. M2B's
+transactional handoff, M2A's SESSION_CONTINUATION guarantee, and M1.5's real Erika/Megan adoption
+remain complete underneath it. No automatic/quota-triggered handoff (M2C) and no Herdr integration
+exist yet; both are explicitly out of scope until separately approved.
 
 ## Completed
 
@@ -153,27 +155,79 @@ no Herdr integration exist yet; both are explicitly out of scope until separatel
       same-owner-required rejection (`writer_lease_owned_by_another_profile`) when attempting a
       handoff from the profile that no longer owns the lease.
 
+- **M2B.5 (approved): hardened writer ownership and added transcript conflict resolution**,
+  closing both weaknesses M2B's report flagged:
+  - **Part A.** `SourceLiveness` no longer trusts `ps` text-matching as its primary signal. It now
+    checks the exact pid + start-time fingerprint recorded in the project's `WriterLease`
+    (`ProcessIdentity::is_still_the_same_process`), corroborated by Claude Code's own session
+    bookkeeping (`claude agents --json`, matched by `sessionId`) to discover the pid and to detect
+    sessions Relay never launched (now a blocking `untracked_writer_detected`, scoped to the
+    project being handed off via a new `project_dir` parameter on the trait). Live testing proved
+    `agents --json` alone is not sufficient: after a real `kill -9` of a background session's
+    reported pid, it kept reporting `"state": "working"` — so the pid+fingerprint check is always
+    the final arbiter when a pid is available.
+  - Fixed a real precision gap in `ProcessIdentity` found while building this: a confirmed-dead
+    pid was indistinguishable from "could not determine" (both collapsed to `None`); `ps`'s own
+    "no such process" answer now resolves to `Some(false)`.
+  - Added `relay launch`: spawns Claude as a real Relay-managed writer via `claude --bg`, polls
+    `agents --json` for its real session id and pid (pid populates slightly after the session
+    record itself — discovered live, and the poll now waits for it specifically), and records a
+    `WriterLease` with that real identity. Refuses if another verified-live writer already holds
+    the project, regardless of which profile requests the new launch.
+  - **Live-discovered macOS/Claude Code limitation**: a `kill -9` of one `--bg` session's reported
+    pid was *not* sufficient to make Relay treat it as stopped — Claude Code's own background
+    daemon transparently reassigned a new OS process (new pid, new `startedAt`) to the same
+    session id, and `agents --json` correctly reported it alive again under the new pid. Only a
+    clean `claude stop <id>` reliably and permanently ends a `--bg` session; a single `kill -9` of
+    a reported pid does not, because Relay does not control or own that daemon. This is a genuine,
+    documented residual gap — see "any remaining race condition" below.
+  - **Part B.** Added `relay session conflict inspect/resolve/rollback`, classifying a target
+    transcript as missing, byte-identical, a known-stale ancestor (target's bytes are an exact
+    prefix of source's — safe, no data lost), divergent/contains unique turns (source is a prefix
+    of target, or truly diverged — never auto-resolved), or currently active (never touched
+    regardless of decision level). `resolve` always previews unless `--yes` (stale ancestor) or
+    `--force-discard-divergent` (divergent) is passed; every actual replacement backs up the
+    displaced file first (atomic write, mode 0600, hash-verified) and writes a JSON resolution
+    record next to it; `rollback` restores the most recent backup.
+  - 133 tests pass (was 109); fmt and Clippy clean. New tests cover: an untracked session blocking
+    a handoff, the tri-state pid-confirmation fix, and (in `conflict.rs`) every classification,
+    dry-run writing nothing, stale-ancestor and divergent resolution (with and without the
+    stronger flag), an always-refused active target, rollback with and without a backup, and
+    corrupted resolution metadata failing closed.
+  - **Live validation, both directions, with zero manual file deletion**: `relay handoff run
+    --from erika --to megan` initially failed closed (`target_artifact_diverges`, Megan's
+    directory still held a stale copy from the earlier M2B run); `session conflict inspect`
+    correctly classified it `target_stale_ancestor`; `session conflict resolve --yes` backed it up
+    and replaced it; the handoff then completed. The same sequence was repeated for the reverse
+    direction (`--from megan --to erika`) — the exact scenario M2B's report had required a manual
+    `rm` for.
+  - **Live competing-writer test**: with a real `relay launch`-started writer alive under Erika,
+    both a second `relay launch --profile erika` and a `relay launch --profile megan` for the same
+    project were correctly refused (`writer_already_active`).
+  - **Live crash/stale-ownership test**: after a clean `claude stop` of the managed writer, a
+    subsequent `relay launch` correctly detected the recorded pid was confirmed gone and proceeded
+    with a fresh launch.
+
 ## In progress
 
-- Nothing in progress. M1.5, M2A, and M2B are all complete. Automatic/quota-triggered handoff and
-  Herdr integration have not started and require separate owner authorization to begin.
+- Nothing in progress. M1.5, M2A, M2B, and M2B.5 are all complete. Automatic/quota-triggered
+  handoff (M2C) and Herdr integration have not started and require separate owner authorization.
 
 ## Blockers
 
-- No conflict-resolution command exists for a target that already holds a stale/divergent copy of
-  a session's transcript (discovered live during M2B's reverse-handoff test, described above);
-  today this requires an explicit operator action outside Relay, which is safe but manual.
-- M2A/M2B's process-liveness check (`SystemProcessLister`) is a best-effort `ps` scan for a
-  `CLAUDE_CONFIG_DIR=<dir>` token, not a lock — it has the same known TOCTOU race as any
-  process-table inspection (see docs/security.md's "Two simultaneous writers" section) and must
-  not be treated as sufficient for unattended/automatic handoff.
-  - Compatibility is validated for exactly Claude Code 2.1.276, a single foreground `-p` session,
-    no subagents, and no `--bg`/worktree mode. The `-` project-path escaping convention and the
-    subagent-sidecar naming assumption (`<session_id>-*.jsonl`) are both observed, not documented
-    by Anthropic, and are not re-validated across versions.
-  - `relay handoff run` itself spends real API usage (one verification turn under the target);
-    there is still no automatic/quota-triggered handoff, and none is planned without separate
-    approval.
+- A `kill -9` of a `--bg` session's currently-reported pid is not sufficient proof of termination:
+  Claude Code's own background daemon can transparently reassign a new process to the same session
+  (observed live during M2B.5). Only `claude stop` reliably ends a `--bg` session from outside its
+  daemon. Relay's liveness check re-queries fresh each time, so it is not fooled going forward, but
+  a single kill of "the pid we saw a moment ago" is not a dependable way to force a writer to stop.
+- Compatibility is validated for exactly Claude Code 2.1.276, a single foreground `-p` session (for
+  M2A/M2B's core session-continuation path) plus `--bg` (for M2B.5's launch/liveness path); no
+  subagents. The `-` project-path escaping convention and the subagent-sidecar naming assumption
+  (`<session_id>-*.jsonl`) are both observed, not documented by Anthropic, and are not re-validated
+  across versions.
+- `relay handoff run` and `relay launch` both spend real API usage (a verification turn, and a
+  real background session respectively); there is still no automatic/quota-triggered handoff, and
+  none is planned without separate approval.
 
 ## Unresolved architecture questions
 
@@ -186,4 +240,5 @@ no Herdr integration exist yet; both are explicitly out of scope until separatel
 
 Await explicit owner authorization before starting M2C (automatic, usage/quota-triggered
 handoff) or Herdr integration, and before trusting this path across any Claude Code
-version/layout other than 2.1.276. Do not begin that work without separate approval.
+version/layout other than 2.1.276 or any launch mode other than foreground `-p` / `--bg`.
+Do not begin that work without separate approval.
