@@ -7,7 +7,7 @@ use relay_core::{
 };
 use relay_provider_claude::{
     ClaudeAdoptionProvider, ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector,
-    EnvironmentOverrideStatus, inspect_environment,
+    EnvironmentOverrideStatus, SystemProcessLister, inspect_environment, stage_transfer,
 };
 use relay_testkit::FakeProvider;
 use serde::Serialize;
@@ -42,6 +42,32 @@ struct Cli {
 enum Command {
     /// Manage explicit provider profiles.
     Profile(ProfileArgs),
+    /// M2A: minimal, explicit, manual cross-profile Claude session staging.
+    Session(SessionArgs),
+}
+
+#[derive(Debug, Args)]
+struct SessionArgs {
+    #[command(subcommand)]
+    command: SessionCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum SessionCommand {
+    /// Stage a stopped Claude session's transcript from one registered profile to another so
+    /// the target profile can `claude --resume <session-id>` it. Never touches credentials;
+    /// refuses if the source profile still has a live Claude process, if no matching session
+    /// exists, or if the target already holds a divergent artifact.
+    StageTransfer {
+        #[arg(long)]
+        source_profile: ProfileName,
+        #[arg(long)]
+        target_profile: ProfileName,
+        #[arg(long, value_name = "PATH")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        session_id: String,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -476,6 +502,61 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     }
                 );
                 success("profile.adopt.dry_run", human, dry_run)
+            }
+        },
+        Command::Session(session) => match &session.command {
+            SessionCommand::StageTransfer {
+                source_profile,
+                target_profile,
+                project_dir,
+                session_id,
+            } => {
+                let registered = service.list()?;
+                let source = registered
+                    .iter()
+                    .find(|profile| &profile.name == source_profile)
+                    .ok_or_else(|| Error::ProfileNotFound(source_profile.to_string()))?;
+                let target = registered
+                    .iter()
+                    .find(|profile| &profile.name == target_profile)
+                    .ok_or_else(|| Error::ProfileNotFound(target_profile.to_string()))?;
+                if source.name == target.name {
+                    return Err(Error::ProviderMismatch {
+                        expected: "distinct source and target profiles".to_owned(),
+                        observed: source.name.to_string(),
+                    });
+                }
+                let report = stage_transfer(
+                    &SystemProcessLister,
+                    &source.config_dir,
+                    &target.config_dir,
+                    project_dir,
+                    session_id,
+                )?;
+                let human = format!(
+                    "Staged session {} from '{}' to '{}'\nProject key: {}\nArtifacts: {}",
+                    report.session_id,
+                    source_profile,
+                    target_profile,
+                    report.project_key,
+                    report
+                        .artifacts
+                        .iter()
+                        .map(|artifact| format!(
+                            "{} (sha256={}, {} bytes{})",
+                            artifact.relative_path,
+                            artifact.sha256,
+                            artifact.size_bytes,
+                            if artifact.already_present_and_identical {
+                                ", already staged"
+                            } else {
+                                ""
+                            }
+                        ))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                );
+                success("session.stage_transfer", human, report)
             }
         },
     }

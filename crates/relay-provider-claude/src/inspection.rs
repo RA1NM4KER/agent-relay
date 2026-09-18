@@ -465,7 +465,7 @@ fn parse_version(bytes: &[u8]) -> Result<String> {
     Ok(version.to_owned())
 }
 
-fn is_supported_version(version: &str) -> bool {
+pub(crate) fn is_supported_version(version: &str) -> bool {
     let mut parts = version.split('.');
     matches!(
         (parts.next(), parts.next(), parts.next(), parts.next()),

@@ -65,6 +65,16 @@ pub enum Error {
     ProviderProfileMismatch,
     #[error("authentication environment contains conflicting overrides")]
     EnvironmentOverrideConflict,
+    #[error("session id is not a valid UUID")]
+    InvalidSessionId,
+    #[error("no session artifact was found for the requested project and session id")]
+    SessionNotFound,
+    #[error("source profile has an active Claude process; stop it before transferring")]
+    SourceProfileActive,
+    #[error("a target session artifact already exists and does not match the source")]
+    TargetArtifactDiverges,
+    #[error("a staged session artifact did not verify against its source hash after copy")]
+    TransferVerificationFailed,
     #[error("serialization failed")]
     SerializationFailed,
     #[error("required environment path is unavailable: {0}")]
@@ -112,6 +122,11 @@ impl Error {
             Self::IdentityUnavailable => "identity_unavailable",
             Self::ProviderProfileMismatch => "provider_profile_mismatch",
             Self::EnvironmentOverrideConflict => "environment_override_conflict",
+            Self::InvalidSessionId => "invalid_session_id",
+            Self::SessionNotFound => "session_not_found",
+            Self::SourceProfileActive => "source_profile_active",
+            Self::TargetArtifactDiverges => "target_artifact_diverges",
+            Self::TransferVerificationFailed => "transfer_verification_failed",
             Self::SerializationFailed => "serialization_failed",
             Self::MissingEnvironment(_) => "missing_environment",
             Self::Io { .. } => "io_error",

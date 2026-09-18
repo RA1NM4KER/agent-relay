@@ -2,12 +2,17 @@
 
 mod adoption;
 mod inspection;
+mod session_transfer;
 
 pub use adoption::ClaudeAdoptionProvider;
 pub use inspection::{
     ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector, CommandRunner,
     EnvironmentOverrideStatus, EnvironmentVariableStatus, ProcessResult, ProcessSpec,
     SystemCommandRunner, inspect_environment, inspect_environment_with,
+};
+pub use session_transfer::{
+    ProcessLister, SessionTransferReport, StagedArtifact, SystemProcessLister, discover_session,
+    ensure_supported_claude_version, escape_project_path, stage_transfer, validate_session_id,
 };
 
 use std::{
