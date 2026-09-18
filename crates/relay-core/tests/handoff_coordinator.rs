@@ -8,8 +8,8 @@ use relay_core::{
     handoff::{
         FailedPhase, HandoffCoordinator, HandoffRequest, HandoffState, JournalStore, LeaseStore,
         LivenessVerdict, OrchestrationLock, ProcessIdentity, ProjectId, SessionStager,
-        SourceLiveness, TargetLauncher, TargetVerification, TransactionId, TransferOutcome,
-        TransferredArtifact, WriterLease,
+        SessionStopper, SourceLiveness, TargetLauncher, TargetVerification, TransactionId,
+        TransferOutcome, TransferredArtifact, WriterLease,
     },
 };
 use tempfile::tempdir;
@@ -72,6 +72,34 @@ impl SourceLiveness for SlowLiveness {
             active: self.active,
             untracked_session_ids: Vec::new(),
         })
+    }
+}
+
+struct OkStopper;
+impl SessionStopper for OkStopper {
+    fn stop_and_verify(
+        &self,
+        _source_config_dir: &Path,
+        _project_dir: &Path,
+        _session_id: &str,
+        _recorded_owner: Option<&ProcessIdentity>,
+    ) -> relay_core::Result<()> {
+        Ok(())
+    }
+}
+
+struct FailingStopper;
+impl SessionStopper for FailingStopper {
+    fn stop_and_verify(
+        &self,
+        _source_config_dir: &Path,
+        _project_dir: &Path,
+        _session_id: &str,
+        _recorded_owner: Option<&ProcessIdentity>,
+    ) -> relay_core::Result<()> {
+        Err(Error::StopNotVerified(
+            "session never went quiet".to_owned(),
+        ))
     }
 }
 
@@ -170,6 +198,7 @@ fn successful_handoff_reaches_complete_and_updates_the_lease() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
@@ -203,6 +232,7 @@ fn a_wrong_source_profile_is_rejected_once_a_lease_is_owned_by_someone_else() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
@@ -228,6 +258,7 @@ fn reverse_handoff_from_the_new_owner_succeeds() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
@@ -242,7 +273,9 @@ fn reverse_handoff_from_the_new_owner_succeeds() {
 }
 
 #[test]
-fn source_still_active_fails_the_stop_phase_and_stages_nothing() {
+fn stop_verification_failure_fails_the_stop_phase_and_stages_nothing() {
+    // M2B.75: an active source no longer immediately blocks the handoff — the coordinator
+    // actively stops it. Only a stop that cannot be verified quiescent blocks.
     let root = tempdir().expect("temp dir");
     let project_dir = root.path().join("project");
     init_git_repo(&project_dir);
@@ -251,18 +284,19 @@ fn source_still_active_fails_the_stop_phase_and_stages_nothing() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(true),
+        stopper: &FailingStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
 
     let error = coordinator
         .run(request(&project_dir, "erika", "megan"))
-        .expect_err("must refuse while source is active");
-    assert_eq!(error.code(), "source_profile_active");
+        .expect_err("must refuse when the stop cannot be verified quiescent");
+    assert_eq!(error.code(), "stop_not_verified");
 }
 
 #[test]
-fn journal_records_failed_phase_when_source_is_active() {
+fn an_active_source_is_stopped_rather_than_immediately_refused() {
     let root = tempdir().expect("temp dir");
     let project_dir = root.path().join("project");
     init_git_repo(&project_dir);
@@ -271,6 +305,28 @@ fn journal_records_failed_phase_when_source_is_active() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(true),
+        stopper: &OkStopper,
+        stager: &OkStager,
+        launcher: &OkLauncher,
+    };
+
+    let journal = coordinator
+        .run(request(&project_dir, "erika", "megan"))
+        .expect("an active source that stops successfully must still complete the handoff");
+    assert_eq!(journal.state, HandoffState::Complete);
+}
+
+#[test]
+fn journal_records_failed_phase_when_stop_cannot_be_verified() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(true),
+        stopper: &FailingStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
@@ -302,6 +358,7 @@ fn divergent_transcript_fails_the_transfer_phase() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &FailingStager,
         launcher: &OkLauncher,
     };
@@ -322,6 +379,7 @@ fn target_startup_failure_fails_the_target_start_phase() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &FailingLauncher,
     };
@@ -342,6 +400,7 @@ fn target_identity_mismatch_fails_verification_and_does_not_move_the_lease() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &WrongSessionLauncher,
     };
@@ -378,6 +437,7 @@ fn concurrent_handoff_attempts_are_serialized_and_exactly_one_transaction_per_sl
             let coordinator = HandoffCoordinator {
                 paths: &paths,
                 liveness: &liveness,
+                stopper: &OkStopper,
                 stager: &OkStager,
                 launcher: &OkLauncher,
             };
@@ -419,6 +479,7 @@ fn a_live_orchestration_lock_blocks_recovery() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
@@ -471,6 +532,7 @@ fn recovery_at_every_interrupted_stage_produces_the_documented_safe_outcome() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
@@ -563,6 +625,7 @@ fn recovering_an_already_terminal_transaction_twice_is_idempotent() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
@@ -596,6 +659,7 @@ fn recovering_an_unknown_transaction_id_reports_not_found_rather_than_guessing()
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
@@ -619,6 +683,7 @@ fn a_corrupted_journal_fails_closed_during_recovery() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
@@ -674,6 +739,7 @@ fn wrong_project_never_collides_with_a_different_projects_state() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
@@ -720,6 +786,7 @@ fn an_untracked_session_for_the_source_profile_blocks_the_handoff() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &UntrackedLiveness,
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };
@@ -764,6 +831,7 @@ fn a_confirmed_dead_recorded_owner_is_not_treated_as_active() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
         stager: &OkStager,
         launcher: &OkLauncher,
     };

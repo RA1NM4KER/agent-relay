@@ -14,8 +14,8 @@ use relay_core::{
 };
 use relay_provider_claude::{
     ClaudeAdoptionProvider, ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector,
-    ClaudeSessionStager, ClaudeSourceLiveness, ClaudeTargetLauncher, EnvironmentOverrideStatus,
-    SystemProcessLister, inspect_environment, stage_transfer,
+    ClaudeSessionStager, ClaudeSessionStopper, ClaudeSourceLiveness, ClaudeTargetLauncher,
+    EnvironmentOverrideStatus, SystemProcessLister, inspect_environment, stage_transfer,
 };
 use relay_testkit::FakeProvider;
 use serde::Serialize;
@@ -864,11 +864,13 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     .find(|profile| &profile.name == target_profile)
                     .ok_or_else(|| Error::ProfileNotFound(target_profile.to_string()))?;
                 let liveness = ClaudeSourceLiveness::new(claude_executable.clone());
+                let stopper = ClaudeSessionStopper::new(claude_executable.clone());
                 let stager = ClaudeSessionStager;
                 let launcher = ClaudeTargetLauncher::new(claude_executable.clone());
                 let coordinator = HandoffCoordinator {
                     paths: &paths,
                     liveness: &liveness,
+                    stopper: &stopper,
                     stager: &stager,
                     launcher: &launcher,
                 };
@@ -927,11 +929,13 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             let project_state_dir = paths.project_state_dir(&project_id);
             let parsed = relay_core::handoff::TransactionId::parse(transaction_id)?;
             let liveness = ClaudeSourceLiveness::new(None);
+            let stopper = ClaudeSessionStopper::new(None);
             let stager = ClaudeSessionStager;
             let launcher = ClaudeTargetLauncher::new(None);
             let coordinator = HandoffCoordinator {
                 paths: &paths,
                 liveness: &liveness,
+                stopper: &stopper,
                 stager: &stager,
                 launcher: &launcher,
             };

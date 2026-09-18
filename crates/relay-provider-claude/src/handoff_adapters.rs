@@ -11,8 +11,8 @@ use std::{
 use relay_core::{
     Error, Result,
     handoff::{
-        LivenessVerdict, ProcessIdentity, SessionStager, SourceLiveness, TargetLauncher,
-        TargetVerification, TransferOutcome, TransferredArtifact,
+        LivenessVerdict, ProcessIdentity, SessionStager, SessionStopper, SourceLiveness,
+        TargetLauncher, TargetVerification, TransferOutcome, TransferredArtifact,
     },
 };
 use serde_json::Value;
@@ -121,6 +121,130 @@ impl SourceLiveness for ClaudeSourceLiveness {
             untracked_session_ids: untracked,
         })
     }
+}
+
+const STOP_TIMEOUT: Duration = Duration::from_secs(30);
+const STOP_OUTPUT_LIMIT: usize = 16 * 1024;
+const QUIESCENCE_POLL_ATTEMPTS: u32 = 10;
+const QUIESCENCE_POLL_DELAY: Duration = Duration::from_millis(400);
+/// M2B.75's core safety property: one quiet observation is never enough (matches
+/// docs/architecture.md's "never trigger a destructive transition from display text alone").
+const REQUIRED_CONSECUTIVE_QUIET: u32 = 3;
+
+/// M2B.75's authoritative shutdown: issues Claude Code's own documented `claude stop <id>`
+/// (never a raw `kill`), then verifies quiescence with [`REQUIRED_CONSECUTIVE_QUIET`] consecutive
+/// observations before returning `Ok`. Each observation combines two independent signals —
+/// Claude's own session bookkeeping (`agents --json`) and, when a prior pid is known, a direct
+/// pid+fingerprint check — because M2B.5 proved live that a hard `kill -9` of a `--bg` session's
+/// reported pid can be silently reassigned to a new process by Claude's own background daemon;
+/// only `claude stop` reliably and permanently ends one from outside that daemon.
+#[derive(Clone, Debug, Default)]
+pub struct ClaudeSessionStopper {
+    claude_executable: Option<PathBuf>,
+}
+
+impl ClaudeSessionStopper {
+    #[must_use]
+    pub const fn new(claude_executable: Option<PathBuf>) -> Self {
+        Self { claude_executable }
+    }
+}
+
+impl SessionStopper for ClaudeSessionStopper {
+    fn stop_and_verify(
+        &self,
+        source_config_dir: &Path,
+        project_dir: &Path,
+        session_id: &str,
+        recorded_owner: Option<&ProcessIdentity>,
+    ) -> Result<()> {
+        let project_dir_text = project_dir.to_string_lossy();
+        let matches_this_session = |record: &session_registry::AgentSessionRecord| {
+            record.session_id == session_id
+                && record
+                    .cwd
+                    .as_deref()
+                    .is_none_or(|cwd| cwd == project_dir_text)
+        };
+
+        // Issue the authoritative stop only if the provider currently lists this exact session
+        // for this exact profile+project — never a different session, never another profile's
+        // (query_active_sessions is itself scoped to source_config_dir).
+        let sessions = session_registry::query_active_sessions(
+            source_config_dir,
+            self.claude_executable.as_deref(),
+        )?;
+        if let Some(record) = sessions.iter().find(|record| matches_this_session(record)) {
+            issue_stop(
+                source_config_dir,
+                &record.id,
+                self.claude_executable.as_deref(),
+            )?;
+        }
+
+        let mut consecutive_quiet = 0u32;
+        for attempt in 0..QUIESCENCE_POLL_ATTEMPTS {
+            let sessions = session_registry::query_active_sessions(
+                source_config_dir,
+                self.claude_executable.as_deref(),
+            )?;
+            let still_listed = sessions.iter().any(matches_this_session);
+            // A prior recorded pid that is still confirmed the same process means "not quiet"
+            // even if the provider's own listing has already dropped the session (belt and
+            // suspenders against the provider-bookkeeping staleness M2B.5 found live).
+            let pid_quiet = match recorded_owner {
+                None => true,
+                Some(owner) => owner.is_still_the_same_process() != Some(true),
+            };
+            let (next, reached) = quiescence_step(consecutive_quiet, still_listed, pid_quiet);
+            consecutive_quiet = next;
+            if reached {
+                return Ok(());
+            }
+            if attempt + 1 < QUIESCENCE_POLL_ATTEMPTS {
+                thread::sleep(QUIESCENCE_POLL_DELAY);
+            }
+        }
+        Err(Error::StopNotVerified(format!(
+            "session {session_id} did not go quiet within the bounded window"
+        )))
+    }
+}
+
+/// Never returns or logs the stop command's raw output — only success/failure.
+/// Pure quiescence decision, kept standalone so the consecutive-observation state machine is
+/// unit-testable without a real Claude subprocess. Any non-quiet observation (still listed, or a
+/// prior pid confirmed still the same process) resets the streak to zero — a single quiet
+/// reading is never enough, and reappearance/PID-reassignment must be caught, not averaged away.
+fn quiescence_step(consecutive_quiet: u32, still_listed: bool, pid_quiet: bool) -> (u32, bool) {
+    if still_listed || !pid_quiet {
+        (0, false)
+    } else {
+        let next = consecutive_quiet + 1;
+        (next, next >= REQUIRED_CONSECUTIVE_QUIET)
+    }
+}
+
+fn issue_stop(
+    config_dir: &Path,
+    provider_handle: &str,
+    claude_executable: Option<&Path>,
+) -> Result<()> {
+    let inspector = ClaudeInspector::discover(claude_executable)?;
+    let executable = inspector.executable().to_path_buf();
+    let mut command = std::process::Command::new(&executable);
+    command
+        .arg("stop")
+        .arg(provider_handle)
+        .env("CLAUDE_CONFIG_DIR", config_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    let _discarded = run_with_timeout(command, STOP_TIMEOUT, STOP_OUTPUT_LIMIT)?;
+    Ok(())
 }
 
 /// Wraps M2A's [`session_transfer::stage_transfer`] behind the core-level [`SessionStager`] port.
@@ -399,7 +523,70 @@ fn parse_verification(stdout: &[u8]) -> Result<TargetVerification> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_background_job_id, parse_verification};
+    use super::{
+        REQUIRED_CONSECUTIVE_QUIET, parse_background_job_id, parse_verification, quiescence_step,
+    };
+
+    #[test]
+    fn requires_more_than_one_quiet_observation() {
+        let (count, reached) = quiescence_step(0, false, true);
+        assert_eq!(count, 1);
+        assert!(
+            !reached,
+            "a single quiet observation must not be sufficient"
+        );
+    }
+
+    #[test]
+    fn reaches_quiescence_only_after_the_required_consecutive_count() {
+        let mut count = 0;
+        let mut reached = false;
+        for _ in 0..REQUIRED_CONSECUTIVE_QUIET {
+            assert!(!reached, "must not report reached before the count is hit");
+            (count, reached) = quiescence_step(count, false, true);
+        }
+        assert!(reached, "must report reached at exactly the required count");
+    }
+
+    #[test]
+    fn a_session_that_disappears_then_reappears_resets_the_streak() {
+        let (count, _) = quiescence_step(0, false, true); // quiet
+        assert_eq!(count, 1);
+        let (count, reached) = quiescence_step(count, true, true); // reappeared: still listed
+        assert_eq!(
+            count, 0,
+            "reappearance must reset the streak, not just pause it"
+        );
+        assert!(!reached);
+    }
+
+    #[test]
+    fn a_pid_change_during_stop_resets_the_streak_even_if_no_longer_listed() {
+        // Simulates the exact live-observed case: agents --json stops listing the session, but
+        // the recorded pid is confirmed to still be a live, different-fingerprint process (the
+        // daemon reassigned a new pid) — must not be treated as quiet.
+        let (count, _) = quiescence_step(0, false, true);
+        assert_eq!(count, 1);
+        let (count, reached) = quiescence_step(count, false, false); // pid_quiet=false
+        assert_eq!(
+            count, 0,
+            "a live pid must reset the streak even if unlisted"
+        );
+        assert!(!reached);
+    }
+
+    #[test]
+    fn no_recorded_pid_means_agents_json_alone_can_reach_quiescence() {
+        // No prior WriterLease (e.g. a session never launched via `relay launch`): pid_quiet is
+        // unconditionally true, so agents --json no longer listing the session is sufficient on
+        // its own — there is nothing else to corroborate against.
+        let mut count = 0;
+        let mut reached = false;
+        for _ in 0..REQUIRED_CONSECUTIVE_QUIET {
+            (count, reached) = quiescence_step(count, false, true);
+        }
+        assert!(reached);
+    }
 
     #[test]
     fn parses_the_observed_backgrounded_line() {

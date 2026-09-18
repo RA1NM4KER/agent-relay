@@ -13,8 +13,8 @@ pub use conflict::{
     resolve_conflict, rollback_conflict,
 };
 pub use handoff_adapters::{
-    ClaudeSessionStager, ClaudeSourceLiveness, ClaudeTargetLauncher, LaunchedWriter,
-    launch_background,
+    ClaudeSessionStager, ClaudeSessionStopper, ClaudeSourceLiveness, ClaudeTargetLauncher,
+    LaunchedWriter, launch_background,
 };
 pub use inspection::{
     ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector, CommandRunner,

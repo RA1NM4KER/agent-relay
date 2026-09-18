@@ -42,6 +42,24 @@ pub trait SourceLiveness: Send + Sync {
     ) -> Result<LivenessVerdict>;
 }
 
+/// M2B.75: issues an authoritative provider-level stop for one specific session and does not
+/// return `Ok` until quiescence has been verified with multiple consecutive observations — a
+/// single transient "not running" reading is never sufficient (see docs/architecture.md's
+/// "never trigger a destructive transition from display text alone" and M2B.5's live finding
+/// that a provider's own session bookkeeping can report a killed process as still running).
+/// `recorded_owner`, when present, is used only as corroborating evidence, never as the sole
+/// signal — the provider implementation must never stop a different profile's or a different
+/// session's process.
+pub trait SessionStopper: Send + Sync {
+    fn stop_and_verify(
+        &self,
+        source_config_dir: &Path,
+        project_dir: &Path,
+        session_id: &str,
+        recorded_owner: Option<&ProcessIdentity>,
+    ) -> Result<()>;
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TransferredArtifact {
     pub relative_path: String,
@@ -101,6 +119,7 @@ pub struct HandoffRequest {
 pub struct HandoffCoordinator<'a> {
     pub paths: &'a RelayPaths,
     pub liveness: &'a dyn SourceLiveness,
+    pub stopper: &'a dyn SessionStopper,
     pub stager: &'a dyn SessionStager,
     pub launcher: &'a dyn TargetLauncher,
 }
@@ -224,19 +243,19 @@ impl HandoffCoordinator<'_> {
         journal.advance(HandoffState::Checkpointed, "captured git checkpoint")?;
         journal_store.save(&journal)?;
 
-        journal.advance(HandoffState::SourceStopping, "verifying source is stopped")?;
+        journal.advance(
+            HandoffState::SourceStopping,
+            "checking for untracked sessions and issuing an authoritative stop",
+        )?;
         journal_store.save(&journal)?;
+        // Untracked-session detection (M2B.5): any OTHER active session for this profile and
+        // project must block, since Relay cannot safely reason about work it never launched.
         match self.liveness.check(
             &request.source_config_dir,
             project_dir,
             &request.session_id,
             recorded_owner.as_ref(),
         ) {
-            Ok(verdict) if verdict.active => fail_and_return!(
-                FailedPhase::Stop,
-                "source profile has an active Claude process".to_owned(),
-                Error::SourceProfileActive
-            ),
             Ok(verdict) if !verdict.untracked_session_ids.is_empty() => fail_and_return!(
                 FailedPhase::Stop,
                 format!(
@@ -252,9 +271,24 @@ impl HandoffCoordinator<'_> {
                 error
             ),
         }
+        // M2B.75: authoritative stop of our own session, verified quiescent across multiple
+        // consecutive observations — not a single check, and not a raw kill.
+        match self.stopper.stop_and_verify(
+            &request.source_config_dir,
+            project_dir,
+            &request.session_id,
+            recorded_owner.as_ref(),
+        ) {
+            Ok(()) => {}
+            Err(error) => fail_and_return!(
+                FailedPhase::Stop,
+                format!("authoritative stop/verification failed: {error}"),
+                error
+            ),
+        }
         journal.advance(
             HandoffState::SourceStopped,
-            "confirmed source has no active process",
+            "source authoritatively stopped and verified quiescent",
         )?;
         journal_store.save(&journal)?;
 

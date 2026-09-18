@@ -95,6 +95,8 @@ pub enum Error {
     UntrackedWriterDetected(String),
     #[error("a writer is already active for this project, owned by: {0}")]
     WriterAlreadyActive(String),
+    #[error("authoritative stop could not be verified quiescent within the bounded window: {0}")]
+    StopNotVerified(String),
     #[error("target session artifact conflict requires explicit resolution: {0}")]
     ConflictRequiresResolution(String),
     #[error("no backup was found to roll back")]
@@ -163,6 +165,7 @@ impl Error {
             Self::TargetVerificationMismatch => "target_verification_mismatch",
             Self::UntrackedWriterDetected(_) => "untracked_writer_detected",
             Self::WriterAlreadyActive(_) => "writer_already_active",
+            Self::StopNotVerified(_) => "stop_not_verified",
             Self::ConflictRequiresResolution(_) => "conflict_requires_resolution",
             Self::NoBackupToRestore => "no_backup_to_restore",
             Self::CorruptedConflictMetadata => "corrupted_conflict_metadata",
