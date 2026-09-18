@@ -62,6 +62,21 @@ impl RelayPaths {
         self.config_root.join("profiles.toml")
     }
 
+    pub fn validate_adoption_path(
+        &self,
+        requested: &Path,
+        allow_external: bool,
+    ) -> Result<PathBuf> {
+        let canonical = normalize_profile_path(requested)?;
+        let directories = ProfileDirectory::new(self.profiles_root())?;
+        if allow_external {
+            directories.validate_existing(&canonical)?;
+        } else {
+            directories.validate_managed_existing(&canonical)?;
+        }
+        Ok(canonical)
+    }
+
     #[must_use]
     pub fn default_profile_dir(
         &self,
@@ -283,10 +298,25 @@ fn validate_platform_permissions(path: &Path, metadata: &fs::Metadata) -> Result
         .map(PathBuf::from)
         .ok_or(Error::MissingEnvironment("HOME"))?;
     let home_metadata = fs::metadata(&home).map_err(|source| Error::Io { path: home, source })?;
-    if metadata.uid() != home_metadata.uid() {
+    validate_unix_directory_security(
+        metadata.permissions().mode(),
+        metadata.uid(),
+        home_metadata.uid(),
+        path,
+    )
+}
+
+#[cfg(unix)]
+fn validate_unix_directory_security(
+    mode: u32,
+    owner: u32,
+    expected_owner: u32,
+    path: &Path,
+) -> Result<()> {
+    if owner != expected_owner {
         return Err(Error::WrongOwner(path.to_path_buf()));
     }
-    if metadata.permissions().mode() & 0o077 != 0 {
+    if mode & 0o077 != 0 {
         return Err(Error::UnsafePermissions(path.to_path_buf()));
     }
     Ok(())
@@ -309,4 +339,19 @@ fn set_private_directory_permissions(path: &Path) -> Result<()> {
 #[cfg(not(unix))]
 fn set_private_directory_permissions(_path: &Path) -> Result<()> {
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::path::Path;
+
+    use super::validate_unix_directory_security;
+
+    #[test]
+    fn wrong_owner_is_rejected_without_requiring_privileged_chown() {
+        let error = validate_unix_directory_security(0o700, 1001, 1000, Path::new("/safe/profile"))
+            .expect_err("wrong owner must fail");
+
+        assert_eq!(error.code(), "wrong_owner");
+    }
 }

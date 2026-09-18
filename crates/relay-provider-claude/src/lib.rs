@@ -1,6 +1,12 @@
-//! Non-executing M1 interface for a future Claude Code adapter.
-//!
-//! No function in this crate reads or mutates a Claude profile yet.
+//! Read-only profile inspection and non-executing process plans for Claude Code.
+
+mod inspection;
+
+pub use inspection::{
+    ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector, CommandRunner,
+    EnvironmentOverrideStatus, EnvironmentVariableStatus, ProcessResult, ProcessSpec,
+    SystemCommandRunner, inspect_environment, inspect_environment_with,
+};
 
 use std::{
     collections::BTreeMap,
@@ -132,11 +138,43 @@ impl ClaudeCommandPlanner {
 pub const AUTHENTICATION_OVERRIDE_VARIABLES: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_AWS_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_BEDROCK_BASE_URL",
+    "ANTHROPIC_FEDERATION_RULE_ID",
+    "ANTHROPIC_FOUNDRY_API_KEY",
+    "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+    "ANTHROPIC_FOUNDRY_BASE_URL",
+    "ANTHROPIC_FOUNDRY_RESOURCE",
+    "ANTHROPIC_IDENTITY_TOKEN_FILE",
+    "ANTHROPIC_PROFILE",
+    "ANTHROPIC_VERTEX_BASE_URL",
+    "ANTHROPIC_VERTEX_PROJECT_ID",
+    "AWS_ACCESS_KEY_ID",
     "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
     "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_PROFILE",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET",
+    "AZURE_TENANT_ID",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "GOOGLE_CLOUD_PROJECT",
+    "CLAUDE_CODE_CLIENT_KEY",
+    "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SKIP_ANTHROPIC_AWS_AUTH",
+    "CLAUDE_CODE_SKIP_BEDROCK_AUTH",
+    "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
+    "CLAUDE_CODE_SKIP_MANTLE_AUTH",
+    "CLAUDE_CODE_SKIP_VERTEX_AUTH",
+    "CLAUDE_CODE_USE_ANTHROPIC_AWS",
     "CLAUDE_CODE_USE_BEDROCK",
     "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY",
+    "CLAUDE_CODE_USE_MANTLE",
 ];
 
 impl ClaudeProcessPlan {

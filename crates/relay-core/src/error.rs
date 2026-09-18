@@ -43,6 +43,24 @@ pub enum Error {
     ProviderStateCorrupted,
     #[error("provider operation is unsupported")]
     ProviderUnsupported,
+    #[error("provider executable was not found")]
+    ProviderExecutableMissing,
+    #[error("provider executable failed safety validation")]
+    UnsafeProviderExecutable,
+    #[error("provider command failed")]
+    ProviderCommandFailed,
+    #[error("provider command timed out")]
+    ProviderCommandTimeout,
+    #[error("provider output was malformed")]
+    MalformedProviderOutput,
+    #[error("provider output schema is unsupported")]
+    UnsupportedProviderSchema,
+    #[error("provider version is unsupported")]
+    UnsupportedProviderVersion,
+    #[error("provider identity could not be established safely")]
+    IdentityUnavailable,
+    #[error("authentication environment contains conflicting overrides")]
+    EnvironmentOverrideConflict,
     #[error("serialization failed")]
     SerializationFailed,
     #[error("required environment path is unavailable: {0}")]
@@ -79,6 +97,15 @@ impl Error {
             Self::ProviderUnavailable => "provider_unavailable",
             Self::ProviderStateCorrupted => "provider_state_corrupted",
             Self::ProviderUnsupported => "provider_unsupported",
+            Self::ProviderExecutableMissing => "provider_executable_missing",
+            Self::UnsafeProviderExecutable => "unsafe_provider_executable",
+            Self::ProviderCommandFailed => "provider_command_failed",
+            Self::ProviderCommandTimeout => "provider_command_timeout",
+            Self::MalformedProviderOutput => "malformed_provider_output",
+            Self::UnsupportedProviderSchema => "unsupported_provider_schema",
+            Self::UnsupportedProviderVersion => "unsupported_provider_version",
+            Self::IdentityUnavailable => "identity_unavailable",
+            Self::EnvironmentOverrideConflict => "environment_override_conflict",
             Self::SerializationFailed => "serialization_failed",
             Self::MissingEnvironment(_) => "missing_environment",
             Self::Io { .. } => "io_error",

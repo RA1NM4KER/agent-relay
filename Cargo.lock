@@ -237,6 +237,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "clap",
  "relay-core",
+ "relay-provider-claude",
  "relay-testkit",
  "serde",
  "serde_json",
@@ -267,6 +268,8 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "relay-core",
  "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

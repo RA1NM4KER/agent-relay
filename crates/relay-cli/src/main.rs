@@ -5,6 +5,10 @@ use relay_core::{
     AddProfileRequest, Error, ProfileName, ProfileService, ProfileSetupMode, ProviderKind,
     RelayPaths,
 };
+use relay_provider_claude::{
+    ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector, EnvironmentOverrideStatus,
+    inspect_environment,
+};
 use relay_testkit::FakeProvider;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -66,11 +70,46 @@ enum ProfileCommand {
     Remove { name: ProfileName },
     /// Run directory, authentication, and identity safety checks.
     Doctor { name: ProfileName },
+    /// Inspect an existing Claude profile without changing it.
+    InspectExisting {
+        #[arg(long, value_enum)]
+        provider: ExistingProvider,
+        #[arg(long, value_name = "PATH")]
+        config_dir: PathBuf,
+        /// Permit a private directory outside Relay's managed profiles root.
+        #[arg(long)]
+        allow_external: bool,
+        /// Explicit Claude executable, primarily for controlled validation.
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+    },
+    /// Preview reference-only adoption of an existing Claude profile.
+    Adopt {
+        name: ProfileName,
+        #[arg(long, value_enum)]
+        provider: ExistingProvider,
+        #[arg(long, value_name = "PATH")]
+        config_dir: PathBuf,
+        /// M1.5 supports dry-run only; no profile registry is changed.
+        #[arg(long, required = true)]
+        dry_run: bool,
+        /// Permit a private directory outside Relay's managed profiles root.
+        #[arg(long)]
+        allow_external: bool,
+        /// Explicit Claude executable, primarily for controlled validation.
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CliProvider {
     Fake,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum ExistingProvider {
+    Claude,
 }
 
 impl From<CliProvider> for ProviderKind {
@@ -87,6 +126,30 @@ struct SuccessEnvelope<T> {
     ok: bool,
     command: &'static str,
     data: T,
+}
+
+#[derive(Serialize)]
+struct AdoptionDryRun {
+    profile_name: ProfileName,
+    provider: &'static str,
+    config_dir: PathBuf,
+    claude_version: String,
+    authenticated: bool,
+    detected_identity: Option<ClaudeIdentityPin>,
+    identity_pin_to_store: Option<ClaudeIdentityPin>,
+    environment_override_status: EnvironmentOverrideStatus,
+    relay_owned_writes: Vec<PlannedWrite>,
+    claude_profile_changes: Vec<String>,
+    warnings: Vec<String>,
+    reasons: Vec<String>,
+    would_succeed: bool,
+}
+
+#[derive(Serialize)]
+struct PlannedWrite {
+    path: String,
+    purpose: &'static str,
+    contains_secrets: bool,
 }
 
 fn main() -> ExitCode {
@@ -141,7 +204,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
         .clone()
         .unwrap_or_else(|| discovered.state_root().to_path_buf());
     let paths = RelayPaths::new(config_root, state_root)?;
-    let service = ProfileService::new(paths);
+    let service = ProfileService::new(paths.clone());
     let provider = FakeProvider::default();
 
     match &cli.command {
@@ -238,7 +301,147 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 }));
                 success("profile.doctor", lines.join("\n"), report)
             }
+            ProfileCommand::InspectExisting {
+                provider: ExistingProvider::Claude,
+                config_dir,
+                allow_external,
+                claude_executable,
+            } => {
+                let report = inspect_existing_claude(
+                    &paths,
+                    config_dir,
+                    *allow_external,
+                    claude_executable.as_deref(),
+                )?;
+                let human = inspection_human(&report);
+                success("profile.inspect_existing", human, report)
+            }
+            ProfileCommand::Adopt {
+                name,
+                provider: ExistingProvider::Claude,
+                config_dir,
+                dry_run,
+                allow_external,
+                claude_executable,
+            } => {
+                if !dry_run {
+                    return Err(Error::ProviderUnsupported);
+                }
+                let report = inspect_existing_claude(
+                    &paths,
+                    config_dir,
+                    *allow_external,
+                    claude_executable.as_deref(),
+                )?;
+                let mut reasons = report.reasons.clone();
+                let duplicate = service.list()?.iter().any(|profile| profile.name == *name);
+                if duplicate {
+                    reasons.push(format!("profile name '{name}' is already registered"));
+                }
+                let would_succeed = report.safe_to_adopt && !duplicate;
+                let registry_path = paths.profile_state_file();
+                let registry_parent = registry_path.parent().ok_or(Error::AtomicWriteFailed)?;
+                let dry_run = AdoptionDryRun {
+                    profile_name: name.clone(),
+                    provider: "claude",
+                    config_dir: report.config_dir,
+                    claude_version: report.claude_version,
+                    authenticated: report.authenticated,
+                    detected_identity: report.identity_pin.clone(),
+                    identity_pin_to_store: report.identity_pin,
+                    environment_override_status: report.environment_override_status,
+                    relay_owned_writes: vec![
+                        PlannedWrite {
+                            path: registry_path.display().to_string(),
+                            purpose: "permanent atomic update of Relay's profile registry",
+                            contains_secrets: false,
+                        },
+                        PlannedWrite {
+                            path: format!(
+                                "{}/.profiles.toml.tmp.<pid>.<timestamp>.<sequence>",
+                                registry_parent.display()
+                            ),
+                            purpose: "transient same-directory file used for atomic replacement",
+                            contains_secrets: false,
+                        },
+                    ],
+                    claude_profile_changes: Vec::new(),
+                    warnings: report.warnings,
+                    reasons,
+                    would_succeed,
+                };
+                let identity = dry_run
+                    .identity_pin_to_store
+                    .as_ref()
+                    .map(identity_summary)
+                    .unwrap_or_else(|| "unavailable".to_owned());
+                let human = format!(
+                    "Adoption dry-run for '{}'\nProvider: Claude\nDirectory: {}\nVersion: {}\nIdentity pin: {}\nWould write: {}\nClaude profile changes: none\nWould succeed: {}{}",
+                    dry_run.profile_name,
+                    dry_run.config_dir.display(),
+                    dry_run.claude_version,
+                    identity,
+                    registry_path.display(),
+                    if dry_run.would_succeed { "yes" } else { "no" },
+                    if dry_run.reasons.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\nReasons: {}", dry_run.reasons.join("; "))
+                    }
+                );
+                success("profile.adopt.dry_run", human, dry_run)
+            }
         },
+    }
+}
+
+fn inspect_existing_claude(
+    paths: &RelayPaths,
+    requested_config_dir: &std::path::Path,
+    allow_external: bool,
+    requested_executable: Option<&std::path::Path>,
+) -> Result<ClaudeInspectionReport, Error> {
+    let config_dir = paths.validate_adoption_path(requested_config_dir, allow_external)?;
+    let environment = inspect_environment(&config_dir);
+    let inspector = ClaudeInspector::discover(requested_executable)?;
+    inspector.inspect(&config_dir, environment)
+}
+
+fn inspection_human(report: &ClaudeInspectionReport) -> String {
+    let identity = report
+        .identity_pin
+        .as_ref()
+        .map(identity_summary)
+        .unwrap_or_else(|| "unavailable".to_owned());
+    let conflicts = report
+        .environment_override_status
+        .conflicting_names()
+        .join(", ");
+    format!(
+        "Claude profile: {}\nVersion: {}\nAuthenticated: {}\nIdentity: {}\nEnvironment overrides: {}\nSafe to adopt: {}",
+        report.config_dir.display(),
+        report.claude_version,
+        if report.authenticated { "yes" } else { "no" },
+        identity,
+        if conflicts.is_empty() {
+            "none".to_owned()
+        } else {
+            format!("conflict ({conflicts})")
+        },
+        if report.safe_to_adopt { "yes" } else { "no" }
+    )
+}
+
+fn identity_summary(identity: &ClaudeIdentityPin) -> String {
+    if let Some(account_id) = &identity.account_id {
+        format!("account_id={account_id}")
+    } else if let Some(email) = &identity.email {
+        match &identity.organization_id {
+            Some(organization) => format!("email={email}, organization_id={organization}"),
+            None => format!("email={email}"),
+        }
+    } else {
+        "unavailable".to_owned()
     }
 }
 
