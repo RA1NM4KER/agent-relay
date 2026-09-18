@@ -107,6 +107,10 @@ pub enum Error {
     NoBackupToRestore,
     #[error("conflict-resolution metadata is corrupted or incompatible")]
     CorruptedConflictMetadata,
+    #[error("usage integration refused: {0}")]
+    IntegrationRefused(String),
+    #[error("a prior handoff transaction needs recovery before automation can continue: {0}")]
+    RecoveryRequired(String),
     #[error("serialization failed")]
     SerializationFailed,
     #[error("required environment path is unavailable: {0}")]
@@ -174,6 +178,8 @@ impl Error {
             Self::ConflictRequiresResolution(_) => "conflict_requires_resolution",
             Self::NoBackupToRestore => "no_backup_to_restore",
             Self::CorruptedConflictMetadata => "corrupted_conflict_metadata",
+            Self::IntegrationRefused(_) => "integration_refused",
+            Self::RecoveryRequired(_) => "recovery_required",
             Self::SerializationFailed => "serialization_failed",
             Self::MissingEnvironment(_) => "missing_environment",
             Self::Io { .. } => "io_error",

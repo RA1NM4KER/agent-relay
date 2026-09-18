@@ -13,8 +13,9 @@ use relay_core::{
         WatchRequest,
     },
     handoff::{
-        HandoffCoordinator, HandoffState, LeaseStore, LivenessVerdict, ProcessIdentity, ProjectId,
-        SessionStager, SessionStopper, SourceLiveness, TargetLauncher, TargetVerification,
+        HandoffCoordinator, HandoffJournal, HandoffState, JournalStore, LeaseStore,
+        LivenessVerdict, OrchestrationLock, ProcessIdentity, ProjectId, SessionStager,
+        SessionStopper, SourceLiveness, TargetLauncher, TargetVerification, TransactionId,
         TransferOutcome, TransferredArtifact,
     },
     usage::{UsageEvidence, UsageObservation, UsageState},
@@ -568,5 +569,264 @@ fn a_failed_automatic_handoff_still_starts_the_cooldown_so_it_is_not_retried_in_
         fixture.calls.launches.load(Ordering::SeqCst),
         1,
         "no second launch during the cooldown"
+    );
+}
+
+// ---- M2C.1: startup recovery, RESET_PENDING ----
+
+impl Fixture {
+    /// Writes a journal exactly as a crashed orchestrator would have left it: advanced to `state`
+    /// by the ordinary transitions, saved under handoffs/, with no orchestration lock held.
+    fn crashed_journal(&self, state: HandoffState) -> String {
+        let project_id = ProjectId::for_canonical_path(&self.project).expect("id");
+        let id = TransactionId::generate();
+        let mut journal = HandoffJournal::new(
+            id.clone(),
+            project_id,
+            self.project.clone(),
+            name("erika"),
+            name("megan"),
+            PathBuf::from("/tmp/relay-watch-test/megan"),
+            SESSION_ID.to_owned(),
+        );
+        for step in [
+            HandoffState::Checkpointed,
+            HandoffState::SourceStopping,
+            HandoffState::SourceStopped,
+            HandoffState::SessionTransferring,
+            HandoffState::SessionTransferred,
+            HandoffState::TargetStarting,
+        ] {
+            journal.advance(step, "test").expect("advance");
+        }
+        if !matches!(state, HandoffState::TargetStarting) {
+            journal.advance(state, "test").expect("advance to final");
+        }
+        let dir = self.state_dir().join("handoffs");
+        std::fs::create_dir_all(&dir).expect("handoffs dir");
+        JournalStore::at_path(dir.join(format!("{id}.json")))
+            .save(&journal)
+            .expect("save journal");
+        std::fs::write(
+            self.state_dir().join("current_transaction.json"),
+            id.as_str(),
+        )
+        .expect("current pointer");
+        id.to_string()
+    }
+
+    fn exhausted_erika(&self, now: u64, policy: AutomationPolicy) -> WatchOutcome {
+        self.evaluate(
+            "erika",
+            observation(UsageState::Exhausted, None),
+            vec![candidate("megan", UsageState::Available, None)],
+            false,
+            policy,
+            now,
+        )
+        .expect("evaluate")
+    }
+}
+
+#[test]
+fn a_crashed_target_start_is_recovered_before_any_new_work_and_never_double_starts() {
+    let fixture = Fixture::new();
+    let id = fixture.crashed_journal(HandoffState::TargetStarting);
+
+    let first = fixture.exhausted_erika(10_000, no_cooldown(5));
+    let WatchOutcome::Recovered { transactions } = first else {
+        panic!("expected startup recovery, got {first:?}");
+    };
+    assert_eq!(transactions.len(), 1);
+    assert_eq!(transactions[0].transaction_id, id);
+    // Exactly one orphan stop and one re-verification; NO new handoff (no stage, no second
+    // launch) in the same round even though the source reads exhausted.
+    assert_eq!(fixture.calls.stops.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.calls.launches.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.calls.stages.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.lease_owner().as_deref(), Some("megan"));
+
+    // The recovered transaction is terminal, so the next round is ordinary and does not loop back
+    // into recovery.
+    let stops_before = fixture.calls.stops.load(Ordering::SeqCst);
+    let second = fixture.evaluate(
+        "megan",
+        observation(UsageState::Available, None),
+        vec![candidate("erika", UsageState::Available, None)],
+        false,
+        no_cooldown(5),
+        20_000,
+    );
+    assert!(matches!(second, Ok(WatchOutcome::NoActionNeeded { .. })));
+    assert_eq!(fixture.calls.stops.load(Ordering::SeqCst), stops_before);
+}
+
+#[test]
+fn ambiguous_recovery_stops_with_recovery_required_and_starts_nothing() {
+    let fixture = Fixture::new();
+    fixture.crashed_journal(HandoffState::RecoveryRequired {
+        reason: "operator must confirm".to_owned(),
+    });
+    let outcome = fixture.exhausted_erika(10_000, no_cooldown(5));
+    let WatchOutcome::RecoveryRequired { reason, .. } = outcome else {
+        panic!("expected RECOVERY_REQUIRED, got {outcome:?}");
+    };
+    assert!(reason.contains("operator must confirm"));
+    assert_eq!(
+        fixture.total_calls(),
+        0,
+        "nothing may be spawned or stopped"
+    );
+    assert_eq!(fixture.lease_owner(), None);
+}
+
+#[test]
+fn an_unreadable_journal_is_ambiguous_and_blocks_new_work() {
+    let fixture = Fixture::new();
+    let id = TransactionId::generate();
+    let dir = fixture.state_dir().join("handoffs");
+    std::fs::create_dir_all(&dir).expect("dir");
+    std::fs::write(dir.join(format!("{id}.json")), b"{not a journal").expect("corrupt");
+    std::fs::write(
+        fixture.state_dir().join("current_transaction.json"),
+        id.as_str(),
+    )
+    .expect("current pointer");
+    let outcome = fixture.exhausted_erika(10_000, no_cooldown(5));
+    assert!(matches!(outcome, WatchOutcome::RecoveryRequired { .. }));
+    assert_eq!(fixture.total_calls(), 0);
+}
+
+#[test]
+fn a_transaction_held_by_a_live_orchestrator_is_left_alone() {
+    let fixture = Fixture::new();
+    fixture.crashed_journal(HandoffState::TargetStarting);
+    let lock = OrchestrationLock::at_path(fixture.state_dir().join("orchestration.lock"));
+    let outcome = lock
+        .try_with(|| Ok(fixture.exhausted_erika(10_000, no_cooldown(5))))
+        .expect("lock");
+    assert!(matches!(outcome, WatchOutcome::TransactionInFlight { .. }));
+    assert_eq!(fixture.total_calls(), 0);
+}
+
+#[test]
+fn dry_run_reports_pending_recovery_without_performing_it() {
+    let fixture = Fixture::new();
+    fixture.crashed_journal(HandoffState::TargetStarting);
+    let outcome = fixture
+        .evaluate(
+            "erika",
+            observation(UsageState::Exhausted, None),
+            vec![candidate("megan", UsageState::Available, None)],
+            true,
+            no_cooldown(5),
+            10_000,
+        )
+        .expect("evaluate");
+    assert!(matches!(outcome, WatchOutcome::RecoveryRequired { .. }));
+    assert_eq!(fixture.total_calls(), 0);
+}
+
+#[test]
+fn terminal_journals_never_trigger_recovery() {
+    let fixture = Fixture::new();
+    fixture.crashed_journal(HandoffState::Failed {
+        phase: relay_core::handoff::FailedPhase::TargetStart,
+        reason: "old".to_owned(),
+    });
+    let outcome = fixture.exhausted_erika(10_000, no_cooldown(5));
+    assert!(matches!(outcome, WatchOutcome::Handoff { .. }));
+}
+
+#[test]
+fn a_previously_exhausted_source_with_a_future_reset_stays_blocking_when_the_reading_is_unknown() {
+    let fixture = Fixture::new();
+    // Round 1: erika observed exhausted with a reset in the future; hand off to megan.
+    let first = fixture
+        .evaluate(
+            "erika",
+            observation(UsageState::Exhausted, Some(9_000_000)),
+            vec![candidate("megan", UsageState::Available, None)],
+            false,
+            no_cooldown(5),
+            10_000,
+        )
+        .expect("evaluate");
+    assert!(matches!(first, WatchOutcome::Handoff { .. }));
+
+    // Round 2: megan is now the writer and reads UNKNOWN (stale statusline); erika is UNKNOWN
+    // too but still recorded RESET_PENDING, so she must not be chosen as the target.
+    let second = fixture
+        .evaluate(
+            "megan",
+            observation(UsageState::Exhausted, None),
+            vec![candidate("erika", UsageState::Unknown, None)],
+            false,
+            no_cooldown(5),
+            20_000,
+        )
+        .expect("evaluate");
+    assert!(matches!(second, WatchOutcome::WaitingForCapacity { .. }));
+    assert_eq!(fixture.lease_owner().as_deref(), Some("megan"));
+
+    // Once the reset time passes, erika is a valid target again.
+    let third = fixture
+        .evaluate(
+            "megan",
+            observation(UsageState::Exhausted, None),
+            vec![candidate("erika", UsageState::Available, None)],
+            false,
+            no_cooldown(5),
+            9_100_000,
+        )
+        .expect("evaluate");
+    assert!(matches!(third, WatchOutcome::Handoff { .. }));
+}
+
+#[test]
+fn unknown_never_triggers_a_handoff_even_with_a_healthy_fallback() {
+    let fixture = Fixture::new();
+    let outcome = fixture
+        .evaluate(
+            "erika",
+            observation(UsageState::Unknown, None),
+            vec![candidate("megan", UsageState::Available, None)],
+            false,
+            no_cooldown(5),
+            10_000,
+        )
+        .expect("evaluate");
+    assert!(matches!(outcome, WatchOutcome::NoActionNeeded { .. }));
+    assert_eq!(fixture.total_calls(), 0);
+}
+
+#[test]
+fn legacy_terminal_journals_and_superseded_history_never_block_new_work() {
+    let fixture = Fixture::new();
+    let dir = fixture.state_dir().join("handoffs");
+    std::fs::create_dir_all(&dir).expect("dir");
+    // A journal from an older Relay schema (no target_config_dir) that finished long ago, and an
+    // older superseded RECOVERY_REQUIRED record, both preceding the current transaction.
+    let stale = TransactionId::parse("ho-1-1").expect("id");
+    let legacy_done = TransactionId::parse("ho-2-1").expect("id");
+    std::fs::write(
+        dir.join(format!("{stale}.json")),
+        br#"{"version":1,"state":{"state":"RECOVERY_REQUIRED","reason":"old"}}"#,
+    )
+    .expect("stale");
+    std::fs::write(
+        dir.join(format!("{legacy_done}.json")),
+        br#"{"version":1,"state":{"state":"COMPLETE"}}"#,
+    )
+    .expect("legacy");
+    std::fs::write(
+        fixture.state_dir().join("current_transaction.json"),
+        legacy_done.as_str(),
+    )
+    .expect("pointer");
+    let outcome = fixture.exhausted_erika(10_000, no_cooldown(5));
+    assert!(
+        matches!(outcome, WatchOutcome::Handoff { .. }),
+        "{outcome:?}"
     );
 }

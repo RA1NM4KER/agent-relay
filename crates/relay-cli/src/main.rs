@@ -18,10 +18,12 @@ use relay_core::{
     usage::{UsageSignal, UsageState},
 };
 use relay_provider_claude::{
-    ClaudeAdoptionProvider, ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector,
-    ClaudeSessionStager, ClaudeSessionStopper, ClaudeSourceLiveness, ClaudeTargetLauncher,
-    ClaudeUsageSignal, EnvironmentOverrideStatus, SimulatedUsageSignal, SystemProcessLister,
-    inspect_environment, stage_transfer,
+    CapabilityStatus, ClaudeAdoptionProvider, ClaudeIdentityPin, ClaudeInspectionReport,
+    ClaudeInspector, ClaudeSessionStager, ClaudeSessionStopper, ClaudeSourceLiveness,
+    ClaudeTargetLauncher, ClaudeUsageSignal, EnvironmentOverrideStatus, SimulatedUsageSignal,
+    SystemProcessLister, apply_install, apply_uninstall, assess_installed, handle_statusline,
+    handle_stop_failure, inspect_environment, integration_status, plan_install, plan_uninstall,
+    read_stdin_bounded, stage_transfer,
 };
 use relay_testkit::FakeProvider;
 use serde::Serialize;
@@ -92,6 +94,106 @@ enum Command {
     /// M2C: explicit, opt-in, usage-triggered automatic handoff. Nothing here runs unless this
     /// command is invoked; there is no background monitoring.
     Watch(WatchArgs),
+    /// M2C.1: opt-in Claude usage integration (StopFailure hook + statusline snapshot) for one
+    /// isolated profile.
+    Integration(IntegrationArgs),
+    /// Internal: commands Claude Code runs on behalf of an installed integration. Never fails the
+    /// calling Claude session.
+    #[command(hide = true)]
+    Hook(HookArgs),
+}
+
+#[derive(Debug, Args)]
+struct IntegrationArgs {
+    #[command(subcommand)]
+    command: IntegrationCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum IntegrationCommand {
+    /// Claude Code usage integration.
+    Claude(ClaudeIntegrationArgs),
+}
+
+#[derive(Debug, Args)]
+struct ClaudeIntegrationArgs {
+    #[command(subcommand)]
+    command: ClaudeIntegrationCommand,
+}
+
+#[derive(Debug, Args)]
+#[group(required = true, multiple = false)]
+struct IntegrationTarget {
+    /// A registered Relay profile whose isolated Claude config directory is modified.
+    #[arg(long)]
+    profile: Option<ProfileName>,
+    /// An explicit Claude config directory (for example `~/.claude`, only when you mean it).
+    #[arg(long, value_name = "PATH")]
+    config_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Subcommand)]
+enum ClaudeIntegrationCommand {
+    /// Add a StopFailure(rate_limit) hook and a rate_limits-recording statusLine to one profile's
+    /// settings.json. Existing hooks are kept and an existing statusLine is chained, never
+    /// replaced. The original settings.json is backed up. Use `--dry-run` to preview.
+    Install {
+        #[command(flatten)]
+        target: IntegrationTarget,
+        #[arg(long)]
+        dry_run: bool,
+        /// Accept a Claude Code version newer than any Relay has validated.
+        #[arg(long)]
+        allow_unverified_version: bool,
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+    },
+    /// Show whether the integration is installed and which signals it has recorded.
+    Status {
+        #[command(flatten)]
+        target: IntegrationTarget,
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+    },
+    /// Remove the integration and restore the profile's settings (byte for byte when unchanged
+    /// since install). The settings backup is kept.
+    Uninstall {
+        #[command(flatten)]
+        target: IntegrationTarget,
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+#[derive(Debug, Args)]
+struct HookArgs {
+    #[command(subcommand)]
+    command: HookCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum HookCommand {
+    Claude(ClaudeHookArgs),
+}
+
+#[derive(Debug, Args)]
+struct ClaudeHookArgs {
+    #[command(subcommand)]
+    command: ClaudeHookCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum ClaudeHookCommand {
+    StopFailure {
+        #[arg(long, value_name = "PATH")]
+        config_dir: PathBuf,
+    },
+    Statusline {
+        #[arg(long, value_name = "PATH")]
+        config_dir: PathBuf,
+        #[arg(long)]
+        chain: Option<String>,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -120,11 +222,17 @@ enum WatchCommand {
         /// Report what would happen without performing the handoff or persisting ledger state.
         #[arg(long)]
         dry_run: bool,
-        /// Opt into the real, content-free probe fallback tier, which spends a small amount of
-        /// real API usage per invocation when no free structured signal is available. Without
-        /// this, detection relies only on free structured signals (and `--simulate-usage`).
+        /// Explicit diagnostic fallback: allow a real `claude -p` request (SPENDS REAL API USAGE)
+        /// when no free structured signal (StopFailure/statusline/rate_limit_event) is
+        /// conclusive. Never needed for normal automatic handoff and never run against a profile
+        /// already recorded exhausted.
         #[arg(long)]
         probe: bool,
+        /// The model the watched workload runs (e.g. `opus`, `claude-sonnet-5`). A model-scoped
+        /// limit (Opus/Sonnet/Fable) only counts as exhaustion when it matches this; without it,
+        /// such limits never trigger a handoff.
+        #[arg(long)]
+        workload_model: Option<String>,
         /// Fault injection: force the primary profile's usage state instead of detecting it, so
         /// the real handoff machinery can be validated without waiting for or burning real quota.
         #[arg(long, value_enum)]
@@ -426,6 +534,9 @@ struct PlannedWrite {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if let Command::Hook(hook) = &cli.command {
+        return run_hook(hook);
+    }
     match run(&cli) {
         Ok(output) => {
             if cli.json {
@@ -456,6 +567,23 @@ fn main() -> ExitCode {
                 eprintln!("error [{}]: {error}", error.code());
             }
             ExitCode::from(1)
+        }
+    }
+}
+
+/// Runs inside a live Claude Code session: never prints errors, never fails the session.
+fn run_hook(hook: &HookArgs) -> ExitCode {
+    let HookCommand::Claude(claude) = &hook.command;
+    let stdin = read_stdin_bounded(std::io::stdin());
+    let now = current_unix_ms();
+    match &claude.command {
+        ClaudeHookCommand::StopFailure { config_dir } => {
+            handle_stop_failure(config_dir, &stdin, now);
+            ExitCode::SUCCESS
+        }
+        ClaudeHookCommand::Statusline { config_dir, chain } => {
+            let code = handle_statusline(config_dir, &stdin, now, chain.as_deref());
+            ExitCode::from(u8::try_from(code).unwrap_or(0))
         }
     }
 }
@@ -1145,6 +1273,153 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             );
             success("launch", human, lease)
         }
+        Command::Hook(_) => Err(Error::ProviderUnsupported),
+        Command::Integration(integration) => {
+            let IntegrationCommand::Claude(claude) = &integration.command;
+            let resolve = |target: &IntegrationTarget| -> Result<PathBuf, Error> {
+                match (&target.profile, &target.config_dir) {
+                    (Some(name), None) => {
+                        let profile = service
+                            .list()?
+                            .into_iter()
+                            .find(|candidate| &candidate.name == name)
+                            .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+                        if profile.provider != ProviderKind::Claude {
+                            return Err(Error::ProviderMismatch {
+                                expected: "claude".to_owned(),
+                                observed: format!("{:?}", profile.provider),
+                            });
+                        }
+                        Ok(profile.config_dir)
+                    }
+                    (None, Some(path)) => Ok(path.clone()),
+                    _ => Err(Error::ProviderUnsupported),
+                }
+            };
+            match &claude.command {
+                ClaudeIntegrationCommand::Install {
+                    target,
+                    dry_run,
+                    allow_unverified_version,
+                    claude_executable,
+                } => {
+                    let config_dir = resolve(target)?;
+                    let capabilities = assess_installed(claude_executable.as_deref(), &config_dir)?;
+                    capabilities
+                        .usage_integration_ready(*allow_unverified_version)
+                        .map_err(Error::IntegrationRefused)?;
+                    let relay_executable = std::env::current_exe().map_err(|source| Error::Io {
+                        path: PathBuf::from("relay"),
+                        source,
+                    })?;
+                    let plan = plan_install(&config_dir, &relay_executable)?;
+                    if !dry_run {
+                        apply_install(&plan, current_unix_ms())?;
+                    }
+                    let human = format!(
+                        "{} for {}:\n{}{}",
+                        if *dry_run {
+                            "Dry run (nothing written): would install the Relay usage integration"
+                        } else if plan.already_installed {
+                            "Relay usage integration was already installed"
+                        } else {
+                            "Installed the Relay usage integration"
+                        },
+                        config_dir.display(),
+                        plan.changes
+                            .iter()
+                            .map(|change| format!("  - {change}"))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                        if *dry_run || plan.already_installed {
+                            String::new()
+                        } else {
+                            "\nThe original settings were backed up under relay-integration/. \
+                             Undo with `relay integration claude uninstall`."
+                                .to_owned()
+                        }
+                    );
+                    success(
+                        "integration.install",
+                        human,
+                        json!({
+                            "config_dir": config_dir,
+                            "dry_run": dry_run,
+                            "already_installed": plan.already_installed,
+                            "changes": plan.changes,
+                            "claude_version": capabilities.version,
+                        }),
+                    )
+                }
+                ClaudeIntegrationCommand::Status {
+                    target,
+                    claude_executable,
+                } => {
+                    let config_dir = resolve(target)?;
+                    let status = integration_status(&config_dir)?;
+                    let capabilities =
+                        assess_installed(claude_executable.as_deref(), &config_dir).ok();
+                    let human = format!(
+                        "Config dir: {}\nInstalled: {}\nStopFailure hook: {}\nStatusLine: {}\n\
+                         Settings changed since install: {}\nHooks disabled: {}\n\
+                         Recorded: statusline snapshot={}, StopFailure events={}, rate_limit events={}\n\
+                         Claude Code: {}",
+                        config_dir.display(),
+                        status.installed,
+                        status.stop_failure_hook,
+                        status.statusline,
+                        status.settings_drifted_since_install,
+                        status.hooks_disabled,
+                        status.statusline_snapshot_present,
+                        status.recorded_stop_failures,
+                        status.recorded_rate_limit_events,
+                        capabilities.as_ref().map_or_else(
+                            || "could not be assessed".to_owned(),
+                            |report| format!(
+                                "{} ({})",
+                                report.version,
+                                if report.usage_integration_ready(false).is_ok() {
+                                    "verified"
+                                } else {
+                                    "NOT fully verified"
+                                }
+                            )
+                        )
+                    );
+                    success(
+                        "integration.status",
+                        human,
+                        json!({ "config_dir": config_dir, "status": status, "capabilities": capabilities }),
+                    )
+                }
+                ClaudeIntegrationCommand::Uninstall { target, dry_run } => {
+                    let config_dir = resolve(target)?;
+                    let plan = plan_uninstall(&config_dir)?;
+                    if !dry_run {
+                        apply_uninstall(&plan)?;
+                    }
+                    let human = format!(
+                        "{} for {}:\n{}",
+                        if *dry_run {
+                            "Dry run (nothing written): would uninstall"
+                        } else {
+                            "Uninstalled the Relay usage integration"
+                        },
+                        config_dir.display(),
+                        plan.changes
+                            .iter()
+                            .map(|change| format!("  - {change}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    );
+                    success(
+                        "integration.uninstall",
+                        human,
+                        json!({ "config_dir": config_dir, "dry_run": dry_run, "installed": plan.installed, "changes": plan.changes }),
+                    )
+                }
+            }
+        }
         Command::Watch(watch) => match &watch.command {
             WatchCommand::Run {
                 profile,
@@ -1153,6 +1428,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 session_id,
                 dry_run,
                 probe,
+                workload_model,
                 simulate_usage,
                 simulate_reset_unix_ms,
                 claude_executable,
@@ -1172,43 +1448,6 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     })
                     .collect::<Result<_, Error>>()?;
 
-                // `--simulate-usage` fault-injects the SOURCE's own usage state only; fallback
-                // candidates are always checked for real. Applying a simulated state uniformly to
-                // every profile would make every fallback look equally exhausted, which is never
-                // what "pretend the current writer hit its limit" is meant to test.
-                let source_usage_signal: Box<dyn UsageSignal> = match simulate_usage {
-                    Some(state) => Box::new(SimulatedUsageSignal {
-                        state: UsageState::from(*state),
-                        reset_unix_ms: *simulate_reset_unix_ms,
-                    }),
-                    None => Box::new(ClaudeUsageSignal::new(claude_executable.clone(), *probe)),
-                };
-                let fallback_usage_signal =
-                    ClaudeUsageSignal::new(claude_executable.clone(), *probe);
-
-                let source_usage =
-                    source_usage_signal.detect(&source.config_dir, project_dir, session_id)?;
-                let fallback_candidates = fallback_profiles
-                    .iter()
-                    .map(|candidate| -> Result<ProfileCandidate, Error> {
-                        let usage = fallback_usage_signal.detect(
-                            &candidate.config_dir,
-                            project_dir,
-                            session_id,
-                        )?;
-                        let healthy =
-                            doctor_is_healthy(&service, candidate, claude_executable.as_deref())?;
-                        Ok(ProfileCandidate {
-                            name: candidate.name.clone(),
-                            config_dir: candidate.config_dir.clone(),
-                            identity_stable_id: Some(candidate.expected_identity.stable_id.clone()),
-                            enabled: candidate.enabled,
-                            healthy,
-                            usage,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, Error>>()?;
-
                 let liveness = ClaudeSourceLiveness::new(claude_executable.clone());
                 let stopper = ClaudeSessionStopper::new(claude_executable.clone());
                 let stager = ClaudeSessionStager;
@@ -1225,6 +1464,91 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     handoff: &coordinator,
                     policy: AutomationPolicy::default(),
                 };
+
+                let canonical_project =
+                    std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
+                        path: project_dir.clone(),
+                        source,
+                    })?;
+                let project_id = ProjectId::for_canonical_path(&canonical_project)?;
+                let project_state_dir = paths.project_state_dir(&project_id);
+
+                // Startup recovery comes first: nothing below (usage detection, and above all a
+                // possible probe request) runs while an earlier transaction is unresolved.
+                if let Some(outcome) = watch.recover_pending(&project_state_dir, *dry_run)? {
+                    return watch_run_output(outcome);
+                }
+
+                // Version/capability gate: fail closed when a capability the handoff machinery
+                // depends on cannot be verified; merely-unverified newer versions only warn.
+                let capabilities =
+                    assess_installed(claude_executable.as_deref(), &source.config_dir)?;
+                for required in [
+                    relay_provider_claude::Capability::AgentsJsonShape,
+                    relay_provider_claude::Capability::TranscriptLayout,
+                    relay_provider_claude::Capability::AuthStatusSchema,
+                ] {
+                    if capabilities.status_of(required) == CapabilityStatus::Unsupported {
+                        return Err(Error::UnsupportedProviderVersion);
+                    }
+                }
+                if capabilities
+                    .entries
+                    .iter()
+                    .any(|entry| entry.status == CapabilityStatus::Unverified)
+                {
+                    eprintln!(
+                        "warning: Claude Code {} has not been validated by Relay; usage \
+                         detection stays fail-closed, but re-validate before trusting handoffs",
+                        capabilities.version
+                    );
+                }
+
+                let ledger =
+                    LedgerStore::at_path(project_state_dir.join("automation_state.json")).load()?;
+                let now = current_unix_ms();
+                // The probe spends real API usage: never against a profile already known
+                // exhausted, and only when the operator explicitly opted in.
+                let signal_for = |profile: &ProfileName| {
+                    ClaudeUsageSignal::new(
+                        claude_executable.clone(),
+                        *probe && !ledger.is_known_exhausted(profile, now),
+                    )
+                    .with_workload_model(workload_model.clone())
+                };
+
+                // `--simulate-usage` fault-injects the SOURCE's own usage state only; fallback
+                // candidates are always checked for real.
+                let source_usage_signal: Box<dyn UsageSignal> = match simulate_usage {
+                    Some(state) => Box::new(SimulatedUsageSignal {
+                        state: UsageState::from(*state),
+                        reset_unix_ms: *simulate_reset_unix_ms,
+                    }),
+                    None => Box::new(signal_for(&source.name)),
+                };
+
+                let source_usage =
+                    source_usage_signal.detect(&source.config_dir, project_dir, session_id)?;
+                let fallback_candidates = fallback_profiles
+                    .iter()
+                    .map(|candidate| -> Result<ProfileCandidate, Error> {
+                        let usage = signal_for(&candidate.name).detect(
+                            &candidate.config_dir,
+                            project_dir,
+                            session_id,
+                        )?;
+                        let healthy =
+                            doctor_is_healthy(&service, candidate, claude_executable.as_deref())?;
+                        Ok(ProfileCandidate {
+                            name: candidate.name.clone(),
+                            config_dir: candidate.config_dir.clone(),
+                            identity_stable_id: Some(candidate.expected_identity.stable_id.clone()),
+                            enabled: candidate.enabled,
+                            healthy,
+                            usage,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
 
                 let outcome = watch.evaluate(
                     WatchRequest {
@@ -1326,6 +1650,12 @@ enum WatchRunOutput {
         target: ProfileName,
         journal: Box<relay_core::handoff::HandoffJournal>,
     },
+    Recovered {
+        transactions: Vec<String>,
+    },
+    TransactionInFlight {
+        transaction_id: String,
+    },
 }
 
 fn watch_run_output(outcome: WatchOutcome) -> Result<CommandOutput, Error> {
@@ -1355,6 +1685,39 @@ fn watch_run_output(outcome: WatchOutcome) -> Result<CommandOutput, Error> {
         WatchOutcome::DryRunWouldHandoff { target } => (
             format!("Dry run: would hand off to '{target}' (no mutation performed)"),
             WatchRunOutput::DryRunWouldHandoff { target },
+        ),
+        WatchOutcome::Recovered { transactions } => (
+            format!(
+                "Recovered {} incomplete transaction(s) from an earlier run; no new work was \
+                 started this round. Run again to re-evaluate.\n{}",
+                transactions.len(),
+                transactions
+                    .iter()
+                    .map(|item| format!("  {} -> {}", item.transaction_id, item.final_state))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+            WatchRunOutput::Recovered {
+                transactions: transactions
+                    .iter()
+                    .map(|item| format!("{} -> {}", item.transaction_id, item.final_state))
+                    .collect(),
+            },
+        ),
+        WatchOutcome::RecoveryRequired {
+            transaction_id,
+            reason,
+        } => {
+            // A non-zero exit so a cron/shell loop notices; nothing new was started.
+            return Err(Error::RecoveryRequired(format!(
+                "{transaction_id}: {reason}. Run `relay recover {transaction_id} --project <dir>`"
+            )));
+        }
+        WatchOutcome::TransactionInFlight { transaction_id } => (
+            format!(
+                "Transaction {transaction_id} is in progress in another process; not starting new work"
+            ),
+            WatchRunOutput::TransactionInFlight { transaction_id },
         ),
         WatchOutcome::Handoff { journal, target } => (
             format!(

@@ -9,7 +9,7 @@ description = "Version-gated Claude Code boundary for Agent Relay"
 [dependencies]
 relay-core = { path = "../relay-core" }
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
 sha2.workspace = true
 
 [dev-dependencies]

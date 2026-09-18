@@ -280,7 +280,7 @@ impl<R: CommandRunner> ClaudeInspector<R> {
         })
     }
 
-    fn inspect_version(&self) -> Result<String> {
+    pub fn inspect_version(&self) -> Result<String> {
         let result = self.runner.run(&ProcessSpec {
             executable: self.executable.clone(),
             arguments: vec![OsString::from("--version")],

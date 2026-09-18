@@ -1,14 +1,23 @@
 //! Read-only profile inspection and non-executing process plans for Claude Code.
 
 mod adoption;
+mod capabilities;
 mod conflict;
 mod handoff_adapters;
+mod hook_handlers;
 mod inspection;
+mod integration;
 mod session_registry;
 mod session_transfer;
 mod usage;
+mod usage_policy;
+mod usage_signals;
 
 pub use adoption::ClaudeAdoptionProvider;
+pub use capabilities::{
+    Capability, CapabilityEntry, CapabilityReport, CapabilityStatus, RuntimeChecks,
+    VERIFIED_VERSIONS, assess as assess_capabilities, assess_installed, probe_help_for_stream_json,
+};
 pub use conflict::{
     ConflictClassification, ConflictReport, ConflictResolution, ResolveDecision, inspect_conflict,
     resolve_conflict, rollback_conflict,
@@ -17,17 +26,29 @@ pub use handoff_adapters::{
     ClaudeSessionStager, ClaudeSessionStopper, ClaudeSourceLiveness, ClaudeTargetLauncher,
     LaunchedWriter, launch_background,
 };
+pub use hook_handlers::{handle_statusline, handle_stop_failure, read_stdin_bounded};
 pub use inspection::{
     ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector, CommandRunner,
     EnvironmentOverrideStatus, EnvironmentVariableStatus, ProcessResult, ProcessSpec,
     SystemCommandRunner, inspect_environment, inspect_environment_with,
+};
+pub use integration::{
+    InstallPlan, IntegrationManifest, IntegrationStatus, StatusLineMode, UninstallPlan,
+    apply_install, apply_uninstall, integration_status, load_manifest, plan_install,
+    plan_uninstall,
 };
 pub use session_registry::{AgentSessionRecord, query_active_sessions};
 pub use session_transfer::{
     ProcessLister, SessionTransferReport, StagedArtifact, SystemProcessLister, discover_session,
     ensure_supported_claude_version, escape_project_path, stage_transfer, validate_session_id,
 };
-pub use usage::{ClaudeUsageSignal, SimulatedUsageSignal, classify_probe_output};
+pub use usage::{ClaudeUsageSignal, ProbeFindings, SimulatedUsageSignal, parse_probe_output};
+pub use usage_policy::{PolicyConfig, PolicyInputs, evaluate as evaluate_usage_policy};
+pub use usage_signals::{
+    LimitKind, LimitScope, ModelFamily, ProfileSignals, RateLimitEventRecord, StatusLineSnapshot,
+    StopFailureRecord, WindowUsage, classify_limit_message, integration_dir, read_profile_signals,
+    record_rate_limit_events, record_statusline, record_stop_failure, signals_dir,
+};
 
 use std::{
     collections::BTreeMap,

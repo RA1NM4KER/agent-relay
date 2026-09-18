@@ -1,20 +1,18 @@
-//! M2C: tiered Claude usage/rate-limit detection.
+//! Claude usage/rate-limit detection (M2C, reworked in M2C.1).
 //!
-//! Detection priority, matching the spec exactly:
-//! 1. Structured session state from Claude Code's own `agents --json` bookkeeping. Currently
-//!    inert against real Claude Code output (no exhaustion-shaped `state` value has been
-//!    confirmed live) but real, forward-compatible, and free — never spends API usage.
+//! Detection hierarchy (see `usage_policy` for the exact decision rules):
+//! 1. Free structured signals Relay recorded from Claude Code itself — `rate_limit_event`s,
+//!    the statusline's `rate_limits`, and `StopFailure(rate_limit)` hook records — combined by the
+//!    single pure policy in [`crate::usage_policy`]. No API request is made.
+//! 2. `claude agents --json` session `state` (currently inert against real output; kept because it
+//!    is free and forward-compatible).
+//! 3. The **explicit diagnostic probe** (`--probe`): a real `claude -p` request that **spends
+//!    real API usage**. It is never required for normal automatic handoff, is never run against a
+//!    profile already known exhausted, and only runs when nothing free was conclusive. Its
+//!    stream-json `rate_limit_event`s are recorded like any other structured signal; a phrase match
+//!    on a real limit message counts only together with statusline corroboration.
 //!
-//! 2/3. A real, explicit, content-free probe invocation (`claude -p`, no `--resume`, never
-//!    touching the actual session or its transcript), classified first as the same structured
-//!    `is_error`/`result` JSON schema the handoff verification canary already relies on, then, if
-//!    that does not parse, as a conservative allowlisted-phrase match against its raw output.
-//!    This tier costs a small amount of real API usage each time it runs, so it is opt-in
-//!    (`probe_enabled`) rather than something `detect()` does unconditionally on every call.
-//!
-//! Never returns `Exhausted` from a vague or ambiguous signal: anything that does not clear one
-//! of these three tiers resolves to [`UsageState::Unknown`], which the automation layer treats as
-//! "do nothing" rather than a trigger.
+//! Anything ambiguous or stale resolves to [`UsageState::Unknown`], which never triggers a handoff.
 
 use std::{
     io::Read,
@@ -30,35 +28,31 @@ use relay_core::{
 };
 use serde_json::Value;
 
-use crate::{AUTHENTICATION_OVERRIDE_VARIABLES, ClaudeInspector, session_registry};
+use crate::{
+    AUTHENTICATION_OVERRIDE_VARIABLES, ClaudeInspector, session_registry,
+    usage_policy::{PolicyConfig, PolicyInputs, evaluate},
+    usage_signals::{
+        LimitKind, RateLimitEventRecord, classify_limit_message, parse_rate_limit_events,
+        read_profile_signals, record_rate_limit_events,
+    },
+};
 
 /// Session-record `state` values that would indicate exhaustion, if Claude Code ever emits one.
-/// Not confirmed against real live output — kept narrow and explicit so a real but differently-
-/// spelled state can never be silently misread as something else.
+/// Not confirmed against real live output.
 const EXHAUSTED_SESSION_STATES: &[&str] = &["rate_limited", "usage_limited", "exhausted"];
 
-/// Conservative, exact (case-insensitive) phrase allowlist for the last-resort output-pattern
-/// tier. Deliberately narrow: a false positive here triggers a real, disruptive handoff, so
-/// nothing vaguely "error-shaped" is matched — only phrasing that unambiguously means a usage or
-/// rate limit was hit.
-const RATE_LIMIT_PHRASES: &[&str] = &[
-    "usage limit reached",
-    "5-hour limit reached",
-    "weekly limit reached",
-    "rate limit exceeded",
-];
-
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
-const PROBE_OUTPUT_LIMIT: usize = 64 * 1024;
+const PROBE_OUTPUT_LIMIT: usize = 256 * 1024;
 const PROBE_PROMPT: &str = "Reply with exactly this text and nothing else: RELAY_USAGE_PROBE_OK";
 
 #[derive(Clone, Debug, Default)]
 pub struct ClaudeUsageSignal {
     claude_executable: Option<PathBuf>,
-    /// Tier 2/3 spends a small amount of real API usage each call, so it only runs when the
-    /// caller explicitly opts in (`relay watch run --probe`) rather than on every free structured
-    /// check.
+    /// Allows the diagnostic probe, which spends a small amount of real API usage each time it
+    /// runs. Off by default; only ever a last resort.
     probe_enabled: bool,
+    /// The model the watched workload runs, so model-scoped limits are applied correctly.
+    workload_model: Option<String>,
 }
 
 impl ClaudeUsageSignal {
@@ -67,7 +61,36 @@ impl ClaudeUsageSignal {
         Self {
             claude_executable,
             probe_enabled,
+            workload_model: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_workload_model(mut self, workload_model: Option<String>) -> Self {
+        self.workload_model = workload_model;
+        self
+    }
+
+    fn policy(
+        &self,
+        config_dir: &Path,
+        project_dir: &Path,
+        session_id: &str,
+        now: u64,
+        phrase_hit: Option<LimitKind>,
+    ) -> UsageObservation {
+        let signals = read_profile_signals(config_dir);
+        evaluate(
+            &PolicyInputs {
+                now_unix_ms: now,
+                project_dir,
+                session_id,
+                workload_model: self.workload_model.as_deref(),
+                signals: &signals,
+                phrase_hit,
+            },
+            &PolicyConfig::default(),
+        )
     }
 }
 
@@ -79,6 +102,11 @@ impl UsageSignal for ClaudeUsageSignal {
         session_id: &str,
     ) -> Result<UsageObservation> {
         let now = now_unix_ms();
+        let free = self.policy(config_dir, project_dir, session_id, now, None);
+        if free.state != UsageState::Unknown {
+            return Ok(free);
+        }
+
         if let Ok(sessions) =
             session_registry::query_active_sessions(config_dir, self.claude_executable.as_deref())
             && let Some(record) = sessions
@@ -97,10 +125,7 @@ impl UsageSignal for ClaudeUsageSignal {
         }
 
         if !self.probe_enabled {
-            return Ok(UsageObservation::unknown(
-                now,
-                "no structured exhaustion signal and the real-usage probe is disabled",
-            ));
+            return Ok(free);
         }
 
         let inspector = ClaudeInspector::discover(self.claude_executable.as_deref())?;
@@ -112,7 +137,8 @@ impl UsageSignal for ClaudeUsageSignal {
             .arg("--permission-mode")
             .arg("acceptEdits")
             .arg("--output-format")
-            .arg("json")
+            .arg("stream-json")
+            .arg("--verbose")
             .arg(PROBE_PROMPT)
             .env("CLAUDE_CONFIG_DIR", config_dir)
             .stdin(Stdio::null())
@@ -123,7 +149,38 @@ impl UsageSignal for ClaudeUsageSignal {
         }
         let (stdout, stderr) =
             run_capturing_regardless_of_exit(command, PROBE_TIMEOUT, PROBE_OUTPUT_LIMIT)?;
-        Ok(classify_probe_output(&stdout, &stderr, now))
+        let findings = parse_probe_output(&stdout, &stderr, now, Some(session_id));
+        // Persist the structured events like any other signal; a profile without the integration
+        // installed simply has nowhere to record them, which is not an error here.
+        let _ignored = record_rate_limit_events(config_dir, findings.events.clone());
+        let mut signals = read_profile_signals(config_dir);
+        for event in &findings.events {
+            signals
+                .rate_limit_events
+                .retain(|existing| existing.rate_limit_type != event.rate_limit_type);
+            signals.rate_limit_events.push(event.clone());
+        }
+        let observation = evaluate(
+            &PolicyInputs {
+                now_unix_ms: now,
+                project_dir,
+                session_id,
+                workload_model: self.workload_model.as_deref(),
+                signals: &signals,
+                phrase_hit: findings.phrase,
+            },
+            &PolicyConfig::default(),
+        );
+        if observation.state == UsageState::Unknown && findings.succeeded {
+            return Ok(UsageObservation {
+                state: UsageState::Available,
+                evidence: UsageEvidence::StructuredProbeResult,
+                detected_via: "diagnostic probe request succeeded".to_owned(),
+                observed_unix_ms: now,
+                reset_unix_ms: None,
+            });
+        }
+        Ok(observation)
     }
 }
 
@@ -182,55 +239,70 @@ fn read_limited(reader: impl Read, limit: usize) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// Pure and directly unit-testable: tier 2 (structured JSON) first, then tier 3 (allowlisted
-/// phrase match against raw output), then a fail-closed [`UsageState::Unknown`].
+/// What a probe run revealed, before the policy weighs it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProbeFindings {
+    pub events: Vec<RateLimitEventRecord>,
+    /// A real limit message found in the probe's result/error text (opt-in tier; needs
+    /// corroboration).
+    pub phrase: Option<LimitKind>,
+    /// The probe request completed successfully.
+    pub succeeded: bool,
+}
+
+/// Pure and directly unit-testable. Reads stream-json lines (or a single `--output-format json`
+/// object) for `rate_limit_event`s and the final `result`, then scans only result/error text for a
+/// real limit phrase.
 #[must_use]
-pub fn classify_probe_output(
+pub fn parse_probe_output(
     stdout: &[u8],
     stderr: &[u8],
     observed_unix_ms: u64,
-) -> UsageObservation {
-    if let Ok(value) = serde_json::from_slice::<Value>(stdout)
-        && let Some(object) = value.as_object()
-        && object.get("is_error").and_then(Value::as_bool) == Some(true)
-        && let Some(result_text) = object.get("result").and_then(Value::as_str)
-        && let Some(phrase) = matching_phrase(result_text)
-    {
-        return UsageObservation {
-            state: UsageState::Exhausted,
-            evidence: UsageEvidence::StructuredProbeResult,
-            detected_via: format!("probe result matched phrase: {phrase}"),
-            observed_unix_ms,
-            reset_unix_ms: None,
+    session_id: Option<&str>,
+) -> ProbeFindings {
+    let events = parse_rate_limit_events(stdout, observed_unix_ms, session_id);
+    let text = String::from_utf8_lossy(stdout);
+    let mut phrase = None;
+    let mut succeeded = false;
+    let mut consider = |value: &Value| {
+        if value
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind != "result")
+        {
+            return;
+        }
+        let Some(is_error) = value.get("is_error").and_then(Value::as_bool) else {
+            return;
         };
+        if is_error {
+            phrase = phrase.or_else(|| {
+                value
+                    .get("result")
+                    .and_then(Value::as_str)
+                    .and_then(classify_limit_message)
+            });
+        } else {
+            succeeded = true;
+        }
+    };
+    if let Ok(value) = serde_json::from_str::<Value>(text.trim()) {
+        consider(&value);
+    } else {
+        for line in text.lines() {
+            if let Ok(value) = serde_json::from_str::<Value>(line.trim()) {
+                consider(&value);
+            }
+        }
     }
-
-    let combined_stdout = String::from_utf8_lossy(stdout);
-    let combined_stderr = String::from_utf8_lossy(stderr);
-    if let Some(phrase) =
-        matching_phrase(&combined_stdout).or_else(|| matching_phrase(&combined_stderr))
-    {
-        return UsageObservation {
-            state: UsageState::Exhausted,
-            evidence: UsageEvidence::OutputPatternMatch,
-            detected_via: format!("raw probe output matched phrase: {phrase}"),
-            observed_unix_ms,
-            reset_unix_ms: None,
-        };
+    if phrase.is_none() && !succeeded {
+        phrase = classify_limit_message(&String::from_utf8_lossy(stderr));
     }
-
-    UsageObservation::unknown(
-        observed_unix_ms,
-        "probe completed but matched no known rate-limit signal",
-    )
-}
-
-fn matching_phrase(text: &str) -> Option<&'static str> {
-    let lowercase = text.to_lowercase();
-    RATE_LIMIT_PHRASES
-        .iter()
-        .find(|phrase| lowercase.contains(*phrase))
-        .copied()
+    ProbeFindings {
+        events,
+        phrase,
+        succeeded: succeeded && phrase.is_none(),
+    }
 }
 
 /// Always returns the injected state; never touches a real provider. Used by `relay watch run
@@ -268,61 +340,216 @@ fn now_unix_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::classify_probe_output;
-    use relay_core::usage::{UsageEvidence, UsageState};
+    use super::parse_probe_output;
+    use crate::usage_signals::LimitKind;
 
     #[test]
-    fn structured_json_error_with_a_known_phrase_is_classified_exhausted() {
-        let stdout =
-            br#"{"is_error":true,"result":"You have hit your usage limit reached for today."}"#;
-        let observation = classify_probe_output(stdout, b"", 1_000);
-        assert_eq!(observation.state, UsageState::Exhausted);
-        assert_eq!(observation.evidence, UsageEvidence::StructuredProbeResult);
+    fn real_limit_error_result_is_recognized() {
+        let stdout = br#"{"type":"result","subtype":"success","is_error":true,"result":"You've hit your session limit \u00b7 resets 3pm"}"#;
+        let findings = parse_probe_output(stdout, b"", 1_000, None);
+        assert_eq!(findings.phrase, Some(LimitKind::Session));
+        assert!(!findings.succeeded);
     }
 
     #[test]
-    fn structured_json_success_is_never_exhausted() {
-        let stdout = br#"{"is_error":false,"result":"RELAY_USAGE_PROBE_OK"}"#;
-        let observation = classify_probe_output(stdout, b"", 1_000);
-        assert_eq!(observation.state, UsageState::Unknown);
+    fn stream_json_events_and_success_are_extracted() {
+        let stdout = b"{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed\",\"resetsAt\":2000000000,\"rateLimitType\":\"five_hour\"}}\n{\"type\":\"result\",\"is_error\":false,\"result\":\"RELAY_USAGE_PROBE_OK\"}";
+        let findings = parse_probe_output(stdout, b"", 1_000, Some("s1"));
+        assert_eq!(findings.events.len(), 1);
+        assert!(findings.succeeded);
+        assert_eq!(findings.phrase, None);
     }
 
     #[test]
-    fn structured_json_error_with_an_unrelated_message_stays_unknown_not_exhausted() {
-        // A vague/unrelated error must never be treated as usage exhaustion.
-        let stdout = br#"{"is_error":true,"result":"network connection reset"}"#;
-        let observation = classify_probe_output(stdout, b"", 1_000);
-        assert_eq!(
-            observation.state,
-            UsageState::Unknown,
-            "a vague error must never trigger a false-positive Exhausted reading"
-        );
+    fn a_generic_429_error_is_never_a_limit_phrase() {
+        let stdout = br#"{"type":"result","is_error":true,"result":"Request rejected (429) \u00b7 this may be a temporary capacity issue."}"#;
+        let findings = parse_probe_output(stdout, b"rate limit exceeded", 1_000, None);
+        assert_eq!(findings.phrase, None);
+        assert!(!findings.succeeded);
     }
 
     #[test]
-    fn raw_stderr_falls_back_to_pattern_match_when_stdout_is_not_json() {
-        let stderr = b"error: weekly limit reached, try again later";
-        let observation = classify_probe_output(b"not json", stderr, 1_000);
-        assert_eq!(observation.state, UsageState::Exhausted);
-        assert_eq!(observation.evidence, UsageEvidence::OutputPatternMatch);
+    fn stderr_limit_text_is_recognized_when_stdout_has_no_result() {
+        let findings = parse_probe_output(b"", b"You've hit your weekly limit", 1_000, None);
+        assert_eq!(findings.phrase, Some(LimitKind::Weekly));
     }
 
     #[test]
-    fn phrase_matching_is_case_insensitive() {
-        let stderr = b"RATE LIMIT EXCEEDED";
-        let observation = classify_probe_output(b"", stderr, 1_000);
-        assert_eq!(observation.state, UsageState::Exhausted);
+    fn empty_or_unrelated_output_is_inconclusive() {
+        for stdout in [&b""[..], b"hello world"] {
+            let findings = parse_probe_output(stdout, b"", 1_000, None);
+            assert_eq!(findings, super::ProbeFindings::default());
+        }
     }
 
-    #[test]
-    fn completely_unrelated_output_fails_closed_to_unknown() {
-        let observation = classify_probe_output(b"hello world", b"", 1_000);
-        assert_eq!(observation.state, UsageState::Unknown);
-    }
+    // End-to-end through the recorded per-profile files, as `relay watch run` reads them.
+    mod detect {
+        use std::{fs, path::PathBuf};
 
-    #[test]
-    fn empty_output_fails_closed_to_unknown() {
-        let observation = classify_probe_output(b"", b"", 1_000);
-        assert_eq!(observation.state, UsageState::Unknown);
+        use relay_core::usage::{UsageEvidence, UsageSignal, UsageState};
+        use tempfile::tempdir;
+
+        use crate::{
+            ClaudeUsageSignal,
+            usage_signals::{
+                INTEGRATION_DIR, parse_rate_limit_events, parse_statusline_input,
+                parse_stop_failure_input, record_rate_limit_events, record_statusline,
+                record_stop_failure,
+            },
+        };
+
+        fn now() -> u64 {
+            super::super::now_unix_ms()
+        }
+
+        fn signal() -> ClaudeUsageSignal {
+            // A nonexistent executable keeps the free tiers from ever spawning a real Claude.
+            ClaudeUsageSignal::new(Some(PathBuf::from("/nonexistent/claude")), false)
+        }
+
+        fn statusline_json(pct: u32, resets_at: u64) -> String {
+            format!(
+                r#"{{"session_id":"s1","rate_limits":{{"five_hour":{{"used_percentage":{pct},"resets_at":{resets_at}}}}}}}"#
+            )
+        }
+
+        fn stop_failure_json() -> &'static [u8] {
+            br#"{"hook_event_name":"StopFailure","session_id":"s1","cwd":"/p","error":"rate_limit"}"#
+        }
+
+        fn profile() -> tempfile::TempDir {
+            let dir = tempdir().expect("temp");
+            fs::create_dir(dir.path().join(INTEGRATION_DIR)).expect("integration dir");
+            dir
+        }
+
+        #[test]
+        fn recorded_stop_failure_plus_fresh_statusline_at_100_is_exhausted() {
+            let dir = profile();
+            let far = now() / 1000 + 7200;
+            record_statusline(
+                dir.path(),
+                &parse_statusline_input(statusline_json(100, far).as_bytes(), now()).expect("s"),
+            )
+            .expect("record");
+            record_stop_failure(
+                dir.path(),
+                parse_stop_failure_input(stop_failure_json(), now()).expect("f"),
+            )
+            .expect("record");
+            let observation = signal()
+                .detect(dir.path(), dir.path(), "s1")
+                .expect("detect");
+            assert_eq!(observation.state, UsageState::Exhausted);
+            assert_eq!(observation.evidence, UsageEvidence::StopFailureCorroborated);
+            assert_eq!(observation.reset_unix_ms, Some(far * 1000));
+        }
+
+        #[test]
+        fn stop_failure_alone_stale_statusline_and_near_limit_never_exhaust() {
+            let far = now() / 1000 + 7200;
+            // StopFailure alone.
+            let alone = profile();
+            record_stop_failure(
+                alone.path(),
+                parse_stop_failure_input(stop_failure_json(), now()).expect("f"),
+            )
+            .expect("record");
+            assert_eq!(
+                signal()
+                    .detect(alone.path(), alone.path(), "s1")
+                    .expect("d")
+                    .state,
+                UsageState::Unknown
+            );
+            // Stale statusline at 100% plus a StopFailure.
+            let stale = profile();
+            let old = now() - 60 * 60 * 1000;
+            record_statusline(
+                stale.path(),
+                &parse_statusline_input(statusline_json(100, far).as_bytes(), old).expect("s"),
+            )
+            .expect("record");
+            record_stop_failure(
+                stale.path(),
+                parse_stop_failure_input(stop_failure_json(), now()).expect("f"),
+            )
+            .expect("record");
+            assert_eq!(
+                signal()
+                    .detect(stale.path(), stale.path(), "s1")
+                    .expect("d")
+                    .state,
+                UsageState::Unknown
+            );
+            // Near limit with a StopFailure (a transient 429 while at 95%).
+            let near = profile();
+            record_statusline(
+                near.path(),
+                &parse_statusline_input(statusline_json(95, far).as_bytes(), now()).expect("s"),
+            )
+            .expect("record");
+            record_stop_failure(
+                near.path(),
+                parse_stop_failure_input(stop_failure_json(), now()).expect("f"),
+            )
+            .expect("record");
+            assert_eq!(
+                signal()
+                    .detect(near.path(), near.path(), "s1")
+                    .expect("d")
+                    .state,
+                UsageState::NearLimit
+            );
+        }
+
+        #[test]
+        fn a_recorded_rejected_stream_event_is_exhausted_and_overage_is_not() {
+            let far = now() / 1000 + 7200;
+            let rejected = format!(
+                r#"{{"type":"rate_limit_event","rate_limit_info":{{"status":"rejected","resetsAt":{far},"rateLimitType":"five_hour","isUsingOverage":false}},"session_id":"s1"}}"#
+            );
+            let dir = profile();
+            record_rate_limit_events(
+                dir.path(),
+                parse_rate_limit_events(rejected.as_bytes(), now(), None),
+            )
+            .expect("record");
+            let observation = signal().detect(dir.path(), dir.path(), "s1").expect("d");
+            assert_eq!(observation.state, UsageState::Exhausted);
+            assert_eq!(observation.evidence, UsageEvidence::RateLimitEvent);
+
+            let overage = rejected.replace(r#""isUsingOverage":false"#, r#""isUsingOverage":true"#);
+            let other = profile();
+            record_rate_limit_events(
+                other.path(),
+                parse_rate_limit_events(overage.as_bytes(), now(), None),
+            )
+            .expect("record");
+            assert_eq!(
+                signal()
+                    .detect(other.path(), other.path(), "s1")
+                    .expect("d")
+                    .state,
+                UsageState::Unknown
+            );
+        }
+
+        #[test]
+        fn a_profile_without_the_integration_reads_as_unknown_and_records_nothing() {
+            let dir = tempdir().expect("temp");
+            assert_eq!(
+                signal()
+                    .detect(dir.path(), dir.path(), "s1")
+                    .expect("d")
+                    .state,
+                UsageState::Unknown
+            );
+            assert!(
+                record_statusline(dir.path(), &parse_statusline_input(b"{}", 1).expect("s"))
+                    .is_err()
+            );
+            assert!(!dir.path().join(INTEGRATION_DIR).exists());
+        }
     }
 }

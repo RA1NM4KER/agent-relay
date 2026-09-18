@@ -635,3 +635,267 @@ fn snapshot(root: &Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
     visit(root, &mut entries);
     entries
 }
+
+// ---- M2C.1: usage integration ----
+
+fn fake_claude_version(root: &Path, version: &str) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = root.join("fake-claude-version");
+    let script = format!(
+        "#!/bin/sh\ncase \"$1\" in\n  --version) printf '%s\\n' '{version} (Claude Code)' ;;\n  --help) printf '%s\\n' '--output-format <format> (choices: text, json, stream-json)' '--verbose' ;;\n  agents) printf '%s\\n' '[]' ;;\n  *) exit 2 ;;\nesac\n"
+    );
+    std::fs::write(&path, script).expect("fake Claude script");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+        .expect("script permissions");
+    path
+}
+
+fn hook(args: &[&str], stdin: &str) -> std::process::Output {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_relay"))
+        .args(["hook", "claude"])
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn hook");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(stdin.as_bytes())
+        .expect("write stdin");
+    child.wait_with_output().expect("hook output")
+}
+
+#[test]
+fn integration_install_status_hooks_and_uninstall_round_trip_exactly() {
+    let root = tempdir().expect("temp directory");
+    let profile = root.path().join("erika-claude");
+    std::fs::create_dir_all(&profile).expect("profile dir");
+    let settings = profile.join("settings.json");
+    let original = "{\n  \"theme\": \"dark\",\n  \"statusLine\": {\"type\": \"command\", \"command\": \"cat >/dev/null; echo MY-STATUS\"}\n}\n";
+    std::fs::write(&settings, original).expect("settings");
+    let claude = fake_claude_version(root.path(), "2.1.277");
+    let claude_arg = claude.to_str().expect("utf8");
+    let profile_arg = profile.to_str().expect("utf8");
+
+    let dry = relay(
+        root.path(),
+        &[
+            "integration",
+            "claude",
+            "install",
+            "--config-dir",
+            profile_arg,
+            "--dry-run",
+            "--claude-executable",
+            claude_arg,
+        ],
+    );
+    assert!(
+        dry.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(&settings).expect("read"), original);
+    assert!(!profile.join("relay-integration").exists());
+
+    let install = relay(
+        root.path(),
+        &[
+            "integration",
+            "claude",
+            "install",
+            "--config-dir",
+            profile_arg,
+            "--claude-executable",
+            claude_arg,
+        ],
+    );
+    assert!(
+        install.status.success(),
+        "{}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    let installed: Value = serde_json::from_str(&std::fs::read_to_string(&settings).expect("read"))
+        .expect("valid settings");
+    assert_eq!(installed["theme"], "dark");
+    assert_eq!(
+        installed["hooks"]["StopFailure"][0]["matcher"],
+        "rate_limit"
+    );
+
+    // The installed hook commands really work when Claude runs them via a shell.
+    let hook_command = installed["hooks"]["StopFailure"][0]["hooks"][0]["command"]
+        .as_str()
+        .expect("hook command")
+        .to_owned();
+    let statusline_command = installed["statusLine"]["command"]
+        .as_str()
+        .expect("statusline command")
+        .to_owned();
+    let run_shell = |command: &str, stdin: &str| {
+        use std::io::Write;
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("sh");
+        child
+            .stdin
+            .take()
+            .expect("stdin")
+            .write_all(stdin.as_bytes())
+            .expect("write");
+        child.wait_with_output().expect("output")
+    };
+    // The test binary path is what `current_exe` recorded, so these are the real hooks.
+    let stop_payload = r#"{"hook_event_name":"StopFailure","session_id":"s1","cwd":"/p","error":"rate_limit","last_assistant_message":"secret text"}"#;
+    assert!(run_shell(&hook_command, stop_payload).status.success());
+    let far_future = 4_000_000_000_u64;
+    let status_payload = format!(
+        r#"{{"session_id":"s1","rate_limits":{{"five_hour":{{"used_percentage":100,"resets_at":{far_future}}}}}}}"#
+    );
+    let chained = run_shell(&statusline_command, &status_payload);
+    assert_eq!(
+        String::from_utf8_lossy(&chained.stdout).trim(),
+        "MY-STATUS",
+        "the original statusLine's output is passed through unchanged"
+    );
+
+    let recorded =
+        std::fs::read_to_string(profile.join("relay-integration/signals/stop_failures.json"))
+            .expect("stop failure record");
+    assert!(recorded.contains("rate_limit") && !recorded.contains("secret text"));
+    assert!(
+        profile
+            .join("relay-integration/signals/statusline.json")
+            .exists()
+    );
+
+    let status = json_stdout(&relay(
+        root.path(),
+        &[
+            "integration",
+            "claude",
+            "status",
+            "--config-dir",
+            profile_arg,
+            "--claude-executable",
+            claude_arg,
+        ],
+    ));
+    assert_eq!(status["data"]["status"]["installed"], true);
+    assert_eq!(status["data"]["status"]["statusline"], "relay_chained");
+    assert_eq!(status["data"]["status"]["recorded_stop_failures"], 1);
+
+    let uninstall = relay(
+        root.path(),
+        &[
+            "integration",
+            "claude",
+            "uninstall",
+            "--config-dir",
+            profile_arg,
+        ],
+    );
+    assert!(
+        uninstall.status.success(),
+        "{}",
+        String::from_utf8_lossy(&uninstall.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(&settings).expect("read"), original);
+}
+
+#[test]
+fn hooks_never_fail_the_calling_claude_session() {
+    let root = tempdir().expect("temp directory");
+    // No integration directory exists: nothing is recorded, nothing is printed, exit 0.
+    let out = hook(
+        &[
+            "stop-failure",
+            "--config-dir",
+            root.path().to_str().expect("utf8"),
+        ],
+        "garbage that is not json",
+    );
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty());
+    assert!(!root.path().join("relay-integration").exists());
+}
+
+#[test]
+fn integration_install_fails_closed_on_unverified_or_unsupported_claude_versions() {
+    let root = tempdir().expect("temp directory");
+    let profile = root.path().join("p");
+    std::fs::create_dir_all(&profile).expect("profile dir");
+    let profile_arg = profile.to_str().expect("utf8");
+
+    let newer = fake_claude_version(root.path(), "2.1.290");
+    let refused = relay(
+        root.path(),
+        &[
+            "integration",
+            "claude",
+            "install",
+            "--config-dir",
+            profile_arg,
+            "--claude-executable",
+            newer.to_str().expect("utf8"),
+        ],
+    );
+    assert!(!refused.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&refused.stderr).expect("json")["error"]["code"],
+        "integration_refused"
+    );
+    assert!(!profile.join("settings.json").exists());
+
+    let allowed = relay(
+        root.path(),
+        &[
+            "integration",
+            "claude",
+            "install",
+            "--config-dir",
+            profile_arg,
+            "--allow-unverified-version",
+            "--claude-executable",
+            newer.to_str().expect("utf8"),
+        ],
+    );
+    assert!(
+        allowed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&allowed.stderr)
+    );
+
+    let other = tempdir().expect("temp directory");
+    let profile2 = other.path().join("p");
+    std::fs::create_dir_all(&profile2).expect("profile dir");
+    let major = fake_claude_version(other.path(), "2.2.0");
+    let unsupported = relay(
+        other.path(),
+        &[
+            "integration",
+            "claude",
+            "install",
+            "--config-dir",
+            profile2.to_str().expect("utf8"),
+            "--allow-unverified-version",
+            "--claude-executable",
+            major.to_str().expect("utf8"),
+        ],
+    );
+    assert!(
+        !unsupported.status.success(),
+        "a different release line is never accepted"
+    );
+}

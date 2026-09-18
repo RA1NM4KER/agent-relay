@@ -6,6 +6,8 @@ All notable changes to Agent Relay will be documented here.
 
 ### Added
 
+- M2C.1: structured Claude usage detection (StopFailure hook, statusline `rate_limits`, stream-json `rate_limit_event`), `relay integration claude install|status|uninstall`, automatic startup recovery in `relay watch run`, `--workload-model`, and Claude Code version/capability gating; see `docs/automatic-handoff.md`.
+- Fixed: the usage phrase matcher now recognizes real Claude limit messages.
 - Rust workspace with provider-neutral core, CLI, Claude boundary, Herdr boundary, and testkit crates.
 - Secure profile-directory creation, permission validation, canonical path handling, and atomic state writes.
 - FakeProvider-backed profile add, list, status, remove, and doctor commands.

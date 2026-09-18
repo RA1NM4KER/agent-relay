@@ -17,7 +17,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AtomicWrite, Error, FsAtomicWriter, ProfileName, Result,
-    handoff::{HandoffCoordinator, HandoffJournal, HandoffRequest, OrchestrationLock, ProjectId},
+    handoff::{
+        HandoffCoordinator, HandoffJournal, HandoffRequest, HandoffState, JournalStore,
+        OrchestrationLock, ProjectId, TransactionId,
+    },
     usage::{UsageEvidence, UsageObservation, UsageState},
 };
 
@@ -282,8 +285,30 @@ pub struct WatchRequest {
     pub dry_run: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveredTransaction {
+    pub transaction_id: String,
+    pub final_state: String,
+}
+
 #[derive(Debug)]
 pub enum WatchOutcome {
+    /// One or more incomplete transactions from an earlier (crashed) run were recovered. No new
+    /// work is started in the same round: the recovery may have moved the writer lease, so the
+    /// next invocation re-evaluates from the recovered state.
+    Recovered {
+        transactions: Vec<RecoveredTransaction>,
+    },
+    /// Recovery could not be completed safely (or the journal is unreadable). Nothing new is
+    /// started; an operator must run `relay recover` / `relay recover --acknowledge`.
+    RecoveryRequired {
+        transaction_id: String,
+        reason: String,
+    },
+    /// Another live orchestrator holds the project's lock mid-transaction.
+    TransactionInFlight {
+        transaction_id: String,
+    },
     NoActionNeeded {
         source_usage: UsageState,
     },
@@ -328,7 +353,13 @@ impl WatchCoordinator<'_> {
         let lock = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"));
         let ledger_store = LedgerStore::at_path(project_state_dir.join("automation_state.json"));
 
-        let source_candidate = ProfileCandidate {
+        // Startup/re-entry recovery: never begin new work while an earlier transaction for this
+        // project is unresolved (a crashed run can leave a live orphan target process).
+        if let Some(outcome) = self.recover_pending(&project_state_dir, request.dry_run)? {
+            return Ok(outcome);
+        }
+
+        let mut source_candidate = ProfileCandidate {
             name: request.source_profile.clone(),
             config_dir: request.source_config_dir.clone(),
             identity_stable_id: request.source_identity_stable_id.clone(),
@@ -337,18 +368,40 @@ impl WatchCoordinator<'_> {
             usage: request.source_usage.clone(),
         };
 
+        let mut fallbacks = request.fallbacks.clone();
         let decision = lock.try_with(|| {
             let mut ledger = ledger_store.load()?;
-            for candidate in std::iter::once(&source_candidate).chain(request.fallbacks.iter()) {
+            for candidate in std::iter::once(&source_candidate).chain(fallbacks.iter()) {
                 if candidate.usage.state.is_blocking() {
                     ledger.mark_exhausted(candidate.name.clone(), &candidate.usage);
+                }
+            }
+            // RESET_PENDING: a profile previously observed exhausted whose reset time is still in
+            // the future stays blocking even when the fresh reading is merely UNKNOWN (for example
+            // a stale statusline). A fresh AVAILABLE/NEAR_LIMIT reading is never overridden.
+            for candidate in std::iter::once(&mut source_candidate).chain(fallbacks.iter_mut()) {
+                if candidate.usage.state == UsageState::Unknown
+                    && let Some(record) = ledger.known_exhausted.iter().find(|record| {
+                        record.profile == candidate.name
+                            && record
+                                .reset_unix_ms
+                                .is_some_and(|reset| now_unix_ms < reset)
+                    })
+                {
+                    candidate.usage = UsageObservation {
+                        state: UsageState::ResetPending,
+                        evidence: record.evidence,
+                        detected_via: format!("previously exhausted; {}", record.detected_via),
+                        observed_unix_ms: now_unix_ms,
+                        reset_unix_ms: record.reset_unix_ms,
+                    };
                 }
             }
             ledger.prune_older_than(now_unix_ms, self.policy.window_ms);
             let decision = decide(
                 now_unix_ms,
                 &source_candidate,
-                &request.fallbacks,
+                &fallbacks,
                 &ledger,
                 &self.policy,
             );
@@ -360,7 +413,7 @@ impl WatchCoordinator<'_> {
 
         match decision {
             AutomationDecision::NoActionNeeded => Ok(WatchOutcome::NoActionNeeded {
-                source_usage: request.source_usage.state,
+                source_usage: source_candidate.usage.state,
             }),
             AutomationDecision::WaitingForCapacity { reason } => {
                 Ok(WatchOutcome::WaitingForCapacity { reason })
@@ -377,8 +430,7 @@ impl WatchCoordinator<'_> {
                 if request.dry_run {
                     return Ok(WatchOutcome::DryRunWouldHandoff { target });
                 }
-                let target_candidate = request
-                    .fallbacks
+                let target_candidate = fallbacks
                     .iter()
                     .find(|candidate| candidate.name == target)
                     .expect("decide() only selects a name present in fallbacks");
@@ -415,6 +467,118 @@ impl WatchCoordinator<'_> {
             }
         }
     }
+}
+
+impl WatchCoordinator<'_> {
+    /// Inspects every incomplete transaction journal for the project and runs the existing safe
+    /// recovery logic on each, under the orchestration lock, before anything new starts. Returns
+    /// `None` when there is nothing pending.
+    pub fn recover_pending(
+        &self,
+        project_state_dir: &Path,
+        dry_run: bool,
+    ) -> Result<Option<WatchOutcome>> {
+        let handoffs_dir = project_state_dir.join("handoffs");
+        let Ok(entries) = fs::read_dir(&handoffs_dir) else {
+            return Ok(None);
+        };
+        // Only the transaction the project's current pointer names (and anything newer, from a
+        // crash between the first journal write and the pointer write) can still be live. Older
+        // non-terminal journals were superseded by later transactions and are history, not
+        // work: treating them as pending would block a project forever on a stale record.
+        let current = fs::read_to_string(project_state_dir.join("current_transaction.json"))
+            .ok()
+            .and_then(|text| TransactionId::parse(text.trim()).ok());
+        let mut pending = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(stem) = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|name| name.strip_suffix(".json"))
+            else {
+                continue;
+            };
+            let Ok(id) = TransactionId::parse(stem) else {
+                continue;
+            };
+            if current.as_ref().is_none_or(|current| id < *current) {
+                continue;
+            }
+            match JournalStore::at_path(path.clone()).load() {
+                Ok(journal) if journal.state.is_terminal() => {}
+                Ok(_) => pending.push(id),
+                Err(error) => {
+                    // A journal written by an older Relay may not match today's schema; if its
+                    // raw state is terminal it is history, otherwise it is ambiguous.
+                    if raw_state_is_terminal(&path) {
+                        continue;
+                    }
+                    return Ok(Some(WatchOutcome::RecoveryRequired {
+                        transaction_id: id.to_string(),
+                        reason: format!("journal could not be read ({})", error.code()),
+                    }));
+                }
+            }
+        }
+        if pending.is_empty() {
+            return Ok(None);
+        }
+        pending.sort();
+        if dry_run {
+            return Ok(Some(WatchOutcome::RecoveryRequired {
+                transaction_id: pending[0].to_string(),
+                reason: format!(
+                    "dry run: {} incomplete transaction(s) would be recovered before any new work",
+                    pending.len()
+                ),
+            }));
+        }
+        let mut recovered = Vec::new();
+        for id in pending {
+            match self.handoff.recover(project_state_dir, &id) {
+                Err(Error::OrchestrationLockHeld) => {
+                    return Ok(Some(WatchOutcome::TransactionInFlight {
+                        transaction_id: id.to_string(),
+                    }));
+                }
+                Err(error) => {
+                    return Ok(Some(WatchOutcome::RecoveryRequired {
+                        transaction_id: id.to_string(),
+                        reason: format!("recovery failed ({})", error.code()),
+                    }));
+                }
+                Ok(journal) => {
+                    if let HandoffState::RecoveryRequired { reason } = &journal.state {
+                        return Ok(Some(WatchOutcome::RecoveryRequired {
+                            transaction_id: id.to_string(),
+                            reason: reason.clone(),
+                        }));
+                    }
+                    recovered.push(RecoveredTransaction {
+                        transaction_id: id.to_string(),
+                        final_state: format!("{:?}", journal.state),
+                    });
+                }
+            }
+        }
+        Ok(Some(WatchOutcome::Recovered {
+            transactions: recovered,
+        }))
+    }
+}
+
+fn raw_state_is_terminal(path: &Path) -> bool {
+    fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|value| {
+            value
+                .get("state")
+                .and_then(|state| state.get("state"))
+                .and_then(|state| state.as_str().map(str::to_owned))
+        })
+        .is_some_and(|state| state == "COMPLETE" || state == "FAILED")
 }
 
 fn require_absolute(path: &Path) -> Result<&Path> {

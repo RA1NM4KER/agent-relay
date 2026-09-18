@@ -53,6 +53,16 @@ pub enum UsageEvidence {
     /// Injected by an operator or test for controlled validation; never produced by a real
     /// provider adapter's own detection path.
     Simulated,
+    /// A `rate_limit_event` from Claude Code's structured stream (`status = rejected` with a
+    /// current reset window), whether captured from a headless process Relay controls or from
+    /// the explicit probe. Strong on its own.
+    RateLimitEvent,
+    /// A `StopFailure(rate_limit)` hook record corroborated by a fresh statusline snapshot that
+    /// shows the relevant window at or above 100% with a reset time still in the future.
+    StopFailureCorroborated,
+    /// A fresh statusline `rate_limits` snapshot on its own (used for `AVAILABLE`/`NEAR_LIMIT`
+    /// readings, never sufficient by itself for `EXHAUSTED`).
+    StatusLine,
 }
 
 /// A single usage/exhaustion observation for one profile. Never contains raw provider output —

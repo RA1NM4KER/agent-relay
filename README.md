@@ -27,6 +27,15 @@ relay profile adopt NAME --provider claude --config-dir /absolute/profile/path -
 
 Both commands fail closed on unsafe paths, permissions, environment overrides, executable versions, or unknown auth-status schemas. Dry-run never changes Relay or Claude state.
 
+## Automatic handoff
+
+Opt-in, usage-triggered handoff between profiles: see [docs/automatic-handoff.md](docs/automatic-handoff.md).
+
+```sh
+relay integration claude install --profile erika
+relay watch run --profile erika --fallback megan --project ~/repos/foo --session <id>
+```
+
 ## Safety principles
 
 - Every active profile and handoff is visible and auditable.

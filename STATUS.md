@@ -2,7 +2,10 @@
 
 ## Current milestone
 
-M2C complete — explicit, opt-in, usage-triggered automatic handoff (`relay watch run`), built on
+M2C.1 complete — real, structured usage detection (StopFailure hook, statusline `rate_limits`,
+stream-json `rate_limit_event`), an opt-in installer for them, automatic startup recovery, and
+version/capability gating; details in the M2C.1 entry below and `docs/automatic-handoff.md`.
+Prior: M2C complete — explicit, opt-in, usage-triggered automatic handoff (`relay watch run`), built on
 the unchanged M2B transaction machinery, plus supervision of the target process so an orchestrator
 crash during `TARGET_STARTING` can no longer leave an unaccounted-for writer. Details in the M2C
 entry below. Automatic fail-back, quota pooling, and Herdr integration do not exist and require
@@ -358,6 +361,53 @@ underneath it.
     change). The reverse path is exercised by the same code and by tests, and a Megan -> Erika
     handoff completed earlier in M2B/M2B.5/M2B.75; repeat it with no Megan Claude process running.
 
+- **M2C.1: standalone-readiness pass (structured usage detection, integration installer, startup
+  recovery, capability gating).**
+  - **Research result** (Claude Code 2.1.277): documented `StopFailure` hook (matcher `rate_limit`,
+    fire-and-forget), documented statusline `rate_limits.five_hour/seven_day` (`used_percentage`,
+    `resets_at`), typed stream-json `rate_limit_event` (`status`, `resetsAt`, `rateLimitType`,
+    `utilization`, `isUsingOverage`). No CLI usage command exists; `agents --json` exposes no
+    exhaustion state. `error=rate_limit` is also produced for generic 429 capacity errors, so it
+    is never trusted alone.
+  - **Bug fixed**: the M2C phrase allowlist never matched real Claude text ("You've hit your
+    session limit · resets 3pm"), so `--probe` could not have detected real exhaustion. Now an exact
+    "hit your <name> limit" matcher (session/weekly/usage/usage credit/monthly/monthly spend/Opus/
+    Sonnet/Fable/fast/bare) tested against the literal strings; 429/"rate limit exceeded" never match.
+  - **Policy** (`usage_policy.rs`, pure): EXHAUSTED = rejected `rate_limit_event` with a future
+    reset and no overage (not contradicted by a newer fresh statusline), OR `StopFailure` + fresh
+    statusline window ≥100% with future reset, OR opt-in phrase + the same corroboration.
+    NEAR_LIMIT ≥90% (or 100% with no refusal), AVAILABLE below, UNKNOWN for stale/ambiguous;
+    RESET_PENDING comes from the ledger (recorded exhausted, reset in the future). Model-scoped
+    limits count only for a matching `--workload-model`; fast limit never blocks.
+  - **Installer**: `relay integration claude install|status|uninstall [--dry-run]` per profile
+    (`--profile` or explicit `--config-dir`). Preserves hooks, chains an existing statusLine (fail
+    closed otherwise), backs up settings, records a manifest, uninstall restores byte for byte or
+    surgically removes Relay's entries if settings changed since. Hidden `relay hook claude ...`
+    commands never fail the calling session and record only closed metadata.
+  - **Probe** demoted to an explicit diagnostic (stream-json, skipped for profiles already recorded
+    exhausted, still spends a real request).
+  - **Startup recovery**: `relay watch run` recovers the project's current incomplete transaction
+    (under the orchestration lock, before detection or any probe) and returns `Recovered`, or exits
+    non-zero `recovery_required` when ambiguous, or `TransactionInFlight` when another process holds
+    it. Journals from older Relay schemas that are terminal, and superseded non-current journals, are
+    history and never block (found live: a legacy journal blocked the disposable project).
+  - **Capability gating**: per-capability Verified/Unverified/Unsupported with runtime checks
+    (`--help` stream-json, `agents --json` shape); newer 2.1.x patches are Unverified (install
+    refuses without `--allow-unverified-version`), other release lines Unsupported.
+  - 243 tests pass (was 191). **Live validation** (disposable repos, Erika/Megan real adopted
+    profiles, no quota exhausted): installed into both; real StopFailure/statusline payloads run
+    through the installed hook commands; StopFailure alone, transient 429 at 40%, stale statusline,
+    NearLimit 95% and statusline-100%-without-refusal all did NOT hand off; corroborated Erika ->
+    Megan handed off automatically twice (evidence `stop_failure_corroborated`, reset recorded);
+    RESET_PENDING excluded the exhausted profile from target selection; Relay SIGKILLed with a live
+    `claude -p --resume` orphan, restart recovered (orphan stopped, transaction COMPLETE, lease
+    moved, no second writer); uninstall restored both settings.json files byte for byte. The real
+    statusline of the running Megan session was captured with genuine `rate_limits` data.
+  - **Not live-validated**: Megan -> Erika via `watch run` (this validation ran inside a Megan
+    session, so the per-profile active-process guard would correctly refuse; covered by tests and the
+    earlier owner validation). A real refusal (`StopFailure` from an actually exhausted account) was
+    never observed and no quota was burned.
+
 ## In progress
 
 - Nothing in progress. M1.5, M2A, M2B, M2B.5, M2B.75 (with its soak test), and M2C are all
@@ -385,8 +435,8 @@ underneath it.
 
 - Claude Code auto-updated to 2.1.277 during M2C validation and `-p --resume`, `--bg`, `agents
   --json` and `stop` all behaved as on 2.1.276, but the compatibility pin above still names 2.1.276.
-- Real usage detection: no structured Claude usage signal is known, so unattended detection needs
-  `--probe` (a small real API call per check) until one exists. This is the main remaining gap
+- Real usage detection (resolved in M2C.1 by hook/statusline/stream-json signals; the old note
+  followed): unattended detection previously needed `--probe` (a small real API call per check) until one exists. This is the main remaining gap
   before unattended use. A killed orchestrator between spawn and the journal rename is now handled
   by the process-table scan, whose `ps -Eww` environment matching is macOS-specific.
 - The M2A active-process guard is per profile, not per session, so an unrelated live Claude
@@ -403,6 +453,12 @@ underneath it.
 - Should the first Herdr plugin require Herdr 0.9.0 or a narrower feature-detected minimum?
 
 ## Next exact action
+
+M2C.1 is done. Remaining before Herdr/public release: observe a genuine exhaustion end to end (the
+statusline snapshot and StopFailure payload on a real limit), repeat Megan -> Erika through
+`watch run` with no Megan process, and decide packaging (the installed hooks embed the relay path).
+The text below is the earlier M2C-era note.
+
 
 Await explicit owner authorization before starting Herdr integration, automatic fail-back, or
 unattended (non-`--probe`) usage detection, and before trusting this path across any Claude Code
