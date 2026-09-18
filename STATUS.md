@@ -11,11 +11,11 @@ M0 — research and architecture.
 - Performed a temporary-directory isolation probe for `CLAUDE_CONFIG_DIR`.
 - Inspected source and licensing for all required upstream projects.
 - Selected Apache-2.0 for original Agent Relay code.
+- Documented the M0 research, architecture, dependency decisions, threat model, and implementation plan.
 
 ## In progress
 
-- Recording research findings and architecture decisions.
-- Defining the initial threat model and M1 acceptance gates.
+- Awaiting architecture review before beginning M1.
 
 ## Blockers
 
@@ -30,5 +30,4 @@ M0 — research and architecture.
 
 ## Next exact action
 
-Complete and commit the M0 research, architecture, security, and implementation-plan documents; then request architecture approval before beginning M1.
-
+After approval, scaffold the Rust workspace and build core profile/storage abstractions with FakeProvider first. Do not authenticate a real Claude profile until the separate experiment plan is approved.
