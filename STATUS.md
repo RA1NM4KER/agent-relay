@@ -2,13 +2,16 @@
 
 ## Current milestone
 
-M2B.5 complete — writer-liveness hardened from ps-text-scanning to an exact pid+fingerprint check
-corroborated by Claude's own session bookkeeping, and explicit target-transcript conflict
-resolution added, closing both weaknesses M2B flagged. Both live-validated on the disposable repo,
-including a real competing-writer block and a real crash/stale-ownership recovery. M2B's
-transactional handoff, M2A's SESSION_CONTINUATION guarantee, and M1.5's real Erika/Megan adoption
-remain complete underneath it. No automatic/quota-triggered handoff (M2C) and no Herdr integration
-exist yet; both are explicitly out of scope until separately approved.
+M2B.75 complete — Claude session shutdown is now authoritative: `claude stop <id>` (Claude Code's
+own documented command) replaces raw `kill` as the source-stop mechanism, verified quiescent
+across multiple consecutive observations before a handoff proceeds. Live validation of this
+milestone found and fixed a real polarity bug in M2B.5's liveness check (a killed pid was wrongly
+allowed to override a still-listed, dormant/resurrectable session to "not active"). Both directions
+of the Erika/Megan handoff, including a real competing-launch refusal and the authoritative-stop
+flow, are live-validated on the disposable repo. M2B.5's conflict resolution, M2B's transactional
+handoff, M2A's SESSION_CONTINUATION guarantee, and M1.5's real Erika/Megan adoption remain complete
+underneath it. No automatic/quota-triggered handoff (M2C) and no Herdr integration exist yet; both
+are explicitly out of scope until separately approved.
 
 ## Completed
 
@@ -207,27 +210,63 @@ exist yet; both are explicitly out of scope until separately approved.
   - **Live crash/stale-ownership test**: after a clean `claude stop` of the managed writer, a
     subsequent `relay launch` correctly detected the recorded pid was confirmed gone and proceeded
     with a fresh launch.
+- **M2B.75 (approved): authoritative Claude session shutdown**, closing M2B.5's remaining
+  known gap:
+  - Added `relay-core::handoff::SessionStopper`: issues an authoritative stop for one exact
+    session, then verifies quiescence across multiple consecutive observations (never a single
+    reading) before returning. `HandoffCoordinator`'s `SOURCE_STOPPING` phase now calls this
+    instead of only checking liveness — an active source is stopped, not immediately refused; only
+    a stop that cannot be verified quiescent within the bounded window blocks the transaction.
+  - `relay-provider-claude::ClaudeSessionStopper` implements it with Claude Code's own documented
+    `claude stop <id>` command (never a raw `kill`), matched by session id and project directory
+    so it can never touch a different session or another profile's. Each quiescence observation
+    combines Claude's own session bookkeeping (`agents --json`) with the M2B.5 pid+fingerprint
+    check.
+  - **Live-discovered and fixed a real bug in M2B.5's liveness check during this milestone's own
+    validation**: Claude's background daemon keeps a `--bg` session listed (state
+    "working"/"blocked") indefinitely after its worker process is killed — it is dormant and
+    resurrectable, not gone — until explicitly `claude stop`ped. The prior check let a confirmed-
+    dead recorded pid override a still-listed session to "not active," which let a live competing
+    `relay launch` through while the original session could still have been resurrected. Presence
+    in the listing is now trusted outright as active; the pid+fingerprint check only corroborates
+    the case where a session is not listed at all. `relay launch`'s own pre-check was also
+    hardened to require several consecutive not-active readings rather than a single snapshot (a
+    separate, real transient-gap race also found live).
+  - 139 tests pass (was 133); fmt and Clippy pass. New tests: successful/failed provider stop,
+    the quiescence state machine (pure function, unit-tested directly: requires more than one
+    quiet reading, resets on reappearance, resets when a corroborating pid is still confirmed
+    live, reaches quiescence with no recorded pid at all), and the coordinator now stopping an
+    active source rather than refusing it outright.
+  - **Live validation, both directions**: launched a real Erika writer via `relay launch`;
+    recorded its session id and pid; killed the reported pid and confirmed a competing launch was
+    still correctly refused; ran `relay handoff run --from erika --to megan`, whose journal notes
+    show `"source authoritatively stopped and verified quiescent"` — the authoritative stop
+    correctly resolved the dormant/killed session with no manual process killing beyond the single
+    intentional demonstration kill. The reverse handoff hit the same known stale-artifact case as
+    M2B.5 (Erika's own pre-handoff copy) and was resolved the same way, via `session conflict
+    resolve --yes`, with zero manual transcript deletion. Both directions reached `COMPLETE`.
 
 ## In progress
 
-- Nothing in progress. M1.5, M2A, M2B, and M2B.5 are all complete. Automatic/quota-triggered
-  handoff (M2C) and Herdr integration have not started and require separate owner authorization.
+- Nothing in progress. M1.5, M2A, M2B, M2B.5, and M2B.75 are all complete. Automatic/quota-
+  triggered handoff (M2C) and Herdr integration have not started and require separate owner
+  authorization.
 
 ## Blockers
 
-- A `kill -9` of a `--bg` session's currently-reported pid is not sufficient proof of termination:
-  Claude Code's own background daemon can transparently reassign a new process to the same session
-  (observed live during M2B.5). Only `claude stop` reliably ends a `--bg` session from outside its
-  daemon. Relay's liveness check re-queries fresh each time, so it is not fooled going forward, but
-  a single kill of "the pid we saw a moment ago" is not a dependable way to force a writer to stop.
 - Compatibility is validated for exactly Claude Code 2.1.276, a single foreground `-p` session (for
-  M2A/M2B's core session-continuation path) plus `--bg` (for M2B.5's launch/liveness path); no
-  subagents. The `-` project-path escaping convention and the subagent-sidecar naming assumption
-  (`<session_id>-*.jsonl`) are both observed, not documented by Anthropic, and are not re-validated
-  across versions.
+  M2A/M2B's core session-continuation path) plus `--bg` (for M2B.5/M2B.75's launch/liveness/stop
+  path); no subagents. The `-` project-path escaping convention and the subagent-sidecar naming
+  assumption (`<session_id>-*.jsonl`) are both observed, not documented by Anthropic, and are not
+  re-validated across versions.
 - `relay handoff run` and `relay launch` both spend real API usage (a verification turn, and a
   real background session respectively); there is still no automatic/quota-triggered handoff, and
   none is planned without separate approval.
+- The writer-liveness/stop logic has now been live-tested against two distinct real races
+  (M2B.5's daemon PID reassignment, M2B.75's dormant-but-still-listed session) and corrected both
+  times; this pattern — the real behavior of Claude's `--bg` daemon differing from what its own
+  documentation/output implies — has not been exhaustively explored, so a third undiscovered edge
+  case in this area cannot be ruled out from what has been tested so far.
 
 ## Unresolved architecture questions
 
@@ -241,4 +280,6 @@ exist yet; both are explicitly out of scope until separately approved.
 Await explicit owner authorization before starting M2C (automatic, usage/quota-triggered
 handoff) or Herdr integration, and before trusting this path across any Claude Code
 version/layout other than 2.1.276 or any launch mode other than foreground `-p` / `--bg`.
-Do not begin that work without separate approval.
+Given M2B.75 found a real bug in M2B.5's own live validation, treat any further Claude `--bg`
+daemon behavior assumption as unverified until it too has been tested live. Do not begin M2C
+without separate approval.
