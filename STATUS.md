@@ -2,7 +2,8 @@
 
 ## Current milestone
 
-M1.5 — read-only real Claude profile adoption validation complete; awaiting approval for actual adoption.
+M1.5 — real adoption approved and implemented; blocked on a pre-existing permission issue on
+Relay's own config directories before it can be performed against Erika and Megan.
 
 ## Completed
 
@@ -31,14 +32,34 @@ M1.5 — read-only real Claude profile adoption validation complete; awaiting ap
 - Verified recursive filesystem metadata for both Claude profile trees and the default `~/.claude` tree remained unchanged.
 - Confirmed distinct Erika and Megan non-secret identity pins after Erika's authentication correction.
 - Added default rejection of duplicate provider-scoped identity pins in core registration and Claude adoption dry-run.
+- Implemented `ClaudeAdoptionProvider`, a real (non-fake) `Provider` that re-inspects immediately
+  before Relay's registry write; gating (authentication, identity presence) stays in
+  `ProfileService::add`, matching `FakeProvider`'s contract rather than duplicating checks.
+- Enabled `relay profile adopt` to perform real, non-dry-run registration by default (`--dry-run`
+  still only previews); `profile status`/`doctor` now select the provider matching the profile's
+  own stored provider kind instead of always using `FakeProvider`, and gained a matching
+  `--claude-executable` override.
+- Added tests for real registration success, duplicate-name rejection, duplicate-identity
+  rejection, unauthenticated fail-closed behavior, zero writes to any Claude directory, and no
+  stray atomic-write temp files; 52 tests pass (was 45); fmt and Clippy pass.
+- Confirmed via `--dry-run` against the real Erika and Megan profile directories that both would
+  still succeed with distinct identity pins under the new code path (zero writes; matches prior
+  M1.5 validation).
 
 ## In progress
 
-- Awaiting explicit approval before implementing or performing actual reference-only adoption.
+- Real reference-only adoption of Erika and Megan is implemented and approved but not yet
+  performed, pending the blocker below.
 
 ## Blockers
 
-- Actual adoption remains unapproved and was not performed.
+- `~/.config/agent-relay` and `~/.config/agent-relay/profiles` are mode 0755 (owner rwx, group/
+  other rx), not the 0700 that `ProfileDirectory::prepare_root` requires of an existing Relay
+  config/profiles root. Only the leaf `.../erika/claude` and `.../megan/claude` directories are
+  correctly 0700. Real adoption will fail closed with `unsafe_permissions` on first write until
+  these two ancestor directories are tightened to 0700; Relay intentionally never repairs
+  permissions on directories it did not create, so this needs an explicit decision/action before
+  proceeding. No Claude directory is affected; this is Relay's own directory tree.
 - Cross-profile session transfer remains unverified, best-effort, version-gated, and outside M1.
 
 ## Unresolved architecture questions
@@ -50,4 +71,9 @@ M1.5 — read-only real Claude profile adoption validation complete; awaiting ap
 
 ## Next exact action
 
-Request approval for actual reference-only adoption. Do not perform adoption, begin M2, or test cross-profile session transfer without that approval.
+Resolve the ~/.config/agent-relay / .../profiles permission blocker (owner decision required:
+authorize tightening those two directories to 0700, or investigate why they are 0755), then run
+real `profile adopt` for Erika and Megan, verify stored identity pins, rerun `profile status`/
+`doctor` for both, and verify both Claude directories and ~/.claude remain unchanged. Do not begin
+M2 or test cross-profile session transfer until real adoption succeeds and the repository is
+clean.
