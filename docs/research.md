@@ -4,6 +4,8 @@ Research date: 2026-09-18
 
 This report records source-level research used to choose Agent Relay's architecture. Repositories were cloned into a temporary directory outside this repository. No upstream source was copied into Agent Relay, and no real Claude authentication or global configuration was changed.
 
+Post-M0 validation note: the project owner separately validated Claude Code 2.1.276 authentication persistence in `~/.config/agent-relay/profiles/megan/claude` and confirmed that the default Claude account remained unaffected. Agent Relay has not inspected or modified that directory. This strengthens the profile-isolation evidence but does not validate cross-profile session transfer.
+
 ## Executive conclusion
 
 Claude Code officially supports side-by-side isolated environments through `CLAUDE_CONFIG_DIR`. On current macOS builds, authentication is scoped to the configuration directory through a directory-derived Keychain service, with a mode-0600 credentials file as a documented fallback. This is sufficient to keep profile A and profile B authenticated without logging the whole machine out.
@@ -330,4 +332,3 @@ The Herdr core is Apache-2.0. The three inspected Herdr plugins, Nemo's switcher
 - Claude's version can change independently of Relay. Native transfer must use a tested compatibility table, not an open-ended semver assumption.
 - A successful `claude --resume` process start is insufficient verification; the structured target event and identity checks are required.
 - The architecture must continue to provide safe state continuation if native transfer disappears entirely.
-
