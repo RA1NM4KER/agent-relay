@@ -1,6 +1,6 @@
 //! M2B.5 part B: explicit, safe resolution for a target profile that already holds a session
 //! transcript conflicting with what would be staged from the source — the exact situation M2B's
-//! reverse-handoff live test hit (Erika's directory still held her own stale pre-handoff copy),
+//! reverse-handoff live test hit (the target's directory still held its own stale pre-handoff copy),
 //! which at the time required a human to delete the file manually. This module lets Relay
 //! classify and resolve that safely instead.
 

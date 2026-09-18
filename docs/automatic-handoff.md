@@ -6,10 +6,10 @@ profile and invoke `relay watch run`. Relay is not a daemon.
 ## One-time setup (per profile)
 
 ```sh
-relay integration claude install --profile erika --dry-run   # preview every change
-relay integration claude install --profile erika
-relay integration claude install --profile megan
-relay integration claude status  --profile erika
+relay integration claude install --profile profile-a --dry-run   # preview every change
+relay integration claude install --profile profile-a
+relay integration claude install --profile profile-b
+relay integration claude status  --profile profile-a
 ```
 
 What gets installed, in that profile's `settings.json` only (never `~/.claude` unless you pass
@@ -29,7 +29,7 @@ Existing hooks are preserved. Install refuses on an unverified/unsupported Claud
 
 ```sh
 relay watch run \
-  --profile erika --fallback megan \
+  --profile profile-a --fallback profile-b \
   --project ~/repos/foo --session <session-id> \
   [--workload-model opus]
 ```
@@ -77,8 +77,8 @@ run against a profile already recorded exhausted).
 ## Uninstall
 
 ```sh
-relay integration claude uninstall --profile erika --dry-run
-relay integration claude uninstall --profile erika
+relay integration claude uninstall --profile profile-a --dry-run
+relay integration claude uninstall --profile profile-a
 ```
 
 Restores `settings.json` byte for byte if unchanged since install; otherwise removes only Relay's

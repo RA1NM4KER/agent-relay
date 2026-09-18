@@ -3,8 +3,8 @@
 ## Current milestone
 
 v0.1.0 standalone checkpoint (M2C.1 plus release hygiene: README quickstart, redacted docs/fixtures,
-integration writes gated on an active install manifest). Megan -> Erika was NOT re-run live on the
-M2C.1 code because the validating session itself ran under the Megan profile (see below).
+integration writes gated on an active install manifest). Profile B -> Profile A was NOT re-run live on the
+M2C.1 code because the validating session itself ran under the Profile B profile (see below).
 M2C.1 complete — real, structured usage detection (StopFailure hook, statusline `rate_limits`,
 stream-json `rate_limit_event`), an opt-in installer for them, automatic startup recovery, and
 version/capability gating; details in the M2C.1 entry below and `docs/automatic-handoff.md`.
@@ -17,9 +17,9 @@ own documented command) replaces raw `kill` as the source-stop mechanism, verifi
 across multiple consecutive observations before a handoff proceeds. Live validation of this
 milestone found and fixed a real polarity bug in M2B.5's liveness check (a killed pid was wrongly
 allowed to override a still-listed, dormant/resurrectable session to "not active"). Both directions
-of the Erika/Megan handoff, including a real competing-launch refusal and the authoritative-stop
+of the Profile A/Profile B handoff, including a real competing-launch refusal and the authoritative-stop
 flow, are live-validated on the disposable repo. M2B.5's conflict resolution, M2B's transactional
-handoff, M2A's SESSION_CONTINUATION guarantee, and M1.5's real Erika/Megan adoption remain complete
+handoff, M2A's SESSION_CONTINUATION guarantee, and M1.5's real Profile A/Profile B adoption remain complete
 underneath it. 
 
 ## Completed
@@ -38,16 +38,16 @@ underneath it.
 - Added the optional Herdr module boundary without an integration dependency.
 - Added corruption, identity, auth, path, symlink, permissions, secret-redaction, adoption, and atomic-failure tests.
 - Added macOS/Linux CI configuration.
-- Recorded the owner's separate successful Megan profile-isolation validation without inspecting the profile.
+- Recorded the owner's separate successful Profile B profile-isolation validation without inspecting the profile.
 - Implemented `profile inspect-existing --provider claude` with executable/version validation, environment conflict detection, bounded command execution, and closed schema parsing.
 - Implemented reference-only `profile adopt --dry-run` with an exact Relay-owned write plan.
 - Defined a versioned non-secret Claude identity pin and fail-closed compatibility policy.
 - Added zero-write, malformed-output, secret-redaction, environment override, executable, version, identity, ownership, and dry-run tests.
-- Revalidated Erika and Megan as owned, non-symlinked, mode-0700 profile directories.
+- Revalidated Profile A and Profile B as owned, non-symlinked, mode-0700 profile directories.
 - Added fixture-tested support for the Claude Code 2.1.276 auth-status schema and verification of its reported config/project paths.
-- Completed read-only inspection and zero-write adoption dry-runs for Erika and Megan.
+- Completed read-only inspection and zero-write adoption dry-runs for Profile A and Profile B.
 - Verified recursive filesystem metadata for both Claude profile trees and the default `~/.claude` tree remained unchanged.
-- Confirmed distinct Erika and Megan non-secret identity pins after Erika's authentication correction.
+- Confirmed distinct Profile A and Profile B non-secret identity pins after Profile A's authentication correction.
 - Added default rejection of duplicate provider-scoped identity pins in core registration and Claude adoption dry-run.
 - Implemented `ClaudeAdoptionProvider`, a real (non-fake) `Provider` that re-inspects immediately
   before Relay's registry write; gating (authentication, identity presence) stays in
@@ -59,24 +59,24 @@ underneath it.
 - Added tests for real registration success, duplicate-name rejection, duplicate-identity
   rejection, unauthenticated fail-closed behavior, zero writes to any Claude directory, and no
   stray atomic-write temp files; 52 tests pass (was 45); fmt and Clippy pass.
-- Confirmed via `--dry-run` against the real Erika and Megan profile directories that both would
+- Confirmed via `--dry-run` against the real Profile A and Profile B profile directories that both would
   succeed with distinct identity pins under the new code path (zero writes; matches prior M1.5
   validation), before performing the real adoption below.
 - Fixed a pre-existing permission gap found while preparing real adoption: `~/.config/agent-relay`
-  and `~/.config/agent-relay/profiles` were mode 0755 (only the leaf `.../erika/claude` and
-  `.../megan/claude` were correctly 0700), which would have made `ProfileDirectory::prepare_root`
+  and `~/.config/agent-relay/profiles` were mode 0755 (only the leaf `.../profile-a/claude` and
+  `.../profile-b/claude` were correctly 0700), which would have made `ProfileDirectory::prepare_root`
   fail closed with `unsafe_permissions`. Tightened both to 0700 with the owner's explicit
   confirmation; no Claude directory was touched by this fix.
-- Performed real, non-dry-run adoption of both Erika and Megan. `~/.config/agent-relay/profiles.toml`
+- Performed real, non-dry-run adoption of both Profile A and Profile B. `~/.config/agent-relay/profiles.toml`
   (mode 0600) now holds both profiles with origin `adopted`, distinct non-secret identity pins
   (distinct normalized email + organization ID), and no credential material.
 - Verified `profile status` and `profile doctor` report `healthy: true` / `identity_matches: true`
-  for both Erika and Megan against the real Claude executable.
-- Verified recursive filesystem metadata for both Claude profile trees (`.../erika/claude`,
-  `.../megan/claude`) and the default `~/.claude` tree: no file or directory mtimes changed as a
+  for both Profile A and Profile B against the real Claude executable.
+- Verified recursive filesystem metadata for both Claude profile trees (`.../profile-a/claude`,
+  `.../profile-b/claude`) and the default `~/.claude` tree: no file or directory mtimes changed as a
   result of adoption; the only write was to Relay's own `profiles.toml`.
 - **M2A (approved): proved cross-profile Claude session continuation live**, on a new disposable
-  repo `~/repos/agent-relay-session-test` (never Schoolscape or other production work):
+  repo `~/repos/agent-relay-session-test` (never any production work):
   - Added `relay-provider-claude::session_transfer` (`discover_session`, `stage_transfer`,
     `escape_project_path`, `validate_session_id`, `ensure_supported_claude_version`,
     `ProcessLister`/`SystemProcessLister`) and wired `relay session stage-transfer
@@ -84,26 +84,26 @@ underneath it.
     Relay's own `FsAtomicWriter` (temp file, mode 0600, fsync, atomic rename, directory fsync) so
     a staged transcript is never more exposed than the original; every written artifact is
     re-hashed against the source before being reported. The source is only ever read.
-  - Live run: started a real session under Erika (`claude -p --session-id <uuid>` in the
+  - Live run: started a real session under Profile A (`claude -p --session-id <uuid>` in the
     disposable repo), made a harmless commit, recorded session id `8586fe71-395b-4449-
     b973-78011d561fed`, transcript
-    `~/.config/agent-relay/profiles/erika/claude/projects/-<escaped-project-path>/8586fe71-....jsonl` (sha256 `b697a049...ace3e7fb`, 261250 bytes, 67 lines).
-    Verified no Claude process remained for Erika's config dir afterward.
-  - Staged that transcript to Megan via the new CLI command; target hash matched the source
-    exactly before Megan ever touched it.
-  - Resumed under Megan with `claude -p --resume <same-session-id>` (no `--fork-session`) and
+    `~/.config/agent-relay/profiles/profile-a/claude/projects/-<escaped-project-path>/8586fe71-....jsonl` (sha256 `b697a049...ace3e7fb`, 261250 bytes, 67 lines).
+    Verified no Claude process remained for Profile A's config dir afterward.
+  - Staged that transcript to Profile B via the new CLI command; target hash matched the source
+    exactly before Profile B ever touched it.
+  - Resumed under Profile B with `claude -p --resume <same-session-id>` (no `--fork-session`) and
     asked it to recall, from memory only, the file it created and the exact approval sequence
     that had blocked the commit. It answered correctly on both counts — detail only present in
     the transcript's turn history, not recoverable from file or git state alone. This is the
     basis for calling M2A genuine **SESSION_CONTINUATION** for this Claude Code version, not
     merely STATE_CONTINUATION.
-  - Continued the same session under Megan to make and commit a second harmless change
+  - Continued the same session under Profile B to make and commit a second harmless change
     (`cb5d865`); same session id throughout.
   - Live-tested five of the six required failure cases through the real CLI: wrong/unregistered
     target profile (`profile_not_found`), missing session id (`session_not_found`), wrong project
     directory (`session_not_found`), a diverging pre-existing target artifact
     (`target_artifact_diverges`, target left untouched), and a genuinely live source profile via a
-    real backgrounded Erika session (`source_profile_active`). The sixth (unsupported Claude
+    real backgrounded Profile A session (`source_profile_active`). The sixth (unsupported Claude
     version/layout) is unit-tested only (`ensure_supported_claude_version`) — not live-tested,
     since that would require installing a second, unsupported Claude Code build against a real
     account.
@@ -147,20 +147,20 @@ underneath it.
     atomic-write failure preserving prior content, and recovering an already-terminal transaction
     twice (idempotent).
   - **Live validation on the disposable repo**, both directions:
-    - Started a fresh session under Erika (`cb0b14b8-6a6a-4e5e-b008-bfba1b4ebf87`), committed
+    - Started a fresh session under Profile A (`cb0b14b8-6a6a-4e5e-b008-bfba1b4ebf87`), committed
       `m2b.txt` (`524a24d`).
-    - `relay handoff run --from erika --to megan`: reached `COMPLETE` in ~5.4s; journal recorded
+    - `relay handoff run --from profile-a --to profile-b`: reached `COMPLETE` in ~5.4s; journal recorded
       the checkpoint, the staged/hash-verified artifact, and target verification; lease moved to
-      `megan`; no leftover Claude process for either profile afterward.
-    - Continued the session under Megan for real (not just the verification canary): it correctly
+      `profile-b`; no leftover Claude process for either profile afterward.
+    - Continued the session under Profile B for real (not just the verification canary): it correctly
       recalled the file it had created and appended a second line, committing `5baebe6`.
-    - `relay handoff run --from megan --to erika` (reverse direction): the **first attempt
-      correctly failed closed** with `target_artifact_diverges` — Erika's directory still held her
+    - `relay handoff run --from profile-b --to profile-a` (reverse direction): the **first attempt
+      correctly failed closed** with `target_artifact_diverges` — Profile A's directory still held its
       own stale pre-handoff copy of the transcript, and the M2A divergence guard refused to
       silently overwrite it. This is the expected, correct behavior, not a bug; there is no
       conflict-resolution command yet, so resolving it required an explicit operator decision
-      (deleting the known-stale copy, which Erika had not written to since ownership moved away)
-      before retrying. The retry then reached `COMPLETE` normally; lease moved back to `erika`.
+      (deleting the known-stale copy, which Profile A had not written to since ownership moved away)
+      before retrying. The retry then reached `COMPLETE` normally; lease moved back to `profile-a`.
     - Verified live (not just via unit tests): `relay lock status` reporting the correct current
       owner at each step; no active Claude process for either profile at any checkpoint; a
       same-owner-required rejection (`writer_lease_owned_by_another_profile`) when attempting a
@@ -206,14 +206,14 @@ underneath it.
     stronger flag), an always-refused active target, rollback with and without a backup, and
     corrupted resolution metadata failing closed.
   - **Live validation, both directions, with zero manual file deletion**: `relay handoff run
-    --from erika --to megan` initially failed closed (`target_artifact_diverges`, Megan's
+    --from profile-a --to profile-b` initially failed closed (`target_artifact_diverges`, Profile B's
     directory still held a stale copy from the earlier M2B run); `session conflict inspect`
     correctly classified it `target_stale_ancestor`; `session conflict resolve --yes` backed it up
     and replaced it; the handoff then completed. The same sequence was repeated for the reverse
-    direction (`--from megan --to erika`) — the exact scenario M2B's report had required a manual
+    direction (`--from profile-b --to profile-a`) — the exact scenario M2B's report had required a manual
     `rm` for.
-  - **Live competing-writer test**: with a real `relay launch`-started writer alive under Erika,
-    both a second `relay launch --profile erika` and a `relay launch --profile megan` for the same
+  - **Live competing-writer test**: with a real `relay launch`-started writer alive under Profile A,
+    both a second `relay launch --profile profile-a` and a `relay launch --profile profile-b` for the same
     project were correctly refused (`writer_already_active`).
   - **Live crash/stale-ownership test**: after a clean `claude stop` of the managed writer, a
     subsequent `relay launch` correctly detected the recorded pid was confirmed gone and proceeded
@@ -245,23 +245,23 @@ underneath it.
     quiet reading, resets on reappearance, resets when a corroborating pid is still confirmed
     live, reaches quiescence with no recorded pid at all), and the coordinator now stopping an
     active source rather than refusing it outright.
-  - **Live validation, both directions**: launched a real Erika writer via `relay launch`;
+  - **Live validation, both directions**: launched a real Profile A writer via `relay launch`;
     recorded its session id and pid; killed the reported pid and confirmed a competing launch was
-    still correctly refused; ran `relay handoff run --from erika --to megan`, whose journal notes
+    still correctly refused; ran `relay handoff run --from profile-a --to profile-b`, whose journal notes
     show `"source authoritatively stopped and verified quiescent"` — the authoritative stop
     correctly resolved the dormant/killed session with no manual process killing beyond the single
     intentional demonstration kill. The reverse handoff hit the same known stale-artifact case as
-    M2B.5 (Erika's own pre-handoff copy) and was resolved the same way, via `session conflict
+    M2B.5 (Profile A's own pre-handoff copy) and was resolved the same way, via `session conflict
     resolve --yes`, with zero manual transcript deletion. Both directions reached `COMPLETE`.
 
 - **M2B.75 adversarial soak test (approved scope: break the existing lifecycle/handoff
   implementation on the disposable repo; no M2C work)**: exercised authoritative-stop
   verification, writer ownership, daemon PID reassignment, dormant/resurrectable sessions, rapid
-  stop/start cycles, chained Erika<->Megan handoffs (7+ hops), conflict resolution, and crash
+  stop/start cycles, chained Profile A<->Profile B handoffs (7+ hops), conflict resolution, and crash
   recovery, all live against the disposable repo and real adopted profiles.
   - Found and fixed a real gap: `relay session conflict rollback` had no active-target guard at
     all, unlike `resolve_conflict`'s explicit `TargetActive` refusal. Live-reproduced: resumed a
-    session directly under Megan (bypassing Relay) so it was genuinely active, then ran
+    session directly under Profile B (bypassing Relay) so it was genuinely active, then ran
     `relay session conflict rollback` for that exact session — it silently overwrote the live
     transcript with an older backup, discarding real in-flight turns, with no refusal and no
     warning. Fixed by giving `rollback_conflict` the same `target_active: bool` parameter and
@@ -276,7 +276,7 @@ underneath it.
     a chained authoritative-stop handoff resolved a dormant session with zero manual process
     killing; two fully concurrent `relay launch` calls against the same project were serialized by
     the orchestration lock with exactly one winner and no leaked lock/lease state across four rapid
-    launch/stop cycles; seven consecutive Erika<->Megan handoffs (beyond the two previously
+    launch/stop cycles; seven consecutive Profile A<->Profile B handoffs (beyond the two previously
     validated) showed no degradation, each correctly demanding explicit stale/divergent conflict
     resolution before proceeding; `relay recover` correctly reached `Failed{Stop}` for a
     `relay handoff run` process killed during `SOURCE_STOPPING` and `RecoveryRequired` for one
@@ -349,19 +349,19 @@ underneath it.
     (verified, fingerprint mismatch untouched, no fingerprint fails closed), process-table scan
     matching, and the optional interactive `id`.
   - **Live validation** (disposable repo only, simulated exhaustion, real handoff machinery):
-    a real `relay launch` Erika writer was handed off by `watch run` to Megan in 8.8 s (COMPLETE,
-    same session id, Erika listing empty, Megan owns the lease, Megan's transcript extends Erika's
+    a real `relay launch` Profile A writer was handed off by `watch run` to Profile B in 8.8 s (COMPLETE,
+    same session id, Profile A listing empty, Profile B owns the lease, Profile B's transcript extends Profile A's
     byte for byte). Relay was SIGKILLed during `TARGET_STARTING` with the `claude -p --resume`
     orphan alive; `recover` stopped/confirmed it, re-verified, completed, preserved every earlier
     transcript byte, left no process. That was repeated with and without the spawn reaching the
     journal. A real orphan left by an earlier interrupted run was also recovered this way. No
     capacity (both profiles exhausted) reported `WAITING_FOR_CAPACITY` with zero journal or lease
     change; cooldown and the pending-recovery gate were exercised live.
-  - **Not live-validated**: Megan -> Erika through `watch run`. The M2A guard refuses staging
-    from any profile that has a running Claude process, and this validation ran inside a Megan
+  - **Not live-validated**: Profile B -> Profile A through `watch run`. The M2A guard refuses staging
+    from any profile that has a running Claude process, and this validation ran inside a Profile B
     session, so it was correctly refused (`source_profile_active`, transaction FAILED, no state
-    change). The reverse path is exercised by the same code and by tests, and a Megan -> Erika
-    handoff completed earlier in M2B/M2B.5/M2B.75; repeat it with no Megan Claude process running.
+    change). The reverse path is exercised by the same code and by tests, and a Profile B -> Profile A
+    handoff completed earlier in M2B/M2B.5/M2B.75; repeat it with no Profile B Claude process running.
 
 - **M2C.1: standalone-readiness pass (structured usage detection, integration installer, startup
   recovery, capability gating).**
@@ -396,16 +396,16 @@ underneath it.
   - **Capability gating**: per-capability Verified/Unverified/Unsupported with runtime checks
     (`--help` stream-json, `agents --json` shape); newer 2.1.x patches are Unverified (install
     refuses without `--allow-unverified-version`), other release lines Unsupported.
-  - 243 tests pass (was 191). **Live validation** (disposable repos, Erika/Megan real adopted
+  - 243 tests pass (was 191). **Live validation** (disposable repos, Profile A/Profile B real adopted
     profiles, no quota exhausted): installed into both; real StopFailure/statusline payloads run
     through the installed hook commands; StopFailure alone, transient 429 at 40%, stale statusline,
-    NearLimit 95% and statusline-100%-without-refusal all did NOT hand off; corroborated Erika ->
-    Megan handed off automatically twice (evidence `stop_failure_corroborated`, reset recorded);
+    NearLimit 95% and statusline-100%-without-refusal all did NOT hand off; corroborated Profile A ->
+    Profile B handed off automatically twice (evidence `stop_failure_corroborated`, reset recorded);
     RESET_PENDING excluded the exhausted profile from target selection; Relay SIGKILLed with a live
     `claude -p --resume` orphan, restart recovered (orphan stopped, transaction COMPLETE, lease
     moved, no second writer); uninstall restored both settings.json files byte for byte. The real
-    statusline of the running Megan session was captured with genuine `rate_limits` data.
-  - **Not live-validated**: Megan -> Erika via `watch run` (this validation ran inside a Megan
+    statusline of the running Profile B session was captured with genuine `rate_limits` data.
+  - **Not live-validated**: Profile B -> Profile A via `watch run` (this validation ran inside a Profile B
     session, so the per-profile active-process guard would correctly refuse; covered by tests and the
     earlier owner validation). A real refusal (`StopFailure` from an actually exhausted account) was
     never observed and no quota was burned.
@@ -457,8 +457,8 @@ underneath it.
 ## Next exact action
 
 M2C.1 is done. Remaining before Herdr/public release: observe a genuine exhaustion end to end (the
-statusline snapshot and StopFailure payload on a real limit), repeat Megan -> Erika through
-`watch run` with no Megan process, and decide packaging (the installed hooks embed the relay path).
+statusline snapshot and StopFailure payload on a real limit), repeat Profile B -> Profile A through
+`watch run` with no Profile B process, and decide packaging (the installed hooks embed the relay path).
 The text below is the earlier M2C-era note.
 
 
@@ -467,4 +467,4 @@ unattended (non-`--probe`) usage detection, and before trusting this path across
 version/layout other than 2.1.276 or any launch mode other than foreground `-p` / `--bg`.
 Given M2B.75 and M2C each found real bugs during live validation, treat any further Claude
 `--bg`/interactive daemon behavior assumption as unverified until it has been tested live. First
-follow-up: repeat Megan -> Erika through `relay watch run` with no Megan Claude process running.
+follow-up: repeat Profile B -> Profile A through `relay watch run` with no Profile B Claude process running.

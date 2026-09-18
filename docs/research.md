@@ -4,7 +4,7 @@ Research date: 2026-09-18
 
 This report records source-level research used to choose Agent Relay's architecture. Repositories were cloned into a temporary directory outside this repository. No upstream source was copied into Agent Relay, and no real Claude authentication or global configuration was changed.
 
-Post-M0 validation note: the project owner separately validated Claude Code 2.1.276 authentication persistence in isolated Erika and Megan directories and confirmed that the default Claude account remained unaffected. M1.5 subsequently inspected both profiles read-only. This strengthens the profile-isolation evidence but does not validate cross-profile session transfer.
+Post-M0 validation note: the project owner separately validated Claude Code 2.1.276 authentication persistence in isolated Profile A and Profile B directories and confirmed that the default Claude account remained unaffected. M1.5 subsequently inspected both profiles read-only. This strengthens the profile-isolation evidence but does not validate cross-profile session transfer.
 
 ## Executive conclusion
 
@@ -320,10 +320,10 @@ Account ID takes precedence when available. Without an account ID, normalized em
 
 After the owner corrected the profile preconditions, Relay validated both mode-0700 directories on 2026-09-18. Claude Code 2.1.276 returned these top-level fields for each profile: `analyticsDisabled` (boolean), `apiProvider` (string), `authMethod` (string), `configDirectory` (string), `email` (string), `loggedIn` (boolean), `orgId` (string), `orgName` (string), `projectsDirectory` (string), and `subscriptionType` (string). Relay added this exact schema to its fixtures and now verifies the two reported directory paths against the selected canonical profile directory.
 
-After Erika's authentication was corrected, both inspections and both adoption dry-runs passed their safety checks. Neither result supplied an account UUID, so the identity pins use normalized email plus organization ID, with authentication method and API provider as context:
+After Profile A's authentication was corrected, both inspections and both adoption dry-runs passed their safety checks. Neither result supplied an account UUID, so the identity pins use normalized email plus organization ID, with authentication method and API provider as context:
 
-- Erika: `erika@example.com`, organization `org-erika` (values redacted for publication);
-- Megan: `megan@example.com`, organization `org-megan` (values redacted for publication);
+- Profile A: `profile-a@example.com`, organization `org-profile-a` (values redacted for publication);
+- Profile B: `profile-b@example.com`, organization `org-profile-b` (values redacted for publication);
 - both: authentication method `claude.ai`, API provider `firstParty`.
 
 The two pins are distinct, establishing two separately authenticated identities for profile-adoption purposes. Relay now also rejects a provider-scoped identity pin already registered under another profile name. Aliasing has no implicit path and would require a future explicit override design. No raw provider output was persisted or surfaced, no credential or Keychain contents were inspected, and recursive filesystem metadata for both profile trees and the default `~/.claude` tree was unchanged before and after validation. Cross-profile session transfer remains unverified.

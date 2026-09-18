@@ -25,4 +25,4 @@ All notable changes to Agent Relay will be documented here.
 - Native cross-profile Claude session transfer remains explicitly best-effort and version-gated.
 - M1 performs no real Claude authentication or configuration access.
 - M1.5 rejects missing, symlinked, externally escaped, wrongly owned, or group/other-accessible Claude profile directories before invoking Claude.
-- Real M1.5 validation made no filesystem changes and confirmed distinct Erika and Megan identity pins after the Erika authentication correction.
+- Real M1.5 validation made no filesystem changes and confirmed distinct Profile A and Profile B identity pins after the Profile A authentication correction.
