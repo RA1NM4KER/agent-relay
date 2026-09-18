@@ -1,56 +1,133 @@
 # Agent Relay
 
-Agent Relay is an early-stage, local-first orchestrator for explicitly handing an active coding-agent workflow from one authenticated profile to another. Its core job is continuity with single-writer safety—not hidden account rotation, request pooling, or credential storage.
+Agent Relay is a local-first orchestrator for **explicitly** handing an active Claude Code session
+from one authenticated profile to another, with single-writer safety. It is continuity, not hidden
+account rotation: it never stores credentials, never pools quota, and never switches profiles
+unless you run it.
 
-The repository has completed milestone M1: provider-neutral profile storage and a FakeProvider CLI. It is still pre-alpha and must not be used for real Claude handoffs yet.
+Status: **v0.1.0, standalone, macOS-first.** The handoff, recovery and usage-detection paths are
+validated live on macOS with Claude Code 2.1.276 and 2.1.277. Linux builds and passes the tests in
+CI but has not been validated live (some process-scan code is macOS-specific).
 
-## M1 development commands
+## Prerequisites
 
-```sh
-cargo run -p relay-cli -- profile add erika --provider fake
-cargo run -p relay-cli -- profile list
-cargo run -p relay-cli -- profile status erika
-cargo run -p relay-cli -- profile doctor erika
-cargo run -p relay-cli -- profile remove erika
-```
+- Rust (the exact toolchain is pinned in `rust-toolchain.toml`; install [rustup](https://rustup.rs)
+  and it is fetched automatically).
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) **2.1.x, currently 2.1.276–2.1.277**
+  (`claude --version`). Other release lines are refused; a newer 2.1.x patch works for handoff but
+  the usage integration asks for `--allow-unverified-version`.
+- Two Claude accounts, each logged in inside its **own isolated config directory** (see below).
+- `git` (Relay checkpoints a project's git state before a handoff).
 
-Add `--json` anywhere after `relay` for a versioned machine-readable envelope. Fake profiles are stored beneath `~/.config/agent-relay/profiles/<name>/fake` by default. Removing a profile unregisters it but deliberately retains its provider directory.
-
-The M1 Claude boundary contained non-executing process plans only. No M1 command authenticated, inspected, launched, or modified a real Claude profile.
-
-M1.5 adds read-only inspection and dry-run planning:
-
-```sh
-relay profile inspect-existing --provider claude --config-dir /absolute/profile/path
-relay profile adopt NAME --provider claude --config-dir /absolute/profile/path --dry-run
-```
-
-Both commands fail closed on unsafe paths, permissions, environment overrides, executable versions, or unknown auth-status schemas. Dry-run never changes Relay or Claude state.
-
-## Automatic handoff
-
-Opt-in, usage-triggered handoff between profiles: see [docs/automatic-handoff.md](docs/automatic-handoff.md).
+## Build
 
 ```sh
-relay integration claude install --profile erika
-relay watch run --profile erika --fallback megan --project ~/repos/foo --session <id>
+git clone <this repository> && cd agent-relay
+cargo build --release
+# binary: target/release/relay   (copy it onto your PATH, e.g. ~/.local/bin)
 ```
 
-## Safety principles
+`cargo install --path crates/relay-cli` also works. The installed hook commands embed the absolute
+path of the `relay` binary that installed them, so install the integration from the binary you
+intend to keep.
 
-- Every active profile and handoff is visible and auditable.
-- Only one Relay-managed writer may operate on a project at a time.
-- Relay references provider-owned authentication directories; it does not store OAuth tokens.
-- Native session continuation is claimed only after the target session is verified.
-- When native continuation is unavailable, Relay explicitly labels the result as state continuation.
-- Automatic handoff is out of scope until manual handoff is reliable.
+## Quickstart
 
-See [the research report](docs/research.md), [architecture](docs/architecture.md), and [threat model](docs/security.md).
+1. **Create two isolated Claude profiles and log in to each** (Relay never touches credentials):
 
-## Status
+   ```sh
+   mkdir -p -m 700 ~/.config/agent-relay/profiles/alice/claude ~/.config/agent-relay/profiles/bob/claude
+   CLAUDE_CONFIG_DIR=~/.config/agent-relay/profiles/alice/claude claude   # then /login
+   CLAUDE_CONFIG_DIR=~/.config/agent-relay/profiles/bob/claude   claude   # then /login
+   ```
 
-Agent Relay is not ready for real-provider use. M1 commands execute only against FakeProvider.
+2. **Adopt them** (reference-only; preview first with `--dry-run`):
+
+   ```sh
+   relay profile adopt alice --provider claude --config-dir ~/.config/agent-relay/profiles/alice/claude --dry-run
+   relay profile adopt alice --provider claude --config-dir ~/.config/agent-relay/profiles/alice/claude
+   relay profile adopt bob   --provider claude --config-dir ~/.config/agent-relay/profiles/bob/claude
+   relay profile doctor alice
+   ```
+
+   Two profiles with the same account identity are rejected.
+
+3. **(Optional but recommended) install the usage integration** so Relay can detect a real limit:
+
+   ```sh
+   relay integration claude install --profile alice --dry-run
+   relay integration claude install --profile alice
+   relay integration claude install --profile bob
+   ```
+
+4. **Start work as a Relay-managed writer, then let Relay watch it:**
+
+   ```sh
+   relay launch --profile alice --project-dir ~/repos/foo "your prompt"      # prints the session id
+   relay watch run --profile alice --fallback bob --project ~/repos/foo --session <session-id>
+   ```
+
+   `watch run` is one evaluation, not a daemon; run it from cron or a shell loop. When alice is
+   truly exhausted it performs the transactional handoff to bob; otherwise it does nothing.
+
+Manual handoff, no usage detection needed:
+
+```sh
+relay handoff run --from alice --to bob --project ~/repos/foo --session <session-id>
+```
+
+## Is the integration required?
+
+**Optional.** Manual `relay handoff run` and `relay launch` work without it. Without the integration,
+`relay watch run` has no free usage signal and reports `UNKNOWN` (never handing off) unless you pass
+`--probe`, an explicit diagnostic that **spends a real API request**. Install it per profile if you
+want automatic handoff. See [docs/automatic-handoff.md](docs/automatic-handoff.md) for exactly what it
+installs, the detection policy, reset windows and uninstall.
+
+## Recovery and conflicts
+
+- `relay lock status --project-dir DIR` shows the writer lease and whether a transaction is running.
+- `relay handoff status` and the journal under Relay's state directory record every attempt.
+- `relay watch run` recovers an interrupted transaction automatically before doing anything else.
+  You can also run it by hand: `relay recover <transaction-id> --project-dir DIR`, and, only after
+  confirming no target process is resuming the session, `relay recover <id> --project-dir DIR --acknowledge`.
+- If the target profile holds an older or different copy of the transcript, inspect it and resolve it
+  through Relay (never delete transcripts by hand):
+
+  ```sh
+  relay session conflict inspect  --source-profile A --target-profile B --project-dir DIR --session-id ID
+  relay session conflict resolve  --source-profile A --target-profile B --project-dir DIR --session-id ID [--yes]
+  relay session conflict rollback --target-profile B --project-dir DIR --session-id ID
+  ```
+
+  Resolve previews unless `--yes`; a stale ancestor is replaced (with a backup) after `--yes`; a
+  genuinely divergent copy additionally needs `--force-discard-divergent`.
+
+## Limitations
+
+- One writer per project; a handoff is refused while the source profile has any live Claude process.
+- The statusline usage snapshot only refreshes in interactive sessions; headless sessions leave it
+  stale, and stale means `UNKNOWN` (no handoff).
+- No automatic fail-back, quota pooling, or Herdr/terminal integration yet.
+- A handoff spends one small real API turn to verify the target session.
+- Claude's transcript layout and `--resume` behavior are not a stable public API; Relay gates on
+  validated versions and fails closed.
+
+## Security model
+
+Relay references provider-owned config directories; it never reads, copies or stores OAuth tokens,
+cookies, API keys or Keychain data, and removes credential-override environment variables before
+running Claude. Profile directories must be private (0700), non-symlinked and user-owned. All state
+writes are atomic, journals and logs hold only states, ids and filenames (never transcript contents
+or provider error bodies), and the usage integration records only closed structured metadata.
+Every mutating step is opt-in and previewable. Details: [docs/security.md](docs/security.md).
+
+## More
+
+[Automatic handoff](docs/automatic-handoff.md) · [architecture](docs/architecture.md) ·
+[threat model](docs/security.md) · [research](docs/research.md) · [status](STATUS.md) ·
+[changelog](CHANGELOG.md)
 
 ## License
 
-Apache-2.0.
+Apache-2.0 (see `LICENSE`; dependency notices in `THIRD_PARTY_NOTICES.md`).

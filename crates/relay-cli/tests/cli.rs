@@ -334,7 +334,7 @@ fn real_adoption_registers_the_profile_and_leaves_the_claude_directory_untouched
     std::fs::write(profile.join("sentinel"), "unchanged").expect("sentinel");
     let executable = fake_claude(
         root.path(),
-        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"account-erika","email":"erika@schoolscape.co.za","orgId":"org-1"}"#,
+        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"account-erika","email":"erika@example.com","orgId":"org-1"}"#,
     );
     let profile_text = profile.to_string_lossy().to_string();
     let executable_text = executable.to_string_lossy().to_string();
@@ -425,7 +425,7 @@ fn real_adoption_rejects_duplicate_profile_name_without_mutating_the_registry() 
     secure_relay_config_ancestors(root.path());
     let first_executable = fake_claude(
         root.path(),
-        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"erika@schoolscape.co.za"}"#,
+        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"erika@example.com"}"#,
     );
     let adopt_first = relay(
         root.path(),
@@ -449,7 +449,7 @@ fn real_adoption_rejects_duplicate_profile_name_without_mutating_the_registry() 
     create_private_dir(&second_profile);
     let second_executable = fake_claude(
         root.path(),
-        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"someone-else@schoolscape.co.za"}"#,
+        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"someone-else@example.com"}"#,
     );
     let claude_dir_before = snapshot(&second_profile);
 
@@ -487,7 +487,7 @@ fn real_adoption_rejects_duplicate_identity_pin_across_profile_names() {
     secure_relay_config_ancestors(root.path());
     let first_executable = fake_claude(
         root.path(),
-        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"same@schoolscape.co.za","orgId":"org-1"}"#,
+        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"same@example.com","orgId":"org-1"}"#,
     );
     let adopt_first = relay(
         root.path(),
@@ -511,7 +511,7 @@ fn real_adoption_rejects_duplicate_identity_pin_across_profile_names() {
     create_private_dir(&second_profile);
     let second_executable = fake_claude(
         root.path(),
-        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"same@schoolscape.co.za","orgId":"org-1"}"#,
+        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"same@example.com","orgId":"org-1"}"#,
     );
     let claude_dir_before = snapshot(&second_profile);
 

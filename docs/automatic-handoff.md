@@ -66,7 +66,7 @@ Every `watch run` first inspects the project's current transaction. An interrupt
 (orphan target process stopped and confirmed, target re-verified, transcript turns kept) **before
 anything new starts**, and that round ends with `Recovered`; run again to continue. If recovery is
 ambiguous the command exits non-zero with `recovery_required` and starts nothing — run
-`relay recover <id> --project …` (or `--acknowledge` after confirming no target is running).
+`relay recover <id> --project-dir …` (or `--acknowledge` after confirming no target is running).
 
 ## What never happens automatically
 

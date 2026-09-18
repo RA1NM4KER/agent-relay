@@ -104,6 +104,16 @@ mod tests {
             "must not create the directory"
         );
         fs::create_dir(dir.path().join(INTEGRATION_DIR)).unwrap();
+        handle_stop_failure(dir.path(), payload, 1);
+        assert!(
+            !dir.path().join(INTEGRATION_DIR).join("signals").exists(),
+            "no manifest means no active install"
+        );
+        fs::write(
+            dir.path().join(INTEGRATION_DIR).join("manifest.json"),
+            b"{}",
+        )
+        .unwrap();
         handle_stop_failure(dir.path(), payload, 2);
         handle_stop_failure(dir.path(), b"garbage", 3);
         let signals = read_profile_signals(dir.path());

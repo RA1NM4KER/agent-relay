@@ -420,6 +420,11 @@ mod tests {
         fn profile() -> tempfile::TempDir {
             let dir = tempdir().expect("temp");
             fs::create_dir(dir.path().join(INTEGRATION_DIR)).expect("integration dir");
+            fs::write(
+                dir.path().join(INTEGRATION_DIR).join("manifest.json"),
+                b"{}",
+            )
+            .expect("manifest marks an active install");
             dir
         }
 

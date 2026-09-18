@@ -335,8 +335,12 @@ fn read_bounded(path: &Path) -> Option<Vec<u8>> {
 
 fn write_signal(config_dir: &Path, file: &str, bytes: &[u8]) -> Result<()> {
     let integration = integration_dir(config_dir);
-    // Signals are only ever written into a profile that opted in via `integration install`.
-    if !fs::symlink_metadata(&integration).is_ok_and(|metadata| metadata.file_type().is_dir()) {
+    // Signals are only ever written into a profile that opted in via `integration install`. The
+    // manifest is what marks an active install: a session still running after an uninstall must
+    // not re-create anything.
+    if !fs::symlink_metadata(integration.join("manifest.json"))
+        .is_ok_and(|metadata| metadata.file_type().is_file())
+    {
         return Err(Error::ProviderCommandFailed);
     }
     let directory = signals_dir(config_dir);

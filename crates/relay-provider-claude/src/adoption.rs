@@ -184,7 +184,7 @@ mod tests {
         fs::create_dir(&config_dir).expect("config dir");
         let runner = ScriptedRunner::new(vec![
             "2.1.276 (Claude Code)",
-            r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"account-erika","email":"erika@schoolscape.co.za"}"#,
+            r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"account-erika","email":"erika@example.com"}"#,
         ]);
         let inspector =
             ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");

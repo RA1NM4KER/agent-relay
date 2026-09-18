@@ -2,6 +2,9 @@
 
 ## Current milestone
 
+v0.1.0 standalone checkpoint (M2C.1 plus release hygiene: README quickstart, redacted docs/fixtures,
+integration writes gated on an active install manifest). Megan -> Erika was NOT re-run live on the
+M2C.1 code because the validating session itself ran under the Megan profile (see below).
 M2C.1 complete — real, structured usage detection (StopFailure hook, statusline `rate_limits`,
 stream-json `rate_limit_event`), an opt-in installer for them, automatic startup recovery, and
 version/capability gating; details in the M2C.1 entry below and `docs/automatic-handoff.md`.
@@ -84,8 +87,7 @@ underneath it.
   - Live run: started a real session under Erika (`claude -p --session-id <uuid>` in the
     disposable repo), made a harmless commit, recorded session id `8586fe71-395b-4449-
     b973-78011d561fed`, transcript
-    `~/.config/agent-relay/profiles/erika/claude/projects/-Users-kefasmanda-repos-agent-relay-
-    session-test/8586fe71-....jsonl` (sha256 `b697a049...ace3e7fb`, 261250 bytes, 67 lines).
+    `~/.config/agent-relay/profiles/erika/claude/projects/-<escaped-project-path>/8586fe71-....jsonl` (sha256 `b697a049...ace3e7fb`, 261250 bytes, 67 lines).
     Verified no Claude process remained for Erika's config dir afterward.
   - Staged that transcript to Megan via the new CLI command; target hash matched the source
     exactly before Megan ever touched it.

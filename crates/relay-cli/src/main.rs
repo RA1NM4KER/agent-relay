@@ -1710,7 +1710,7 @@ fn watch_run_output(outcome: WatchOutcome) -> Result<CommandOutput, Error> {
         } => {
             // A non-zero exit so a cron/shell loop notices; nothing new was started.
             return Err(Error::RecoveryRequired(format!(
-                "{transaction_id}: {reason}. Run `relay recover {transaction_id} --project <dir>`"
+                "{transaction_id}: {reason}. Run `relay recover {transaction_id} --project-dir <dir>`"
             )));
         }
         WatchOutcome::TransactionInFlight { transaction_id } => (

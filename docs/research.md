@@ -322,8 +322,8 @@ After the owner corrected the profile preconditions, Relay validated both mode-0
 
 After Erika's authentication was corrected, both inspections and both adoption dry-runs passed their safety checks. Neither result supplied an account UUID, so the identity pins use normalized email plus organization ID, with authentication method and API provider as context:
 
-- Erika: `erika@schoolscape.co.za`, organization `dca05c85-4572-4950-b45e-2506fa4a6f46`;
-- Megan: `megan@schoolscape.co.za`, organization `d9e018d0-04b9-4edf-9749-5bc832f036f5`;
+- Erika: `erika@example.com`, organization `org-erika` (values redacted for publication);
+- Megan: `megan@example.com`, organization `org-megan` (values redacted for publication);
 - both: authentication method `claude.ai`, API provider `firstParty`.
 
 The two pins are distinct, establishing two separately authenticated identities for profile-adoption purposes. Relay now also rejects a provider-scoped identity pin already registered under another profile name. Aliasing has no implicit path and would require a future explicit override design. No raw provider output was persisted or surfaced, no credential or Keychain contents were inspected, and recursive filesystem metadata for both profile trees and the default `~/.claude` tree was unchanged before and after validation. Cross-profile session transfer remains unverified.
