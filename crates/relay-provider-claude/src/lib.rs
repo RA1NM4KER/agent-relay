@@ -6,6 +6,7 @@ mod handoff_adapters;
 mod inspection;
 mod session_registry;
 mod session_transfer;
+mod usage;
 
 pub use adoption::ClaudeAdoptionProvider;
 pub use conflict::{
@@ -26,6 +27,7 @@ pub use session_transfer::{
     ProcessLister, SessionTransferReport, StagedArtifact, SystemProcessLister, discover_session,
     ensure_supported_claude_version, escape_project_path, stage_transfer, validate_session_id,
 };
+pub use usage::{ClaudeUsageSignal, SimulatedUsageSignal, classify_probe_output};
 
 use std::{
     collections::BTreeMap,

@@ -2,7 +2,11 @@
 
 ## Current milestone
 
-M2B.75 complete — Claude session shutdown is now authoritative: `claude stop <id>` (Claude Code's
+M2C complete — explicit, opt-in, usage-triggered automatic handoff (`relay watch run`), built on
+the unchanged M2B transaction machinery, plus supervision of the target process so an orchestrator
+crash during `TARGET_STARTING` can no longer leave an unaccounted-for writer. Details in the M2C
+entry below. Automatic fail-back, quota pooling, and Herdr integration do not exist and require
+separate approval. Prior milestone summary — M2B.75: Claude session shutdown is now authoritative: `claude stop <id>` (Claude Code's
 own documented command) replaces raw `kill` as the source-stop mechanism, verified quiescent
 across multiple consecutive observations before a handoff proceeds. Live validation of this
 milestone found and fixed a real polarity bug in M2B.5's liveness check (a killed pid was wrongly
@@ -10,8 +14,7 @@ allowed to override a still-listed, dormant/resurrectable session to "not active
 of the Erika/Megan handoff, including a real competing-launch refusal and the authoritative-stop
 flow, are live-validated on the disposable repo. M2B.5's conflict resolution, M2B's transactional
 handoff, M2A's SESSION_CONTINUATION guarantee, and M1.5's real Erika/Megan adoption remain complete
-underneath it. No automatic/quota-triggered handoff (M2C) and no Herdr integration exist yet; both
-are explicitly out of scope until separately approved.
+underneath it. 
 
 ## Completed
 
@@ -287,11 +290,78 @@ are explicitly out of scope until separately approved.
   - **Verdict: M2C is safe to begin.** No correctness bug in the M2B.75 lifecycle/handoff path
     itself was found beyond the rollback gap above, which is now fixed and regression-tested.
 
+- **M2C (approved): automatic usage-triggered handoff and target-start supervision.**
+  - **Usage detection** (`relay-core::usage`, `relay-provider-claude::usage`): states `AVAILABLE`,
+    `NEAR_LIMIT`, `EXHAUSTED`, `RESET_PENDING`, `UNKNOWN`; only `EXHAUSTED`/`RESET_PENDING` can
+    trigger a handoff and `UNKNOWN` fails closed. Tiers in priority order: structured
+    `claude agents --json` session state, then (opt-in `--probe`, spends a small real API call) a
+    structured `is_error`/`result` probe, then an exact allowlisted phrase match. Vague errors
+    classify `UNKNOWN`. No Claude hook or status command exposing usage was found, and no
+    exhaustion-shaped `agents --json` state has been observed live, so tier 1 is currently inert
+    and real detection relies on the opt-in probe or an operator/test signal. An observation
+    records evidence category, a short secret-free description, timestamp and reset time; never raw
+    provider output.
+  - **Target selection and policy** (`relay-core::automation`): the fallbacks given on the command
+    line are tried in order. A target must be enabled, healthy (fresh `doctor`), a different
+    identity from the source, not currently exhausted, and not recorded exhausted. A recorded
+    exhaustion with no reset time blocks that profile until `relay watch clear`; one with a reset
+    time blocks it only until that time passes, after which it can be a failover target again.
+    Reset never triggers fail-back on its own. Per-project ledger (`automation_state.json`) holds a
+    30 s cooldown, at most 5 automatic handoffs per hour, and known-exhausted profiles. Every
+    attempt, completed or failed, counts toward cooldown and the cap. No eligible target reports
+    `WAITING_FOR_CAPACITY` and mutates nothing.
+  - **Flow**: `relay watch run --profile P --fallback Q... --project D --session S` evaluates once,
+    then calls the unchanged `HandoffCoordinator::run` (full PREPARING..COMPLETE sequence, all M2B
+    gates). It is not a daemon; nothing monitors anything unless invoked (cron or a shell loop can
+    call it). `--dry-run` persists nothing, `--simulate-usage` fault-injects the source signal,
+    `--json` is global. `relay watch status` and `relay watch clear` show and reset the ledger.
+  - **Orphan-target supervision**: the coordinator now persists `target_launch` (pid + start-time
+    fingerprint) from an `on_started` callback the launcher fires immediately after spawn, before
+    blocking on the child. `relay recover` on an interrupted `TARGET_STARTING` now (1) stops the
+    recorded target, signalling the exact process only after re-confirming pid + fingerprint
+    (SIGTERM, then SIGKILL), or, if no identity reached the journal, scans the process table for
+    `claude -p --resume <session>` under exactly that profile's `CLAUDE_CONFIG_DIR` and stops it;
+    (2) only then re-runs target verification, so a second target never runs beside a live first;
+    (3) on success completes the transaction with the orphan's transcript turns untouched.
+    If a stop cannot be confirmed the transaction becomes `RECOVERY_REQUIRED`, retryable by
+    running `recover` again; `recover --acknowledge` is the explicit operator exit. A fresh
+    handoff is refused (`pending_recovery_required`) while one is pending. Interrupted
+    `SESSION_TRANSFERRING` now recovers to `FAILED` (staging is atomic and hash-verified) instead
+    of a state that blocked the project.
+  - **Bugs found and fixed during live validation**: (1) `agents --json` records for interactive
+    sessions have no `id`; the required-field parse made any live interactive session on a profile
+    fail every Relay liveness/stop/usage check with `malformed_provider_output`. `id` is now
+    optional. (2) The first draft of orphan recovery relied on `claude stop`, which cannot address
+    a foreground `-p` child, so a live orphan would never have been stopped; replaced by the
+    verified-process termination above. (3) That draft also left `RECOVERY_REQUIRED` as a dead end
+    once the pending-recovery gate existed; added retry and `--acknowledge`.
+  - 191 tests pass (was 140); fmt and Clippy pass with `-D warnings`. New tests cover: usage
+    classification incl. false positives, the pure decision function, watch orchestration with
+    fake ports (handoff, no-action for every non-exhausted state, dry-run zero mutation, waiting
+    for capacity, identity alias, cooldown, failed-attempt cooldown, reset handling, loop guard,
+    concurrent triggers, corrupted ledger), orphan recovery (recorded, unrecorded, unstoppable,
+    failed re-verification, transient retry, acknowledge, gate), real-process termination
+    (verified, fingerprint mismatch untouched, no fingerprint fails closed), process-table scan
+    matching, and the optional interactive `id`.
+  - **Live validation** (disposable repo only, simulated exhaustion, real handoff machinery):
+    a real `relay launch` Erika writer was handed off by `watch run` to Megan in 8.8 s (COMPLETE,
+    same session id, Erika listing empty, Megan owns the lease, Megan's transcript extends Erika's
+    byte for byte). Relay was SIGKILLed during `TARGET_STARTING` with the `claude -p --resume`
+    orphan alive; `recover` stopped/confirmed it, re-verified, completed, preserved every earlier
+    transcript byte, left no process. That was repeated with and without the spawn reaching the
+    journal. A real orphan left by an earlier interrupted run was also recovered this way. No
+    capacity (both profiles exhausted) reported `WAITING_FOR_CAPACITY` with zero journal or lease
+    change; cooldown and the pending-recovery gate were exercised live.
+  - **Not live-validated**: Megan -> Erika through `watch run`. The M2A guard refuses staging
+    from any profile that has a running Claude process, and this validation ran inside a Megan
+    session, so it was correctly refused (`source_profile_active`, transaction FAILED, no state
+    change). The reverse path is exercised by the same code and by tests, and a Megan -> Erika
+    handoff completed earlier in M2B/M2B.5/M2B.75; repeat it with no Megan Claude process running.
+
 ## In progress
 
-- Nothing in progress. M1.5, M2A, M2B, M2B.5, M2B.75, and M2B.75's soak test are all complete.
-  Automatic/quota-triggered handoff (M2C) and Herdr integration have not started and require
-  separate owner authorization.
+- Nothing in progress. M1.5, M2A, M2B, M2B.5, M2B.75 (with its soak test), and M2C are all
+  complete. Herdr integration has not started and requires separate owner authorization.
 
 ## Blockers
 
@@ -308,12 +378,22 @@ are explicitly out of scope until separately approved.
   times; this pattern — the real behavior of Claude's `--bg` daemon differing from what its own
   documentation/output implies — has not been exhaustively explored, so a third undiscovered edge
   case in this area cannot be ruled out from what has been tested so far.
-- The M2B.75 soak test found that killing the `relay handoff run` process itself (not the Claude
-  subprocess) during `TARGET_STARTING` can leave an orphaned `claude -p --resume` child running
-  and spending real API usage, untracked by any journal or lease. Existing recovery/conflict
-  handling caught the resulting divergence safely with no data loss, but the orphaned process
-  itself is not detected or reaped by anything today — relevant to M2C, which would run this path
-  unsupervised.
+- Resolved in M2C: the M2B.75 soak test's orphaned `claude -p --resume` child (Relay killed during
+  `TARGET_STARTING`) is now discovered and stopped by `relay recover` before the target is
+  re-verified. Residual: nothing reaps the orphan until `relay recover` runs, so it can spend its
+  one short verification turn in the meantime, and recovery is an explicit command, not automatic.
+
+- Claude Code auto-updated to 2.1.277 during M2C validation and `-p --resume`, `--bg`, `agents
+  --json` and `stop` all behaved as on 2.1.276, but the compatibility pin above still names 2.1.276.
+- Real usage detection: no structured Claude usage signal is known, so unattended detection needs
+  `--probe` (a small real API call per check) until one exists. This is the main remaining gap
+  before unattended use. A killed orchestrator between spawn and the journal rename is now handled
+  by the process-table scan, whose `ps -Eww` environment matching is macOS-specific.
+- The M2A active-process guard is per profile, not per session, so an unrelated live Claude
+  session under the source profile blocks a handoff (safe, but coarse).
+- Relay run from inside a Claude Code tool shell sees `CLAUDE_CODE_MESSAGING_TOKEN` and a
+  different `CLAUDE_CONFIG_DIR` and correctly reports `environment_override_conflict`; validation
+  unset both for the Relay process only.
 
 ## Unresolved architecture questions
 
@@ -324,9 +404,9 @@ are explicitly out of scope until separately approved.
 
 ## Next exact action
 
-Await explicit owner authorization before starting M2C (automatic, usage/quota-triggered
-handoff) or Herdr integration, and before trusting this path across any Claude Code
+Await explicit owner authorization before starting Herdr integration, automatic fail-back, or
+unattended (non-`--probe`) usage detection, and before trusting this path across any Claude Code
 version/layout other than 2.1.276 or any launch mode other than foreground `-p` / `--bg`.
-Given M2B.75 found a real bug in M2B.5's own live validation, treat any further Claude `--bg`
-daemon behavior assumption as unverified until it too has been tested live. Do not begin M2C
-without separate approval.
+Given M2B.75 and M2C each found real bugs during live validation, treat any further Claude
+`--bg`/interactive daemon behavior assumption as unverified until it has been tested live. First
+follow-up: repeat Megan -> Erika through `relay watch run` with no Megan Claude process running.

@@ -24,7 +24,12 @@ const QUERY_OUTPUT_LIMIT: usize = 256 * 1024;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct AgentSessionRecord {
-    pub id: String,
+    /// Present only for background sessions (the handle `claude stop` accepts). An interactive
+    /// session — e.g. a person actively using the profile — has no `id`; it must still parse,
+    /// because one such session would otherwise make every liveness/stop check on the whole
+    /// profile fail with `malformed_provider_output`.
+    #[serde(default)]
+    pub id: Option<String>,
     #[serde(default)]
     pub pid: Option<u32>,
     #[serde(rename = "sessionId")]
@@ -130,6 +135,16 @@ mod tests {
             records[0].session_id,
             "11111111-2222-3333-4444-555555555555"
         );
+    }
+
+    #[test]
+    fn parses_an_interactive_session_that_has_no_background_id() {
+        let records: Vec<AgentSessionRecord> = serde_json::from_str(
+            r#"[{"pid":55247,"cwd":"/tmp/proj","kind":"interactive","startedAt":1,"sessionId":"11111111-2222-3333-4444-555555555555","name":"x","status":"busy"}]"#,
+        )
+        .expect("an interactive session record must parse");
+        assert_eq!(records[0].id, None);
+        assert_eq!(records[0].pid, Some(55247));
     }
 
     #[test]

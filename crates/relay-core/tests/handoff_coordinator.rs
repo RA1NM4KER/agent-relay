@@ -142,7 +142,9 @@ impl TargetLauncher for OkLauncher {
         _target_config_dir: &Path,
         _project_dir: &Path,
         session_id: &str,
+        on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
     ) -> relay_core::Result<TargetVerification> {
+        on_started(Some(ProcessIdentity::current()))?;
         Ok(TargetVerification {
             target_session_id: session_id.to_owned(),
             started_successfully: true,
@@ -157,6 +159,7 @@ impl TargetLauncher for FailingLauncher {
         _target_config_dir: &Path,
         _project_dir: &Path,
         _session_id: &str,
+        _on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
     ) -> relay_core::Result<TargetVerification> {
         Err(Error::ProviderCommandFailed)
     }
@@ -169,11 +172,35 @@ impl TargetLauncher for WrongSessionLauncher {
         _target_config_dir: &Path,
         _project_dir: &Path,
         _session_id: &str,
+        on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
     ) -> relay_core::Result<TargetVerification> {
+        on_started(Some(ProcessIdentity::current()))?;
         Ok(TargetVerification {
             target_session_id: "wrong-session-id".to_owned(),
             started_successfully: true,
         })
+    }
+}
+
+/// Simulates a launcher whose process is spawned (and the callback fired, persisting the
+/// journal's `target_launch`) but then never returns — modelling the orchestrator being killed
+/// mid-`TARGET_STARTING` after the child exists but before verification completed.
+struct OrphaningLauncher {
+    pid: u32,
+}
+impl TargetLauncher for OrphaningLauncher {
+    fn launch_and_verify(
+        &self,
+        _target_config_dir: &Path,
+        _project_dir: &Path,
+        _session_id: &str,
+        on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
+    ) -> relay_core::Result<TargetVerification> {
+        on_started(Some(ProcessIdentity {
+            pid: self.pid,
+            start_time_fingerprint: Some("orphan-fingerprint".to_owned()),
+        }))?;
+        Err(Error::ProviderCommandTimeout)
     }
 }
 
@@ -545,9 +572,9 @@ fn recovery_at_every_interrupted_stage_produces_the_documented_safe_outcome() {
         (HandoffState::Checkpointed, "abandon"),
         (HandoffState::SourceStopping, "abandon"),
         (HandoffState::SourceStopped, "abandon"),
-        (HandoffState::SessionTransferring, "recovery_required"),
-        (HandoffState::SessionTransferred, "recovery_required"),
-        (HandoffState::TargetStarting, "recovery_required"),
+        (HandoffState::SessionTransferring, "abandon"),
+        (HandoffState::SessionTransferred, "complete"),
+        (HandoffState::TargetStarting, "complete"),
         (HandoffState::TargetVerified, "complete"),
     ];
 
@@ -559,6 +586,7 @@ fn recovery_at_every_interrupted_stage_produces_the_documented_safe_outcome() {
             project_dir.clone(),
             ProfileName::new("erika").expect("name"),
             ProfileName::new("megan").expect("name"),
+            project_dir.join("megan-config"),
             format!("{SESSION_ID}-{index}"),
         );
         // Walk the journal forward to the crash point using only legal transitions.
@@ -613,6 +641,576 @@ fn recovery_at_every_interrupted_stage_produces_the_documented_safe_outcome() {
             _ => unreachable!(),
         }
     }
+}
+
+struct RecordingStopper {
+    calls: Mutex<Vec<(PathBuf, String)>>,
+    fail: bool,
+}
+impl SessionStopper for RecordingStopper {
+    fn stop_and_verify(
+        &self,
+        source_config_dir: &Path,
+        _project_dir: &Path,
+        session_id: &str,
+        _recorded_owner: Option<&ProcessIdentity>,
+    ) -> relay_core::Result<()> {
+        self.calls
+            .lock()
+            .expect("calls lock")
+            .push((source_config_dir.to_path_buf(), session_id.to_owned()));
+        if self.fail {
+            Err(Error::StopNotVerified(
+                "simulated: could not confirm orphan stopped".to_owned(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn seed_journal_with_target_launch(
+    project_state_dir: &Path,
+    project_dir: &Path,
+    crash_state: HandoffState,
+    pid: u32,
+) -> TransactionId {
+    let project_id = ProjectId::for_canonical_path(project_dir).expect("id");
+    let target_config_dir = project_dir.join("megan-config");
+    let transaction_id = TransactionId::generate();
+    let mut journal = relay_core::handoff::HandoffJournal::new(
+        transaction_id.clone(),
+        project_id,
+        project_dir.to_path_buf(),
+        ProfileName::new("erika").expect("name"),
+        ProfileName::new("megan").expect("name"),
+        target_config_dir,
+        SESSION_ID.to_owned(),
+    );
+    let sequence = [
+        HandoffState::Checkpointed,
+        HandoffState::SourceStopping,
+        HandoffState::SourceStopped,
+        HandoffState::SessionTransferring,
+        HandoffState::SessionTransferred,
+        HandoffState::TargetStarting,
+    ];
+    for state in sequence {
+        journal
+            .advance(state.clone(), "walking to crash point")
+            .expect("advance");
+        if state == crash_state {
+            break;
+        }
+    }
+    // Simulates the `on_started` callback having already fired and been persisted before the
+    // orchestrator was killed — exactly what `TargetLauncher::launch_and_verify` guarantees.
+    journal.target_launch = Some(relay_core::handoff::TargetLaunchRecord {
+        process: ProcessIdentity {
+            pid,
+            start_time_fingerprint: Some("orphan-fingerprint".to_owned()),
+        },
+        spawned_unix_ms: 0,
+    });
+    std::fs::create_dir_all(project_state_dir.join("handoffs")).expect("handoffs dir");
+    let journal_store = JournalStore::at_path(
+        project_state_dir
+            .join("handoffs")
+            .join(format!("{transaction_id}.json")),
+    );
+    journal_store.save(&journal).expect("seed crashed journal");
+    transaction_id
+}
+
+struct CountingLauncher {
+    launches: Mutex<u32>,
+}
+impl TargetLauncher for CountingLauncher {
+    fn launch_and_verify(
+        &self,
+        _target_config_dir: &Path,
+        _project_dir: &Path,
+        session_id: &str,
+        on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
+    ) -> relay_core::Result<TargetVerification> {
+        *self.launches.lock().expect("launch count") += 1;
+        on_started(Some(ProcessIdentity::current()))?;
+        Ok(TargetVerification {
+            target_session_id: session_id.to_owned(),
+            started_successfully: true,
+        })
+    }
+}
+
+#[test]
+fn recovery_stops_a_recorded_orphan_target_then_reverifies_and_completes_without_a_second_orphan() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let stopper = RecordingStopper {
+        calls: Mutex::new(Vec::new()),
+        fail: false,
+    };
+    let launcher = CountingLauncher {
+        launches: Mutex::new(0),
+    };
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &stopper,
+        stager: &OkStager,
+        launcher: &launcher,
+    };
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let transaction_id = seed_journal_with_target_launch(
+        &project_state_dir,
+        &project_dir,
+        HandoffState::TargetStarting,
+        999_999,
+    );
+
+    let recovered = coordinator
+        .recover(&project_state_dir, &transaction_id)
+        .expect("recover must decide, not error");
+
+    assert_eq!(recovered.state, HandoffState::Complete);
+    {
+        let calls = stopper.calls.lock().expect("calls lock");
+        assert_eq!(
+            calls.len(),
+            1,
+            "the orphan target must be authoritatively stopped exactly once"
+        );
+        assert_eq!(calls[0].1, SESSION_ID);
+        assert_eq!(
+            calls[0].0,
+            project_dir.join("megan-config"),
+            "the stop must target the TARGET's config dir, never the source's"
+        );
+    }
+    assert_eq!(
+        *launcher.launches.lock().expect("launch count"),
+        1,
+        "exactly one re-verification launch, and only after the orphan was stopped"
+    );
+    let lease = LeaseStore::at_path(project_state_dir.join("lease.json"))
+        .load()
+        .expect("lease load")
+        .expect("lease present");
+    assert_eq!(lease.owner_profile.as_str(), "megan");
+
+    let recovered_again = coordinator
+        .recover(&project_state_dir, &transaction_id)
+        .expect("second recover must also succeed");
+    assert_eq!(recovered_again.state, HandoffState::Complete);
+    assert_eq!(stopper.calls.lock().expect("calls lock").len(), 1);
+    assert_eq!(*launcher.launches.lock().expect("launch count"), 1);
+}
+
+#[test]
+fn recovery_never_launches_a_second_target_when_the_orphan_cannot_be_confirmed_stopped() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let stopper = RecordingStopper {
+        calls: Mutex::new(Vec::new()),
+        fail: true,
+    };
+    let launcher = CountingLauncher {
+        launches: Mutex::new(0),
+    };
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &stopper,
+        stager: &OkStager,
+        launcher: &launcher,
+    };
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let transaction_id = seed_journal_with_target_launch(
+        &project_state_dir,
+        &project_dir,
+        HandoffState::TargetStarting,
+        999_998,
+    );
+
+    let recovered = coordinator
+        .recover(&project_state_dir, &transaction_id)
+        .expect("recover must decide, not error even when the stop itself fails");
+
+    match &recovered.state {
+        HandoffState::RecoveryRequired { reason } => {
+            assert!(
+                reason.contains("could not be confirmed stopped"),
+                "reason must make the unresolved risk explicit: {reason}"
+            );
+        }
+        other => panic!("expected RecoveryRequired, got {other:?}"),
+    }
+    assert_eq!(
+        *launcher.launches.lock().expect("launch count"),
+        0,
+        "a second target must never start while the first may still be alive"
+    );
+    assert!(
+        LeaseStore::at_path(project_state_dir.join("lease.json"))
+            .load()
+            .expect("lease load")
+            .is_none(),
+        "the writer lease must not move"
+    );
+}
+
+#[test]
+fn a_failed_reverification_after_stopping_the_orphan_fails_closed_without_moving_the_lease() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let stopper = RecordingStopper {
+        calls: Mutex::new(Vec::new()),
+        fail: false,
+    };
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &stopper,
+        stager: &OkStager,
+        launcher: &WrongSessionLauncher,
+    };
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let transaction_id = seed_journal_with_target_launch(
+        &project_state_dir,
+        &project_dir,
+        HandoffState::TargetStarting,
+        999_997,
+    );
+    let recovered = coordinator
+        .recover(&project_state_dir, &transaction_id)
+        .expect("recover decides");
+    assert!(matches!(recovered.state, HandoffState::Failed { .. }));
+    assert!(
+        LeaseStore::at_path(project_state_dir.join("lease.json"))
+            .load()
+            .expect("lease load")
+            .is_none()
+    );
+}
+
+struct FlakyStopper {
+    remaining_failures: Mutex<u32>,
+}
+impl SessionStopper for FlakyStopper {
+    fn stop_and_verify(
+        &self,
+        _source_config_dir: &Path,
+        _project_dir: &Path,
+        _session_id: &str,
+        _recorded_owner: Option<&ProcessIdentity>,
+    ) -> relay_core::Result<()> {
+        let mut remaining = self.remaining_failures.lock().expect("failures lock");
+        if *remaining > 0 {
+            *remaining -= 1;
+            Err(Error::StopNotVerified("transient".to_owned()))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[test]
+fn a_transient_orphan_stop_failure_can_be_retried_by_recovering_again() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let stopper = FlakyStopper {
+        remaining_failures: Mutex::new(1),
+    };
+    let launcher = CountingLauncher {
+        launches: Mutex::new(0),
+    };
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &stopper,
+        stager: &OkStager,
+        launcher: &launcher,
+    };
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let transaction_id = seed_journal_with_target_launch(
+        &project_state_dir,
+        &project_dir,
+        HandoffState::TargetStarting,
+        999_995,
+    );
+    let first = coordinator
+        .recover(&project_state_dir, &transaction_id)
+        .expect("first recover");
+    assert!(matches!(first.state, HandoffState::RecoveryRequired { .. }));
+    assert_eq!(*launcher.launches.lock().expect("launch count"), 0);
+
+    let second = coordinator
+        .recover(&project_state_dir, &transaction_id)
+        .expect("second recover");
+    assert_eq!(second.state, HandoffState::Complete);
+    assert_eq!(*launcher.launches.lock().expect("launch count"), 1);
+}
+
+fn seed_target_starting_without_a_recorded_process(
+    project_state_dir: &Path,
+    project_dir: &Path,
+) -> TransactionId {
+    let transaction_id = seed_journal_with_target_launch(
+        project_state_dir,
+        project_dir,
+        HandoffState::TargetStarting,
+        1,
+    );
+    let store = JournalStore::at_path(
+        project_state_dir
+            .join("handoffs")
+            .join(format!("{transaction_id}.json")),
+    );
+    let mut journal = store.load().expect("load seeded journal");
+    journal.target_launch = None;
+    store
+        .save(&journal)
+        .expect("save journal without launch record");
+    transaction_id
+}
+
+#[test]
+fn a_target_that_may_have_spawned_before_its_identity_was_recorded_is_still_supervised() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let stopper = RecordingStopper {
+        calls: Mutex::new(Vec::new()),
+        fail: false,
+    };
+    let launcher = CountingLauncher {
+        launches: Mutex::new(0),
+    };
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &stopper,
+        stager: &OkStager,
+        launcher: &launcher,
+    };
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let transaction_id =
+        seed_target_starting_without_a_recorded_process(&project_state_dir, &project_dir);
+
+    let recovered = coordinator
+        .recover(&project_state_dir, &transaction_id)
+        .expect("recover");
+    assert_eq!(recovered.state, HandoffState::Complete);
+    assert_eq!(
+        stopper.calls.lock().expect("calls lock").len(),
+        1,
+        "the unrecorded-target discovery/stop must run before any re-verification"
+    );
+    assert_eq!(*launcher.launches.lock().expect("launch count"), 1);
+}
+
+#[test]
+fn an_unrecorded_target_that_cannot_be_ruled_out_blocks_recovery_and_launches_nothing() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let stopper = RecordingStopper {
+        calls: Mutex::new(Vec::new()),
+        fail: true,
+    };
+    let launcher = CountingLauncher {
+        launches: Mutex::new(0),
+    };
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &stopper,
+        stager: &OkStager,
+        launcher: &launcher,
+    };
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let transaction_id =
+        seed_target_starting_without_a_recorded_process(&project_state_dir, &project_dir);
+    let recovered = coordinator
+        .recover(&project_state_dir, &transaction_id)
+        .expect("recover");
+    assert!(matches!(
+        recovered.state,
+        HandoffState::RecoveryRequired { .. }
+    ));
+    assert_eq!(*launcher.launches.lock().expect("launch count"), 0);
+}
+
+#[test]
+fn a_recovery_required_transaction_can_be_acknowledged_to_unblock_the_project() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let stopper = RecordingStopper {
+        calls: Mutex::new(Vec::new()),
+        fail: true,
+    };
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &stopper,
+        stager: &OkStager,
+        launcher: &OkLauncher,
+    };
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let transaction_id = seed_journal_with_target_launch(
+        &project_state_dir,
+        &project_dir,
+        HandoffState::TargetStarting,
+        999_996,
+    );
+    let recovered = coordinator
+        .recover(&project_state_dir, &transaction_id)
+        .expect("recover");
+    assert!(matches!(
+        recovered.state,
+        HandoffState::RecoveryRequired { .. }
+    ));
+    let acknowledged = coordinator
+        .acknowledge_recovery(&project_state_dir, &transaction_id)
+        .expect("acknowledge");
+    assert!(matches!(acknowledged.state, HandoffState::Failed { .. }));
+    assert!(
+        coordinator
+            .acknowledge_recovery(&project_state_dir, &transaction_id)
+            .is_err(),
+        "only a RecoveryRequired transaction can be acknowledged"
+    );
+}
+
+#[test]
+fn a_pending_recovery_required_transaction_blocks_a_fresh_handoff_for_the_same_project() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let stopper = RecordingStopper {
+        calls: Mutex::new(Vec::new()),
+        fail: true,
+    };
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &stopper,
+        stager: &OkStager,
+        launcher: &OkLauncher,
+    };
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let transaction_id = seed_journal_with_target_launch(
+        &project_state_dir,
+        &project_dir,
+        HandoffState::TargetStarting,
+        999_997,
+    );
+    coordinator
+        .recover(&project_state_dir, &transaction_id)
+        .expect("recover to RecoveryRequired");
+    // `recover` does not touch `current_transaction.json`; simulate it having been the most
+    // recent attempt for this project, exactly as a real crashed `relay handoff run` would leave
+    // it (the pointer is written before any progress is made).
+    std::fs::write(
+        project_state_dir.join("current_transaction.json"),
+        transaction_id.as_str(),
+    )
+    .expect("seed current transaction pointer");
+
+    let error = coordinator
+        .run(request(&project_dir, "erika", "megan"))
+        .expect_err("a fresh handoff must be refused while recovery is pending");
+    assert_eq!(error.code(), "pending_recovery_required");
+}
+
+#[test]
+fn a_terminal_prior_transaction_never_blocks_a_fresh_handoff() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
+        stager: &OkStager,
+        launcher: &OkLauncher,
+    };
+    coordinator
+        .run(request(&project_dir, "erika", "megan"))
+        .expect("first handoff completes normally and is terminal");
+
+    let journal = coordinator
+        .run(request(&project_dir, "megan", "erika"))
+        .expect("a completed prior transaction must never block a fresh one");
+    assert_eq!(journal.state, HandoffState::Complete);
+}
+
+#[test]
+fn a_target_process_spawn_is_recorded_even_when_the_launch_ultimately_fails() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
+        stager: &OkStager,
+        launcher: &OrphaningLauncher { pid: 123_456 },
+    };
+
+    let error = coordinator
+        .run(request(&project_dir, "erika", "megan"))
+        .expect_err("the simulated launch failure must still propagate");
+    assert_eq!(error.code(), "provider_command_timeout");
+
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let handoffs_dir = project_state_dir.join("handoffs");
+    let entries: Vec<_> = std::fs::read_dir(&handoffs_dir)
+        .expect("handoffs dir")
+        .map(|entry| entry.expect("entry").path())
+        .collect();
+    assert_eq!(entries.len(), 1);
+    let journal = JournalStore::at_path(entries[0].clone())
+        .load()
+        .expect("load");
+    let launch = journal
+        .target_launch
+        .expect("the spawn evidence must survive even a failed launch attempt");
+    assert_eq!(launch.process.pid, 123_456);
 }
 
 #[test]

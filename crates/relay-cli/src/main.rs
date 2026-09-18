@@ -7,15 +7,21 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use relay_core::{
     AddProfileRequest, Error, IdentityMetadata, Profile, ProfileName, ProfileService,
     ProfileSetupMode, Provider, ProviderKind, RelayPaths,
+    automation::{
+        AutomationPolicy, LedgerStore, ProfileCandidate, WatchCoordinator, WatchOutcome,
+        WatchRequest,
+    },
     handoff::{
         HandoffCoordinator, HandoffRequest, JournalStore, LeaseStore, OrchestrationLock, ProjectId,
         SourceLiveness as _,
     },
+    usage::{UsageSignal, UsageState},
 };
 use relay_provider_claude::{
     ClaudeAdoptionProvider, ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector,
     ClaudeSessionStager, ClaudeSessionStopper, ClaudeSourceLiveness, ClaudeTargetLauncher,
-    EnvironmentOverrideStatus, SystemProcessLister, inspect_environment, stage_transfer,
+    ClaudeUsageSignal, EnvironmentOverrideStatus, SimulatedUsageSignal, SystemProcessLister,
+    inspect_environment, stage_transfer,
 };
 use relay_testkit::FakeProvider;
 use serde::Serialize;
@@ -61,6 +67,14 @@ enum Command {
         transaction_id: String,
         #[arg(long, value_name = "PATH")]
         project_dir: PathBuf,
+        /// Instead of deciding a safe next action, record that you have confirmed no target
+        /// process is still running for a `RECOVERY_REQUIRED` transaction, moving it to `FAILED`
+        /// so the project is no longer blocked from starting a new handoff.
+        #[arg(long)]
+        acknowledge: bool,
+        /// Explicit Claude executable, primarily for controlled validation.
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
     },
     /// M2B.5: launch Claude as a Relay-managed writer, recording a durable writer lease tied to
     /// its real pid and start-time fingerprint (not a `ps` text scan). Refuses if another
@@ -75,6 +89,87 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
     },
+    /// M2C: explicit, opt-in, usage-triggered automatic handoff. Nothing here runs unless this
+    /// command is invoked; there is no background monitoring.
+    Watch(WatchArgs),
+}
+
+#[derive(Debug, Args)]
+struct WatchArgs {
+    #[command(subcommand)]
+    command: WatchCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum WatchCommand {
+    /// Evaluate the current writer's usage state once and, only if it is EXHAUSTED, hand off to
+    /// the first healthy, non-exhausted, distinct-identity profile in `--fallback` order. Reuses
+    /// the same M2B transactional `relay handoff run` machinery unchanged. Safe to invoke
+    /// repeatedly on a timer (cron, a shell loop) — it is not itself a background daemon.
+    Run {
+        /// The profile currently expected to hold the writer lease.
+        #[arg(long)]
+        profile: ProfileName,
+        /// Fallback profiles in priority order; the first eligible one is selected.
+        #[arg(long, required = true)]
+        fallback: Vec<ProfileName>,
+        #[arg(long = "project", value_name = "PATH")]
+        project_dir: PathBuf,
+        #[arg(long = "session")]
+        session_id: String,
+        /// Report what would happen without performing the handoff or persisting ledger state.
+        #[arg(long)]
+        dry_run: bool,
+        /// Opt into the real, content-free probe fallback tier, which spends a small amount of
+        /// real API usage per invocation when no free structured signal is available. Without
+        /// this, detection relies only on free structured signals (and `--simulate-usage`).
+        #[arg(long)]
+        probe: bool,
+        /// Fault injection: force the primary profile's usage state instead of detecting it, so
+        /// the real handoff machinery can be validated without waiting for or burning real quota.
+        #[arg(long, value_enum)]
+        simulate_usage: Option<SimulateUsageArg>,
+        /// Paired with `--simulate-usage`: an optional simulated reset time.
+        #[arg(long)]
+        simulate_reset_unix_ms: Option<u64>,
+        /// Explicit Claude executable, primarily for controlled validation.
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+    },
+    /// Read-only: the project's automation ledger (recent automatic handoffs, profiles ever
+    /// observed exhausted) plus its current writer lease.
+    Status {
+        #[arg(long = "project", value_name = "PATH")]
+        project_dir: PathBuf,
+    },
+    /// Explicitly clear a project's automation ledger (cooldown, handoff counters, and the
+    /// known-exhausted list). Automatic fail-back never happens on its own; this is the operator
+    /// action that un-blocks a profile the ledger has marked exhausted.
+    Clear {
+        #[arg(long = "project", value_name = "PATH")]
+        project_dir: PathBuf,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum SimulateUsageArg {
+    Available,
+    NearLimit,
+    Exhausted,
+    ResetPending,
+    Unknown,
+}
+
+impl From<SimulateUsageArg> for UsageState {
+    fn from(value: SimulateUsageArg) -> Self {
+        match value {
+            SimulateUsageArg::Available => Self::Available,
+            SimulateUsageArg::NearLimit => Self::NearLimit,
+            SimulateUsageArg::Exhausted => Self::Exhausted,
+            SimulateUsageArg::ResetPending => Self::ResetPending,
+            SimulateUsageArg::Unknown => Self::Unknown,
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -932,6 +1027,8 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
         Command::Recover {
             transaction_id,
             project_dir,
+            acknowledge,
+            claude_executable,
         } => {
             let canonical = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
                 path: project_dir.clone(),
@@ -940,10 +1037,10 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             let project_id = ProjectId::for_canonical_path(&canonical)?;
             let project_state_dir = paths.project_state_dir(&project_id);
             let parsed = relay_core::handoff::TransactionId::parse(transaction_id)?;
-            let liveness = ClaudeSourceLiveness::new(None);
-            let stopper = ClaudeSessionStopper::new(None);
+            let liveness = ClaudeSourceLiveness::new(claude_executable.clone());
+            let stopper = ClaudeSessionStopper::new(claude_executable.clone());
             let stager = ClaudeSessionStager;
-            let launcher = ClaudeTargetLauncher::new(None);
+            let launcher = ClaudeTargetLauncher::new(claude_executable.clone());
             let coordinator = HandoffCoordinator {
                 paths: &paths,
                 liveness: &liveness,
@@ -951,7 +1048,11 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 stager: &stager,
                 launcher: &launcher,
             };
-            let journal = coordinator.recover(&project_state_dir, &parsed)?;
+            let journal = if *acknowledge {
+                coordinator.acknowledge_recovery(&project_state_dir, &parsed)?
+            } else {
+                coordinator.recover(&project_state_dir, &parsed)?
+            };
             let human = format!(
                 "Recovery decision for {}: {:?}",
                 journal.transaction_id, journal.state
@@ -1044,7 +1145,226 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             );
             success("launch", human, lease)
         }
+        Command::Watch(watch) => match &watch.command {
+            WatchCommand::Run {
+                profile,
+                fallback,
+                project_dir,
+                session_id,
+                dry_run,
+                probe,
+                simulate_usage,
+                simulate_reset_unix_ms,
+                claude_executable,
+            } => {
+                let registered = service.list()?;
+                let source = registered
+                    .iter()
+                    .find(|candidate| &candidate.name == profile)
+                    .ok_or_else(|| Error::ProfileNotFound(profile.to_string()))?;
+                let fallback_profiles: Vec<&Profile> = fallback
+                    .iter()
+                    .map(|name| {
+                        registered
+                            .iter()
+                            .find(|candidate| &candidate.name == name)
+                            .ok_or_else(|| Error::ProfileNotFound(name.to_string()))
+                    })
+                    .collect::<Result<_, Error>>()?;
+
+                // `--simulate-usage` fault-injects the SOURCE's own usage state only; fallback
+                // candidates are always checked for real. Applying a simulated state uniformly to
+                // every profile would make every fallback look equally exhausted, which is never
+                // what "pretend the current writer hit its limit" is meant to test.
+                let source_usage_signal: Box<dyn UsageSignal> = match simulate_usage {
+                    Some(state) => Box::new(SimulatedUsageSignal {
+                        state: UsageState::from(*state),
+                        reset_unix_ms: *simulate_reset_unix_ms,
+                    }),
+                    None => Box::new(ClaudeUsageSignal::new(claude_executable.clone(), *probe)),
+                };
+                let fallback_usage_signal =
+                    ClaudeUsageSignal::new(claude_executable.clone(), *probe);
+
+                let source_usage =
+                    source_usage_signal.detect(&source.config_dir, project_dir, session_id)?;
+                let fallback_candidates = fallback_profiles
+                    .iter()
+                    .map(|candidate| -> Result<ProfileCandidate, Error> {
+                        let usage = fallback_usage_signal.detect(
+                            &candidate.config_dir,
+                            project_dir,
+                            session_id,
+                        )?;
+                        let healthy =
+                            doctor_is_healthy(&service, candidate, claude_executable.as_deref())?;
+                        Ok(ProfileCandidate {
+                            name: candidate.name.clone(),
+                            config_dir: candidate.config_dir.clone(),
+                            identity_stable_id: Some(candidate.expected_identity.stable_id.clone()),
+                            enabled: candidate.enabled,
+                            healthy,
+                            usage,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
+
+                let liveness = ClaudeSourceLiveness::new(claude_executable.clone());
+                let stopper = ClaudeSessionStopper::new(claude_executable.clone());
+                let stager = ClaudeSessionStager;
+                let launcher = ClaudeTargetLauncher::new(claude_executable.clone());
+                let coordinator = HandoffCoordinator {
+                    paths: &paths,
+                    liveness: &liveness,
+                    stopper: &stopper,
+                    stager: &stager,
+                    launcher: &launcher,
+                };
+                let watch = WatchCoordinator {
+                    paths: &paths,
+                    handoff: &coordinator,
+                    policy: AutomationPolicy::default(),
+                };
+
+                let outcome = watch.evaluate(
+                    WatchRequest {
+                        project_dir: project_dir.clone(),
+                        source_profile: source.name.clone(),
+                        source_config_dir: source.config_dir.clone(),
+                        source_identity_stable_id: Some(source.expected_identity.stable_id.clone()),
+                        session_id: session_id.clone(),
+                        source_usage,
+                        fallbacks: fallback_candidates,
+                        dry_run: *dry_run,
+                    },
+                    current_unix_ms(),
+                )?;
+
+                watch_run_output(outcome)
+            }
+            WatchCommand::Status { project_dir } => {
+                let canonical = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
+                    path: project_dir.clone(),
+                    source,
+                })?;
+                let project_id = ProjectId::for_canonical_path(&canonical)?;
+                let project_state_dir = paths.project_state_dir(&project_id);
+                let ledger =
+                    LedgerStore::at_path(project_state_dir.join("automation_state.json")).load()?;
+                let lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
+                let human = format!(
+                    "Project: {}\nCurrent owner: {}\nKnown-exhausted profiles: {}\nRecent automatic handoffs: {}",
+                    canonical.display(),
+                    lease
+                        .as_ref()
+                        .map(|lease| lease.owner_profile.to_string())
+                        .unwrap_or_else(|| "none yet".to_owned()),
+                    if ledger.known_exhausted.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        ledger
+                            .known_exhausted
+                            .iter()
+                            .map(|record| record.profile.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    },
+                    ledger.recent_handoffs.len()
+                );
+                success(
+                    "watch.status",
+                    human,
+                    json!({ "lease": lease, "ledger": ledger }),
+                )
+            }
+            WatchCommand::Clear { project_dir } => {
+                let canonical = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
+                    path: project_dir.clone(),
+                    source,
+                })?;
+                let project_id = ProjectId::for_canonical_path(&canonical)?;
+                let project_state_dir = paths.project_state_dir(&project_id);
+                LedgerStore::at_path(project_state_dir.join("automation_state.json")).clear()?;
+                success(
+                    "watch.clear",
+                    format!("Cleared automation ledger for {}", canonical.display()),
+                    json!({ "project_id": project_id.as_str() }),
+                )
+            }
+        },
     }
+}
+
+fn doctor_is_healthy(
+    service: &ProfileService,
+    profile: &Profile,
+    claude_executable: Option<&Path>,
+) -> Result<bool, Error> {
+    let provider = provider_for_profile(service, &profile.name, claude_executable)?;
+    Ok(service.doctor(&profile.name, provider.as_ref())?.healthy)
+}
+
+#[derive(Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+enum WatchRunOutput {
+    NoActionNeeded {
+        source_usage: String,
+    },
+    WaitingForCapacity {
+        reason: String,
+    },
+    CooldownActive {
+        retry_after_unix_ms: u64,
+    },
+    LoopPrevented {
+        reason: String,
+    },
+    DryRunWouldHandoff {
+        target: ProfileName,
+    },
+    Handoff {
+        target: ProfileName,
+        journal: Box<relay_core::handoff::HandoffJournal>,
+    },
+}
+
+fn watch_run_output(outcome: WatchOutcome) -> Result<CommandOutput, Error> {
+    let (human, data) = match outcome {
+        WatchOutcome::NoActionNeeded { source_usage } => (
+            format!("No action needed: source usage is {source_usage:?}"),
+            WatchRunOutput::NoActionNeeded {
+                source_usage: format!("{source_usage:?}"),
+            },
+        ),
+        WatchOutcome::WaitingForCapacity { reason } => (
+            format!("Waiting for capacity: {reason}"),
+            WatchRunOutput::WaitingForCapacity { reason },
+        ),
+        WatchOutcome::CooldownActive {
+            retry_after_unix_ms,
+        } => (
+            format!("Cooldown active; retry after unix_ms={retry_after_unix_ms}"),
+            WatchRunOutput::CooldownActive {
+                retry_after_unix_ms,
+            },
+        ),
+        WatchOutcome::LoopPrevented { reason } => (
+            format!("Loop prevented: {reason}"),
+            WatchRunOutput::LoopPrevented { reason },
+        ),
+        WatchOutcome::DryRunWouldHandoff { target } => (
+            format!("Dry run: would hand off to '{target}' (no mutation performed)"),
+            WatchRunOutput::DryRunWouldHandoff { target },
+        ),
+        WatchOutcome::Handoff { journal, target } => (
+            format!(
+                "Automatic handoff to '{target}': {:?}\nTransaction: {}",
+                journal.state, journal.transaction_id
+            ),
+            WatchRunOutput::Handoff { target, journal },
+        ),
+    };
+    success("watch.run", human, data)
 }
 
 fn current_unix_ms() -> u64 {

@@ -17,7 +17,10 @@ pub use coordinator::{
     SessionStopper, SourceLiveness, TargetLauncher, TargetVerification, TransferOutcome,
     TransferredArtifact,
 };
-pub use journal::{ArtifactRecord, Checkpoint, HandoffJournal, JournalStore, VerificationRecord};
+pub use journal::{
+    ArtifactRecord, Checkpoint, HandoffJournal, JournalStore, TargetLaunchRecord,
+    VerificationRecord,
+};
 pub use lease::{LeaseStore, WriterLease};
 pub use lock::{OrchestrationLock, ProcessIdentity};
 pub use project::ProjectId;

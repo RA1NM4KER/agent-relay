@@ -175,12 +175,14 @@ impl SessionStopper for ClaudeSessionStopper {
             source_config_dir,
             self.claude_executable.as_deref(),
         )?;
-        if let Some(record) = sessions.iter().find(|record| matches_this_session(record)) {
-            issue_stop(
-                source_config_dir,
-                &record.id,
-                self.claude_executable.as_deref(),
-            )?;
+        // An interactive session has no background id and cannot be stopped this way; it simply
+        // stays listed, so quiescence below is never reached and the stop fails closed.
+        if let Some(handle) = sessions
+            .iter()
+            .find(|record| matches_this_session(record))
+            .and_then(|record| record.id.as_deref())
+        {
+            issue_stop(source_config_dir, handle, self.claude_executable.as_deref())?;
         }
 
         let mut consecutive_quiet = 0u32;
@@ -208,6 +210,113 @@ impl SessionStopper for ClaudeSessionStopper {
         }
         Err(Error::StopNotVerified(format!(
             "session {session_id} did not go quiet within the bounded window"
+        )))
+    }
+
+    fn stop_orphan_target(
+        &self,
+        target_config_dir: &Path,
+        project_dir: &Path,
+        session_id: &str,
+        orphan: &ProcessIdentity,
+    ) -> Result<()> {
+        terminate_verified_process(orphan, ORPHAN_TERM_GRACE)?;
+        self.stop_and_verify(target_config_dir, project_dir, session_id, Some(orphan))
+    }
+
+    fn stop_unrecorded_targets(
+        &self,
+        target_config_dir: &Path,
+        project_dir: &Path,
+        session_id: &str,
+    ) -> Result<()> {
+        let output = std::process::Command::new("ps")
+            .args(["-Eww", "-axo", "pid=,command="])
+            .output()
+            .map_err(|_| Error::ProviderCommandFailed)?;
+        if !output.status.success() {
+            return Err(Error::ProviderCommandFailed);
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        for pid in matching_target_pids(&text, target_config_dir, session_id, std::process::id()) {
+            terminate_verified_process(&ProcessIdentity::query(pid), ORPHAN_TERM_GRACE)?;
+        }
+        self.stop_and_verify(target_config_dir, project_dir, session_id, None)
+    }
+}
+
+/// Pure: pids of `claude -p --resume <session_id>` processes running under exactly this
+/// `CLAUDE_CONFIG_DIR`, from `ps -Eww -axo pid=,command=` text. Every condition is matched as a
+/// whole token, so a different session, a different profile, or a longer path that merely shares
+/// a prefix can never match.
+fn matching_target_pids(
+    ps_text: &str,
+    config_dir: &Path,
+    session_id: &str,
+    own_pid: u32,
+) -> Vec<u32> {
+    let config_token = format!("CLAUDE_CONFIG_DIR={}", config_dir.display());
+    ps_text
+        .lines()
+        .filter_map(|line| {
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            let pid: u32 = tokens.first()?.parse().ok()?;
+            let resumes_session = tokens
+                .windows(2)
+                .any(|pair| pair[0] == "--resume" && pair[1] == session_id);
+            let is_print_mode = tokens
+                .iter()
+                .any(|token| *token == "-p" || *token == "--print");
+            let same_profile = tokens.iter().any(|token| *token == config_token);
+            (pid != own_pid && resumes_session && is_print_mode && same_profile).then_some(pid)
+        })
+        .collect()
+}
+
+const ORPHAN_TERM_GRACE: Duration = Duration::from_secs(5);
+const ORPHAN_POLL_DELAY: Duration = Duration::from_millis(100);
+
+/// Terminates the exact process Relay itself spawned as a `claude -p --resume` target. The
+/// pid + start-time fingerprint is re-confirmed immediately before every signal, so a pid that
+/// was reassigned to an unrelated process is never signalled, and an unverifiable identity fails
+/// closed instead of guessing. `SIGTERM` first, `SIGKILL` only if it survives the grace period.
+fn terminate_verified_process(orphan: &ProcessIdentity, grace: Duration) -> Result<()> {
+    match orphan.is_still_the_same_process() {
+        Some(false) => return Ok(()),
+        None => {
+            return Err(Error::StopNotVerified(format!(
+                "cannot confirm the identity of recorded target pid {}",
+                orphan.pid
+            )));
+        }
+        Some(true) => {}
+    }
+    for signal in ["-TERM", "-KILL"] {
+        if orphan.is_still_the_same_process() != Some(true) {
+            break;
+        }
+        let status = std::process::Command::new("kill")
+            .arg(signal)
+            .arg(orphan.pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|_| Error::ProviderCommandFailed)?;
+        let _ignored = status;
+        let deadline = Instant::now() + grace;
+        while Instant::now() < deadline {
+            if orphan.is_still_the_same_process() == Some(false) {
+                return Ok(());
+            }
+            thread::sleep(ORPHAN_POLL_DELAY);
+        }
+    }
+    if orphan.is_still_the_same_process() == Some(false) {
+        Ok(())
+    } else {
+        Err(Error::StopNotVerified(format!(
+            "recorded target pid {} survived SIGTERM and SIGKILL",
+            orphan.pid
         )))
     }
 }
@@ -244,7 +353,7 @@ fn issue_stop(
     for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
         command.env_remove(variable);
     }
-    let _discarded = run_with_timeout(command, STOP_TIMEOUT, STOP_OUTPUT_LIMIT)?;
+    let _discarded = run_with_timeout(command, STOP_TIMEOUT, STOP_OUTPUT_LIMIT, &mut |_| Ok(()))?;
     Ok(())
 }
 
@@ -304,6 +413,7 @@ impl TargetLauncher for ClaudeTargetLauncher {
         target_config_dir: &Path,
         project_dir: &Path,
         session_id: &str,
+        on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> Result<()>,
     ) -> Result<TargetVerification> {
         session_transfer::validate_session_id(session_id)?;
         let inspector = ClaudeInspector::discover(self.claude_executable.as_deref())?;
@@ -328,17 +438,22 @@ impl TargetLauncher for ClaudeTargetLauncher {
             command.env_remove(variable);
         }
 
-        let stdout = run_with_timeout(command, LAUNCH_TIMEOUT, LAUNCH_OUTPUT_LIMIT)?;
+        let stdout = run_with_timeout(command, LAUNCH_TIMEOUT, LAUNCH_OUTPUT_LIMIT, on_started)?;
         parse_verification(&stdout)
     }
 }
 
+/// `on_spawned` is invoked exactly once, immediately after `spawn()` succeeds and before the
+/// (potentially long) wait for the child to finish — callers that need durable evidence of a
+/// live child (M2C's orphan-target supervision) rely on this ordering.
 fn run_with_timeout(
     mut command: std::process::Command,
     timeout: Duration,
     output_limit: usize,
+    on_spawned: &mut dyn FnMut(Option<ProcessIdentity>) -> Result<()>,
 ) -> Result<Vec<u8>> {
     let mut child = command.spawn().map_err(|_| Error::ProviderCommandFailed)?;
+    on_spawned(Some(ProcessIdentity::query(child.id())))?;
     let stdout = child.stdout.take().ok_or(Error::ProviderCommandFailed)?;
     let stderr = child.stderr.take().ok_or(Error::ProviderCommandFailed)?;
     let stdout_reader = thread::spawn(move || read_limited(stdout, output_limit));
@@ -431,14 +546,22 @@ pub fn launch_background(
     for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
         command.env_remove(variable);
     }
-    let stdout = run_with_timeout(command, LAUNCH_BG_TIMEOUT, LAUNCH_BG_OUTPUT_LIMIT)?;
+    let stdout = run_with_timeout(
+        command,
+        LAUNCH_BG_TIMEOUT,
+        LAUNCH_BG_OUTPUT_LIMIT,
+        &mut |_| Ok(()),
+    )?;
     let text = String::from_utf8_lossy(&stdout);
     let provider_handle = parse_background_job_id(&text)?;
 
     let mut found_session_id: Option<String> = None;
     for attempt in 0..AGENTS_JSON_POLL_ATTEMPTS {
         let sessions = session_registry::query_active_sessions(config_dir, claude_executable)?;
-        if let Some(record) = sessions.iter().find(|record| record.id == provider_handle) {
+        if let Some(record) = sessions
+            .iter()
+            .find(|record| record.id.as_deref() == Some(provider_handle.as_str()))
+        {
             found_session_id = Some(record.session_id.clone());
             if let Some(pid) = record.pid {
                 return Ok(LaunchedWriter {
@@ -462,7 +585,7 @@ pub fn launch_background(
         let sessions = session_registry::query_active_sessions(config_dir, claude_executable)?;
         if let Some(pid) = sessions
             .iter()
-            .find(|record| record.id == provider_handle)
+            .find(|record| record.id.as_deref() == Some(provider_handle.as_str()))
             .and_then(|record| record.pid)
         {
             return Ok(LaunchedWriter {
@@ -525,8 +648,85 @@ fn parse_verification(stdout: &[u8]) -> Result<TargetVerification> {
 #[cfg(test)]
 mod tests {
     use super::{
-        REQUIRED_CONSECUTIVE_QUIET, parse_background_job_id, parse_verification, quiescence_step,
+        REQUIRED_CONSECUTIVE_QUIET, matching_target_pids, parse_background_job_id,
+        parse_verification, quiescence_step, terminate_verified_process,
     };
+    use relay_core::handoff::ProcessIdentity;
+    use std::time::Duration;
+
+    /// Spawns a real long-lived child and reaps it on a helper thread, so a terminated child
+    /// disappears from the process table the way a reparented orphan does in production.
+    fn spawn_reaped_sleeper() -> ProcessIdentity {
+        let mut child = std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .expect("spawn sleep");
+        let identity = ProcessIdentity::query(child.id());
+        std::thread::spawn(move || {
+            let _ignored = child.wait();
+        });
+        identity
+    }
+
+    #[test]
+    fn target_pid_scan_matches_only_the_exact_session_profile_and_print_mode() {
+        let dir = std::path::Path::new("/p/megan/claude");
+        let session = "99370db4-a0d6-44c0-bfba-6c15b5bcfab4";
+        let ps = [
+            format!("100 claude -p --resume {session} --permission-mode acceptEdits CLAUDE_CONFIG_DIR=/p/megan/claude HOME=/h"),
+            format!("101 claude -p --resume {session} CLAUDE_CONFIG_DIR=/p/erika/claude"),
+            format!("102 claude -p --resume {session} CLAUDE_CONFIG_DIR=/p/megan/claude2"),
+            "103 claude -p --resume 11111111-2222-3333-4444-555555555555 CLAUDE_CONFIG_DIR=/p/megan/claude".to_owned(),
+            format!("104 claude --resume {session} CLAUDE_CONFIG_DIR=/p/megan/claude"),
+            format!("105 claude --print --resume {session} CLAUDE_CONFIG_DIR=/p/megan/claude"),
+            format!("106 claude -p --resume {session} CLAUDE_CONFIG_DIR=/p/megan/claude"),
+        ]
+        .join("\n");
+        assert_eq!(matching_target_pids(&ps, dir, session, 106), vec![100, 105]);
+    }
+
+    #[test]
+    fn a_verified_live_orphan_is_terminated() {
+        let orphan = spawn_reaped_sleeper();
+        assert_eq!(orphan.is_still_the_same_process(), Some(true));
+        terminate_verified_process(&orphan, Duration::from_secs(5)).expect("terminate");
+        assert_eq!(orphan.is_still_the_same_process(), Some(false));
+    }
+
+    #[test]
+    fn a_process_with_a_mismatched_fingerprint_is_never_signalled() {
+        let real = spawn_reaped_sleeper();
+        let impostor = ProcessIdentity {
+            pid: real.pid,
+            start_time_fingerprint: Some("Mon Jan  1 00:00:00 1990".to_owned()),
+        };
+        terminate_verified_process(&impostor, Duration::from_millis(200))
+            .expect("a different process is treated as already gone");
+        assert_eq!(
+            real.is_still_the_same_process(),
+            Some(true),
+            "the unrelated process that reused the pid must be left running"
+        );
+        let _cleanup = std::process::Command::new("kill")
+            .arg(real.pid.to_string())
+            .status();
+    }
+
+    #[test]
+    fn an_orphan_without_a_fingerprint_fails_closed() {
+        let unknown = ProcessIdentity {
+            pid: std::process::id(),
+            start_time_fingerprint: None,
+        };
+        assert!(terminate_verified_process(&unknown, Duration::from_millis(100)).is_err());
+    }
+
+    #[test]
+    fn an_already_gone_orphan_is_a_clean_success() {
+        let orphan = spawn_reaped_sleeper();
+        terminate_verified_process(&orphan, Duration::from_secs(5)).expect("first");
+        terminate_verified_process(&orphan, Duration::from_secs(5)).expect("idempotent");
+    }
 
     #[test]
     fn requires_more_than_one_quiet_observation() {

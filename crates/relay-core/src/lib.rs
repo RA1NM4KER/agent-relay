@@ -1,6 +1,7 @@
 //! Provider-neutral safety-critical primitives for Agent Relay.
 
 mod atomic;
+pub mod automation;
 mod error;
 pub mod handoff;
 mod model;
@@ -8,6 +9,7 @@ mod paths;
 mod provider;
 mod service;
 mod store;
+pub mod usage;
 
 pub use atomic::{AtomicWrite, FsAtomicWriter};
 pub use error::{Error, Result};

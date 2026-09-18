@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AtomicWrite, Error, FsAtomicWriter, ProfileName, Result,
-    handoff::{HandoffState, ProjectId, TransactionId},
+    handoff::{HandoffState, ProcessIdentity, ProjectId, TransactionId},
 };
 
 const JOURNAL_VERSION: u32 = 1;
@@ -38,6 +38,17 @@ pub struct VerificationRecord {
     pub started_successfully: bool,
 }
 
+/// M2C: persisted the moment the target process is actually spawned — before the coordinator
+/// blocks waiting for it to finish — so a crash mid-`TARGET_STARTING` leaves durable evidence a
+/// real process may exist. `relay recover` uses this to find and authoritatively stop an orphan
+/// rather than ever risking a second target being launched while the first may still be alive.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TargetLaunchRecord {
+    pub process: ProcessIdentity,
+    pub spawned_unix_ms: u64,
+}
+
 /// The durable per-transaction record. Every externally visible mutation the coordinator makes
 /// is preceded by rewriting this journal, so `relay recover <id>` always has a trustworthy
 /// account of exactly how far the transaction got.
@@ -50,6 +61,10 @@ pub struct HandoffJournal {
     pub project_dir: PathBuf,
     pub source_profile: ProfileName,
     pub target_profile: ProfileName,
+    /// Known from the moment the transaction is created (unlike [`VerificationRecord`], which is
+    /// only set once verification completes) — recovery needs this to supervise a target process
+    /// interrupted before it was ever verified.
+    pub target_config_dir: PathBuf,
     pub session_id: String,
     pub state: HandoffState,
     pub revision: u64,
@@ -58,6 +73,8 @@ pub struct HandoffJournal {
     pub checkpoint: Option<Checkpoint>,
     pub transferred_artifacts: Vec<ArtifactRecord>,
     pub verification: Option<VerificationRecord>,
+    #[serde(default)]
+    pub target_launch: Option<TargetLaunchRecord>,
     /// Human-readable evidence trail. Never contains transcript contents, diffs, or secrets —
     /// only state transitions, reasons, and filenames, matching docs/security.md's event policy.
     pub notes: Vec<String>,
@@ -65,12 +82,14 @@ pub struct HandoffJournal {
 
 impl HandoffJournal {
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         transaction_id: TransactionId,
         project_id: ProjectId,
         project_dir: PathBuf,
         source_profile: ProfileName,
         target_profile: ProfileName,
+        target_config_dir: PathBuf,
         session_id: String,
     ) -> Self {
         let now = now_unix_ms();
@@ -81,6 +100,7 @@ impl HandoffJournal {
             project_dir,
             source_profile,
             target_profile,
+            target_config_dir,
             session_id,
             state: HandoffState::Preparing,
             revision: 0,
@@ -89,6 +109,7 @@ impl HandoffJournal {
             checkpoint: None,
             transferred_artifacts: Vec::new(),
             verification: None,
+            target_launch: None,
             notes: Vec::new(),
         }
     }
@@ -207,6 +228,7 @@ mod tests {
             std::path::PathBuf::from("/tmp/proj"),
             ProfileName::new("erika").expect("name"),
             ProfileName::new("megan").expect("name"),
+            std::path::PathBuf::from("/tmp/megan-config"),
             "8586fe71-395b-4449-b973-78011d561fed".to_owned(),
         )
     }

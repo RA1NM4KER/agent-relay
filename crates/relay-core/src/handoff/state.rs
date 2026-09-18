@@ -114,6 +114,12 @@ impl HandoffState {
         if matches!(next, Self::Failed { .. } | Self::RecoveryRequired { .. }) {
             return true;
         }
+        // An explicit, supervised retry of target verification after an orphan-target stop that
+        // could not be confirmed the first time. The coordinator only takes this edge when the
+        // journal holds a recorded target process to stop again.
+        if matches!(self, Self::RecoveryRequired { .. }) && matches!(next, Self::TargetStarting) {
+            return true;
+        }
         self.ordinary_successor().as_ref() == Some(next)
     }
 }
