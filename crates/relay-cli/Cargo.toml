@@ -1,0 +1,24 @@
+[package]
+name = "relay-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Command-line interface for Agent Relay"
+
+[[bin]]
+name = "relay"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+relay-core = { path = "../relay-core" }
+relay-testkit = { path = "../relay-testkit" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

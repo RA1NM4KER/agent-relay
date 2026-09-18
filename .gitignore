@@ -1,7 +1,7 @@
 /target/
+.tools/
 **/*.rs.bk
 .DS_Store
 
 # Agent Relay's per-project runtime state is intentionally local.
 .relay/
-
