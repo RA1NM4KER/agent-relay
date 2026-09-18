@@ -366,7 +366,7 @@ It would not write beneath `<profile>/claude`, modify Claude settings or credent
 
 M1.5 supports only Claude Code 2.1.x until another version's auth-status schema is fixture-tested. This version gate is independent of the stricter, still-unverified session-transfer compatibility gate.
 
-The observed Claude Code 2.1.276 auth-status schema includes `loggedIn`, `authMethod`, `apiProvider`, `email`, `orgId`, `orgName`, `subscriptionType`, `analyticsDisabled`, `configDirectory`, and `projectsDirectory`. The path fields are verification inputs, not identity fields: Relay requires them to refer to the selected canonical profile tree. Claude 2.1.276 did not return an account UUID in the two real inspections, so the current pin falls back to normalized email plus organization ID. Two profile names producing the same pin are the same authenticated identity for Relay's safety decisions, not evidence of two usable accounts.
+The observed Claude Code 2.1.276 auth-status schema includes `loggedIn`, `authMethod`, `apiProvider`, `email`, `orgId`, `orgName`, `subscriptionType`, `analyticsDisabled`, `configDirectory`, and `projectsDirectory`. The path fields are verification inputs, not identity fields: Relay requires them to refer to the selected canonical profile tree. Claude 2.1.276 did not return an account UUID in the two real inspections, so the current pin falls back to normalized email plus organization ID. Two profile names producing the same provider-scoped pin are rejected by default. Aliasing is reserved for a future explicit override and can never occur silently.
 
 ## Rejected alternatives
 

@@ -320,14 +320,13 @@ Account ID takes precedence when available. Without an account ID, normalized em
 
 After the owner corrected the profile preconditions, Relay validated both mode-0700 directories on 2026-09-18. Claude Code 2.1.276 returned these top-level fields for each profile: `analyticsDisabled` (boolean), `apiProvider` (string), `authMethod` (string), `configDirectory` (string), `email` (string), `loggedIn` (boolean), `orgId` (string), `orgName` (string), `projectsDirectory` (string), and `subscriptionType` (string). Relay added this exact schema to its fixtures and now verifies the two reported directory paths against the selected canonical profile directory.
 
-Both inspections and both adoption dry-runs passed their individual safety checks. Neither result supplied an account UUID, so the identity pin used normalized email plus organization ID, with authentication method and API provider as context. The observed identity for **both** directories was:
+After Erika's authentication was corrected, both inspections and both adoption dry-runs passed their safety checks. Neither result supplied an account UUID, so the identity pins use normalized email plus organization ID, with authentication method and API provider as context:
 
-- email: `megan@schoolscape.co.za`;
-- organization ID: `d9e018d0-04b9-4edf-9749-5bc832f036f5`;
-- authentication method: `claude.ai`;
-- API provider: `firstParty`.
+- Erika: `erika@schoolscape.co.za`, organization `dca05c85-4572-4950-b45e-2506fa4a6f46`;
+- Megan: `megan@schoolscape.co.za`, organization `d9e018d0-04b9-4edf-9749-5bc832f036f5`;
+- both: authentication method `claude.ai`, API provider `firstParty`.
 
-This is a material safety finding: Erika and Megan currently resolve to the same pinned Claude identity. It demonstrates that pin comparison works, but it does not establish two distinct authenticated accounts. Relay must not treat these directories as distinct-account fallbacks unless Erika is intentionally an alias and that limitation is made explicit. No raw provider output was persisted or surfaced, no credential or Keychain contents were inspected, and recursive filesystem metadata for both profile trees and the default `~/.claude` tree was unchanged before and after validation. Cross-profile session transfer remains unverified.
+The two pins are distinct, establishing two separately authenticated identities for profile-adoption purposes. Relay now also rejects a provider-scoped identity pin already registered under another profile name. Aliasing has no implicit path and would require a future explicit override design. No raw provider output was persisted or surfaced, no credential or Keychain contents were inspected, and recursive filesystem metadata for both profile trees and the default `~/.claude` tree was unchanged before and after validation. Cross-profile session transfer remains unverified.
 
 ## Usage decision
 

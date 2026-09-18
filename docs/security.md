@@ -254,7 +254,7 @@ Unknown fields are not logged and do not become forward-compatible by accident. 
 
 Directory mode 0755 is intentionally rejected even if individual credential files might be more restrictive: filenames, session layout, and future provider files would otherwise be exposed to group or other users. Relay does not repair permissions during inspection or dry-run.
 
-Real validation against Claude Code 2.1.276 found that the Erika and Megan directories both reported the same normalized email and organization ID. The matching pins are treated as a wrong-account or intentional-alias condition requiring resolution before those profiles can be relied upon as distinct handoff targets. Separate private directories are not, by themselves, proof of separate identities.
+Real validation against Claude Code 2.1.276 initially caught a wrong-account condition because the Erika and Megan directories reported the same pin. After Erika was corrected, the profiles reported distinct normalized email and organization IDs. Duplicate provider-scoped pins are now rejected at the core registration boundary and by adoption dry-run; there is no implicit alias mode.
 
 Adoption is a registry operation, not credential migration. The only permanent write is Relay's global `profiles.toml`; atomic replacement also uses a transient sibling. No Relay marker or identity file is placed in the Claude directory.
 

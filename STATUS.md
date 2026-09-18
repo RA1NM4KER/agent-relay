@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-M1.5 — read-only real Claude profile adoption validation complete; distinct-account identity issue found.
+M1.5 — read-only real Claude profile adoption validation complete; awaiting approval for actual adoption.
 
 ## Completed
 
@@ -29,25 +29,25 @@ M1.5 — read-only real Claude profile adoption validation complete; distinct-ac
 - Added fixture-tested support for the Claude Code 2.1.276 auth-status schema and verification of its reported config/project paths.
 - Completed read-only inspection and zero-write adoption dry-runs for Erika and Megan.
 - Verified recursive filesystem metadata for both Claude profile trees and the default `~/.claude` tree remained unchanged.
-- Detected that both directories report the same non-secret identity pin (`megan@schoolscape.co.za` in the same organization).
+- Confirmed distinct Erika and Megan non-secret identity pins after Erika's authentication correction.
+- Added default rejection of duplicate provider-scoped identity pins in core registration and Claude adoption dry-run.
 
 ## In progress
 
-- Awaiting resolution or explicit acknowledgement that Erika and Megan currently authenticate the same Claude identity.
+- Awaiting explicit approval before implementing or performing actual reference-only adoption.
 
 ## Blockers
 
-- The two directories do not currently prove a two-account setup: their identity pins are identical.
 - Actual adoption remains unapproved and was not performed.
 - Cross-profile session transfer remains unverified, best-effort, version-gated, and outside M1.
 
 ## Unresolved architecture questions
 
-- Should intentionally duplicated identities ever be admitted as explicit aliases, or should adoption always reject a pin already registered under another name?
+- What explicit confirmation and UX should a future alias override require, if aliases are supported at all?
 - Which exact Claude Code versions should be allowed for the first native-transfer compatibility matrix?
 - Can Relay install its identity/session hook through additive launch settings without mutating profile settings, or should profile-local hook installation be an explicit setup step?
 - Should the first Herdr plugin require Herdr 0.9.0 or a narrower feature-detected minimum?
 
 ## Next exact action
 
-Resolve the matching Erika/Megan identity before approving them as distinct profiles. Do not perform adoption, begin M2, or test cross-profile session transfer.
+Request approval for actual reference-only adoption. Do not perform adoption, begin M2, or test cross-profile session transfer without that approval.
