@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-M1.5 — read-only real Claude profile adoption, implementation complete; real validation blocked by profile preflight.
+M1.5 — read-only real Claude profile adoption validation complete; distinct-account identity issue found.
 
 ## Completed
 
@@ -25,26 +25,29 @@ M1.5 — read-only real Claude profile adoption, implementation complete; real v
 - Implemented reference-only `profile adopt --dry-run` with an exact Relay-owned write plan.
 - Defined a versioned non-secret Claude identity pin and fail-closed compatibility policy.
 - Added zero-write, malformed-output, secret-redaction, environment override, executable, version, identity, ownership, and dry-run tests.
-- Ran the authorized real preflight: Erika's supplied directory was absent; Megan's directory was mode 0755 and rejected before Claude launch.
+- Revalidated Erika and Megan as owned, non-symlinked, mode-0700 profile directories.
+- Added fixture-tested support for the Claude Code 2.1.276 auth-status schema and verification of its reported config/project paths.
+- Completed read-only inspection and zero-write adoption dry-runs for Erika and Megan.
+- Verified recursive filesystem metadata for both Claude profile trees and the default `~/.claude` tree remained unchanged.
+- Detected that both directories report the same non-secret identity pin (`megan@schoolscape.co.za` in the same organization).
 
 ## In progress
 
-- Awaiting correction or clarification of the Erika path and explicit authorization for any Megan permission change.
+- Awaiting resolution or explicit acknowledgement that Erika and Megan currently authenticate the same Claude identity.
 
 ## Blockers
 
-- Erika inspection is blocked because `~/.config/agent-relay/profiles/erika/claude` does not exist on the observed filesystem.
-- Megan inspection is blocked because `~/.config/agent-relay/profiles/megan/claude` is mode 0755; Relay requires 0700 and will not change it implicitly.
-- The real Claude auth-status schema and identity fields remain unobserved because both preflights stopped before process launch.
+- The two directories do not currently prove a two-account setup: their identity pins are identical.
+- Actual adoption remains unapproved and was not performed.
 - Cross-profile session transfer remains unverified, best-effort, version-gated, and outside M1.
 
 ## Unresolved architecture questions
 
-- Does Claude Code 2.1.276 expose account ID, email, and organization ID using the fixture-tested auth-status schema?
+- Should intentionally duplicated identities ever be admitted as explicit aliases, or should adoption always reject a pin already registered under another name?
 - Which exact Claude Code versions should be allowed for the first native-transfer compatibility matrix?
 - Can Relay install its identity/session hook through additive launch settings without mutating profile settings, or should profile-local hook installation be an explicit setup step?
 - Should the first Herdr plugin require Herdr 0.9.0 or a narrower feature-detected minimum?
 
 ## Next exact action
 
-Resolve Erika's missing directory and Megan's broad permissions without Relay modifying either profile. Then rerun inspection and dry-run. Do not perform adoption, begin M2, or test cross-profile session transfer.
+Resolve the matching Erika/Megan identity before approving them as distinct profiles. Do not perform adoption, begin M2, or test cross-profile session transfer.

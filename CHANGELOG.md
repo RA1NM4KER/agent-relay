@@ -15,9 +15,11 @@ All notable changes to Agent Relay will be documented here.
 - macOS/Linux CI for formatting, Clippy, and tests.
 - Read-only Claude existing-profile inspection and reference-only adoption dry-run commands.
 - Closed Claude auth-status parser, identity pin, environment override inventory, executable validation, timeout, and output bounds.
+- Claude Code 2.1.276 auth-status schema support with reported profile-path verification.
 
 ### Security
 
 - Native cross-profile Claude session transfer remains explicitly best-effort and version-gated.
 - M1 performs no real Claude authentication or configuration access.
 - M1.5 rejects missing, symlinked, externally escaped, wrongly owned, or group/other-accessible Claude profile directories before invoking Claude.
+- Real M1.5 validation made no filesystem changes and detected that the Erika and Megan directories currently expose the same pinned Claude identity.

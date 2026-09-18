@@ -4,7 +4,7 @@ Research date: 2026-09-18
 
 This report records source-level research used to choose Agent Relay's architecture. Repositories were cloned into a temporary directory outside this repository. No upstream source was copied into Agent Relay, and no real Claude authentication or global configuration was changed.
 
-Post-M0 validation note: the project owner separately validated Claude Code 2.1.276 authentication persistence in `~/.config/agent-relay/profiles/megan/claude` and confirmed that the default Claude account remained unaffected. Agent Relay has not inspected or modified that directory. This strengthens the profile-isolation evidence but does not validate cross-profile session transfer.
+Post-M0 validation note: the project owner separately validated Claude Code 2.1.276 authentication persistence in isolated Erika and Megan directories and confirmed that the default Claude account remained unaffected. M1.5 subsequently inspected both profiles read-only. This strengthens the profile-isolation evidence but does not validate cross-profile session transfer.
 
 ## Executive conclusion
 
@@ -318,15 +318,16 @@ The non-secret identity pin is versioned and contains:
 
 Account ID takes precedence when available. Without an account ID, normalized email plus organization ID is used. If neither account ID nor email is present, identity cannot be established and adoption fails closed. Unknown top-level fields, conflicting aliases, malformed types, or a future Claude version also fail closed until fixtures and the compatibility table are updated.
 
-The owner separately validated Megan authentication persistence on Claude Code 2.1.276. During Relay's 2026-09-18 validation, the supplied Erika directory was absent and the Megan Claude directory existed with mode 0755. Relay requires mode 0700 for a credential-bearing profile directory. Consequently:
+After the owner corrected the profile preconditions, Relay validated both mode-0700 directories on 2026-09-18. Claude Code 2.1.276 returned these top-level fields for each profile: `analyticsDisabled` (boolean), `apiProvider` (string), `authMethod` (string), `configDirectory` (string), `email` (string), `loggedIn` (boolean), `orgId` (string), `orgName` (string), `projectsDirectory` (string), and `subscriptionType` (string). Relay added this exact schema to its fixtures and now verifies the two reported directory paths against the selected canonical profile directory.
 
-- Erika inspection and dry-run returned `not_directory`;
-- Megan inspection and dry-run returned `unsafe_permissions`;
-- `claude auth status --json` was not launched for either profile;
-- no raw provider output, token, credential file, or Keychain value was accessed;
-- neither profile nor the default Claude configuration was changed.
+Both inspections and both adoption dry-runs passed their individual safety checks. Neither result supplied an account UUID, so the identity pin used normalized email plus organization ID, with authentication method and API provider as context. The observed identity for **both** directories was:
 
-This validates the fail-closed preflight behavior, not the real auth-status schema. Erika's intended path remains `~/.config/agent-relay/profiles/erika/claude`; only `megan/claude` was observed under the managed profiles root. Cross-profile session transfer remains unverified.
+- email: `megan@schoolscape.co.za`;
+- organization ID: `d9e018d0-04b9-4edf-9749-5bc832f036f5`;
+- authentication method: `claude.ai`;
+- API provider: `firstParty`.
+
+This is a material safety finding: Erika and Megan currently resolve to the same pinned Claude identity. It demonstrates that pin comparison works, but it does not establish two distinct authenticated accounts. Relay must not treat these directories as distinct-account fallbacks unless Erika is intentionally an alias and that limitation is made explicit. No raw provider output was persisted or surfaced, no credential or Keychain contents were inspected, and recursive filesystem metadata for both profile trees and the default `~/.claude` tree was unchanged before and after validation. Cross-profile session transfer remains unverified.
 
 ## Usage decision
 

@@ -67,6 +67,7 @@ Mitigations:
 - enforce a provider-specific authentication environment policy;
 - call `claude auth status --json` under exactly the launch environment;
 - pin a non-secret stable identity where available and require confirmation on mismatch;
+- compare pins across profiles and never infer distinct accounts from distinct directory or profile names;
 - display the active profile and verified identity on every handoff;
 - treat identity uncertainty as `AUTH_REQUIRED` or `UNKNOWN`, never available.
 
@@ -252,6 +253,8 @@ The read-only adoption preflight enforces the following order:
 Unknown fields are not logged and do not become forward-compatible by accident. A secret-like unexpected field therefore causes `unsupported_provider_schema` without its key value or content appearing in output.
 
 Directory mode 0755 is intentionally rejected even if individual credential files might be more restrictive: filenames, session layout, and future provider files would otherwise be exposed to group or other users. Relay does not repair permissions during inspection or dry-run.
+
+Real validation against Claude Code 2.1.276 found that the Erika and Megan directories both reported the same normalized email and organization ID. The matching pins are treated as a wrong-account or intentional-alias condition requiring resolution before those profiles can be relied upon as distinct handoff targets. Separate private directories are not, by themselves, proof of separate identities.
 
 Adoption is a registry operation, not credential migration. The only permanent write is Relay's global `profiles.toml`; atomic replacement also uses a transient sibling. No Relay marker or identity file is placed in the Claude directory.
 
