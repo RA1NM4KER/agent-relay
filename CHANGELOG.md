@@ -13,9 +13,11 @@ All notable changes to Agent Relay will be documented here.
 - Reference-only existing-profile adoption model with mandatory identity pinning.
 - Non-executing Claude command plans for isolated login, auth status, and launch.
 - macOS/Linux CI for formatting, Clippy, and tests.
+- Read-only Claude existing-profile inspection and reference-only adoption dry-run commands.
+- Closed Claude auth-status parser, identity pin, environment override inventory, executable validation, timeout, and output bounds.
 
 ### Security
 
 - Native cross-profile Claude session transfer remains explicitly best-effort and version-gated.
 - M1 performs no real Claude authentication or configuration access.
-
+- M1.5 rejects missing, symlinked, externally escaped, wrongly owned, or group/other-accessible Claude profile directories before invoking Claude.

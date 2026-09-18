@@ -237,6 +237,24 @@ Forbidden by default:
 - Relay follows existing user umask only when it is at least as restrictive as required; otherwise it sets restrictive modes explicitly.
 - Windows semantics are designed but not claimed until implemented and tested.
 
+## Existing Claude profile inspection
+
+The read-only adoption preflight enforces the following order:
+
+1. canonicalize the supplied directory and reject missing paths, terminal symlinks, managed-root escapes, wrong ownership, or group/other permission bits;
+2. canonicalize the Claude executable and require a regular executable owned by root or the current user and not group/world writable;
+3. report authentication-related environment variables as `present` or `absent`, never their values;
+4. reject any conflicting credential, identity, endpoint, or cloud-provider routing override before process launch;
+5. run only `claude --version` and `claude auth status --json` with bounded output and timeout;
+6. discard stderr and map failures to closed error categories;
+7. accept only the tested auth-status schema and extract whitelisted non-secret identity fields.
+
+Unknown fields are not logged and do not become forward-compatible by accident. A secret-like unexpected field therefore causes `unsupported_provider_schema` without its key value or content appearing in output.
+
+Directory mode 0755 is intentionally rejected even if individual credential files might be more restrictive: filenames, session layout, and future provider files would otherwise be exposed to group or other users. Relay does not repair permissions during inspection or dry-run.
+
+Adoption is a registry operation, not credential migration. The only permanent write is Relay's global `profiles.toml`; atomic replacement also uses a transient sibling. No Relay marker or identity file is placed in the Claude directory.
+
 ## Recovery safety
 
 Recovery is a reconciler, not an undo script. It observes locks, processes, artifact hashes, and journal revision before choosing an action. It does not blindly rerun the last command.
@@ -256,4 +274,3 @@ Before M3 completion:
 - transcript divergence and partial-copy tests;
 - dependency and license audit;
 - documented manual recovery drill.
-

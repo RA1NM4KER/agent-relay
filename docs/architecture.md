@@ -338,6 +338,34 @@ Required exit criteria:
 
 Native transcript transfer belongs to M3, not M1.
 
+## M1.5 reference-only Claude adoption
+
+Existing profiles are inspected and adopted by reference; credentials never move into Relay.
+
+```text
+requested directory
+  → canonicalize and enforce managed-root policy
+  → verify owner, directory type, mode 0700, and no terminal symlink
+  → validate canonical Claude executable and supported 2.1.x version
+  → inventory authentication overrides by name only
+  → reject conflicts before launch
+  → run CLAUDE_CONFIG_DIR=<selected> claude auth status --json
+  → parse bounded output using the known schema
+  → derive a versioned non-secret identity pin
+  → preview the Relay registry mutation
+```
+
+`profile inspect-existing` never opens Relay's profile registry and performs no filesystem writes. `profile adopt --dry-run` additionally reads the registry to detect corruption and duplicate names, but writes nothing.
+
+An approved real adoption would write only:
+
+- `~/.config/agent-relay/profiles.toml`, updated atomically with the profile name, provider, canonical directory reference, origin, enabled state, non-secret identity pin, and last availability observation;
+- a transient same-directory `.profiles.toml.tmp.<pid>.<timestamp>.<sequence>` file used for atomic rename.
+
+It would not write beneath `<profile>/claude`, modify Claude settings or credential files, access Keychain contents, or change the default Claude configuration. The target directory is provider-owned for its entire lifetime.
+
+M1.5 supports only Claude Code 2.1.x until another version's auth-status schema is fixture-tested. This version gate is independent of the stricter, still-unverified session-transfer compatibility gate.
+
 ## Rejected alternatives
 
 - **Shared writable session tree:** simpler discovery, but destroys profile ownership and makes concurrent divergence unsafe.
@@ -352,4 +380,3 @@ Native transcript transfer belongs to M3, not M1.
 The project is viable if native transfer is presented as a versioned best-effort capability rather than a permanent provider guarantee. Even if Claude removes cross-config transcript compatibility, Relay still provides valuable explicit profiles, single-writer process ownership, durable handoff/recovery, usage awareness, and honest state continuation.
 
 The scope would be flawed only if it promised invisible, lossless continuation across accounts regardless of provider behavior. This architecture explicitly does not make that promise.
-

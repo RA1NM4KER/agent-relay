@@ -288,7 +288,7 @@ Qualified yes:
 - Semantic continuity: **best effort**. The local transcript and session ID can be preserved; provider-side caches cannot.
 - Product guarantee: Relay must report `SESSION CONTINUATION` only after verification. Every other successful fallback is `STATE CONTINUATION`.
 
-The real two-account experiment remains deliberately undone until the architecture is approved. Its acceptance test must use two disposable/test profiles, record only non-secret metadata, and restore or delete only artifacts created for the experiment.
+The real cross-account **session-transfer** experiment remains deliberately undone. M1.5 authorizes only read-only authentication inspection and adoption dry-runs; it does not test transcript movement or resume behavior.
 
 ## Authentication and profile-isolation decision
 
@@ -304,6 +304,29 @@ Before every launch, Relay:
 6. passes `CLAUDE_CONFIG_DIR` structurally to the child process.
 
 Relay never imports credentials, enumerates Keychain secret values, or copies `.credentials.json`.
+
+## M1.5 real-profile adoption validation
+
+Agent Relay now implements a read-only `claude auth status --json` adapter for Claude Code 2.1.x. It validates the executable, enforces a ten-second timeout and output bounds, discards stderr, parses a closed JSON schema, and never persists raw output. Supported credential, identity, endpoint, and cloud-routing environment variables are reported by name and presence only; any conflict prevents Claude from launching.
+
+The non-secret identity pin is versioned and contains:
+
+- provider account UUID/ID when supplied, as the primary stable identifier;
+- normalized account email as a fallback and human-auditable identity;
+- organization ID when supplied, to scope the email fallback;
+- authentication method and API provider as context that must remain consistent.
+
+Account ID takes precedence when available. Without an account ID, normalized email plus organization ID is used. If neither account ID nor email is present, identity cannot be established and adoption fails closed. Unknown top-level fields, conflicting aliases, malformed types, or a future Claude version also fail closed until fixtures and the compatibility table are updated.
+
+The owner separately validated Megan authentication persistence on Claude Code 2.1.276. During Relay's 2026-09-18 validation, the supplied Erika directory was absent and the Megan Claude directory existed with mode 0755. Relay requires mode 0700 for a credential-bearing profile directory. Consequently:
+
+- Erika inspection and dry-run returned `not_directory`;
+- Megan inspection and dry-run returned `unsafe_permissions`;
+- `claude auth status --json` was not launched for either profile;
+- no raw provider output, token, credential file, or Keychain value was accessed;
+- neither profile nor the default Claude configuration was changed.
+
+This validates the fail-closed preflight behavior, not the real auth-status schema. Erika's intended path remains `~/.config/agent-relay/profiles/erika/claude`; only `megan/claude` was observed under the managed profiles root. Cross-profile session transfer remains unverified.
 
 ## Usage decision
 

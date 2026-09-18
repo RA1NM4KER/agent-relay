@@ -16,7 +16,16 @@ cargo run -p relay-cli -- profile remove erika
 
 Add `--json` anywhere after `relay` for a versioned machine-readable envelope. Fake profiles are stored beneath `~/.config/agent-relay/profiles/<name>/fake` by default. Removing a profile unregisters it but deliberately retains its provider directory.
 
-The Claude crate currently contains non-executing process-plan and adoption interfaces only. No command in M1 authenticates, inspects, launches, or modifies a real Claude profile.
+The M1 Claude boundary contained non-executing process plans only. No M1 command authenticated, inspected, launched, or modified a real Claude profile.
+
+M1.5 adds read-only inspection and dry-run planning:
+
+```sh
+relay profile inspect-existing --provider claude --config-dir /absolute/profile/path
+relay profile adopt NAME --provider claude --config-dir /absolute/profile/path --dry-run
+```
+
+Both commands fail closed on unsafe paths, permissions, environment overrides, executable versions, or unknown auth-status schemas. Dry-run never changes Relay or Claude state.
 
 ## Safety principles
 

@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-M1 — profiles and isolation, implementation complete pending owner review.
+M1.5 — read-only real Claude profile adoption, implementation complete; real validation blocked by profile preflight.
 
 ## Completed
 
@@ -21,24 +21,30 @@ M1 — profiles and isolation, implementation complete pending owner review.
 - Added corruption, identity, auth, path, symlink, permissions, secret-redaction, adoption, and atomic-failure tests.
 - Added macOS/Linux CI configuration.
 - Recorded the owner's separate successful Megan profile-isolation validation without inspecting the profile.
+- Implemented `profile inspect-existing --provider claude` with executable/version validation, environment conflict detection, bounded command execution, and closed schema parsing.
+- Implemented reference-only `profile adopt --dry-run` with an exact Relay-owned write plan.
+- Defined a versioned non-secret Claude identity pin and fail-closed compatibility policy.
+- Added zero-write, malformed-output, secret-redaction, environment override, executable, version, identity, ownership, and dry-run tests.
+- Ran the authorized real preflight: Erika's supplied directory was absent; Megan's directory was mode 0755 and rejected before Claude launch.
 
 ## In progress
 
-- Awaiting M1 review and authorization for a separately planned Megan-profile adoption experiment.
+- Awaiting correction or clarification of the Erika path and explicit authorization for any Megan permission change.
 
 ## Blockers
 
-- No M1 implementation blockers.
-- Megan adoption is intentionally blocked on explicit authorization to inspect the existing profile through the future read-only Claude adapter.
+- Erika inspection is blocked because `~/.config/agent-relay/profiles/erika/claude` does not exist on the observed filesystem.
+- Megan inspection is blocked because `~/.config/agent-relay/profiles/megan/claude` is mode 0755; Relay requires 0700 and will not change it implicitly.
+- The real Claude auth-status schema and identity fields remain unobserved because both preflights stopped before process launch.
 - Cross-profile session transfer remains unverified, best-effort, version-gated, and outside M1.
 
 ## Unresolved architecture questions
 
-- Which stable, non-secret identity fields from `claude auth status --json` should form the adoption pin?
+- Does Claude Code 2.1.276 expose account ID, email, and organization ID using the fixture-tested auth-status schema?
 - Which exact Claude Code versions should be allowed for the first native-transfer compatibility matrix?
 - Can Relay install its identity/session hook through additive launch settings without mutating profile settings, or should profile-local hook installation be an explicit setup step?
 - Should the first Herdr plugin require Herdr 0.9.0 or a narrower feature-detected minimum?
 
 ## Next exact action
 
-After approval, implement the read-only Claude auth-status/identity adapter and present the exact Megan adoption experiment commands before executing them. Do not begin M2 or cross-profile transfer testing.
+Resolve Erika's missing directory and Megan's broad permissions without Relay modifying either profile. Then rerun inspection and dry-run. Do not perform adoption, begin M2, or test cross-profile session transfer.
