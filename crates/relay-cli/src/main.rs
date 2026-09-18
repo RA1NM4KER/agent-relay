@@ -2,12 +2,12 @@ use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use relay_core::{
-    AddProfileRequest, Error, ProfileName, ProfileService, ProfileSetupMode, ProviderKind,
-    RelayPaths,
+    AddProfileRequest, Error, IdentityMetadata, ProfileName, ProfileService, ProfileSetupMode,
+    Provider, ProviderKind, RelayPaths,
 };
 use relay_provider_claude::{
-    ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector, EnvironmentOverrideStatus,
-    inspect_environment,
+    ClaudeAdoptionProvider, ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector,
+    EnvironmentOverrideStatus, inspect_environment,
 };
 use relay_testkit::FakeProvider;
 use serde::Serialize;
@@ -65,11 +65,21 @@ enum ProfileCommand {
     /// List registered profiles without inspecting provider authentication.
     List,
     /// Inspect current provider status and identity match.
-    Status { name: ProfileName },
+    Status {
+        name: ProfileName,
+        /// Explicit Claude executable, primarily for controlled validation.
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+    },
     /// Unregister a profile while retaining its provider-owned directory.
     Remove { name: ProfileName },
     /// Run directory, authentication, and identity safety checks.
-    Doctor { name: ProfileName },
+    Doctor {
+        name: ProfileName,
+        /// Explicit Claude executable, primarily for controlled validation.
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+    },
     /// Inspect an existing Claude profile without changing it.
     InspectExisting {
         #[arg(long, value_enum)]
@@ -83,15 +93,16 @@ enum ProfileCommand {
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
     },
-    /// Preview reference-only adoption of an existing Claude profile.
+    /// Adopt an existing Claude profile by reference, or preview the adoption.
     Adopt {
         name: ProfileName,
         #[arg(long, value_enum)]
         provider: ExistingProvider,
         #[arg(long, value_name = "PATH")]
         config_dir: PathBuf,
-        /// M1.5 supports dry-run only; no profile registry is changed.
-        #[arg(long, required = true)]
+        /// Preview only: report what adoption would do without changing Relay's registry.
+        /// Without this flag, adoption is performed and the registry is written.
+        #[arg(long)]
         dry_run: bool,
         /// Permit a private directory outside Relay's managed profiles root.
         #[arg(long)]
@@ -255,8 +266,12 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 };
                 success("profile.list", human, profiles)
             }
-            ProfileCommand::Status { name } => {
-                let status = service.status(name, &provider)?;
+            ProfileCommand::Status {
+                name,
+                claude_executable,
+            } => {
+                let provider = provider_for_profile(&service, name, claude_executable.as_deref())?;
+                let status = service.status(name, provider.as_ref())?;
                 let human = format!(
                     "Profile: {}\nProvider: {}\nAuthentication: {:?}\nAvailability: {:?}\nIdentity matches: {}",
                     status.profile.name,
@@ -280,8 +295,12 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     json!({ "profile": profile, "directory_retained": true }),
                 )
             }
-            ProfileCommand::Doctor { name } => {
-                let report = service.doctor(name, &provider)?;
+            ProfileCommand::Doctor {
+                name,
+                claude_executable,
+            } => {
+                let provider = provider_for_profile(&service, name, claude_executable.as_deref())?;
+                let report = service.doctor(name, provider.as_ref())?;
                 let mut lines = vec![format!(
                     "Profile '{}' is {}",
                     report.profile,
@@ -323,10 +342,61 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 dry_run,
                 allow_external,
                 claude_executable,
-            } => {
-                if !dry_run {
-                    return Err(Error::ProviderUnsupported);
+            } if !dry_run => {
+                let report = inspect_existing_claude(
+                    &paths,
+                    config_dir,
+                    *allow_external,
+                    claude_executable.as_deref(),
+                )?;
+                if !report.safe_to_adopt {
+                    return Err(if report.authenticated {
+                        Error::IdentityUnavailable
+                    } else {
+                        Error::AuthenticationRequired
+                    });
                 }
+                let pin = report
+                    .identity_pin
+                    .clone()
+                    .ok_or(Error::IdentityUnavailable)?;
+                let expected_identity = IdentityMetadata {
+                    stable_id: pin.stable_id(),
+                    display_label: pin.email.clone().or_else(|| pin.account_id.clone()),
+                };
+                let claude_provider =
+                    ClaudeAdoptionProvider::discover(claude_executable.as_deref())?;
+                let profile = service.add(
+                    AddProfileRequest {
+                        name: name.clone(),
+                        provider: ProviderKind::Claude,
+                        config_dir: Some(report.config_dir.clone()),
+                        mode: ProfileSetupMode::AdoptExisting,
+                        expected_identity: Some(expected_identity),
+                    },
+                    &claude_provider,
+                )?;
+                let human = format!(
+                    "Adopted Claude profile '{}'\nDirectory: {}\nIdentity: {}\nWarnings: {}",
+                    profile.name,
+                    profile.config_dir.display(),
+                    identity_summary(&pin),
+                    if report.warnings.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        report.warnings.join("; ")
+                    }
+                );
+                success("profile.adopt", human, profile)
+            }
+            ProfileCommand::Adopt {
+                name,
+                provider: ExistingProvider::Claude,
+                config_dir,
+                dry_run: _,
+                allow_external,
+                claude_executable,
+            } => {
                 let report = inspect_existing_claude(
                     &paths,
                     config_dir,
@@ -409,6 +479,26 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             }
         },
     }
+}
+
+/// `status`/`doctor` must inspect through the profile's own provider, not always the fake one:
+/// a real Claude profile that has been adopted needs a real Claude inspection, not a fake marker.
+fn provider_for_profile(
+    service: &ProfileService,
+    name: &ProfileName,
+    claude_executable: Option<&std::path::Path>,
+) -> Result<Box<dyn Provider>, Error> {
+    let kind = service
+        .list()?
+        .into_iter()
+        .find(|profile| &profile.name == name)
+        .map(|profile| profile.provider);
+    Ok(match kind {
+        Some(ProviderKind::Claude) => {
+            Box::new(ClaudeAdoptionProvider::discover(claude_executable)?)
+        }
+        _ => Box::new(FakeProvider::default()),
+    })
 }
 
 fn inspect_existing_claude(

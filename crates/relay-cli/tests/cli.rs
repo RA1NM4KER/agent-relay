@@ -325,6 +325,259 @@ fn dry_run_fails_closed_on_corrupt_relay_state() {
 }
 
 #[cfg(unix)]
+#[test]
+fn real_adoption_registers_the_profile_and_leaves_the_claude_directory_untouched() {
+    let root = tempdir().expect("temp directory");
+    let profile = root.path().join("config/profiles/erika/claude");
+    create_private_dir(&profile);
+    secure_relay_config_ancestors(root.path());
+    std::fs::write(profile.join("sentinel"), "unchanged").expect("sentinel");
+    let executable = fake_claude(
+        root.path(),
+        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"account-erika","email":"erika@schoolscape.co.za","orgId":"org-1"}"#,
+    );
+    let profile_text = profile.to_string_lossy().to_string();
+    let executable_text = executable.to_string_lossy().to_string();
+    let claude_dir_before = snapshot(&profile);
+
+    let adopt = relay(
+        root.path(),
+        &[
+            "profile",
+            "adopt",
+            "erika",
+            "--provider",
+            "claude",
+            "--config-dir",
+            &profile_text,
+            "--claude-executable",
+            &executable_text,
+        ],
+    );
+
+    assert!(
+        adopt.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopt.stderr)
+    );
+    let adoption = json_stdout(&adopt);
+    assert_eq!(adoption["command"], "profile.adopt");
+    assert_eq!(adoption["data"]["name"], "erika");
+    assert_eq!(adoption["data"]["origin"], "adopted");
+    assert_eq!(snapshot(&profile), claude_dir_before);
+
+    let list = relay(root.path(), &["profile", "list"]);
+    assert!(list.status.success());
+    assert_eq!(json_stdout(&list)["data"][0]["name"], "erika");
+
+    let status = relay(
+        root.path(),
+        &[
+            "profile",
+            "status",
+            "erika",
+            "--claude-executable",
+            &executable_text,
+        ],
+    );
+    assert!(
+        status.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    assert_eq!(json_stdout(&status)["data"]["identity_matches"], true);
+
+    let doctor = relay(
+        root.path(),
+        &[
+            "profile",
+            "doctor",
+            "erika",
+            "--claude-executable",
+            &executable_text,
+        ],
+    );
+    assert!(
+        doctor.status.success(),
+        "{}",
+        String::from_utf8_lossy(&doctor.stderr)
+    );
+    assert_eq!(json_stdout(&doctor)["data"]["healthy"], true);
+
+    let config_entries: Vec<_> = std::fs::read_dir(root.path().join("config"))
+        .expect("read config root")
+        .map(|entry| entry.expect("entry").file_name())
+        .collect();
+    assert!(
+        config_entries
+            .iter()
+            .all(|name| !name.to_string_lossy().contains(".tmp.")),
+        "no transient atomic-write file must remain: {config_entries:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn real_adoption_rejects_duplicate_profile_name_without_mutating_the_registry() {
+    let root = tempdir().expect("temp directory");
+    let first_profile = root.path().join("config/profiles/erika/claude");
+    create_private_dir(&first_profile);
+    secure_relay_config_ancestors(root.path());
+    let first_executable = fake_claude(
+        root.path(),
+        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"erika@schoolscape.co.za"}"#,
+    );
+    let adopt_first = relay(
+        root.path(),
+        &[
+            "profile",
+            "adopt",
+            "erika",
+            "--provider",
+            "claude",
+            "--config-dir",
+            &first_profile.to_string_lossy(),
+            "--claude-executable",
+            &first_executable.to_string_lossy(),
+        ],
+    );
+    assert!(adopt_first.status.success());
+    let state_path = root.path().join("config/profiles.toml");
+    let state_after_first = std::fs::read(&state_path).expect("state after first adoption");
+
+    let second_profile = root.path().join("config/profiles/erika-again/claude");
+    create_private_dir(&second_profile);
+    let second_executable = fake_claude(
+        root.path(),
+        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"someone-else@schoolscape.co.za"}"#,
+    );
+    let claude_dir_before = snapshot(&second_profile);
+
+    let adopt_second = relay(
+        root.path(),
+        &[
+            "profile",
+            "adopt",
+            "erika",
+            "--provider",
+            "claude",
+            "--config-dir",
+            &second_profile.to_string_lossy(),
+            "--claude-executable",
+            &second_executable.to_string_lossy(),
+        ],
+    );
+
+    assert!(!adopt_second.status.success());
+    let error: Value = serde_json::from_slice(&adopt_second.stderr).expect("JSON error");
+    assert_eq!(error["error"]["code"], "duplicate_profile");
+    assert_eq!(
+        std::fs::read(&state_path).expect("state unchanged"),
+        state_after_first
+    );
+    assert_eq!(snapshot(&second_profile), claude_dir_before);
+}
+
+#[cfg(unix)]
+#[test]
+fn real_adoption_rejects_duplicate_identity_pin_across_profile_names() {
+    let root = tempdir().expect("temp directory");
+    let first_profile = root.path().join("config/profiles/erika/claude");
+    create_private_dir(&first_profile);
+    secure_relay_config_ancestors(root.path());
+    let first_executable = fake_claude(
+        root.path(),
+        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"same@schoolscape.co.za","orgId":"org-1"}"#,
+    );
+    let adopt_first = relay(
+        root.path(),
+        &[
+            "profile",
+            "adopt",
+            "erika",
+            "--provider",
+            "claude",
+            "--config-dir",
+            &first_profile.to_string_lossy(),
+            "--claude-executable",
+            &first_executable.to_string_lossy(),
+        ],
+    );
+    assert!(adopt_first.status.success());
+    let state_path = root.path().join("config/profiles.toml");
+    let state_after_first = std::fs::read(&state_path).expect("state after first adoption");
+
+    let second_profile = root.path().join("config/profiles/megan/claude");
+    create_private_dir(&second_profile);
+    let second_executable = fake_claude(
+        root.path(),
+        r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"same@schoolscape.co.za","orgId":"org-1"}"#,
+    );
+    let claude_dir_before = snapshot(&second_profile);
+
+    let adopt_second = relay(
+        root.path(),
+        &[
+            "profile",
+            "adopt",
+            "megan",
+            "--provider",
+            "claude",
+            "--config-dir",
+            &second_profile.to_string_lossy(),
+            "--claude-executable",
+            &second_executable.to_string_lossy(),
+        ],
+    );
+
+    assert!(!adopt_second.status.success());
+    let error: Value = serde_json::from_slice(&adopt_second.stderr).expect("JSON error");
+    assert_eq!(error["error"]["code"], "duplicate_identity");
+    assert_eq!(
+        std::fs::read(&state_path).expect("state unchanged"),
+        state_after_first
+    );
+    assert_eq!(snapshot(&second_profile), claude_dir_before);
+}
+
+#[cfg(unix)]
+#[test]
+fn real_adoption_fails_closed_when_not_authenticated_and_writes_nothing() {
+    let root = tempdir().expect("temp directory");
+    let profile = root.path().join("config/profiles/erika/claude");
+    create_private_dir(&profile);
+    let executable = fake_claude(
+        root.path(),
+        r#"{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty"}"#,
+    );
+    let claude_dir_before = snapshot(&profile);
+
+    let adopt = relay(
+        root.path(),
+        &[
+            "profile",
+            "adopt",
+            "erika",
+            "--provider",
+            "claude",
+            "--config-dir",
+            &profile.to_string_lossy(),
+            "--claude-executable",
+            &executable.to_string_lossy(),
+        ],
+    );
+
+    assert!(!adopt.status.success());
+    let error: Value = serde_json::from_slice(&adopt.stderr).expect("JSON error");
+    assert_eq!(error["error"]["code"], "authentication_required");
+    assert!(
+        !root.path().join("config/profiles.toml").exists(),
+        "no registry file must be created on a failed adoption"
+    );
+    assert_eq!(snapshot(&profile), claude_dir_before);
+}
+
+#[cfg(unix)]
 fn fake_claude(root: &Path, auth_json: &str) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt;
 
@@ -345,6 +598,20 @@ fn create_private_dir(path: &Path) {
     std::fs::create_dir_all(path).expect("profile directory");
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
         .expect("profile permissions");
+}
+
+/// `create_private_dir` only hardens its leaf; real adoption also validates Relay's own
+/// config/profiles roots (via `ProfileDirectory::prepare_root`), so tests that adopt beneath
+/// `<root>/config/profiles/...` must secure those ancestor directories too, matching what a
+/// directory tree created by Relay's own `profile add`/adopt flow would already have.
+#[cfg(unix)]
+fn secure_relay_config_ancestors(root: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    for relative in ["config", "config/profiles"] {
+        std::fs::set_permissions(root.join(relative), std::fs::Permissions::from_mode(0o700))
+            .expect("ancestor permissions");
+    }
 }
 
 fn snapshot(root: &Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {

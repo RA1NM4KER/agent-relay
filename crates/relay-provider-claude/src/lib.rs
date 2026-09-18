@@ -1,7 +1,9 @@
 //! Read-only profile inspection and non-executing process plans for Claude Code.
 
+mod adoption;
 mod inspection;
 
+pub use adoption::ClaudeAdoptionProvider;
 pub use inspection::{
     ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector, CommandRunner,
     EnvironmentOverrideStatus, EnvironmentVariableStatus, ProcessResult, ProcessSpec,
