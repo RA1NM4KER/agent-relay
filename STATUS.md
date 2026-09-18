@@ -2,10 +2,11 @@
 
 ## Current milestone
 
-M2A complete — cross-profile Claude session continuation proven live, on a disposable repo, for
-Claude Code 2.1.276: genuinely SESSION_CONTINUATION (not just STATE_CONTINUATION), manually and
-explicitly, with no automatic handoff. M1.5 (real Erika/Megan adoption) remains complete
-underneath it. Awaiting owner direction on next scope (M2B/M3 or transactional automation).
+M2B complete — crash-safe transactional handoff (durable journal/state machine, project-level
+writer lease, genuine OS-release-on-crash orchestration lock) proven live in both directions
+(Erika -> Megan -> Erika) on the disposable repo. M2A's SESSION_CONTINUATION guarantee and M1.5's
+real Erika/Megan adoption remain complete underneath it. No automatic/quota-triggered handoff and
+no Herdr integration exist yet; both are explicitly out of scope until separately approved.
 
 ## Completed
 
@@ -97,15 +98,72 @@ underneath it. Awaiting owner direction on next scope (M2B/M3 or transactional a
     at mode 0644 (default umask) instead of matching the source's 0600, before switching to
     `FsAtomicWriter`. Re-verified after the fix.
   - 63 tests pass (was 52 after M1.5); fmt and Clippy clean.
+- **M2B (approved): crash-safe transactional handoff**, built and proven live:
+  - Added `relay-core::handoff`: a durable per-transaction JSON journal and state machine
+    (`PREPARING -> CHECKPOINTED -> SOURCE_STOPPING -> SOURCE_STOPPED -> SESSION_TRANSFERRING ->
+    SESSION_TRANSFERRED -> TARGET_STARTING -> TARGET_VERIFIED -> COMPLETE`, plus
+    `FAILED{phase, reason}` and `RECOVERY_REQUIRED{reason}` reachable from any in-progress state);
+    a project-level `WriterLease` (owner profile, process identity, session id, transaction id);
+    and an `OrchestrationLock` — a genuine `flock` (via `fd-lock`) held for one `relay
+    handoff`/`relay recover` invocation's entire execution, so the OS itself releases it on a
+    crash and a later process can prove the earlier one is gone by successfully re-acquiring it,
+    rather than trusting a timestamp. `relay-core` stays provider-neutral: the coordinator drives
+    the transaction through injected `SourceLiveness`/`SessionStager`/`TargetLauncher` ports.
+  - `relay-provider-claude` supplies the real adapters: `SourceLiveness` reuses M2A's process
+    check; `SessionStager` reuses M2A's hash-verified `stage_transfer` completely unchanged;
+    `TargetLauncher` actually runs `claude -p --resume <id>` under the target profile with a
+    fixed, content-free verification prompt and parses session id / success from its JSON output.
+  - Recovery re-acquires the same orchestration lock a running transaction would hold, so success
+    is itself proof the prior process is gone. It only auto-resolves the unambiguous ends
+    (nothing mutated yet -> `Failed`; target already verified -> `Complete`); anything ambiguous
+    (mid-transfer, target starting) becomes `RECOVERY_REQUIRED` and is never auto-retried or
+    auto-relaunched — matching "fail closed, require explicit recovery."
+  - Found and fixed two real gaps while building this: `ProjectId` derivation did not canonicalize
+    its input (a symlink, `..`, or trailing slash could have aliased two projects or split one
+    project across two lock domains); and `OrchestrationLock` followed a pre-existing symlink at
+    its lock path instead of rejecting it.
+  - Wired `relay lock status --project-dir`, `relay handoff run --from --to --project --session`,
+    `relay handoff status <transaction-id> --project-dir`, and `relay recover <transaction-id>
+    --project-dir`.
+  - 109 tests pass (was 63); fmt and Clippy clean. New coordinator-level tests cover: concurrent
+    handoff attempts (serialized by the lock, exactly one wins), a live lock blocking recovery, a
+    stale/crashed transaction allowing recovery, PID-reuse/process-identity mismatch, wrong
+    source profile (lease owned by someone else), wrong project (no state leakage between two
+    projects), a diverging target artifact, target startup failure, target identity mismatch,
+    recovery from every interrupted stage, a corrupted journal, a symlinked lock path, an
+    atomic-write failure preserving prior content, and recovering an already-terminal transaction
+    twice (idempotent).
+  - **Live validation on the disposable repo**, both directions:
+    - Started a fresh session under Erika (`cb0b14b8-6a6a-4e5e-b008-bfba1b4ebf87`), committed
+      `m2b.txt` (`524a24d`).
+    - `relay handoff run --from erika --to megan`: reached `COMPLETE` in ~5.4s; journal recorded
+      the checkpoint, the staged/hash-verified artifact, and target verification; lease moved to
+      `megan`; no leftover Claude process for either profile afterward.
+    - Continued the session under Megan for real (not just the verification canary): it correctly
+      recalled the file it had created and appended a second line, committing `5baebe6`.
+    - `relay handoff run --from megan --to erika` (reverse direction): the **first attempt
+      correctly failed closed** with `target_artifact_diverges` — Erika's directory still held her
+      own stale pre-handoff copy of the transcript, and the M2A divergence guard refused to
+      silently overwrite it. This is the expected, correct behavior, not a bug; there is no
+      conflict-resolution command yet, so resolving it required an explicit operator decision
+      (deleting the known-stale copy, which Erika had not written to since ownership moved away)
+      before retrying. The retry then reached `COMPLETE` normally; lease moved back to `erika`.
+    - Verified live (not just via unit tests): `relay lock status` reporting the correct current
+      owner at each step; no active Claude process for either profile at any checkpoint; a
+      same-owner-required rejection (`writer_lease_owned_by_another_profile`) when attempting a
+      handoff from the profile that no longer owns the lease.
 
 ## In progress
 
-- Nothing in progress. M1.5 and M2A are both complete. M2B/M3 (transactional, lease-backed,
-  automatic handoff) has not started and requires separate owner authorization to begin.
+- Nothing in progress. M1.5, M2A, and M2B are all complete. Automatic/quota-triggered handoff and
+  Herdr integration have not started and require separate owner authorization to begin.
 
 ## Blockers
 
-- M2A's process-liveness check (`SystemProcessLister`) is a best-effort `ps` scan for a
+- No conflict-resolution command exists for a target that already holds a stale/divergent copy of
+  a session's transcript (discovered live during M2B's reverse-handoff test, described above);
+  today this requires an explicit operator action outside Relay, which is safe but manual.
+- M2A/M2B's process-liveness check (`SystemProcessLister`) is a best-effort `ps` scan for a
   `CLAUDE_CONFIG_DIR=<dir>` token, not a lock — it has the same known TOCTOU race as any
   process-table inspection (see docs/security.md's "Two simultaneous writers" section) and must
   not be treated as sufficient for unattended/automatic handoff.
@@ -113,9 +171,9 @@ underneath it. Awaiting owner direction on next scope (M2B/M3 or transactional a
     no subagents, and no `--bg`/worktree mode. The `-` project-path escaping convention and the
     subagent-sidecar naming assumption (`<session_id>-*.jsonl`) are both observed, not documented
     by Anthropic, and are not re-validated across versions.
-  - Transactional handoff automation (writer lease, journal, automatic source-stop-then-target-
-    verify) described in docs/architecture.md is still unbuilt; M2A intentionally has none of
-    that and remains manual/explicit per instruction.
+  - `relay handoff run` itself spends real API usage (one verification turn under the target);
+    there is still no automatic/quota-triggered handoff, and none is planned without separate
+    approval.
 
 ## Unresolved architecture questions
 
@@ -126,6 +184,6 @@ underneath it. Awaiting owner direction on next scope (M2B/M3 or transactional a
 
 ## Next exact action
 
-Await explicit owner authorization before starting transactional handoff automation (writer
-lease, journal, automatic stop/verify) or before trusting this path across any Claude Code
+Await explicit owner authorization before starting M2C (automatic, usage/quota-triggered
+handoff) or Herdr integration, and before trusting this path across any Claude Code
 version/layout other than 2.1.276. Do not begin that work without separate approval.
