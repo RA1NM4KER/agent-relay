@@ -347,13 +347,24 @@ fn write_resolution_record(
 }
 
 /// Restores the most recent backup for this session back to the target path, if one exists.
-/// Hash-verifies the restored content before reporting success.
+/// Hash-verifies the restored content before reporting success. `target_active` must come from a
+/// real liveness check (see `ClaudeSourceLiveness`), exactly as `resolve_conflict` requires:
+/// a target session currently in use must never be touched, and a naive rollback overwriting a
+/// live writer's transcript out from under it is exactly as destructive as a naive resolve would
+/// be — this refusal is not optional cleanup, it is the same safety invariant `resolve_conflict`
+/// already enforces, applied to the one write path that had been missing it.
 pub fn rollback_conflict(
     target_config_dir: &Path,
     project_dir: &Path,
     session_id: &str,
+    target_active: bool,
 ) -> Result<PathBuf> {
     validate_session_id(session_id)?;
+    if target_active {
+        return Err(Error::ConflictRequiresResolution(
+            "target session is currently active and cannot be touched".to_owned(),
+        ));
+    }
     let dir = backup_dir(target_config_dir, project_dir);
     let prefix = format!("{session_id}.");
     let mut candidates: Vec<PathBuf> = fs::read_dir(&dir)
@@ -689,7 +700,8 @@ mod tests {
         )
         .expect("resolve");
 
-        let restored_path = rollback_conflict(&target, &project, SESSION_ID).expect("rollback");
+        let restored_path =
+            rollback_conflict(&target, &project, SESSION_ID, false).expect("rollback");
         assert_eq!(std::fs::read(&restored_path).expect("restored"), b"line1\n");
     }
 
@@ -700,9 +712,50 @@ mod tests {
         let project = root.path().join("proj");
         std::fs::create_dir_all(&target).expect("dir");
 
-        let error = rollback_conflict(&target, &project, SESSION_ID)
+        let error = rollback_conflict(&target, &project, SESSION_ID, false)
             .expect_err("must fail closed with no backup");
         assert_eq!(error.code(), "no_backup_to_restore");
+    }
+
+    /// Regression: a live adversarial soak test found that rollback had no active-target guard
+    /// at all, unlike `resolve_conflict` — it silently overwrote a currently-active session's
+    /// transcript with an older backup, discarding turns the live writer had just appended, with
+    /// no refusal and no warning. Rollback must refuse exactly like resolve does.
+    #[test]
+    fn rollback_refuses_an_active_target_even_with_a_backup_available() {
+        let root = tempdir().expect("temp dir");
+        let source = root.path().join("source");
+        let target = root.path().join("target");
+        let project = root.path().join("proj");
+        seed(&source, &project, SESSION_ID, b"line1\nline2\n");
+        seed(&target, &project, SESSION_ID, b"line1\n");
+
+        resolve_conflict(
+            &source,
+            &target,
+            &project,
+            SESSION_ID,
+            false,
+            ResolveDecision::Confirm,
+        )
+        .expect("resolve");
+
+        // A backup now exists (from the resolve above), but the target has since gone active
+        // again (e.g. someone resumed the session directly, bypassing Relay) — rollback must
+        // still refuse, exactly like resolve would for the same classification.
+        let error = rollback_conflict(&target, &project, SESSION_ID, true)
+            .expect_err("must refuse an active target even though a backup exists");
+        assert_eq!(error.code(), "conflict_requires_resolution");
+        // And the live target content (as resolve last left it) must be untouched by the
+        // refused rollback attempt.
+        assert_eq!(
+            std::fs::read(target.join(format!(
+                "projects/{}/{SESSION_ID}.jsonl",
+                crate::escape_project_path(&project)
+            )))
+            .expect("target still present"),
+            b"line1\nline2\n"
+        );
     }
 
     #[test]

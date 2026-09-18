@@ -246,11 +246,52 @@ are explicitly out of scope until separately approved.
     M2B.5 (Erika's own pre-handoff copy) and was resolved the same way, via `session conflict
     resolve --yes`, with zero manual transcript deletion. Both directions reached `COMPLETE`.
 
+- **M2B.75 adversarial soak test (approved scope: break the existing lifecycle/handoff
+  implementation on the disposable repo; no M2C work)**: exercised authoritative-stop
+  verification, writer ownership, daemon PID reassignment, dormant/resurrectable sessions, rapid
+  stop/start cycles, chained Erika<->Megan handoffs (7+ hops), conflict resolution, and crash
+  recovery, all live against the disposable repo and real adopted profiles.
+  - Found and fixed a real gap: `relay session conflict rollback` had no active-target guard at
+    all, unlike `resolve_conflict`'s explicit `TargetActive` refusal. Live-reproduced: resumed a
+    session directly under Megan (bypassing Relay) so it was genuinely active, then ran
+    `relay session conflict rollback` for that exact session — it silently overwrote the live
+    transcript with an older backup, discarding real in-flight turns, with no refusal and no
+    warning. Fixed by giving `rollback_conflict` the same `target_active: bool` parameter and
+    refusal `resolve_conflict` already had, and wiring the CLI's `Rollback` command to compute it
+    via the same `target_is_active` liveness check `Resolve` already uses (including matching
+    `--claude-executable` support). Re-verified live both ways: rollback now refuses
+    (`conflict_requires_resolution`) while the session is still listed, and succeeds once it is
+    genuinely stopped. Added a regression test
+    (`rollback_refuses_an_active_target_even_with_a_backup_available`); 140 tests pass (was 139);
+    fmt and Clippy clean.
+  - Every other scenario held: a killed/dormant session's competing launch was correctly refused;
+    a chained authoritative-stop handoff resolved a dormant session with zero manual process
+    killing; two fully concurrent `relay launch` calls against the same project were serialized by
+    the orchestration lock with exactly one winner and no leaked lock/lease state across four rapid
+    launch/stop cycles; seven consecutive Erika<->Megan handoffs (beyond the two previously
+    validated) showed no degradation, each correctly demanding explicit stale/divergent conflict
+    resolution before proceeding; `relay recover` correctly reached `Failed{Stop}` for a
+    `relay handoff run` process killed during `SOURCE_STOPPING` and `RecoveryRequired` for one
+    killed during `TARGET_STARTING`, both idempotent on a second recovery attempt, with the
+    `WriterLease` never touched in either case.
+  - **Noted, not fixed (inherent to `SIGKILL`ing the orchestrator, not a Relay logic bug)**:
+    killing `relay handoff run` during `TARGET_STARTING` can leave its child `claude -p --resume`
+    process orphaned and still running — it finished its verification turn and appended to the
+    target's transcript with no journal record of it (the journal died mid-phase). The existing
+    `RecoveryRequired` + conflict-resolution design caught this correctly (the orphaned turn showed
+    up as a genuinely divergent target on the next attempt and required explicit
+    `--force-discard-divergent`, with the prior content backed up first) — no data was silently
+    lost or overwritten, but it is a real-API-spending untracked process risk worth carrying into
+    M2C's design: an unsupervised orchestrator crashing mid-launch can leave a real, running,
+    billing Claude process that Relay no longer knows about.
+  - **Verdict: M2C is safe to begin.** No correctness bug in the M2B.75 lifecycle/handoff path
+    itself was found beyond the rollback gap above, which is now fixed and regression-tested.
+
 ## In progress
 
-- Nothing in progress. M1.5, M2A, M2B, M2B.5, and M2B.75 are all complete. Automatic/quota-
-  triggered handoff (M2C) and Herdr integration have not started and require separate owner
-  authorization.
+- Nothing in progress. M1.5, M2A, M2B, M2B.5, M2B.75, and M2B.75's soak test are all complete.
+  Automatic/quota-triggered handoff (M2C) and Herdr integration have not started and require
+  separate owner authorization.
 
 ## Blockers
 
@@ -267,6 +308,12 @@ are explicitly out of scope until separately approved.
   times; this pattern — the real behavior of Claude's `--bg` daemon differing from what its own
   documentation/output implies — has not been exhaustively explored, so a third undiscovered edge
   case in this area cannot be ruled out from what has been tested so far.
+- The M2B.75 soak test found that killing the `relay handoff run` process itself (not the Claude
+  subprocess) during `TARGET_STARTING` can leave an orphaned `claude -p --resume` child running
+  and spending real API usage, untracked by any journal or lease. Existing recovery/conflict
+  handling caught the resulting divergence safely with no data loss, but the orphaned process
+  itself is not detected or reaped by anything today — relevant to M2C, which would run this path
+  unsupervised.
 
 ## Unresolved architecture questions
 

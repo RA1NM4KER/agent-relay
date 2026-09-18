@@ -196,7 +196,8 @@ enum ConflictCommand {
         #[arg(long)]
         force_discard_divergent: bool,
     },
-    /// Restore the most recent backup for a session back onto the target profile.
+    /// Restore the most recent backup for a session back onto the target profile. Refuses,
+    /// exactly like `resolve`, if the target session is currently active.
     Rollback {
         #[arg(long)]
         target_profile: ProfileName,
@@ -204,6 +205,8 @@ enum ConflictCommand {
         project_dir: PathBuf,
         #[arg(long)]
         session_id: String,
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
     },
 }
 
@@ -791,16 +794,25 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     target_profile,
                     project_dir,
                     session_id,
+                    claude_executable,
                 } => {
                     let registered = service.list()?;
                     let target = registered
                         .iter()
                         .find(|profile| &profile.name == target_profile)
                         .ok_or_else(|| Error::ProfileNotFound(target_profile.to_string()))?;
+                    let target_active = target_is_active(
+                        &paths,
+                        target,
+                        project_dir,
+                        session_id,
+                        claude_executable.as_deref(),
+                    )?;
                     let restored_path = relay_provider_claude::rollback_conflict(
                         &target.config_dir,
                         project_dir,
                         session_id,
+                        target_active,
                     )?;
                     success(
                         "session.conflict.rollback",
