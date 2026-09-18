@@ -2,8 +2,8 @@
 
 ## Current milestone
 
-M1.5 — real adoption approved and implemented; blocked on a pre-existing permission issue on
-Relay's own config directories before it can be performed against Erika and Megan.
+M1.5 complete — Erika and Megan are really, permanently adopted Claude profiles in Relay's
+registry, with distinct verified identity pins. Awaiting owner direction on M2.
 
 ## Completed
 
@@ -43,23 +43,29 @@ Relay's own config directories before it can be performed against Erika and Mega
   rejection, unauthenticated fail-closed behavior, zero writes to any Claude directory, and no
   stray atomic-write temp files; 52 tests pass (was 45); fmt and Clippy pass.
 - Confirmed via `--dry-run` against the real Erika and Megan profile directories that both would
-  still succeed with distinct identity pins under the new code path (zero writes; matches prior
-  M1.5 validation).
+  succeed with distinct identity pins under the new code path (zero writes; matches prior M1.5
+  validation), before performing the real adoption below.
+- Fixed a pre-existing permission gap found while preparing real adoption: `~/.config/agent-relay`
+  and `~/.config/agent-relay/profiles` were mode 0755 (only the leaf `.../erika/claude` and
+  `.../megan/claude` were correctly 0700), which would have made `ProfileDirectory::prepare_root`
+  fail closed with `unsafe_permissions`. Tightened both to 0700 with the owner's explicit
+  confirmation; no Claude directory was touched by this fix.
+- Performed real, non-dry-run adoption of both Erika and Megan. `~/.config/agent-relay/profiles.toml`
+  (mode 0600) now holds both profiles with origin `adopted`, distinct non-secret identity pins
+  (distinct normalized email + organization ID), and no credential material.
+- Verified `profile status` and `profile doctor` report `healthy: true` / `identity_matches: true`
+  for both Erika and Megan against the real Claude executable.
+- Verified recursive filesystem metadata for both Claude profile trees (`.../erika/claude`,
+  `.../megan/claude`) and the default `~/.claude` tree: no file or directory mtimes changed as a
+  result of adoption; the only write was to Relay's own `profiles.toml`.
 
 ## In progress
 
-- Real reference-only adoption of Erika and Megan is implemented and approved but not yet
-  performed, pending the blocker below.
+- Nothing in progress. M1.5 is complete; M2 has not started and requires separate owner
+  authorization to begin.
 
 ## Blockers
 
-- `~/.config/agent-relay` and `~/.config/agent-relay/profiles` are mode 0755 (owner rwx, group/
-  other rx), not the 0700 that `ProfileDirectory::prepare_root` requires of an existing Relay
-  config/profiles root. Only the leaf `.../erika/claude` and `.../megan/claude` directories are
-  correctly 0700. Real adoption will fail closed with `unsafe_permissions` on first write until
-  these two ancestor directories are tightened to 0700; Relay intentionally never repairs
-  permissions on directories it did not create, so this needs an explicit decision/action before
-  proceeding. No Claude directory is affected; this is Relay's own directory tree.
 - Cross-profile session transfer remains unverified, best-effort, version-gated, and outside M1.
 
 ## Unresolved architecture questions
@@ -71,9 +77,6 @@ Relay's own config directories before it can be performed against Erika and Mega
 
 ## Next exact action
 
-Resolve the ~/.config/agent-relay / .../profiles permission blocker (owner decision required:
-authorize tightening those two directories to 0700, or investigate why they are 0755), then run
-real `profile adopt` for Erika and Megan, verify stored identity pins, rerun `profile status`/
-`doctor` for both, and verify both Claude directories and ~/.claude remain unchanged. Do not begin
-M2 or test cross-profile session transfer until real adoption succeeds and the repository is
-clean.
+Await explicit owner authorization before starting M2 (cross-profile session transfer design and
+implementation). Do not begin M2 or test cross-profile session transfer without that separate
+approval.
