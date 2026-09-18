@@ -87,6 +87,67 @@ fn authenticated_known_schema_produces_identity_pin() {
 }
 
 #[test]
+fn observed_2_1_276_schema_is_accepted_and_paths_are_verified() {
+    let root = tempdir().expect("temp directory");
+    let config_dir = root.path().join("profile with spaces 日本語");
+    fs::create_dir(&config_dir).expect("config directory");
+    let auth = serde_json::json!({
+        "loggedIn": true,
+        "authMethod": "oauth",
+        "apiProvider": "firstParty",
+        "email": "person@example.com",
+        "orgId": "org-1",
+        "orgName": "Example",
+        "subscriptionType": "max",
+        "analyticsDisabled": false,
+        "configDirectory": config_dir,
+        "projectsDirectory": config_dir.join("projects"),
+    });
+    let runner = FakeRunner::new(vec![
+        output("2.1.276 (Claude Code)"),
+        output(&auth.to_string()),
+    ]);
+    let inspector =
+        ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");
+
+    let report = inspector
+        .inspect(&config_dir, inspect_environment_with(&config_dir, |_| None))
+        .expect("inspection");
+
+    assert!(report.safe_to_adopt);
+    assert_eq!(
+        report.identity_pin.and_then(|pin| pin.email),
+        Some("person@example.com".to_owned())
+    );
+}
+
+#[test]
+fn reported_config_directory_mismatch_fails_closed() {
+    let root = tempdir().expect("temp directory");
+    let config_dir = root.path().join("profile");
+    fs::create_dir(&config_dir).expect("config directory");
+    let auth = serde_json::json!({
+        "loggedIn": true,
+        "authMethod": "oauth",
+        "apiProvider": "firstParty",
+        "email": "person@example.com",
+        "configDirectory": root.path().join("different-profile"),
+    });
+    let runner = FakeRunner::new(vec![
+        output("2.1.276 (Claude Code)"),
+        output(&auth.to_string()),
+    ]);
+    let inspector =
+        ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");
+
+    let error = inspector
+        .inspect(&config_dir, inspect_environment_with(&config_dir, |_| None))
+        .expect_err("directory mismatch must fail");
+
+    assert_eq!(error.code(), "provider_profile_mismatch");
+}
+
+#[test]
 fn unauthenticated_profile_is_not_safe_to_adopt() {
     let report = inspect(r#"{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty"}"#)
         .expect("inspection");

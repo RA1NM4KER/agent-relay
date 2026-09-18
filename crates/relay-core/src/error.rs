@@ -59,6 +59,8 @@ pub enum Error {
     UnsupportedProviderVersion,
     #[error("provider identity could not be established safely")]
     IdentityUnavailable,
+    #[error("provider reported a different profile directory")]
+    ProviderProfileMismatch,
     #[error("authentication environment contains conflicting overrides")]
     EnvironmentOverrideConflict,
     #[error("serialization failed")]
@@ -105,6 +107,7 @@ impl Error {
             Self::UnsupportedProviderSchema => "unsupported_provider_schema",
             Self::UnsupportedProviderVersion => "unsupported_provider_version",
             Self::IdentityUnavailable => "identity_unavailable",
+            Self::ProviderProfileMismatch => "provider_profile_mismatch",
             Self::EnvironmentOverrideConflict => "environment_override_conflict",
             Self::SerializationFailed => "serialization_failed",
             Self::MissingEnvironment(_) => "missing_environment",

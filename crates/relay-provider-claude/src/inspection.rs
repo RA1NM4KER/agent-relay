@@ -275,7 +275,7 @@ impl<R: CommandRunner> ClaudeInspector<R> {
         if !result.success {
             return Err(Error::ProviderCommandFailed);
         }
-        parse_auth_status(&result.stdout)
+        parse_auth_status(&result.stdout, config_dir)
     }
 }
 
@@ -312,7 +312,7 @@ impl AuthStatus {
     }
 }
 
-fn parse_auth_status(bytes: &[u8]) -> Result<AuthStatus> {
+fn parse_auth_status(bytes: &[u8], expected_config_dir: &Path) -> Result<AuthStatus> {
     let value: Value = serde_json::from_slice(bytes).map_err(|_| Error::MalformedProviderOutput)?;
     let object = value.as_object().ok_or(Error::MalformedProviderOutput)?;
     validate_auth_keys(object)?;
@@ -322,6 +322,15 @@ fn parse_auth_status(bytes: &[u8]) -> Result<AuthStatus> {
     let account_id = one_optional_string(object, "accountUuid", "accountId")?;
     let organization_id = one_optional_string(object, "orgId", "organizationId")?;
     let email = optional_string(object, "email")?;
+    let _analytics_disabled = optional_bool(object, "analyticsDisabled")?;
+    let _organization_name = optional_string(object, "orgName")?;
+    let _subscription_type = optional_string(object, "subscriptionType")?;
+    validate_reported_path(object, "configDirectory", expected_config_dir)?;
+    validate_reported_path(
+        object,
+        "projectsDirectory",
+        &expected_config_dir.join("projects"),
+    )?;
     Ok(AuthStatus {
         logged_in,
         auth_method,
@@ -343,6 +352,10 @@ fn validate_auth_keys(object: &Map<String, Value>) -> Result<()> {
         "orgId",
         "organizationId",
         "subscriptionType",
+        "analyticsDisabled",
+        "configDirectory",
+        "orgName",
+        "projectsDirectory",
     ];
     let known: BTreeSet<&str> = KNOWN_KEYS.iter().copied().collect();
     if object.keys().any(|key| !known.contains(key.as_str())) {
@@ -356,6 +369,23 @@ fn required_bool(object: &Map<String, Value>, key: &str) -> Result<bool> {
         .get(key)
         .and_then(Value::as_bool)
         .ok_or(Error::MalformedProviderOutput)
+}
+
+fn optional_bool(object: &Map<String, Value>, key: &str) -> Result<Option<bool>> {
+    match object.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(_) => Err(Error::MalformedProviderOutput),
+    }
+}
+
+fn validate_reported_path(object: &Map<String, Value>, key: &str, expected: &Path) -> Result<()> {
+    if let Some(reported) = optional_string(object, key)?
+        && !paths_refer_to_same_location(Path::new(&reported), expected)
+    {
+        return Err(Error::ProviderProfileMismatch);
+    }
+    Ok(())
 }
 
 fn required_string(object: &Map<String, Value>, key: &str) -> Result<String> {
@@ -514,6 +544,8 @@ fn validate_executable_platform(_metadata: &fs::Metadata) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{is_supported_version, normalize_email, parse_auth_status, parse_version};
     use relay_core::Error;
 
@@ -543,6 +575,7 @@ mod tests {
     fn auth_parser_accepts_the_known_schema() {
         let parsed = parse_auth_status(
             br#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"account-1","email":"Person@example.com","orgId":"org-1","subscriptionType":"max"}"#,
+            Path::new("/profile"),
         )
         .expect("known schema");
         let pin = parsed.identity_pin().expect("identity pin");
