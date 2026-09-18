@@ -978,17 +978,14 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         .find(|candidate| candidate.name == existing.owner_profile)
                         .map(|candidate| candidate.config_dir.clone());
                     let still_active = match &owner_config_dir {
-                        Some(config_dir) => {
-                            let liveness = ClaudeSourceLiveness::new(claude_executable.clone());
-                            liveness
-                                .check(
-                                    config_dir,
-                                    &canonical_project,
-                                    &existing.session_id,
-                                    Some(&existing.owner_process),
-                                )?
-                                .active
-                        }
+                        Some(config_dir) => confirm_not_active(
+                            config_dir,
+                            &canonical_project,
+                            &existing.session_id,
+                            &existing.owner_process,
+                            claude_executable.clone(),
+                        )
+                        .map(|confirmed_inactive| !confirmed_inactive)?,
                         // Owning profile is no longer registered at all: cannot verify safely.
                         None => true,
                     };
@@ -1043,6 +1040,36 @@ fn current_unix_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+const LAUNCH_LIVENESS_CONFIRM_ATTEMPTS: u32 = 3;
+const LAUNCH_LIVENESS_POLL_DELAY: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// A single liveness check has a real transient gap: live testing during M2B.75 showed that
+/// checking immediately after a competing writer's pid died (but before Claude's own background
+/// daemon had reassigned a replacement) can read as "not active" for one instant even though the
+/// session is about to come back. Requires `LAUNCH_LIVENESS_CONFIRM_ATTEMPTS` *consecutive*
+/// not-active readings before concluding it is genuinely safe to launch a new writer; a single
+/// active reading is trusted immediately (no race in that direction — evidence of activity is
+/// evidence of activity).
+fn confirm_not_active(
+    config_dir: &Path,
+    project_dir: &Path,
+    session_id: &str,
+    recorded_owner: &relay_core::handoff::ProcessIdentity,
+    claude_executable: Option<PathBuf>,
+) -> Result<bool, Error> {
+    let liveness = ClaudeSourceLiveness::new(claude_executable);
+    for attempt in 0..LAUNCH_LIVENESS_CONFIRM_ATTEMPTS {
+        let verdict = liveness.check(config_dir, project_dir, session_id, Some(recorded_owner))?;
+        if verdict.active {
+            return Ok(false);
+        }
+        if attempt + 1 < LAUNCH_LIVENESS_CONFIRM_ATTEMPTS {
+            std::thread::sleep(LAUNCH_LIVENESS_POLL_DELAY);
+        }
+    }
+    Ok(true)
 }
 
 /// Checks whether a session is currently active for `target` using the same M2B.5 liveness

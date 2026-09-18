@@ -33,15 +33,17 @@ const LAUNCH_OUTPUT_LIMIT: usize = 1024 * 1024;
 const VERIFICATION_PROMPT: &str =
     "Reply with exactly this text and nothing else: RELAY_HANDOFF_VERIFIED";
 
-/// The M2B.5 writer-liveness check: primarily an exact pid + start-time fingerprint check (never
-/// text-matching a process list), corroborated by Claude Code's own session bookkeeping
-/// (`claude agents --json`) to discover the pid in the first place and to detect sessions Relay
-/// never launched. Live testing during this milestone proved `agents --json` alone is
-/// insufficient — it kept reporting `"state": "working"` for a session whose process had already
-/// been `kill -9`'d — so the pid+fingerprint check is always the final arbiter when a pid is
-/// available; `agents --json`'s claim is only trusted outright when no pid can be obtained at
-/// all (nothing to verify against), which fails closed (treated as active) rather than assumed
-/// safe.
+/// The writer-liveness check. Primarily trusts Claude Code's own session bookkeeping (`claude
+/// agents --json`): a session it still lists is treated as active outright, never text-matched.
+/// Live testing across M2B.5/M2B.75 established *why* this must be the primary signal rather
+/// than a pid+fingerprint check: Claude's background daemon keeps a session listed (state
+/// "working"/"blocked") indefinitely after its worker process dies from a raw `kill` — it is
+/// dormant and resurrectable, not gone — until the session is explicitly `claude stop`ped. A
+/// confirmed-dead worker pid must never override a still-listed session to "not active": an
+/// earlier version of this check did exactly that and let a live-tested competing `relay launch`
+/// through while the original session could still have been resurrected. The pid+fingerprint
+/// check only adds corroborating evidence for the case where the session is *not* listed at all
+/// (never as a way to contradict a listing), and unestablishable identity always fails closed.
 #[derive(Clone, Debug, Default)]
 pub struct ClaudeSourceLiveness {
     claude_executable: Option<PathBuf>,
@@ -99,22 +101,21 @@ impl SourceLiveness for ClaudeSourceLiveness {
             .map(|record| record.session_id.clone())
             .collect();
 
+        // M2B.75 live finding: Claude's background daemon keeps a session listed (state
+        // "working"/"blocked") indefinitely after its worker process dies, until the session is
+        // explicitly `claude stop`ped — it is dormant and resurrectable, not gone. A confirmed-
+        // dead worker pid must NOT be allowed to override that listing to "not active": doing so
+        // let a real live-test competing `relay launch` through while the daemon could still have
+        // resurrected the original session at any time. Presence in the listing is therefore
+        // trusted outright; the pid+fingerprint check only adds corroborating evidence for the
+        // case where the session is *not* listed at all.
         let active = match matching {
-            None => false,
-            Some(record) => {
-                let pid = record.pid.or_else(|| recorded_owner.map(|owner| owner.pid));
-                match pid {
-                    None => true, // nothing to verify against: fail closed
-                    Some(pid) => {
-                        let identity = match recorded_owner {
-                            Some(owner) if owner.pid == pid => owner.clone(),
-                            _ => ProcessIdentity::query(pid),
-                        };
-                        // None (identity unestablishable) also fails closed: assume active.
-                        identity.is_still_the_same_process().unwrap_or(true)
-                    }
-                }
-            }
+            Some(_) => true,
+            None => match recorded_owner {
+                None => false,
+                // Unestablishable identity fails closed: assume active rather than guess.
+                Some(owner) => owner.is_still_the_same_process().unwrap_or(true),
+            },
         };
         Ok(LivenessVerdict {
             active,
