@@ -334,11 +334,27 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     claude_executable.as_deref(),
                 )?;
                 let mut reasons = report.reasons.clone();
-                let duplicate = service.list()?.iter().any(|profile| profile.name == *name);
-                if duplicate {
+                let registered_profiles = service.list()?;
+                let duplicate_name = registered_profiles
+                    .iter()
+                    .any(|profile| profile.name == *name);
+                if duplicate_name {
                     reasons.push(format!("profile name '{name}' is already registered"));
                 }
-                let would_succeed = report.safe_to_adopt && !duplicate;
+                let duplicate_identity = report.identity_pin.as_ref().is_some_and(|pin| {
+                    let stable_id = pin.stable_id();
+                    registered_profiles.iter().any(|profile| {
+                        profile.provider == ProviderKind::Claude
+                            && profile.expected_identity.stable_id == stable_id
+                    })
+                });
+                if duplicate_identity {
+                    reasons.push(
+                        "provider identity is already registered to another profile; aliases are not allowed"
+                            .to_owned(),
+                    );
+                }
+                let would_succeed = report.safe_to_adopt && !duplicate_name && !duplicate_identity;
                 let registry_path = paths.profile_state_file();
                 let registry_parent = registry_path.parent().ok_or(Error::AtomicWriteFailed)?;
                 let dry_run = AdoptionDryRun {

@@ -7,6 +7,8 @@ pub enum Error {
     InvalidProfileName(String),
     #[error("profile already exists: {0}")]
     DuplicateProfile(String),
+    #[error("provider identity is already registered to another profile")]
+    DuplicateIdentity,
     #[error("profile was not found: {0}")]
     ProfileNotFound(String),
     #[error("provider mismatch: expected {expected}, observed {observed}")]
@@ -81,6 +83,7 @@ impl Error {
         match self {
             Self::InvalidProfileName(_) => "invalid_profile_name",
             Self::DuplicateProfile(_) => "duplicate_profile",
+            Self::DuplicateIdentity => "duplicate_identity",
             Self::ProfileNotFound(_) => "profile_not_found",
             Self::ProviderMismatch { .. } => "provider_mismatch",
             Self::AuthenticationRequired => "authentication_required",

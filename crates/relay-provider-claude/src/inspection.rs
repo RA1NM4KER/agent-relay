@@ -43,6 +43,38 @@ impl ClaudeIdentityPin {
             && self.auth_method == observed.auth_method
             && self.api_provider == observed.api_provider
     }
+
+    /// Produces a provider-scoped, collision-safe key containing only pin fields.
+    #[must_use]
+    pub fn stable_id(&self) -> String {
+        let mut stable_id = String::from("claude:v1");
+        match &self.account_id {
+            Some(account_id) => {
+                push_identity_field(&mut stable_id, "account", account_id);
+            }
+            None => {
+                push_identity_field(
+                    &mut stable_id,
+                    "email",
+                    self.email.as_deref().unwrap_or_default(),
+                );
+                push_identity_field(
+                    &mut stable_id,
+                    "organization",
+                    self.organization_id.as_deref().unwrap_or_default(),
+                );
+            }
+        }
+        push_identity_field(&mut stable_id, "auth", &self.auth_method);
+        push_identity_field(&mut stable_id, "api", &self.api_provider);
+        stable_id
+    }
+}
+
+fn push_identity_field(target: &mut String, name: &str, value: &str) {
+    use std::fmt::Write as _;
+
+    write!(target, ":{name}:{}:{value}", value.len()).expect("writing to a String cannot fail");
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -581,5 +613,35 @@ mod tests {
         let pin = parsed.identity_pin().expect("identity pin");
         assert_eq!(pin.account_id.as_deref(), Some("account-1"));
         assert_eq!(pin.email.as_deref(), Some("person@example.com"));
+    }
+
+    #[test]
+    fn stable_id_follows_identity_pin_matching_rules() {
+        let first = parse_auth_status(
+            br#"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","email":"Person@example.com","orgId":"org-1"}"#,
+            Path::new("/profile"),
+        )
+        .expect("first status")
+        .identity_pin()
+        .expect("first pin");
+        let same = parse_auth_status(
+            br#"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","email":"person@example.com","orgId":"org-1"}"#,
+            Path::new("/profile"),
+        )
+        .expect("same status")
+        .identity_pin()
+        .expect("same pin");
+        let different = parse_auth_status(
+            br#"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","email":"other@example.com","orgId":"org-1"}"#,
+            Path::new("/profile"),
+        )
+        .expect("different status")
+        .identity_pin()
+        .expect("different pin");
+
+        assert!(first.matches(&same));
+        assert_eq!(first.stable_id(), same.stable_id());
+        assert!(!first.matches(&different));
+        assert_ne!(first.stable_id(), different.stable_id());
     }
 }

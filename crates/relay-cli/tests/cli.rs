@@ -3,7 +3,12 @@ use std::{path::Path, process::Command};
 use serde_json::Value;
 use tempfile::tempdir;
 
+use relay_core::{
+    Availability, AvailabilityObservation, IdentityMetadata, Profile, ProfileName, ProfileOrigin,
+    ProfileState, ProfileStore, ProviderKind,
+};
 use relay_provider_claude::AUTHENTICATION_OVERRIDE_VARIABLES;
+use relay_provider_claude::ClaudeIdentityPin;
 
 fn relay(root: &Path, arguments: &[&str]) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
@@ -203,6 +208,85 @@ fn dry_run_reports_duplicate_without_writing() {
         std::fs::read(root.path().join("config/profiles.toml")).expect("state"),
         state_before
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn dry_run_rejects_an_identity_pin_registered_under_another_name() {
+    let root = tempdir().expect("temp directory");
+    let profile = root.path().join("config/profiles/megan/claude");
+    create_private_dir(&profile);
+    let pin = ClaudeIdentityPin {
+        schema_version: 1,
+        account_id: None,
+        email: Some("same@example.com".to_owned()),
+        organization_id: Some("org-1".to_owned()),
+        auth_method: "claude.ai".to_owned(),
+        api_provider: "firstParty".to_owned(),
+    };
+    let state = ProfileState {
+        version: 1,
+        profiles: vec![Profile {
+            name: ProfileName::new("erika").expect("profile name"),
+            provider: ProviderKind::Claude,
+            config_dir: root.path().join("config/profiles/erika/claude"),
+            enabled: true,
+            origin: ProfileOrigin::Adopted,
+            expected_identity: IdentityMetadata {
+                stable_id: pin.stable_id(),
+                display_label: Some("same@example.com".to_owned()),
+            },
+            last_availability: AvailabilityObservation {
+                state: Availability::Available,
+                source: "claude_auth_status".to_owned(),
+                observed_unix_ms: 0,
+                reset_unix_ms: None,
+            },
+        }],
+    };
+    let state_path = root.path().join("config/profiles.toml");
+    ProfileStore::new(state_path.clone())
+        .save(&state)
+        .expect("seed profile registry");
+    let executable = fake_claude(
+        root.path(),
+        r#"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","email":"same@example.com","orgId":"org-1"}"#,
+    );
+    let profile_text = profile.to_string_lossy().to_string();
+    let executable_text = executable.to_string_lossy().to_string();
+    let state_before = std::fs::read(&state_path).expect("state");
+
+    let output = relay(
+        root.path(),
+        &[
+            "profile",
+            "adopt",
+            "megan",
+            "--provider",
+            "claude",
+            "--config-dir",
+            &profile_text,
+            "--claude-executable",
+            &executable_text,
+            "--dry-run",
+        ],
+    );
+
+    assert!(output.status.success());
+    let adoption = json_stdout(&output);
+    assert_eq!(adoption["data"]["would_succeed"], false);
+    assert!(
+        adoption["data"]["reasons"]
+            .as_array()
+            .is_some_and(|reasons| {
+                reasons.iter().any(|reason| {
+                    reason
+                        .as_str()
+                        .is_some_and(|reason| reason.contains("aliases are not allowed"))
+                })
+            })
+    );
+    assert_eq!(std::fs::read(state_path).expect("state"), state_before);
 }
 
 #[cfg(unix)]

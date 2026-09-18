@@ -83,6 +83,12 @@ impl<W: AtomicWrite> ProfileService<W> {
         if expected_identity.stable_id != observed_identity.stable_id {
             return Err(Error::IdentityMismatch);
         }
+        if state.profiles.iter().any(|profile| {
+            profile.provider == request.provider
+                && profile.expected_identity.stable_id == expected_identity.stable_id
+        }) {
+            return Err(Error::DuplicateIdentity);
+        }
         let profile = Profile {
             name: request.name,
             provider: request.provider,

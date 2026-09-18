@@ -102,6 +102,24 @@ fn duplicate_profile_names_are_rejected() {
 }
 
 #[test]
+fn duplicate_identity_pins_are_rejected_across_profile_names() {
+    let root = tempdir().expect("temp directory");
+    let service = ProfileService::new(paths(root.path(), "duplicate-identity"));
+    let provider =
+        FakeProvider::with_setup_behavior(FakeSetupBehavior::Identity("fake:same".to_owned()));
+    service.add(request("erika"), &provider).expect("first add");
+
+    let error = service
+        .add(request("megan"), &provider)
+        .expect_err("duplicate identity must fail closed");
+
+    assert_eq!(error.code(), "duplicate_identity");
+    let profiles = service.list().expect("list profiles");
+    assert_eq!(profiles.len(), 1);
+    assert_eq!(profiles[0].name.as_str(), "erika");
+}
+
+#[test]
 fn paths_with_spaces_and_unicode_are_supported() {
     let root = tempdir().expect("temp directory");
     let nested = root.path().join("relay data 日本語 with spaces");
