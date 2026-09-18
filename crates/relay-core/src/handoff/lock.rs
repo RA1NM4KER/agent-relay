@@ -88,34 +88,59 @@ impl ProcessIdentity {
 
     #[must_use]
     pub fn query(pid: u32) -> Self {
+        let start_time_fingerprint = match query_start_time(pid) {
+            ProcessQuery::Found(fingerprint) => Some(fingerprint),
+            ProcessQuery::ConfirmedAbsent | ProcessQuery::Indeterminate => None,
+        };
         Self {
             pid,
-            start_time_fingerprint: query_start_time(pid),
+            start_time_fingerprint,
         }
     }
 
     /// `Some(true)`: the pid is running and its start time still matches (same process).
-    /// `Some(false)`: the pid is either gone or now belongs to a different process (safe to treat
-    /// as no longer the owner). `None`: identity could not be established either way — the
-    /// caller must fail closed rather than guess.
+    /// `Some(false)`: the pid is *confirmed* gone, or now belongs to a different process (a `ps`
+    /// query that ran successfully said so) — safe to treat as no longer the owner. `None`:
+    /// identity could not be established either way (no recorded fingerprint to compare against,
+    /// or `ps` itself could not be run) — the caller must fail closed rather than guess.
     #[must_use]
     pub fn is_still_the_same_process(&self) -> Option<bool> {
         let recorded = self.start_time_fingerprint.as_ref()?;
-        let current = query_start_time(self.pid)?;
-        Some(&current == recorded)
+        match query_start_time(self.pid) {
+            ProcessQuery::Found(current) => Some(&current == recorded),
+            ProcessQuery::ConfirmedAbsent => Some(false),
+            ProcessQuery::Indeterminate => None,
+        }
     }
 }
 
-fn query_start_time(pid: u32) -> Option<String> {
-    let output = Command::new("ps")
+/// Distinguishes "we asked and the OS said no such process" from "we could not ask at all" —
+/// collapsing these (as a plain `Option` would) would make a confirmed crash indistinguishable
+/// from a permissions problem, and this project's recovery logic must never guess between them.
+enum ProcessQuery {
+    Found(String),
+    ConfirmedAbsent,
+    Indeterminate,
+}
+
+fn query_start_time(pid: u32) -> ProcessQuery {
+    let Ok(output) = Command::new("ps")
         .args(["-p", &pid.to_string(), "-o", "lstart="])
         .output()
-        .ok()?;
+    else {
+        return ProcessQuery::Indeterminate;
+    };
+    // macOS `ps -p <pid>` for a pid that does not exist exits non-zero with empty output; that
+    // is a confirmed, positive answer ("no such process"), not a failure to determine anything.
     if !output.status.success() {
-        return None;
+        return ProcessQuery::ConfirmedAbsent;
     }
     let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    (!text.is_empty()).then_some(text)
+    if text.is_empty() {
+        ProcessQuery::ConfirmedAbsent
+    } else {
+        ProcessQuery::Found(text)
+    }
 }
 
 #[cfg(test)]
@@ -241,5 +266,28 @@ mod tests {
             start_time_fingerprint: None,
         };
         assert_eq!(identity.is_still_the_same_process(), None);
+    }
+
+    #[test]
+    fn a_confirmed_dead_pid_is_reported_as_a_definite_not_the_same_process() {
+        // Spawn and immediately reap a short-lived process to get a pid that is confirmed gone
+        // (not just "probably" gone), then confirm the answer is Some(false), not None: a crash
+        // must be distinguishable from "could not determine," not conflated with it.
+        let mut child = std::process::Command::new("true")
+            .spawn()
+            .expect("spawn short-lived process");
+        let pid = child.id();
+        child.wait().expect("reap child");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        let identity = ProcessIdentity {
+            pid,
+            start_time_fingerprint: Some("whatever-it-was-when-launched".to_owned()),
+        };
+        assert_eq!(
+            identity.is_still_the_same_process(),
+            Some(false),
+            "a confirmed-absent pid must resolve definitely, not as None"
+        );
     }
 }

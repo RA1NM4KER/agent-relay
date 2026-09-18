@@ -13,8 +13,8 @@ mod project;
 mod state;
 
 pub use coordinator::{
-    HandoffCoordinator, HandoffRequest, LaunchOutcome, SessionStager, SourceLiveness,
-    TargetLauncher, TargetVerification, TransferOutcome, TransferredArtifact,
+    HandoffCoordinator, HandoffRequest, LaunchOutcome, LivenessVerdict, SessionStager,
+    SourceLiveness, TargetLauncher, TargetVerification, TransferOutcome, TransferredArtifact,
 };
 pub use journal::{ArtifactRecord, Checkpoint, HandoffJournal, JournalStore, VerificationRecord};
 pub use lease::{LeaseStore, WriterLease};

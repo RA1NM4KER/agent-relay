@@ -7,9 +7,9 @@ use relay_core::{
     Error, ProfileName, RelayPaths,
     handoff::{
         FailedPhase, HandoffCoordinator, HandoffRequest, HandoffState, JournalStore, LeaseStore,
-        OrchestrationLock, ProcessIdentity, ProjectId, SessionStager, SourceLiveness,
-        TargetLauncher, TargetVerification, TransactionId, TransferOutcome, TransferredArtifact,
-        WriterLease,
+        LivenessVerdict, OrchestrationLock, ProcessIdentity, ProjectId, SessionStager,
+        SourceLiveness, TargetLauncher, TargetVerification, TransactionId, TransferOutcome,
+        TransferredArtifact, WriterLease,
     },
 };
 use tempfile::tempdir;
@@ -41,8 +41,17 @@ fn relay_paths(root: &Path) -> RelayPaths {
 
 struct FixedLiveness(bool);
 impl SourceLiveness for FixedLiveness {
-    fn is_active(&self, _source_config_dir: &Path) -> relay_core::Result<bool> {
-        Ok(self.0)
+    fn check(
+        &self,
+        _source_config_dir: &Path,
+        _project_dir: &Path,
+        _expected_session_id: &str,
+        _recorded_owner: Option<&ProcessIdentity>,
+    ) -> relay_core::Result<LivenessVerdict> {
+        Ok(LivenessVerdict {
+            active: self.0,
+            untracked_session_ids: Vec::new(),
+        })
     }
 }
 
@@ -51,9 +60,18 @@ struct SlowLiveness {
     delay: std::time::Duration,
 }
 impl SourceLiveness for SlowLiveness {
-    fn is_active(&self, _source_config_dir: &Path) -> relay_core::Result<bool> {
+    fn check(
+        &self,
+        _source_config_dir: &Path,
+        _project_dir: &Path,
+        _expected_session_id: &str,
+        _recorded_owner: Option<&ProcessIdentity>,
+    ) -> relay_core::Result<LivenessVerdict> {
         std::thread::sleep(self.delay);
-        Ok(self.active)
+        Ok(LivenessVerdict {
+            active: self.active,
+            untracked_session_ids: Vec::new(),
+        })
     }
 }
 
@@ -674,4 +692,83 @@ fn wrong_project_never_collides_with_a_different_projects_state() {
     let id_a = ProjectId::for_canonical_path(&project_a).expect("id");
     let id_b = ProjectId::for_canonical_path(&project_b).expect("id");
     assert_ne!(id_a, id_b);
+}
+
+struct UntrackedLiveness;
+impl SourceLiveness for UntrackedLiveness {
+    fn check(
+        &self,
+        _source_config_dir: &Path,
+        _project_dir: &Path,
+        _expected_session_id: &str,
+        _recorded_owner: Option<&ProcessIdentity>,
+    ) -> relay_core::Result<LivenessVerdict> {
+        Ok(LivenessVerdict {
+            active: false,
+            untracked_session_ids: vec!["some-other-session-id".to_owned()],
+        })
+    }
+}
+
+#[test]
+fn an_untracked_session_for_the_source_profile_blocks_the_handoff() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &UntrackedLiveness,
+        stager: &OkStager,
+        launcher: &OkLauncher,
+    };
+
+    let error = coordinator
+        .run(request(&project_dir, "erika", "megan"))
+        .expect_err("an untracked session for this profile must block the handoff");
+    assert_eq!(error.code(), "untracked_writer_detected");
+
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let lease_store = LeaseStore::at_path(paths.project_state_dir(&project_id).join("lease.json"));
+    assert_eq!(
+        lease_store.load().expect("load"),
+        None,
+        "no lease must be written when the handoff is blocked"
+    );
+}
+
+#[test]
+fn a_confirmed_dead_recorded_owner_is_not_treated_as_active() {
+    // Regression test for the tri-state ProcessIdentity fix: a lease whose recorded process is
+    // confirmed gone (not just "unknown") must let the liveness check proceed rather than being
+    // conflated with "cannot determine, fail closed."
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+
+    let mut child = std::process::Command::new("true")
+        .spawn()
+        .expect("spawn short-lived process");
+    let dead_pid = child.id();
+    child.wait().expect("reap child");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let dead_identity = ProcessIdentity {
+        pid: dead_pid,
+        start_time_fingerprint: Some("whatever-it-was".to_owned()),
+    };
+    assert_eq!(dead_identity.is_still_the_same_process(), Some(false));
+
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stager: &OkStager,
+        launcher: &OkLauncher,
+    };
+    let journal = coordinator
+        .run(request(&project_dir, "erika", "megan"))
+        .expect("handoff must succeed when the fake liveness check reports not-active");
+    assert_eq!(journal.state, HandoffState::Complete);
 }

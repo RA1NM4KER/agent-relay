@@ -1,11 +1,15 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::{
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use relay_core::{
-    AddProfileRequest, Error, IdentityMetadata, ProfileName, ProfileService, ProfileSetupMode,
-    Provider, ProviderKind, RelayPaths,
+    AddProfileRequest, Error, IdentityMetadata, Profile, ProfileName, ProfileService,
+    ProfileSetupMode, Provider, ProviderKind, RelayPaths,
     handoff::{
         HandoffCoordinator, HandoffRequest, JournalStore, LeaseStore, OrchestrationLock, ProjectId,
+        SourceLiveness as _,
     },
 };
 use relay_provider_claude::{
@@ -57,6 +61,19 @@ enum Command {
         transaction_id: String,
         #[arg(long, value_name = "PATH")]
         project_dir: PathBuf,
+    },
+    /// M2B.5: launch Claude as a Relay-managed writer, recording a durable writer lease tied to
+    /// its real pid and start-time fingerprint (not a `ps` text scan). Refuses if another
+    /// verified-live writer already holds this project.
+    Launch {
+        #[arg(long)]
+        profile: ProfileName,
+        #[arg(long, value_name = "PATH")]
+        project_dir: PathBuf,
+        prompt: String,
+        /// Explicit Claude executable, primarily for controlled validation.
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
     },
 }
 
@@ -124,6 +141,63 @@ enum SessionCommand {
     StageTransfer {
         #[arg(long)]
         source_profile: ProfileName,
+        #[arg(long)]
+        target_profile: ProfileName,
+        #[arg(long, value_name = "PATH")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        session_id: String,
+    },
+    /// M2B.5: classify and safely resolve a target profile's session-transcript conflict.
+    Conflict(ConflictArgs),
+}
+
+#[derive(Debug, Args)]
+struct ConflictArgs {
+    #[command(subcommand)]
+    command: ConflictCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum ConflictCommand {
+    /// Read-only: classify the target's transcript relative to the source (missing, identical,
+    /// a known-stale ancestor, divergent/contains unique turns, or currently active).
+    Inspect {
+        #[arg(long)]
+        source_profile: ProfileName,
+        #[arg(long)]
+        target_profile: ProfileName,
+        #[arg(long, value_name = "PATH")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        session_id: String,
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+    },
+    /// Resolve the conflict. Without `--yes`, always previews (equivalent to `--dry-run`) and
+    /// writes nothing. A stale-ancestor target requires `--yes`; a genuinely divergent target
+    /// additionally requires `--force-discard-divergent`. Every actual replacement backs up the
+    /// displaced file first and journals the resolution.
+    Resolve {
+        #[arg(long)]
+        source_profile: ProfileName,
+        #[arg(long)]
+        target_profile: ProfileName,
+        #[arg(long, value_name = "PATH")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        session_id: String,
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        force_discard_divergent: bool,
+    },
+    /// Restore the most recent backup for a session back onto the target profile.
+    Rollback {
         #[arg(long)]
         target_profile: ProfileName,
         #[arg(long, value_name = "PATH")]
@@ -621,6 +695,120 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 );
                 success("session.stage_transfer", human, report)
             }
+            SessionCommand::Conflict(conflict) => match &conflict.command {
+                ConflictCommand::Inspect {
+                    source_profile,
+                    target_profile,
+                    project_dir,
+                    session_id,
+                    claude_executable,
+                } => {
+                    let registered = service.list()?;
+                    let source = registered
+                        .iter()
+                        .find(|profile| &profile.name == source_profile)
+                        .ok_or_else(|| Error::ProfileNotFound(source_profile.to_string()))?;
+                    let target = registered
+                        .iter()
+                        .find(|profile| &profile.name == target_profile)
+                        .ok_or_else(|| Error::ProfileNotFound(target_profile.to_string()))?;
+                    let target_active = target_is_active(
+                        &paths,
+                        target,
+                        project_dir,
+                        session_id,
+                        claude_executable.as_deref(),
+                    )?;
+                    let report = relay_provider_claude::inspect_conflict(
+                        &source.config_dir,
+                        &target.config_dir,
+                        project_dir,
+                        session_id,
+                        target_active,
+                    )?;
+                    let human = format!(
+                        "Session {session_id}: target ({target_profile}) is {:?}",
+                        report.classification
+                    );
+                    success("session.conflict.inspect", human, report)
+                }
+                ConflictCommand::Resolve {
+                    source_profile,
+                    target_profile,
+                    project_dir,
+                    session_id,
+                    claude_executable,
+                    dry_run,
+                    yes,
+                    force_discard_divergent,
+                } => {
+                    let registered = service.list()?;
+                    let source = registered
+                        .iter()
+                        .find(|profile| &profile.name == source_profile)
+                        .ok_or_else(|| Error::ProfileNotFound(source_profile.to_string()))?;
+                    let target = registered
+                        .iter()
+                        .find(|profile| &profile.name == target_profile)
+                        .ok_or_else(|| Error::ProfileNotFound(target_profile.to_string()))?;
+                    let target_active = target_is_active(
+                        &paths,
+                        target,
+                        project_dir,
+                        session_id,
+                        claude_executable.as_deref(),
+                    )?;
+                    let decision = if *dry_run {
+                        relay_provider_claude::ResolveDecision::Preview
+                    } else if *force_discard_divergent {
+                        relay_provider_claude::ResolveDecision::ForceDiscardDivergent
+                    } else if *yes {
+                        relay_provider_claude::ResolveDecision::Confirm
+                    } else {
+                        relay_provider_claude::ResolveDecision::Preview
+                    };
+                    let resolution = relay_provider_claude::resolve_conflict(
+                        &source.config_dir,
+                        &target.config_dir,
+                        project_dir,
+                        session_id,
+                        target_active,
+                        decision,
+                    )?;
+                    let human = format!(
+                        "Session {session_id}: {} (dry_run={}){}",
+                        resolution.action,
+                        resolution.dry_run,
+                        resolution
+                            .backup_path
+                            .as_ref()
+                            .map(|path| format!("\nBackup: {}", path.display()))
+                            .unwrap_or_default()
+                    );
+                    success("session.conflict.resolve", human, resolution)
+                }
+                ConflictCommand::Rollback {
+                    target_profile,
+                    project_dir,
+                    session_id,
+                } => {
+                    let registered = service.list()?;
+                    let target = registered
+                        .iter()
+                        .find(|profile| &profile.name == target_profile)
+                        .ok_or_else(|| Error::ProfileNotFound(target_profile.to_string()))?;
+                    let restored_path = relay_provider_claude::rollback_conflict(
+                        &target.config_dir,
+                        project_dir,
+                        session_id,
+                    )?;
+                    success(
+                        "session.conflict.rollback",
+                        format!("Restored backup to {}", restored_path.display()),
+                        json!({ "restored_path": restored_path }),
+                    )
+                }
+            },
         },
         Command::Lock(lock) => match &lock.command {
             LockCommand::Status { project_dir } => {
@@ -675,7 +863,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     .iter()
                     .find(|profile| &profile.name == target_profile)
                     .ok_or_else(|| Error::ProfileNotFound(target_profile.to_string()))?;
-                let liveness = ClaudeSourceLiveness;
+                let liveness = ClaudeSourceLiveness::new(claude_executable.clone());
                 let stager = ClaudeSessionStager;
                 let launcher = ClaudeTargetLauncher::new(claude_executable.clone());
                 let coordinator = HandoffCoordinator {
@@ -738,7 +926,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             let project_id = ProjectId::for_canonical_path(&canonical)?;
             let project_state_dir = paths.project_state_dir(&project_id);
             let parsed = relay_core::handoff::TransactionId::parse(transaction_id)?;
-            let liveness = ClaudeSourceLiveness;
+            let liveness = ClaudeSourceLiveness::new(None);
             let stager = ClaudeSessionStager;
             let launcher = ClaudeTargetLauncher::new(None);
             let coordinator = HandoffCoordinator {
@@ -754,7 +942,133 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             );
             success("recover", human, journal)
         }
+        Command::Launch {
+            profile,
+            project_dir,
+            prompt,
+            claude_executable,
+        } => {
+            let registered = service.list()?;
+            let target = registered
+                .iter()
+                .find(|candidate| &candidate.name == profile)
+                .ok_or_else(|| Error::ProfileNotFound(profile.to_string()))?;
+            let canonical_project =
+                std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
+                    path: project_dir.clone(),
+                    source,
+                })?;
+            let project_id = ProjectId::for_canonical_path(&canonical_project)?;
+            let project_state_dir = paths.project_state_dir(&project_id);
+            std::fs::create_dir_all(&project_state_dir).map_err(|source| Error::Io {
+                path: project_state_dir.clone(),
+                source,
+            })?;
+            let lock = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"));
+            let lease_store = LeaseStore::at_path(project_state_dir.join("lease.json"));
+
+            let lease = lock.try_with(|| -> Result<relay_core::handoff::WriterLease, Error> {
+                if let Some(existing) = lease_store.load()? {
+                    let owner_config_dir = registered
+                        .iter()
+                        .find(|candidate| candidate.name == existing.owner_profile)
+                        .map(|candidate| candidate.config_dir.clone());
+                    let still_active = match &owner_config_dir {
+                        Some(config_dir) => {
+                            let liveness = ClaudeSourceLiveness::new(claude_executable.clone());
+                            liveness
+                                .check(
+                                    config_dir,
+                                    &canonical_project,
+                                    &existing.session_id,
+                                    Some(&existing.owner_process),
+                                )?
+                                .active
+                        }
+                        // Owning profile is no longer registered at all: cannot verify safely.
+                        None => true,
+                    };
+                    if still_active {
+                        return Err(Error::WriterAlreadyActive(
+                            existing.owner_profile.to_string(),
+                        ));
+                    }
+                }
+
+                let launched = relay_provider_claude::launch_background(
+                    &target.config_dir,
+                    &canonical_project,
+                    prompt,
+                    claude_executable.as_deref(),
+                )?;
+                let owner_process = launched
+                    .pid
+                    .map(relay_core::handoff::ProcessIdentity::query)
+                    .unwrap_or(relay_core::handoff::ProcessIdentity {
+                        pid: 0,
+                        start_time_fingerprint: None,
+                    });
+                let lease = relay_core::handoff::WriterLease::new(
+                    project_id.clone(),
+                    target.name.clone(),
+                    owner_process,
+                    launched.session_id.clone(),
+                    relay_core::handoff::TransactionId::generate(),
+                    current_unix_ms(),
+                )
+                .with_provider_handle(Some(launched.provider_handle.clone()));
+                lease_store.save(&lease)?;
+                Ok(lease)
+            })?;
+
+            let human = format!(
+                "Launched '{}' as writer for {}\nSession: {}\nPid: {}\nBackground job: {}",
+                profile,
+                canonical_project.display(),
+                lease.session_id,
+                lease.owner_process.pid,
+                lease.provider_handle.clone().unwrap_or_default()
+            );
+            success("launch", human, lease)
+        }
     }
+}
+
+fn current_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default()
+}
+
+/// Checks whether a session is currently active for `target` using the same M2B.5 liveness
+/// mechanism the handoff coordinator uses (pid + fingerprint, corroborated by `claude agents
+/// --json`), so `session conflict` commands never touch a genuinely in-use target.
+fn target_is_active(
+    paths: &RelayPaths,
+    target: &Profile,
+    project_dir: &Path,
+    session_id: &str,
+    claude_executable: Option<&Path>,
+) -> Result<bool, Error> {
+    let canonical_project = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
+        path: project_dir.to_path_buf(),
+        source,
+    })?;
+    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
+    let lease =
+        LeaseStore::at_path(paths.project_state_dir(&project_id).join("lease.json")).load()?;
+    let recorded_owner = lease
+        .filter(|lease| lease.owner_profile == target.name)
+        .map(|lease| lease.owner_process);
+    let liveness = ClaudeSourceLiveness::new(claude_executable.map(Path::to_path_buf));
+    let verdict = liveness.check(
+        &target.config_dir,
+        &canonical_project,
+        session_id,
+        recorded_owner.as_ref(),
+    )?;
+    Ok(verdict.active)
 }
 
 /// `status`/`doctor` must inspect through the profile's own provider, not always the fake one:

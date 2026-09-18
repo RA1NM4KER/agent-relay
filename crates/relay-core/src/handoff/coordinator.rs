@@ -12,10 +12,34 @@ use super::{
     journal::{ArtifactRecord, VerificationRecord, checkpoint_project},
 };
 
+/// The result of checking whether a profile's writer is still alive. `active` is the primary
+/// decision (block or proceed); `untracked_session_ids` is a secondary, purely informational
+/// finding — other Claude sessions visible for this profile that are neither absent nor the one
+/// being handed off, i.e. a manually-started or otherwise Relay-untracked session. M2B.5 treats
+/// both as blocking (see [`Error::UntrackedWriterDetected`]) rather than silently proceeding.
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct LivenessVerdict {
+    pub active: bool,
+    pub untracked_session_ids: Vec<String>,
+}
+
 /// Read-only: is the source profile's Claude process currently running? `relay-core` does not
 /// know how to launch or inspect Claude; `relay-provider-claude` supplies the real check.
+///
+/// `expected_session_id` is the session the coordinator expects to be handing off.
+/// `recorded_owner` is the process identity from the project's current [`WriterLease`], when one
+/// exists for this profile — implementations should treat it as the strongest available signal
+/// (an exact pid + start-time fingerprint check) and use provider-specific session listings only
+/// as corroboration/bootstrap, never as the sole source of truth (see M2B.5's design notes: a
+/// provider's own session bookkeeping can lag a hard crash).
 pub trait SourceLiveness: Send + Sync {
-    fn is_active(&self, source_config_dir: &Path) -> Result<bool>;
+    fn check(
+        &self,
+        source_config_dir: &Path,
+        project_dir: &Path,
+        expected_session_id: &str,
+        recorded_owner: Option<&ProcessIdentity>,
+    ) -> Result<LivenessVerdict>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -144,13 +168,21 @@ impl HandoffCoordinator<'_> {
         lease_store: &LeaseStore,
         current_pointer: &Path,
     ) -> Result<HandoffJournal> {
-        if let Some(existing) = lease_store.load()?
+        let existing_lease = lease_store.load()?;
+        if let Some(existing) = &existing_lease
             && existing.owner_profile != request.source_profile
         {
             return Err(Error::WriterLeaseOwnedByAnotherProfile(
                 existing.owner_profile.to_string(),
             ));
         }
+        // Only trust the lease's recorded process identity when it actually belongs to the
+        // source profile we are about to check — a lease for a different (or no) profile gives
+        // the liveness check nothing to corroborate against.
+        let recorded_owner = existing_lease
+            .as_ref()
+            .filter(|lease| lease.owner_profile == request.source_profile)
+            .map(|lease| lease.owner_process.clone());
 
         let mut journal = HandoffJournal::new(
             transaction_id,
@@ -194,13 +226,26 @@ impl HandoffCoordinator<'_> {
 
         journal.advance(HandoffState::SourceStopping, "verifying source is stopped")?;
         journal_store.save(&journal)?;
-        match self.liveness.is_active(&request.source_config_dir) {
-            Ok(true) => fail_and_return!(
+        match self.liveness.check(
+            &request.source_config_dir,
+            project_dir,
+            &request.session_id,
+            recorded_owner.as_ref(),
+        ) {
+            Ok(verdict) if verdict.active => fail_and_return!(
                 FailedPhase::Stop,
                 "source profile has an active Claude process".to_owned(),
                 Error::SourceProfileActive
             ),
-            Ok(false) => {}
+            Ok(verdict) if !verdict.untracked_session_ids.is_empty() => fail_and_return!(
+                FailedPhase::Stop,
+                format!(
+                    "untracked Claude session(s) detected for source profile: {:?}",
+                    verdict.untracked_session_ids
+                ),
+                Error::UntrackedWriterDetected(verdict.untracked_session_ids.join(", "))
+            ),
+            Ok(_) => {}
             Err(error) => fail_and_return!(
                 FailedPhase::Stop,
                 format!("liveness check failed: {error}"),

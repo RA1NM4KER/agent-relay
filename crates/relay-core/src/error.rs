@@ -91,6 +91,16 @@ pub enum Error {
     WriterLeaseOwnedByAnotherProfile(String),
     #[error("target verification did not match the expected session or profile")]
     TargetVerificationMismatch,
+    #[error("an untracked Claude session was detected for the source profile: {0}")]
+    UntrackedWriterDetected(String),
+    #[error("a writer is already active for this project, owned by: {0}")]
+    WriterAlreadyActive(String),
+    #[error("target session artifact conflict requires explicit resolution: {0}")]
+    ConflictRequiresResolution(String),
+    #[error("no backup was found to roll back")]
+    NoBackupToRestore,
+    #[error("conflict-resolution metadata is corrupted or incompatible")]
+    CorruptedConflictMetadata,
     #[error("serialization failed")]
     SerializationFailed,
     #[error("required environment path is unavailable: {0}")]
@@ -151,6 +161,11 @@ impl Error {
             Self::InvalidTransactionId(_) => "invalid_transaction_id",
             Self::WriterLeaseOwnedByAnotherProfile(_) => "writer_lease_owned_by_another_profile",
             Self::TargetVerificationMismatch => "target_verification_mismatch",
+            Self::UntrackedWriterDetected(_) => "untracked_writer_detected",
+            Self::WriterAlreadyActive(_) => "writer_already_active",
+            Self::ConflictRequiresResolution(_) => "conflict_requires_resolution",
+            Self::NoBackupToRestore => "no_backup_to_restore",
+            Self::CorruptedConflictMetadata => "corrupted_conflict_metadata",
             Self::SerializationFailed => "serialization_failed",
             Self::MissingEnvironment(_) => "missing_environment",
             Self::Io { .. } => "io_error",

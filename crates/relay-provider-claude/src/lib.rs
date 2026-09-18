@@ -1,17 +1,27 @@
 //! Read-only profile inspection and non-executing process plans for Claude Code.
 
 mod adoption;
+mod conflict;
 mod handoff_adapters;
 mod inspection;
+mod session_registry;
 mod session_transfer;
 
 pub use adoption::ClaudeAdoptionProvider;
-pub use handoff_adapters::{ClaudeSessionStager, ClaudeSourceLiveness, ClaudeTargetLauncher};
+pub use conflict::{
+    ConflictClassification, ConflictReport, ConflictResolution, ResolveDecision, inspect_conflict,
+    resolve_conflict, rollback_conflict,
+};
+pub use handoff_adapters::{
+    ClaudeSessionStager, ClaudeSourceLiveness, ClaudeTargetLauncher, LaunchedWriter,
+    launch_background,
+};
 pub use inspection::{
     ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector, CommandRunner,
     EnvironmentOverrideStatus, EnvironmentVariableStatus, ProcessResult, ProcessSpec,
     SystemCommandRunner, inspect_environment, inspect_environment_with,
 };
+pub use session_registry::{AgentSessionRecord, query_active_sessions};
 pub use session_transfer::{
     ProcessLister, SessionTransferReport, StagedArtifact, SystemProcessLister, discover_session,
     ensure_supported_claude_version, escape_project_path, stage_transfer, validate_session_id,

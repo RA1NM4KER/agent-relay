@@ -24,6 +24,12 @@ pub struct WriterLease {
     pub session_id: String,
     pub transaction_id: TransactionId,
     pub acquired_unix_ms: u64,
+    /// An opaque provider-specific handle for the launched writer (e.g. Claude's own background
+    /// job id), so an operator or a future command can reference it without Relay needing to
+    /// know provider-specific semantics. Absent for leases established via a handoff rather than
+    /// a direct `relay launch`.
+    #[serde(default)]
+    pub provider_handle: Option<String>,
 }
 
 pub struct LeaseStore {
@@ -95,7 +101,14 @@ impl WriterLease {
             session_id,
             transaction_id,
             acquired_unix_ms,
+            provider_handle: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_provider_handle(mut self, provider_handle: Option<String>) -> Self {
+        self.provider_handle = provider_handle;
+        self
     }
 }
 
