@@ -2,6 +2,7 @@
 
 mod atomic;
 mod error;
+pub mod handoff;
 mod model;
 mod paths;
 mod provider;

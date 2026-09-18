@@ -75,6 +75,22 @@ pub enum Error {
     TargetArtifactDiverges,
     #[error("a staged session artifact did not verify against its source hash after copy")]
     TransferVerificationFailed,
+    #[error("another handoff is already in progress for this project")]
+    OrchestrationLockHeld,
+    #[error("writer lease is corrupted or incompatible")]
+    CorruptedLease,
+    #[error("handoff journal is corrupted or incompatible")]
+    CorruptedJournal,
+    #[error("no handoff transaction was found at: {0}")]
+    TransactionNotFound(String),
+    #[error("illegal handoff state transition from {from} to {to}")]
+    IllegalStateTransition { from: String, to: String },
+    #[error("transaction id is not in a Relay-generated shape: {0}")]
+    InvalidTransactionId(String),
+    #[error("this project's writer lease is owned by another profile: {0}")]
+    WriterLeaseOwnedByAnotherProfile(String),
+    #[error("target verification did not match the expected session or profile")]
+    TargetVerificationMismatch,
     #[error("serialization failed")]
     SerializationFailed,
     #[error("required environment path is unavailable: {0}")]
@@ -127,6 +143,14 @@ impl Error {
             Self::SourceProfileActive => "source_profile_active",
             Self::TargetArtifactDiverges => "target_artifact_diverges",
             Self::TransferVerificationFailed => "transfer_verification_failed",
+            Self::OrchestrationLockHeld => "orchestration_lock_held",
+            Self::CorruptedLease => "corrupted_lease",
+            Self::CorruptedJournal => "corrupted_journal",
+            Self::TransactionNotFound(_) => "transaction_not_found",
+            Self::IllegalStateTransition { .. } => "illegal_state_transition",
+            Self::InvalidTransactionId(_) => "invalid_transaction_id",
+            Self::WriterLeaseOwnedByAnotherProfile(_) => "writer_lease_owned_by_another_profile",
+            Self::TargetVerificationMismatch => "target_verification_mismatch",
             Self::SerializationFailed => "serialization_failed",
             Self::MissingEnvironment(_) => "missing_environment",
             Self::Io { .. } => "io_error",

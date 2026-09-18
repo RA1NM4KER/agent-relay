@@ -4,10 +4,14 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use relay_core::{
     AddProfileRequest, Error, IdentityMetadata, ProfileName, ProfileService, ProfileSetupMode,
     Provider, ProviderKind, RelayPaths,
+    handoff::{
+        HandoffCoordinator, HandoffRequest, JournalStore, LeaseStore, OrchestrationLock, ProjectId,
+    },
 };
 use relay_provider_claude::{
     ClaudeAdoptionProvider, ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector,
-    EnvironmentOverrideStatus, SystemProcessLister, inspect_environment, stage_transfer,
+    ClaudeSessionStager, ClaudeSourceLiveness, ClaudeTargetLauncher, EnvironmentOverrideStatus,
+    SystemProcessLister, inspect_environment, stage_transfer,
 };
 use relay_testkit::FakeProvider;
 use serde::Serialize;
@@ -44,6 +48,65 @@ enum Command {
     Profile(ProfileArgs),
     /// M2A: minimal, explicit, manual cross-profile Claude session staging.
     Session(SessionArgs),
+    /// M2B: project-level writer lease and orchestration lock inspection.
+    Lock(LockArgs),
+    /// M2B: crash-safe transactional handoff between two registered profiles.
+    Handoff(HandoffArgs),
+    /// M2B: decide the safe next action for an interrupted handoff transaction.
+    Recover {
+        transaction_id: String,
+        #[arg(long, value_name = "PATH")]
+        project_dir: PathBuf,
+    },
+}
+
+#[derive(Debug, Args)]
+struct LockArgs {
+    #[command(subcommand)]
+    command: LockCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum LockCommand {
+    /// Report whether a project's orchestration lock is currently held and who its writer
+    /// lease says owns it. Advisory only: there is an inherent check-then-report race.
+    Status {
+        #[arg(long, value_name = "PATH")]
+        project_dir: PathBuf,
+    },
+}
+
+#[derive(Debug, Args)]
+struct HandoffArgs {
+    #[command(subcommand)]
+    command: HandoffCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum HandoffCommand {
+    /// Run one complete transactional handoff: verifies the source is stopped, stages the
+    /// session (M2A guarantees apply), launches and verifies the target, then moves the
+    /// writer lease. Fails closed at every step; a `relay handoff status` and durable journal
+    /// remain even when this command exits non-zero.
+    Run {
+        #[arg(long = "from")]
+        source_profile: ProfileName,
+        #[arg(long = "to")]
+        target_profile: ProfileName,
+        #[arg(long = "project", value_name = "PATH")]
+        project_dir: PathBuf,
+        #[arg(long = "session")]
+        session_id: String,
+        /// Explicit Claude executable, primarily for controlled validation.
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+    },
+    /// Show a transaction's durable journal.
+    Status {
+        transaction_id: String,
+        #[arg(long, value_name = "PATH")]
+        project_dir: PathBuf,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -559,6 +622,138 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 success("session.stage_transfer", human, report)
             }
         },
+        Command::Lock(lock) => match &lock.command {
+            LockCommand::Status { project_dir } => {
+                let canonical = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
+                    path: project_dir.clone(),
+                    source,
+                })?;
+                let project_id = ProjectId::for_canonical_path(&canonical)?;
+                let project_state_dir = paths.project_state_dir(&project_id);
+                let held = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"))
+                    .is_currently_held();
+                let lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
+                let current_transaction =
+                    std::fs::read_to_string(project_state_dir.join("current_transaction.json"))
+                        .ok();
+                let human = format!(
+                    "Project: {}\nLock held: {}\nCurrent owner: {}\nMost recent transaction: {}",
+                    canonical.display(),
+                    held,
+                    lease
+                        .as_ref()
+                        .map(|lease| lease.owner_profile.to_string())
+                        .unwrap_or_else(|| "none yet".to_owned()),
+                    current_transaction.as_deref().unwrap_or("none")
+                );
+                success(
+                    "lock.status",
+                    human,
+                    json!({
+                        "project_id": project_id.as_str(),
+                        "locked": held,
+                        "lease": lease,
+                        "current_transaction": current_transaction,
+                    }),
+                )
+            }
+        },
+        Command::Handoff(handoff) => match &handoff.command {
+            HandoffCommand::Run {
+                source_profile,
+                target_profile,
+                project_dir,
+                session_id,
+                claude_executable,
+            } => {
+                let registered = service.list()?;
+                let source = registered
+                    .iter()
+                    .find(|profile| &profile.name == source_profile)
+                    .ok_or_else(|| Error::ProfileNotFound(source_profile.to_string()))?;
+                let target = registered
+                    .iter()
+                    .find(|profile| &profile.name == target_profile)
+                    .ok_or_else(|| Error::ProfileNotFound(target_profile.to_string()))?;
+                let liveness = ClaudeSourceLiveness;
+                let stager = ClaudeSessionStager;
+                let launcher = ClaudeTargetLauncher::new(claude_executable.clone());
+                let coordinator = HandoffCoordinator {
+                    paths: &paths,
+                    liveness: &liveness,
+                    stager: &stager,
+                    launcher: &launcher,
+                };
+                let journal = coordinator.run(HandoffRequest {
+                    project_dir: project_dir.clone(),
+                    source_profile: source.name.clone(),
+                    source_config_dir: source.config_dir.clone(),
+                    target_profile: target.name.clone(),
+                    target_config_dir: target.config_dir.clone(),
+                    session_id: session_id.clone(),
+                })?;
+                let human = format!(
+                    "Handoff {} ({} -> {}): {:?}\nSession: {}\nTransaction: {}",
+                    journal.transaction_id,
+                    source_profile,
+                    target_profile,
+                    journal.state,
+                    journal.session_id,
+                    journal.transaction_id
+                );
+                success("handoff.run", human, journal)
+            }
+            HandoffCommand::Status {
+                transaction_id,
+                project_dir,
+            } => {
+                let canonical = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
+                    path: project_dir.clone(),
+                    source,
+                })?;
+                let project_id = ProjectId::for_canonical_path(&canonical)?;
+                let project_state_dir = paths.project_state_dir(&project_id);
+                let parsed = relay_core::handoff::TransactionId::parse(transaction_id)?;
+                let journal_store = JournalStore::at_path(
+                    project_state_dir
+                        .join("handoffs")
+                        .join(format!("{parsed}.json")),
+                );
+                let journal = journal_store.load()?;
+                let human = format!(
+                    "Transaction {}: {:?}\nRevision: {}",
+                    journal.transaction_id, journal.state, journal.revision
+                );
+                success("handoff.status", human, journal)
+            }
+        },
+        Command::Recover {
+            transaction_id,
+            project_dir,
+        } => {
+            let canonical = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
+                path: project_dir.clone(),
+                source,
+            })?;
+            let project_id = ProjectId::for_canonical_path(&canonical)?;
+            let project_state_dir = paths.project_state_dir(&project_id);
+            let parsed = relay_core::handoff::TransactionId::parse(transaction_id)?;
+            let liveness = ClaudeSourceLiveness;
+            let stager = ClaudeSessionStager;
+            let launcher = ClaudeTargetLauncher::new(None);
+            let coordinator = HandoffCoordinator {
+                paths: &paths,
+                liveness: &liveness,
+                stager: &stager,
+                launcher: &launcher,
+            };
+            let journal = coordinator.recover(&project_state_dir, &parsed)?;
+            let human = format!(
+                "Recovery decision for {}: {:?}",
+                journal.transaction_id, journal.state
+            );
+            success("recover", human, journal)
+        }
     }
 }
 

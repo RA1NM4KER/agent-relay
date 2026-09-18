@@ -90,3 +90,57 @@ fn sync_directory(path: &Path) -> Result<()> {
 fn sync_directory(_path: &Path) -> Result<()> {
     Ok(())
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use tempfile::tempdir;
+
+    use super::{AtomicWrite, FsAtomicWriter};
+
+    #[test]
+    fn a_failed_write_preserves_existing_content_and_leaves_no_temp_file() {
+        let root = tempdir().expect("temp dir");
+        let destination = root.path().join("state.toml");
+        std::fs::write(&destination, "original").expect("seed");
+
+        // Make the directory unwritable so temp-file creation fails.
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o500))
+            .expect("chmod read-only");
+        let result = FsAtomicWriter.write_atomic(&destination, b"replacement");
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("chmod restore");
+
+        assert!(
+            result.is_err(),
+            "write into a read-only directory must fail"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&destination).expect("destination unchanged"),
+            "original"
+        );
+        let stray: Vec<_> = std::fs::read_dir(root.path())
+            .expect("read dir")
+            .map(|entry| entry.expect("entry").file_name())
+            .filter(|name| name != "state.toml")
+            .collect();
+        assert!(stray.is_empty(), "no temp file must remain: {stray:?}");
+    }
+
+    #[test]
+    fn a_successful_write_atomically_replaces_the_destination() {
+        let root = tempdir().expect("temp dir");
+        let destination = root.path().join("state.toml");
+        std::fs::write(&destination, "original").expect("seed");
+
+        FsAtomicWriter
+            .write_atomic(&destination, b"replacement")
+            .expect("write");
+
+        assert_eq!(
+            std::fs::read_to_string(&destination).expect("destination updated"),
+            "replacement"
+        );
+    }
+}

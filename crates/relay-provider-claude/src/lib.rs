@@ -1,10 +1,12 @@
 //! Read-only profile inspection and non-executing process plans for Claude Code.
 
 mod adoption;
+mod handoff_adapters;
 mod inspection;
 mod session_transfer;
 
 pub use adoption::ClaudeAdoptionProvider;
+pub use handoff_adapters::{ClaudeSessionStager, ClaudeSourceLiveness, ClaudeTargetLauncher};
 pub use inspection::{
     ClaudeIdentityPin, ClaudeInspectionReport, ClaudeInspector, CommandRunner,
     EnvironmentOverrideStatus, EnvironmentVariableStatus, ProcessResult, ProcessSpec,

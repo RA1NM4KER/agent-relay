@@ -62,6 +62,16 @@ impl RelayPaths {
         self.config_root.join("profiles.toml")
     }
 
+    #[must_use]
+    pub fn projects_state_root(&self) -> PathBuf {
+        self.state_root.join("projects")
+    }
+
+    #[must_use]
+    pub fn project_state_dir(&self, project_id: &crate::handoff::ProjectId) -> PathBuf {
+        self.projects_state_root().join(project_id.as_str())
+    }
+
     pub fn validate_adoption_path(
         &self,
         requested: &Path,

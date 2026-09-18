@@ -226,6 +226,13 @@ impl<R: CommandRunner> ClaudeInspector<R> {
         })
     }
 
+    /// The validated, canonicalized executable this inspector resolved to — the same one that
+    /// must be used for launching, so callers never re-derive a possibly-different path.
+    #[must_use]
+    pub fn executable(&self) -> &Path {
+        &self.executable
+    }
+
     pub fn inspect(
         &self,
         config_dir: &Path,
