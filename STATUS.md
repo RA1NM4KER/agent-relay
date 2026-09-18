@@ -3,8 +3,11 @@
 ## Current milestone
 
 v0.1.0 standalone checkpoint (M2C.1 plus release hygiene: README quickstart, redacted docs/fixtures,
-integration writes gated on an active install manifest). Profile B -> Profile A was NOT re-run live on the
-M2C.1 code because the validating session itself ran under the Profile B profile (see below).
+integration writes gated on an active install manifest). Profile B -> Profile A through `watch run`
+has since been live-validated on the M2C.1 code (transaction `ho-18d68e5c2cc65a38-46090`, session id
+`ad32d31c-9036-4dfa-a27f-0a1038c45eba`): completed automatically, same session id preserved, writer
+lease moved to Profile A, orchestration lock released, no duplicate writer remained. Automatic
+handoff is therefore live-validated in both directions.
 M2C.1 complete — real, structured usage detection (StopFailure hook, statusline `rate_limits`,
 stream-json `rate_limit_event`), an opt-in installer for them, automatic startup recovery, and
 version/capability gating; details in the M2C.1 entry below and `docs/automatic-handoff.md`.
@@ -357,11 +360,12 @@ underneath it.
     journal. A real orphan left by an earlier interrupted run was also recovered this way. No
     capacity (both profiles exhausted) reported `WAITING_FOR_CAPACITY` with zero journal or lease
     change; cooldown and the pending-recovery gate were exercised live.
-  - **Not live-validated**: Profile B -> Profile A through `watch run`. The M2A guard refuses staging
-    from any profile that has a running Claude process, and this validation ran inside a Profile B
-    session, so it was correctly refused (`source_profile_active`, transaction FAILED, no state
-    change). The reverse path is exercised by the same code and by tests, and a Profile B -> Profile A
-    handoff completed earlier in M2B/M2B.5/M2B.75; repeat it with no Profile B Claude process running.
+  - **Not live-validated in this M2C session**: Profile B -> Profile A through `watch run`. The M2A
+    guard refuses staging from any profile that has a running Claude process, and this validation
+    ran inside a Profile B session, so it was correctly refused (`source_profile_active`,
+    transaction FAILED, no state change). The reverse path is exercised by the same code and by
+    tests, and a Profile B -> Profile A handoff completed earlier in M2B/M2B.5/M2B.75; it was later
+    live-validated through `watch run` itself under M2C.1 (see the M2C.1 entry below).
 
 - **M2C.1: standalone-readiness pass (structured usage detection, integration installer, startup
   recovery, capability gating).**
@@ -405,10 +409,12 @@ underneath it.
     `claude -p --resume` orphan, restart recovered (orphan stopped, transaction COMPLETE, lease
     moved, no second writer); uninstall restored both settings.json files byte for byte. The real
     statusline of the running Profile B session was captured with genuine `rate_limits` data.
-  - **Not live-validated**: Profile B -> Profile A via `watch run` (this validation ran inside a Profile B
-    session, so the per-profile active-process guard would correctly refuse; covered by tests and the
-    earlier owner validation). A real refusal (`StopFailure` from an actually exhausted account) was
-    never observed and no quota was burned.
+  - **Profile B -> Profile A live-validated**: a subsequent `watch run` completed the reverse
+    direction automatically (transaction `ho-18d68e5c2cc65a38-46090`, session id
+    `ad32d31c-9036-4dfa-a27f-0a1038c45eba`) — same session id preserved, writer lease moved to
+    Profile A, orchestration lock released, no duplicate writer remained. M2C.1 automatic handoff
+    is now live-validated in both directions. A real refusal (`StopFailure` from an actually
+    exhausted account) was never observed and no quota was burned.
 
 ## In progress
 
@@ -456,9 +462,10 @@ underneath it.
 
 ## Next exact action
 
-M2C.1 is done. Remaining before Herdr/public release: observe a genuine exhaustion end to end (the
-statusline snapshot and StopFailure payload on a real limit), repeat Profile B -> Profile A through
-`watch run` with no Profile B process, and decide packaging (the installed hooks embed the relay path).
+M2C.1 is done; automatic handoff is now live-validated in both directions (Profile A -> Profile B
+and Profile B -> Profile A) through `watch run`. Remaining before Herdr/public release: observe a
+genuine exhaustion end to end (the statusline snapshot and StopFailure payload on a real limit) and
+decide packaging (the installed hooks embed the relay path).
 The text below is the earlier M2C-era note.
 
 
@@ -466,5 +473,5 @@ Await explicit owner authorization before starting Herdr integration, automatic 
 unattended (non-`--probe`) usage detection, and before trusting this path across any Claude Code
 version/layout other than 2.1.276 or any launch mode other than foreground `-p` / `--bg`.
 Given M2B.75 and M2C each found real bugs during live validation, treat any further Claude
-`--bg`/interactive daemon behavior assumption as unverified until it has been tested live. First
-follow-up: repeat Profile B -> Profile A through `relay watch run` with no Profile B Claude process running.
+`--bg`/interactive daemon behavior assumption as unverified until it has been tested live.
+Profile B -> Profile A through `relay watch run` has since been live-validated (see M2C.1 above).
