@@ -180,6 +180,84 @@ impl<R: CommandRunner> HerdrCliClient<R> {
         Ok(wrapper.workspace)
     }
 
+    /// `herdr pane report-metadata <pane_id> --source <id> --token NAME=VALUE ...` — live-confirmed
+    /// (M4) to print **nothing** on success, exit 0; no JSON envelope at all, unlike every other
+    /// write in this client. Verifies success by exit code only, then re-reads the pane via
+    /// [`Self::pane_get`] so the caller gets back a confirmed, not assumed, write.
+    pub fn set_pane_tokens(
+        &self,
+        pane_id: &str,
+        source: &str,
+        tokens: &[(&str, &str)],
+    ) -> Result<(), HerdrIntegrationError> {
+        let mut args: Vec<String> = vec![
+            "pane".to_owned(),
+            "report-metadata".to_owned(),
+            pane_id.to_owned(),
+            "--source".to_owned(),
+            source.to_owned(),
+        ];
+        for (name, value) in tokens {
+            args.push("--token".to_owned());
+            args.push(format!("{name}={value}"));
+        }
+        self.run_bare(&args)
+    }
+
+    /// `herdr workspace report-metadata <workspace_id> --source <id> --token NAME=VALUE ...` —
+    /// same confirmed-by-exit-code-only shape as [`Self::set_pane_tokens`].
+    pub fn set_workspace_tokens(
+        &self,
+        workspace_id: &str,
+        source: &str,
+        tokens: &[(&str, &str)],
+    ) -> Result<(), HerdrIntegrationError> {
+        let mut args: Vec<String> = vec![
+            "workspace".to_owned(),
+            "report-metadata".to_owned(),
+            workspace_id.to_owned(),
+            "--source".to_owned(),
+            source.to_owned(),
+        ];
+        for (name, value) in tokens {
+            args.push("--token".to_owned());
+            args.push(format!("{name}={value}"));
+        }
+        self.run_bare(&args)
+    }
+
+    /// Runs a command that is confirmed to print nothing meaningful on success (exit code is the
+    /// only signal) and, on failure, the same `{"id","error":{...}}` envelope on stderr every
+    /// other command here uses.
+    fn run_bare(&self, args: &[String]) -> Result<(), HerdrIntegrationError> {
+        let arguments: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let result = self.runner.run(&ProcessSpec {
+            executable: self.executable.clone(),
+            arguments,
+            timeout: self.timeout,
+            output_limit: OUTPUT_LIMIT,
+        })?;
+        if result.success {
+            return Ok(());
+        }
+        let value: Value = serde_json::from_slice(&result.stderr)
+            .map_err(|_| HerdrIntegrationError::HerdrMalformedOutput)?;
+        let error = value
+            .get("error")
+            .ok_or(HerdrIntegrationError::HerdrMalformedOutput)?;
+        let code = error
+            .get("code")
+            .and_then(Value::as_str)
+            .ok_or(HerdrIntegrationError::HerdrMalformedOutput)?
+            .to_owned();
+        let message = error
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        Err(HerdrIntegrationError::HerdrRefused { code, message })
+    }
+
     /// `herdr status` — live-confirmed to use a **different, non-JSON-RPC** envelope from every
     /// other subcommand here: no `{"id", ...}` wrapper at all, just
     /// `{"client": {...}, "server": {...}, "update": {...}}` directly on stdout, unconditionally

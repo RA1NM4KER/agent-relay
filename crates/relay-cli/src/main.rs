@@ -1,3 +1,5 @@
+mod preferences;
+
 use std::{
     path::{Path, PathBuf},
     process::ExitCode,
@@ -5,8 +7,8 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use relay_core::{
-    AddProfileRequest, Error, IdentityMetadata, Profile, ProfileName, ProfileService,
-    ProfileSetupMode, Provider, ProviderKind, RelayPaths,
+    AddProfileRequest, Error, IdentityMetadata, Profile, ProfileDirectory, ProfileName,
+    ProfileService, ProfileSetupMode, Provider, ProviderKind, RelayPaths,
     automation::{
         AutomationPolicy, LedgerStore, ProfileCandidate, WatchCoordinator, WatchOutcome,
         WatchRequest,
@@ -20,12 +22,12 @@ use relay_core::{
 use relay_herdr::herdr_client::HerdrCliClient;
 use relay_herdr::install as herdr_install;
 use relay_provider_claude::{
-    CapabilityStatus, ClaudeAdoptionProvider, ClaudeIdentityPin, ClaudeInspectionReport,
-    ClaudeInspector, ClaudeSessionStager, ClaudeSessionStopper, ClaudeSourceLiveness,
-    ClaudeTargetLauncher, ClaudeUsageSignal, EnvironmentOverrideStatus, SimulatedUsageSignal,
-    SystemProcessLister, apply_install, apply_uninstall, assess_installed, handle_statusline,
-    handle_stop_failure, inspect_environment, integration_status, plan_install, plan_uninstall,
-    read_stdin_bounded, stage_transfer,
+    AUTHENTICATION_OVERRIDE_VARIABLES, CapabilityStatus, ClaudeAdoptionProvider, ClaudeIdentityPin,
+    ClaudeInspectionReport, ClaudeInspector, ClaudeSessionStager, ClaudeSessionStopper,
+    ClaudeSourceLiveness, ClaudeTargetLauncher, ClaudeUsageSignal, EnvironmentOverrideStatus,
+    SimulatedUsageSignal, SystemProcessLister, apply_install, apply_uninstall, assess_installed,
+    handle_statusline, handle_stop_failure, inspect_environment, integration_status, plan_install,
+    plan_uninstall, read_stdin_bounded, stage_transfer,
 };
 use relay_testkit::FakeProvider;
 use serde::Serialize;
@@ -103,6 +105,86 @@ enum Command {
     /// calling Claude session.
     #[command(hide = true)]
     Hook(HookArgs),
+    /// M4: interactive first-run wizard — authenticate/adopt Claude profiles, choose a primary
+    /// and fallback order, and optionally enable the usage and Herdr integrations. Safe to
+    /// re-run any time; detects and reuses what already exists rather than starting over.
+    Setup(SetupArgs),
+    /// M4: the normal daily entry point. `cd` into a project and run `relay claude` — no
+    /// `--profile`/`--project-dir`/`--session` required once `relay setup` has run once.
+    Claude(ClaudeArgs),
+    /// M4: a short, human-readable summary of the current project's Relay/Claude/Herdr state.
+    Status {
+        #[arg(long = "project", value_name = "PATH")]
+        project_dir: Option<PathBuf>,
+    },
+    /// M4: a friendly list of registered profiles with their primary/fallback role and
+    /// authentication state (unlike `relay profile list`, which is provider-neutral and does not
+    /// show M4 preferences).
+    Profiles,
+    /// M4: friendly wrapper around the official `claude auth login` flow for one isolated
+    /// profile's `CLAUDE_CONFIG_DIR` — the same flow `relay setup` uses for a new profile.
+    Login {
+        name: ProfileName,
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+    },
+    /// M4: friendly wrapper around the official `claude auth logout` flow for one isolated
+    /// profile's `CLAUDE_CONFIG_DIR`. Never touches credential files directly.
+    Logout {
+        name: ProfileName,
+        #[arg(long, value_name = "PATH")]
+        claude_executable: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Args)]
+struct SetupArgs {
+    /// Skip all prompts; requires the flags below instead. Fails closed (a clear error) rather
+    /// than guessing if a value this needs is missing.
+    #[arg(long)]
+    non_interactive: bool,
+    /// Show the same technical detail `relay doctor`-style output would (config dirs, identity
+    /// pins' stable ids, capability status) instead of the plain-language summary.
+    #[arg(long)]
+    verbose: bool,
+    /// Non-interactive only: the primary profile name (must already be registered, or created
+    /// via a separate `relay login`/adoption step first).
+    #[arg(long)]
+    primary: Option<ProfileName>,
+    /// Non-interactive only: fallback profiles in priority order.
+    #[arg(long)]
+    fallback: Vec<ProfileName>,
+    /// Non-interactive only: enable/disable the Claude usage integration for the selected
+    /// profiles without prompting.
+    #[arg(long)]
+    usage_integration: Option<bool>,
+    /// Non-interactive only: enable/disable the Herdr integration without prompting.
+    #[arg(long)]
+    herdr: Option<bool>,
+    #[arg(long, value_name = "PATH")]
+    claude_executable: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct ClaudeArgs {
+    /// The first message to send if a new session needs to be started. Not required when
+    /// attaching to an already-active session for this project.
+    message: Vec<String>,
+    /// Override the configured primary profile for this run only.
+    #[arg(long)]
+    profile: Option<ProfileName>,
+    /// Override the configured fallback order for this run only.
+    #[arg(long)]
+    fallback: Vec<ProfileName>,
+    #[arg(long = "project-dir", value_name = "PATH")]
+    project_dir: Option<PathBuf>,
+    /// Stop after creating/confirming the writer lease and (if applicable) Herdr metadata;
+    /// print a status summary instead of attaching interactively. Used by scripts/tests and by
+    /// environments with no real TTY to attach to.
+    #[arg(long)]
+    no_attach: bool,
+    #[arg(long, value_name = "PATH")]
+    claude_executable: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -1233,80 +1315,18 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             prompt,
             claude_executable,
         } => {
-            let registered = service.list()?;
-            let target = registered
-                .iter()
-                .find(|candidate| &candidate.name == profile)
-                .ok_or_else(|| Error::ProfileNotFound(profile.to_string()))?;
-            let canonical_project =
-                std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
-                    path: project_dir.clone(),
-                    source,
-                })?;
-            let project_id = ProjectId::for_canonical_path(&canonical_project)?;
-            let project_state_dir = paths.project_state_dir(&project_id);
-            std::fs::create_dir_all(&project_state_dir).map_err(|source| Error::Io {
-                path: project_state_dir.clone(),
-                source,
-            })?;
-            let lock = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"));
-            let lease_store = LeaseStore::at_path(project_state_dir.join("lease.json"));
-
-            let lease = lock.try_with(|| -> Result<relay_core::handoff::WriterLease, Error> {
-                if let Some(existing) = lease_store.load()? {
-                    let owner_config_dir = registered
-                        .iter()
-                        .find(|candidate| candidate.name == existing.owner_profile)
-                        .map(|candidate| candidate.config_dir.clone());
-                    let still_active = match &owner_config_dir {
-                        Some(config_dir) => confirm_not_active(
-                            config_dir,
-                            &canonical_project,
-                            &existing.session_id,
-                            &existing.owner_process,
-                            claude_executable.clone(),
-                        )
-                        .map(|confirmed_inactive| !confirmed_inactive)?,
-                        // Owning profile is no longer registered at all: cannot verify safely.
-                        None => true,
-                    };
-                    if still_active {
-                        return Err(Error::WriterAlreadyActive(
-                            existing.owner_profile.to_string(),
-                        ));
-                    }
-                }
-
-                let launched = relay_provider_claude::launch_background(
-                    &target.config_dir,
-                    &canonical_project,
-                    prompt,
-                    claude_executable.as_deref(),
-                )?;
-                let owner_process = launched
-                    .pid
-                    .map(relay_core::handoff::ProcessIdentity::query)
-                    .unwrap_or(relay_core::handoff::ProcessIdentity {
-                        pid: 0,
-                        start_time_fingerprint: None,
-                    });
-                let lease = relay_core::handoff::WriterLease::new(
-                    project_id.clone(),
-                    target.name.clone(),
-                    owner_process,
-                    launched.session_id.clone(),
-                    relay_core::handoff::TransactionId::generate(),
-                    current_unix_ms(),
-                )
-                .with_provider_handle(Some(launched.provider_handle.clone()));
-                lease_store.save(&lease)?;
-                Ok(lease)
-            })?;
-
+            let lease = perform_launch(
+                &service,
+                &paths,
+                profile,
+                project_dir,
+                prompt,
+                claude_executable.as_deref(),
+            )?;
             let human = format!(
                 "Launched '{}' as writer for {}\nSession: {}\nPid: {}\nBackground job: {}",
                 profile,
-                canonical_project.display(),
+                project_dir.display(),
                 lease.session_id,
                 lease.owner_process.pid,
                 lease.provider_handle.clone().unwrap_or_default()
@@ -1536,11 +1556,17 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         return Err(Error::UnsupportedProviderVersion);
                     }
                 }
-                if capabilities
-                    .entries
-                    .iter()
-                    .any(|entry| entry.status == CapabilityStatus::Unverified)
+                if !cli.json
+                    && capabilities
+                        .entries
+                        .iter()
+                        .any(|entry| entry.status == CapabilityStatus::Unverified)
                 {
+                    // Live-found (M4.12): this must never print in --json mode. `--json`'s
+                    // contract is that stderr on a failed invocation is exactly the stable error
+                    // envelope and nothing else; an extra human-readable line ahead of it breaks
+                    // every machine consumer that parses stderr as JSON on failure (relay-herdr's
+                    // own client included — this is exactly what caught it).
                     eprintln!(
                         "warning: Claude Code {} has not been validated by Relay; usage \
                          detection stays fail-closed, but re-validate before trusting handoffs",
@@ -1660,6 +1686,18 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 )
             }
         },
+        Command::Setup(args) => run_setup(&service, &paths, args),
+        Command::Claude(args) => run_claude(&service, &paths, args),
+        Command::Status { project_dir } => run_status(&service, &paths, project_dir.as_deref()),
+        Command::Profiles => run_profiles(&service, &paths),
+        Command::Login {
+            name,
+            claude_executable,
+        } => run_login(&service, &paths, name, claude_executable.as_deref()),
+        Command::Logout {
+            name,
+            claude_executable,
+        } => run_logout(&service, name, claude_executable.as_deref()),
     }
 }
 
@@ -1921,6 +1959,1071 @@ fn confirm_not_active(
         }
     }
     Ok(true)
+}
+
+/// The exact `relay launch` logic (M2B.5), factored out so `relay claude` (M4) can reuse it
+/// unchanged rather than re-implementing writer creation: refuses a still-active existing writer,
+/// otherwise spawns `claude --bg` and records a fresh `WriterLease`. Both callers get the same
+/// safety guarantees; `relay claude` just chooses the profile/prompt/session for the caller.
+fn perform_launch(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    profile: &ProfileName,
+    project_dir: &Path,
+    prompt: &str,
+    claude_executable: Option<&Path>,
+) -> Result<relay_core::handoff::WriterLease, Error> {
+    let registered = service.list()?;
+    let target = registered
+        .iter()
+        .find(|candidate| &candidate.name == profile)
+        .ok_or_else(|| Error::ProfileNotFound(profile.to_string()))?;
+    let canonical_project = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
+        path: project_dir.to_path_buf(),
+        source,
+    })?;
+    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
+    let project_state_dir = paths.project_state_dir(&project_id);
+    std::fs::create_dir_all(&project_state_dir).map_err(|source| Error::Io {
+        path: project_state_dir.clone(),
+        source,
+    })?;
+    let lock = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"));
+    let lease_store = LeaseStore::at_path(project_state_dir.join("lease.json"));
+
+    lock.try_with(|| -> Result<relay_core::handoff::WriterLease, Error> {
+        if let Some(existing) = lease_store.load()? {
+            let owner_config_dir = registered
+                .iter()
+                .find(|candidate| candidate.name == existing.owner_profile)
+                .map(|candidate| candidate.config_dir.clone());
+            let still_active = match &owner_config_dir {
+                Some(config_dir) => confirm_not_active(
+                    config_dir,
+                    &canonical_project,
+                    &existing.session_id,
+                    &existing.owner_process,
+                    claude_executable.map(Path::to_path_buf),
+                )
+                .map(|confirmed_inactive| !confirmed_inactive)?,
+                None => true,
+            };
+            if still_active {
+                return Err(Error::WriterAlreadyActive(
+                    existing.owner_profile.to_string(),
+                ));
+            }
+        }
+
+        let launched = relay_provider_claude::launch_background(
+            &target.config_dir,
+            &canonical_project,
+            prompt,
+            claude_executable,
+        )?;
+        let owner_process = launched
+            .pid
+            .map(relay_core::handoff::ProcessIdentity::query)
+            .unwrap_or(relay_core::handoff::ProcessIdentity {
+                pid: 0,
+                start_time_fingerprint: None,
+            });
+        let lease = relay_core::handoff::WriterLease::new(
+            project_id.clone(),
+            target.name.clone(),
+            owner_process,
+            launched.session_id.clone(),
+            relay_core::handoff::TransactionId::generate(),
+            current_unix_ms(),
+        )
+        .with_provider_handle(Some(launched.provider_handle.clone()));
+        lease_store.save(&lease)?;
+        Ok(lease)
+    })
+}
+
+// =================================================================================================
+// M4: friendly authentication, setup wizard, daily entrypoint, and status commands.
+//
+// Security rule (M4.17), enforced structurally: every Claude authentication interaction below is
+// exactly `claude auth login`/`claude auth logout`/`claude auth status`, run as a foreground child
+// process with this terminal's own stdio inherited. Relay never reads the child's output for
+// anything except the already-existing, already-tested `claude auth status --json` parser
+// (`ClaudeInspector`/`parse_auth_status`) that only ever extracts a non-secret identity pin — it
+// never touches credential files, cookies, or Keychain, and never implements its own OAuth client.
+// =================================================================================================
+
+/// Runs `claude auth login` or `claude auth logout` for one profile's isolated `CLAUDE_CONFIG_DIR`,
+/// with this terminal's stdin/stdout/stderr inherited so the user sees and drives Claude's own
+/// real login UI (browser open, device code, etc.) directly. Relay only waits for it to exit;
+/// nothing about the child's output is read.
+fn run_claude_auth_subcommand(
+    claude_executable: Option<&Path>,
+    config_dir: &Path,
+    subcommand: &str,
+) -> Result<(), Error> {
+    let inspector = ClaudeInspector::discover(claude_executable)?;
+    let mut command = std::process::Command::new(inspector.executable());
+    command
+        .arg("auth")
+        .arg(subcommand)
+        .env("CLAUDE_CONFIG_DIR", config_dir)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
+    for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    let status = command.status().map_err(|_| Error::ProviderCommandFailed)?;
+    if !status.success() {
+        return Err(Error::ProviderCommandFailed);
+    }
+    Ok(())
+}
+
+/// After a successful `claude auth login`, runs the exact same strict inspection
+/// (`ClaudeInspector::inspect`) `relay profile adopt`/`inspect-existing` already use, and confirms
+/// the three things M4.1 Step 2 requires: authenticated, identity available, and (implicitly, since
+/// `config_dir` is the exact directory just logged into) the config directory matches.
+fn verify_authenticated(
+    config_dir: &Path,
+    claude_executable: Option<&Path>,
+) -> Result<ClaudeInspectionReport, Error> {
+    let environment = inspect_environment(config_dir);
+    let inspector = ClaudeInspector::discover(claude_executable)?;
+    inspector.inspect(config_dir, environment)
+}
+
+/// Registers a freshly authenticated (or re-authenticated) directory as a Relay profile through
+/// the unchanged, already-tested adoption path (`ProfileSetupMode::AdoptExisting`) — the same code
+/// `relay profile adopt` uses. `ClaudeAdoptionProvider` only ever inspects; it never creates a
+/// Claude profile itself (`setup_profile` returns `ProviderUnsupported` for anything but
+/// `AdoptExisting`), which is exactly why the directory must already be authenticated before this
+/// is called.
+fn adopt_authenticated_profile(
+    service: &ProfileService,
+    name: &ProfileName,
+    config_dir: &Path,
+    report: &ClaudeInspectionReport,
+    claude_executable: Option<&Path>,
+) -> Result<Profile, Error> {
+    let pin = report
+        .identity_pin
+        .clone()
+        .ok_or(Error::IdentityUnavailable)?;
+    let expected_identity = IdentityMetadata {
+        stable_id: pin.stable_id(),
+        display_label: pin.email.clone().or_else(|| pin.account_id.clone()),
+    };
+    let claude_provider = ClaudeAdoptionProvider::discover(claude_executable)?;
+    service.add(
+        AddProfileRequest {
+            name: name.clone(),
+            provider: ProviderKind::Claude,
+            config_dir: Some(config_dir.to_path_buf()),
+            mode: ProfileSetupMode::AdoptExisting,
+            expected_identity: Some(expected_identity),
+        },
+        &claude_provider,
+    )
+}
+
+/// M4.1 Step 2A: a brand-new isolated profile. Relay creates the private (mode 0700) directory
+/// itself (`ProfileDirectory::create_managed`, the same safety-checked call `relay profile add`
+/// uses), launches Claude's own official login flow there, verifies the result with the existing
+/// strict inspector, and adopts it — all through machinery that already existed before M4.
+fn create_and_authenticate_profile(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    name: &ProfileName,
+    claude_executable: Option<&Path>,
+) -> Result<Profile, Error> {
+    let config_dir = paths.default_profile_dir(name, ProviderKind::Claude);
+    ProfileDirectory::new(paths.profiles_root())?.create_managed(&config_dir)?;
+    run_claude_auth_subcommand(claude_executable, &config_dir, "login")?;
+    let report = verify_authenticated(&config_dir, claude_executable)?;
+    if !report.authenticated || report.identity_pin.is_none() {
+        return Err(Error::AuthenticationRequired);
+    }
+    adopt_authenticated_profile(service, name, &config_dir, &report, claude_executable)
+}
+
+fn run_login(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    name: &ProfileName,
+    claude_executable: Option<&Path>,
+) -> Result<CommandOutput, Error> {
+    let registered = service.list()?;
+    if let Some(existing) = registered.iter().find(|profile| &profile.name == name) {
+        if existing.provider != ProviderKind::Claude {
+            return Err(Error::ProviderMismatch {
+                expected: "claude".to_owned(),
+                observed: format!("{:?}", existing.provider),
+            });
+        }
+        println!("Opening Claude login for '{name}'...");
+        run_claude_auth_subcommand(claude_executable, &existing.config_dir, "login")?;
+        let report = verify_authenticated(&existing.config_dir, claude_executable)?;
+        if !report.authenticated {
+            return Err(Error::AuthenticationRequired);
+        }
+        return success(
+            "login",
+            format!("\u{2713} {name} authenticated"),
+            json!({ "profile": name.as_str(), "authenticated": true }),
+        );
+    }
+    println!("'{name}' is not a registered profile yet; creating it.");
+    let profile = create_and_authenticate_profile(service, paths, name, claude_executable)?;
+    success(
+        "login",
+        format!("\u{2713} {name} authenticated"),
+        json!({ "profile": profile.name.as_str(), "authenticated": true, "created": true }),
+    )
+}
+
+fn run_logout(
+    service: &ProfileService,
+    name: &ProfileName,
+    claude_executable: Option<&Path>,
+) -> Result<CommandOutput, Error> {
+    let registered = service.list()?;
+    let profile = registered
+        .iter()
+        .find(|profile| &profile.name == name)
+        .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+    run_claude_auth_subcommand(claude_executable, &profile.config_dir, "logout")?;
+    success(
+        "logout",
+        format!(
+            "Logged out '{name}' (registration kept; run `relay login {name}` to sign back in)"
+        ),
+        json!({ "profile": name.as_str() }),
+    )
+}
+
+// -------------------------------------------------------------------------------------------
+// Prompt helpers: minimal, readline-based, work over any stdin (a real TTY or piped input for
+// scripting/tests). Never used for anything credential-related — only friendly names and
+// yes/no/choice prompts.
+// -------------------------------------------------------------------------------------------
+
+fn prompt_line(question: &str, default: Option<&str>) -> Result<String, Error> {
+    use std::io::Write as _;
+    match default {
+        Some(default) => print!("{question} [{default}]: "),
+        None => print!("{question}: "),
+    }
+    std::io::stdout().flush().ok();
+    let mut line = String::new();
+    let bytes_read = std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|_| Error::MissingEnvironment("stdin"))?;
+    if bytes_read == 0 {
+        // True EOF (closed/exhausted stdin), not just an empty line: never loop forever waiting
+        // for input that will never come.
+        return Err(Error::MissingEnvironment("stdin"));
+    }
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        if let Some(default) = default {
+            return Ok(default.to_owned());
+        }
+    }
+    Ok(trimmed.to_owned())
+}
+
+fn prompt_yes_no(question: &str, default_yes: bool) -> Result<bool, Error> {
+    use std::io::Write as _;
+    let hint = if default_yes { "Y/n" } else { "y/N" };
+    print!("{question} [{hint}]: ");
+    std::io::stdout().flush().ok();
+    let mut line = String::new();
+    let bytes_read = std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|_| Error::MissingEnvironment("stdin"))?;
+    if bytes_read == 0 {
+        return Err(Error::MissingEnvironment("stdin"));
+    }
+    Ok(match line.trim().to_lowercase().as_str() {
+        "" => default_yes,
+        "y" | "yes" => true,
+        "n" | "no" => false,
+        _ => default_yes,
+    })
+}
+
+/// Friendly per-profile authentication summary for `relay profiles`/`relay status`. Never fails
+/// the whole listing on one profile's inspection error — reports it as "unreachable" instead, so
+/// one broken profile does not hide every other one.
+fn friendly_auth_state(
+    profile: &Profile,
+    claude_executable: Option<&Path>,
+) -> (&'static str, Option<String>) {
+    if profile.provider != ProviderKind::Claude {
+        return ("unknown", None);
+    }
+    let Ok(inspector) = ClaudeInspector::discover(claude_executable) else {
+        return ("unreachable", None);
+    };
+    let environment = inspect_environment(&profile.config_dir);
+    match inspector.inspect(&profile.config_dir, environment) {
+        Ok(report) if report.authenticated && report.identity_pin.is_some() => {
+            ("authenticated", None)
+        }
+        Ok(_) => ("needs login", None),
+        Err(error) => ("unreachable", Some(error.to_string())),
+    }
+}
+
+fn run_profiles(service: &ProfileService, paths: &RelayPaths) -> Result<CommandOutput, Error> {
+    let registered = service.list()?;
+    let preferences = preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
+    let mut lines = Vec::new();
+    let mut rows = Vec::new();
+    for profile in &registered {
+        let role = if preferences.primary_profile.as_ref() == Some(&profile.name) {
+            "primary"
+        } else if preferences.fallback_profiles.contains(&profile.name) {
+            "fallback"
+        } else {
+            "unassigned"
+        };
+        let (auth_state, _detail) = friendly_auth_state(profile, None);
+        lines.push(format!("{:<12} {:<10} {}", profile.name, role, auth_state));
+        rows.push(json!({
+            "name": profile.name.as_str(),
+            "role": role,
+            "authentication": auth_state,
+        }));
+    }
+    if lines.is_empty() {
+        lines.push("No profiles registered yet. Run `relay setup` to get started.".to_owned());
+    }
+    success("profiles", lines.join("\n"), json!({ "profiles": rows }))
+}
+
+fn run_status(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    project_dir: Option<&Path>,
+) -> Result<CommandOutput, Error> {
+    let cwd = match project_dir {
+        Some(path) => path.to_path_buf(),
+        None => std::env::current_dir().map_err(|source| Error::Io {
+            path: PathBuf::from("."),
+            source,
+        })?,
+    };
+    let canonical =
+        std::fs::canonicalize(&cwd).map_err(|source| Error::Io { path: cwd, source })?;
+
+    let preferences = preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
+    let Some(primary) = preferences.primary_profile.clone() else {
+        return success(
+            "status",
+            "Agent Relay is not set up yet.\n\nRun:\n    relay setup".to_owned(),
+            json!({ "configured": false }),
+        );
+    };
+
+    let registered = service.list()?;
+    let primary_profile = registered.iter().find(|profile| profile.name == primary);
+    let (primary_auth, _) = primary_profile.map_or(("not registered", None), |profile| {
+        friendly_auth_state(profile, None)
+    });
+
+    let project_id = ProjectId::for_canonical_path(&canonical)?;
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
+    let locked = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"))
+        .is_currently_held();
+    let current_transaction =
+        std::fs::read_to_string(project_state_dir.join("current_transaction.json")).ok();
+
+    // A lease *record* existing does not mean the process behind it is still running; confirm
+    // with the same liveness check `relay launch`/`watch run` use before calling it "active"
+    // rather than naively trusting the file.
+    let session_state = if locked {
+        "handoff in progress"
+    } else if let Some(lease) = &lease {
+        let owner_config_dir = registered
+            .iter()
+            .find(|profile| profile.name == lease.owner_profile)
+            .map(|profile| profile.config_dir.clone());
+        let live = owner_config_dir.is_some_and(|config_dir| {
+            ClaudeSourceLiveness::new(None)
+                .check(
+                    &config_dir,
+                    &canonical,
+                    &lease.session_id,
+                    Some(&lease.owner_process),
+                )
+                .map(|verdict| verdict.active)
+                .unwrap_or(false)
+        });
+        if live {
+            "active"
+        } else {
+            "idle (last session ended)"
+        }
+    } else {
+        "not started"
+    };
+
+    let herdr_connected =
+        std::env::var_os("HERDR_ENV").as_deref() == Some(std::ffi::OsStr::new("1"));
+
+    let human = format!(
+        "Project: {}\nClaude session: {}\nCurrent profile: {}\nFallback: {}\nPrimary profile auth: {}\nAutomatic handoff: {}\nHerdr: {}",
+        canonical.display(),
+        session_state,
+        lease.as_ref().map_or_else(
+            || primary.to_string(),
+            |lease| lease.owner_profile.to_string()
+        ),
+        preferences
+            .fallback_profiles
+            .iter()
+            .map(ProfileName::to_string)
+            .collect::<Vec<_>>()
+            .join(", "),
+        primary_auth,
+        if preferences.usage_integration_enabled == Some(true) {
+            "enabled"
+        } else {
+            "not enabled"
+        },
+        if herdr_connected {
+            "connected"
+        } else {
+            "not connected"
+        },
+    );
+    success(
+        "status",
+        human,
+        json!({
+            "configured": true,
+            "project": canonical,
+            "session_state": session_state,
+            "primary_profile": primary.as_str(),
+            "primary_authenticated": primary_auth,
+            "fallback_profiles": preferences.fallback_profiles.iter().map(ProfileName::to_string).collect::<Vec<_>>(),
+            "lease_owner": lease.as_ref().map(|lease| lease.owner_profile.to_string()),
+            "current_transaction": current_transaction,
+            "usage_integration_enabled": preferences.usage_integration_enabled.unwrap_or(false),
+            "herdr_connected": herdr_connected,
+        }),
+    )
+}
+
+fn resolve_initial_message(args_message: &[String]) -> Result<String, Error> {
+    if !args_message.is_empty() {
+        return Ok(args_message.join(" "));
+    }
+    loop {
+        let line = prompt_line("What would you like Claude to help with?", None)?;
+        if !line.trim().is_empty() {
+            return Ok(line);
+        }
+        println!("(please enter a message)");
+    }
+}
+
+/// M4.4: the officially supported way to give the user a real, live, interactive terminal on a
+/// session Relay itself launched with `claude --bg` — `claude attach <short-id>` ("Open the
+/// background session in this terminal ... The session keeps running either way", per `claude
+/// attach --help`, live-checked against Claude Code 2.1.278). This is not a Relay-invented
+/// workaround: it is Claude's own documented attach mechanism for exactly this session kind, so
+/// it preserves the process Relay's `WriterLease`/liveness checks already track — no new pid is
+/// spawned independently of the one Relay recorded.
+///
+/// Replaces this process's image entirely (`exec`, POSIX `execve`) so the user's terminal ends up
+/// running the real `claude` binary with full TTY control, identical to running `claude attach
+/// <id>` themselves. Only returns at all if `exec` itself failed to start (e.g. permissions) —
+/// on success there is no "after" to return to.
+#[cfg(unix)]
+fn exec_claude_attach(executable: &Path, short_id: &str) -> Result<CommandOutput, Error> {
+    use std::os::unix::process::CommandExt as _;
+    let error = std::process::Command::new(executable)
+        .arg("attach")
+        .arg(short_id)
+        .exec();
+    Err(Error::Io {
+        path: executable.to_path_buf(),
+        source: error,
+    })
+}
+
+#[cfg(not(unix))]
+fn exec_claude_attach(executable: &Path, short_id: &str) -> Result<CommandOutput, Error> {
+    let status = std::process::Command::new(executable)
+        .arg("attach")
+        .arg(short_id)
+        .status()
+        .map_err(|_| Error::ProviderCommandFailed)?;
+    std::process::exit(status.code().unwrap_or(1));
+}
+
+/// M4.2/M4.3/M4.4/M4.5: `relay claude` — the normal daily entry point. Resolves project/profile/
+/// fallback from preferences (or explicit overrides), reuses an already-active writer if one
+/// exists for this project, otherwise launches a fresh one through the unchanged `perform_launch`
+/// (M2B.5) machinery, auto-writes Herdr pane/workspace metadata when running inside a Herdr pane,
+/// then hands the user a live interactive terminal via `claude attach` (M4.4) — never printing a
+/// session UUID for the user to copy anywhere.
+fn run_claude(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    args: &ClaudeArgs,
+) -> Result<CommandOutput, Error> {
+    let project_dir = match &args.project_dir {
+        Some(path) => path.clone(),
+        None => std::env::current_dir().map_err(|source| Error::Io {
+            path: PathBuf::from("."),
+            source,
+        })?,
+    };
+    let canonical_project = std::fs::canonicalize(&project_dir).map_err(|source| Error::Io {
+        path: project_dir.clone(),
+        source,
+    })?;
+
+    let preferences = preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
+    let primary = args
+        .profile
+        .clone()
+        .or_else(|| preferences.primary_profile.clone())
+        .ok_or(Error::AdoptionIdentityRequired)?;
+    let fallback: Vec<ProfileName> = if args.fallback.is_empty() {
+        preferences.fallback_profiles.clone()
+    } else {
+        args.fallback.clone()
+    };
+
+    let registered = service.list()?;
+    let primary_profile = registered
+        .iter()
+        .find(|profile| profile.name == primary)
+        .ok_or_else(|| Error::ProfileNotFound(primary.to_string()))?;
+
+    // M4.7: safe reauthentication for the primary; fallback unauthenticated is a warning only.
+    let (primary_auth, _) = friendly_auth_state(primary_profile, args.claude_executable.as_deref());
+    if primary_auth != "authenticated" {
+        println!("Profile \"{primary}\" needs Claude authentication.\n\nOpening Claude login...");
+        run_claude_auth_subcommand(
+            args.claude_executable.as_deref(),
+            &primary_profile.config_dir,
+            "login",
+        )?;
+        let report = verify_authenticated(
+            &primary_profile.config_dir,
+            args.claude_executable.as_deref(),
+        )?;
+        if !report.authenticated {
+            return Err(Error::AuthenticationRequired);
+        }
+    }
+    for fallback_name in &fallback {
+        if let Some(fallback_profile) = registered
+            .iter()
+            .find(|profile| &profile.name == fallback_name)
+        {
+            let (fallback_auth, _) =
+                friendly_auth_state(fallback_profile, args.claude_executable.as_deref());
+            if fallback_auth != "authenticated" {
+                eprintln!(
+                    "Warning: fallback profile '{fallback_name}' is not authenticated ({fallback_auth}); primary work may still proceed."
+                );
+            }
+        }
+    }
+
+    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let existing_lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
+
+    let still_active_existing = match &existing_lease {
+        Some(existing) => {
+            let owner_config_dir = registered
+                .iter()
+                .find(|profile| profile.name == existing.owner_profile)
+                .map(|profile| profile.config_dir.clone());
+            match owner_config_dir {
+                Some(config_dir) => confirm_not_active(
+                    &config_dir,
+                    &canonical_project,
+                    &existing.session_id,
+                    &existing.owner_process,
+                    args.claude_executable.clone(),
+                )
+                .map(|confirmed_inactive| !confirmed_inactive)?,
+                None => false,
+            }
+        }
+        None => false,
+    };
+
+    let (lease, is_new_session) = if still_active_existing {
+        (
+            existing_lease.expect("still_active_existing implies Some"),
+            false,
+        )
+    } else {
+        let message = resolve_initial_message(&args.message)?;
+        let lease = perform_launch(
+            service,
+            paths,
+            &primary,
+            &canonical_project,
+            &message,
+            args.claude_executable.as_deref(),
+        )?;
+        (lease, true)
+    };
+
+    // M4.3/M4.5: automatic Herdr metadata, only when actually running inside a Herdr pane.
+    let herdr_env = std::env::var_os("HERDR_ENV").as_deref() == Some(std::ffi::OsStr::new("1"));
+    let mut herdr_bound = false;
+    if herdr_env {
+        if let Ok(pane_id) = std::env::var("HERDR_PANE_ID") {
+            let herdr_bin = std::env::var_os("HERDR_BIN_PATH").map(PathBuf::from);
+            if let Ok(herdr_client) = HerdrCliClient::discover(herdr_bin.as_deref()) {
+                let fallback_value = fallback
+                    .iter()
+                    .map(ProfileName::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let mut pane_tokens: Vec<(&str, &str)> = vec![("relay_profile", primary.as_str())];
+                if !fallback_value.is_empty() {
+                    pane_tokens.push(("relay_profile_fallback", fallback_value.as_str()));
+                }
+                pane_tokens.push(("relay_session_id", lease.session_id.as_str()));
+                if herdr_client
+                    .set_pane_tokens(&pane_id, "agent-relay", &pane_tokens)
+                    .is_ok()
+                {
+                    herdr_bound = true;
+                }
+            }
+        }
+    }
+
+    if args.no_attach {
+        let human = format!(
+            "Profile: {}\n{}\nHerdr metadata: {}\n\nAttach with:\n    claude attach {}",
+            primary,
+            if is_new_session {
+                "New session started."
+            } else {
+                "Attached to existing session."
+            },
+            if herdr_bound {
+                "written"
+            } else if herdr_env {
+                "not written (see relay doctor)"
+            } else {
+                "not connected"
+            },
+            lease.provider_handle.clone().unwrap_or_default(),
+        );
+        return success(
+            "claude",
+            human,
+            json!({
+                "profile": primary.as_str(),
+                "fallback": fallback.iter().map(ProfileName::to_string).collect::<Vec<_>>(),
+                "session_id": lease.session_id,
+                "background_job": lease.provider_handle,
+                "herdr_bound": herdr_bound,
+                "new_session": is_new_session,
+            }),
+        );
+    }
+
+    let short_id = lease
+        .provider_handle
+        .clone()
+        .ok_or(Error::MalformedProviderOutput)?;
+    let inspector = ClaudeInspector::discover(args.claude_executable.as_deref())?;
+    exec_claude_attach(inspector.executable(), &short_id)
+}
+
+/// M4.1: the interactive first-run wizard. Every step reuses existing, already-tested machinery
+/// (`ClaudeInspector`, `service.add`/`AdoptExisting`, `plan_install`/`apply_install`,
+/// `herdr_install::{plan,apply}_install`) — this function only sequences prompts around them and
+/// saves the result to `preferences.toml`. Safe to re-run: it detects and offers to reuse existing
+/// profiles/integrations (M4.9) rather than starting over.
+fn run_setup(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    args: &SetupArgs,
+) -> Result<CommandOutput, Error> {
+    if args.non_interactive {
+        return run_setup_non_interactive(service, paths, args);
+    }
+
+    println!("Agent Relay setup\n");
+
+    // --- Step 1: environment ---
+    println!("Checking your environment...");
+    let claude_executable = args.claude_executable.as_deref();
+    let claude_version = ClaudeInspector::discover(claude_executable)
+        .and_then(|inspector| inspector.inspect_version());
+    match &claude_version {
+        Ok(version) => println!("  Claude Code        \u{2713} ({version})"),
+        Err(_) => println!("  Claude Code        \u{2717} not found"),
+    }
+    let herdr_client = HerdrCliClient::discover(None);
+    let herdr_probe = herdr_client
+        .as_ref()
+        .ok()
+        .and_then(|client| client.status().ok());
+    match &herdr_probe {
+        Some(status) => println!("  Herdr              \u{2713} ({})", status.server.version),
+        None => println!("  Herdr              (not found; optional)"),
+    }
+    println!(
+        "  Agent Relay config \u{2713} ({})",
+        paths.config_root().display()
+    );
+    if args.verbose {
+        println!(
+            "  (verbose) config_root={}, state_root={}",
+            paths.config_root().display(),
+            paths.state_root().display()
+        );
+    }
+    if claude_version.is_err() {
+        println!(
+            "\nClaude Code was not found. Install it first: https://docs.claude.com/en/docs/claude-code"
+        );
+        return Err(Error::ProviderExecutableMissing);
+    }
+
+    // --- Step 2: profiles ---
+    let mut registered = service.list()?;
+    if !registered.is_empty() {
+        println!("\nExisting profiles found:");
+        for profile in &registered {
+            let (auth, _) = friendly_auth_state(profile, claude_executable);
+            println!("  \u{2713} {} ({auth})", profile.name);
+        }
+        prompt_yes_no("\nUse these?", true)?;
+    }
+    loop {
+        let must_add_one = registered.is_empty();
+        if !must_add_one && !prompt_yes_no("\nAdd another profile?", false)? {
+            break;
+        }
+        let name_text = prompt_line("Profile name", None)?;
+        let name = ProfileName::new(&name_text)
+            .map_err(|_| Error::InvalidProfileName(name_text.clone()))?;
+        if registered.iter().any(|profile| profile.name == name) {
+            println!("'{name}' is already registered.");
+            continue;
+        }
+        let create_new = prompt_yes_no(
+            &format!(
+                "Authenticate a NEW Claude account for '{name}'? (no = adopt an already-authenticated isolated profile)"
+            ),
+            true,
+        )?;
+        let profile = if create_new {
+            println!("\nOpening Claude login for '{name}'...");
+            match create_and_authenticate_profile(service, paths, &name, claude_executable) {
+                Ok(profile) => profile,
+                Err(error) => {
+                    println!("Could not authenticate '{name}': {error}");
+                    continue;
+                }
+            }
+        } else {
+            let config_dir_text = prompt_line("Existing isolated Claude config directory", None)?;
+            let config_dir = PathBuf::from(config_dir_text);
+            let report = match inspect_existing_claude(paths, &config_dir, true, claude_executable)
+            {
+                Ok(report) => report,
+                Err(error) => {
+                    println!("Could not inspect that directory: {error}");
+                    continue;
+                }
+            };
+            if !report.safe_to_adopt {
+                println!(
+                    "That directory is not safe to adopt: {}",
+                    report.reasons.join(", ")
+                );
+                continue;
+            }
+            match adopt_authenticated_profile(
+                service,
+                &name,
+                &report.config_dir,
+                &report,
+                claude_executable,
+            ) {
+                Ok(profile) => profile,
+                Err(error) => {
+                    println!("Could not adopt '{name}': {error}");
+                    continue;
+                }
+            }
+        };
+        println!("\u{2713} {} authenticated", profile.name);
+        registered.push(profile);
+    }
+    if registered.is_empty() {
+        return Err(Error::AdoptionIdentityRequired);
+    }
+
+    // --- Step 3: primary/fallback ---
+    let mut preferences = preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
+    let primary = if registered.len() == 1 {
+        registered[0].name.clone()
+    } else {
+        println!("\nPrimary profile:");
+        for profile in &registered {
+            println!("  {}", profile.name);
+        }
+        let default = preferences
+            .primary_profile
+            .clone()
+            .filter(|name| registered.iter().any(|profile| &profile.name == name))
+            .unwrap_or_else(|| registered[0].name.clone());
+        loop {
+            let chosen = prompt_line("Primary profile", Some(default.as_str()))?;
+            if let Some(profile) = registered
+                .iter()
+                .find(|profile| profile.name.as_str() == chosen)
+            {
+                break profile.name.clone();
+            }
+            println!("Not one of the registered profiles above.");
+        }
+    };
+    let fallback_candidates: Vec<ProfileName> = registered
+        .iter()
+        .filter(|profile| profile.name != primary)
+        .map(|profile| profile.name.clone())
+        .collect();
+    let fallback = if fallback_candidates.is_empty() {
+        Vec::new()
+    } else {
+        println!("\nFallback order (comma-separated, in priority order):");
+        for candidate in &fallback_candidates {
+            println!("  {candidate}");
+        }
+        let default = fallback_candidates
+            .iter()
+            .map(ProfileName::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let chosen = prompt_line("Fallback order", Some(&default))?;
+        chosen
+            .split(',')
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .filter_map(|text| {
+                fallback_candidates
+                    .iter()
+                    .find(|c| c.as_str() == text)
+                    .cloned()
+            })
+            .collect::<Vec<_>>()
+    };
+    preferences.primary_profile = Some(primary.clone());
+    preferences.fallback_profiles = fallback.clone();
+
+    // --- Step 4: usage integration ---
+    let enable_usage = prompt_yes_no("\nEnable automatic quota detection?", true)?;
+    if enable_usage {
+        for name in std::iter::once(&primary).chain(fallback.iter()) {
+            let Some(profile) = registered.iter().find(|profile| &profile.name == name) else {
+                continue;
+            };
+            install_usage_integration_interactive(profile, claude_executable)?;
+        }
+    }
+    preferences.usage_integration_enabled = Some(enable_usage);
+
+    // --- Step 5: Herdr ---
+    let enable_herdr = if herdr_probe.is_some() {
+        prompt_yes_no("\nEnable Herdr integration?", true)?
+    } else {
+        println!("\nHerdr not found.\nAgent Relay will work without it.\nYou can add Herdr later.");
+        false
+    };
+    if enable_herdr {
+        match install_herdr_integration() {
+            Ok(healthy) => println!(
+                "  \u{2713} Herdr integration installed ({})",
+                if healthy {
+                    "healthy"
+                } else {
+                    "needs attention; run `relay integration herdr doctor`"
+                }
+            ),
+            Err(error) => println!("  Could not install the Herdr integration: {error}"),
+        }
+    }
+    preferences.herdr_enabled = Some(enable_herdr);
+
+    preferences.save(paths.config_root())?;
+
+    // --- Step 6: finish ---
+    let human = format!(
+        "Agent Relay is ready.\n\nPrimary:  {}\nFallback: {}\n\nAutomatic usage detection: {}\nHerdr integration: {}\n\nStart working with:\n\n    relay claude",
+        primary,
+        if fallback.is_empty() {
+            "(none)".to_owned()
+        } else {
+            fallback
+                .iter()
+                .map(ProfileName::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        },
+        if enable_usage { "enabled" } else { "disabled" },
+        if enable_herdr { "enabled" } else { "disabled" },
+    );
+    success(
+        "setup",
+        human,
+        json!({
+            "primary": primary.as_str(),
+            "fallback": fallback.iter().map(ProfileName::to_string).collect::<Vec<_>>(),
+            "usage_integration_enabled": enable_usage,
+            "herdr_enabled": enable_herdr,
+        }),
+    )
+}
+
+/// Shared by the interactive and non-interactive setup paths: installs the usage integration for
+/// one profile via the unchanged `plan_install`/`apply_install`, explaining (never silently
+/// bypassing) an unverified Claude Code version per M4.1 Step 4.
+fn install_usage_integration_interactive(
+    profile: &Profile,
+    claude_executable: Option<&Path>,
+) -> Result<(), Error> {
+    let capabilities = match assess_installed(claude_executable, &profile.config_dir) {
+        Ok(capabilities) => capabilities,
+        Err(error) => {
+            println!("  Could not assess '{}': {error}", profile.name);
+            return Ok(());
+        }
+    };
+    let mut allow_unverified = false;
+    if let Err(error) = capabilities.usage_integration_ready(false) {
+        println!(
+            "  '{}' is running a Claude Code version Relay has not verified for the usage integration ({error}).",
+            profile.name
+        );
+        if !prompt_yes_no("  Install anyway (unverified)?", false)? {
+            println!("  Skipped usage detection for '{}'.", profile.name);
+            return Ok(());
+        }
+        allow_unverified = true;
+        if let Err(error) = capabilities.usage_integration_ready(true) {
+            println!("  Still not installable for '{}': {error}", profile.name);
+            return Ok(());
+        }
+    }
+    let _ = allow_unverified;
+    let relay_executable = std::env::current_exe().map_err(|source| Error::Io {
+        path: PathBuf::from("relay"),
+        source,
+    })?;
+    let plan = plan_install(&profile.config_dir, &relay_executable)?;
+    apply_install(&plan, current_unix_ms())?;
+    println!("  \u{2713} usage detection enabled for {}", profile.name);
+    Ok(())
+}
+
+/// Shared by the interactive and non-interactive setup paths: links `plugins/herdr` and confirms
+/// it with the same `doctor` check `relay integration herdr doctor` exposes.
+fn install_herdr_integration() -> Result<bool, Error> {
+    let client = HerdrCliClient::discover(None)
+        .map_err(|error| Error::IntegrationRefused(error.to_string()))?;
+    let plugin_path = herdr_install::resolve_plugin_path(None)
+        .map_err(|error| Error::IntegrationRefused(error.to_string()))?;
+    herdr_install::apply_install(&client, &plugin_path)
+        .map_err(|error| Error::IntegrationRefused(error.to_string()))?;
+    let report = herdr_install::doctor(&client)
+        .map_err(|error| Error::IntegrationRefused(error.to_string()))?;
+    Ok(report.healthy)
+}
+
+fn run_setup_non_interactive(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    args: &SetupArgs,
+) -> Result<CommandOutput, Error> {
+    let primary = args
+        .primary
+        .clone()
+        .ok_or(Error::AdoptionIdentityRequired)?;
+    let registered = service.list()?;
+    let primary_profile = registered
+        .iter()
+        .find(|profile| profile.name == primary)
+        .ok_or_else(|| Error::ProfileNotFound(primary.to_string()))?;
+    for fallback_name in &args.fallback {
+        if !registered
+            .iter()
+            .any(|profile| &profile.name == fallback_name)
+        {
+            return Err(Error::ProfileNotFound(fallback_name.to_string()));
+        }
+    }
+
+    let mut preferences = preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
+    preferences.primary_profile = Some(primary.clone());
+    preferences.fallback_profiles = args.fallback.clone();
+
+    if let Some(enable_usage) = args.usage_integration {
+        if enable_usage {
+            for name in std::iter::once(&primary).chain(args.fallback.iter()) {
+                let profile = registered
+                    .iter()
+                    .find(|profile| &profile.name == name)
+                    .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+                let capabilities =
+                    assess_installed(args.claude_executable.as_deref(), &profile.config_dir)?;
+                capabilities
+                    .usage_integration_ready(false)
+                    .map_err(Error::IntegrationRefused)?;
+                let relay_executable = std::env::current_exe().map_err(|source| Error::Io {
+                    path: PathBuf::from("relay"),
+                    source,
+                })?;
+                let plan = plan_install(&profile.config_dir, &relay_executable)?;
+                apply_install(&plan, current_unix_ms())?;
+            }
+        }
+        preferences.usage_integration_enabled = Some(enable_usage);
+    }
+
+    if let Some(enable_herdr) = args.herdr {
+        if enable_herdr {
+            install_herdr_integration()?;
+        }
+        preferences.herdr_enabled = Some(enable_herdr);
+    }
+
+    preferences.save(paths.config_root())?;
+    let _ = primary_profile;
+    success(
+        "setup",
+        format!("Configured. Primary: {primary}"),
+        json!({
+            "primary": primary.as_str(),
+            "fallback": args.fallback.iter().map(ProfileName::to_string).collect::<Vec<_>>(),
+            "usage_integration_enabled": preferences.usage_integration_enabled,
+            "herdr_enabled": preferences.herdr_enabled,
+        }),
+    )
 }
 
 /// Checks whether a session is currently active for `target` using the same M2B.5 liveness
