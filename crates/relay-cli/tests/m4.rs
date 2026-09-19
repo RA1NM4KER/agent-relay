@@ -145,7 +145,7 @@ case "$1" in
       *) exit 2 ;;
     esac
     ;;
-  --bg) printf 'backgrounded \xc2\xb7 %s\n' "{bg_id}" ;;
+  --bg) printf 'backgrounded \302\267 %s\n' "{bg_id}" ;;
   agents)
     printf '[{{"pid":{pid},"id":"{bg_id}","cwd":"%s","kind":"background","startedAt":1,"sessionId":"{session_id}","name":"x","status":"idle","state":"done"}}]\n' "$PWD"
     ;;
