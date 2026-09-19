@@ -2,6 +2,13 @@
 
 ## Current milestone
 
+M3 (Herdr integration) complete through M3.2: a thin, optional Herdr plugin
+(`plugins/herdr/herdr-plugin.toml`) exposes Relay's existing status/doctor/recovery/watch/handoff
+behind Herdr actions plus an automatic `pane.agent_status_changed` event, live-validated against a
+real Herdr 0.9.0 server including one full controlled bidirectional handoff between the real
+adopted profiles on a disposable project. Details: `docs/herdr-integration.md`, `M3_FINAL_REPORT.md`.
+No `relay-core` changes were required.
+
 v0.1.0 standalone checkpoint (M2C.1 plus release hygiene: README quickstart, redacted docs/fixtures,
 integration writes gated on an active install manifest). Profile B -> Profile A through `watch run`
 has since been live-validated on the M2C.1 code (transaction `ho-18d68e5c2cc65a38-46090`, session id
@@ -14,8 +21,8 @@ version/capability gating; details in the M2C.1 entry below and `docs/automatic-
 Prior: M2C complete — explicit, opt-in, usage-triggered automatic handoff (`relay watch run`), built on
 the unchanged M2B transaction machinery, plus supervision of the target process so an orchestrator
 crash during `TARGET_STARTING` can no longer leave an unaccounted-for writer. Details in the M2C
-entry below. Automatic fail-back, quota pooling, and Herdr integration do not exist and require
-separate approval. Prior milestone summary — M2B.75: Claude session shutdown is now authoritative: `claude stop <id>` (Claude Code's
+entry below. Automatic fail-back and quota pooling do not exist and require separate approval;
+Herdr integration exists as of M3 (see the M3 entry below). Prior milestone summary — M2B.75: Claude session shutdown is now authoritative: `claude stop <id>` (Claude Code's
 own documented command) replaces raw `kill` as the source-stop mechanism, verified quiescent
 across multiple consecutive observations before a handoff proceeds. Live validation of this
 milestone found and fixed a real polarity bug in M2B.5's liveness check (a killed pid was wrongly
@@ -416,10 +423,51 @@ underneath it.
     is now live-validated in both directions. A real refusal (`StopFailure` from an actually
     exhausted account) was never observed and no quota was burned.
 
+- **M3 (approved): Herdr integration — thin plugin, no relay-core changes.**
+  - **M3.0/M3.1**: researched Herdr's live plugin/CLI/socket surface (installed 0.9.0, current
+    0.9.1, no breaking drift from the M0-era assumption), designed the integration contract
+    (`relay-herdr` as a subprocess client of the existing `relay --json` CLI, profile mapping via
+    an explicit `relay_profile`/`relay_profile_fallback` Herdr `tokens`-map token, re-validated
+    live on every use, never cached blindly), and implemented status/doctor/recovery/watch/manual
+    handoff actions plus an auto-retry/usage-plugin interoperability classifier. 32 tests against
+    a scripted `relay` process; no live Herdr server touched yet.
+  - **M3.2**: linked the plugin against a real Herdr 0.9.0 server on a disposable workspace/project
+    and fixed what that found: `HERDR_PLUGIN_CONTEXT_JSON` is flat with no tokens/session id at all
+    (a real follow-up `herdr pane get`/`workspace get` call is required — new `herdr_client`
+    module); Herdr's own CLI is inconsistent about `--json` across subcommands (caught live, not
+    guessed); `report-metadata` needs an undocumented `--source`; Herdr's built-in Claude
+    integration only watches the default `~/.claude`, never an isolated `CLAUDE_CONFIG_DIR`
+    (confirmed by reading its own installed hook script) — addressed with an explicit
+    `relay_session_id` token fallback, same pattern as the profile token. Added an automatic
+    `[[events]]` handler on `pane.agent_status_changed` (reuses the `watch` code path, relies
+    entirely on Relay's own existing cooldown/ledger for throttling) and
+    `relay integration herdr install|status|doctor|uninstall`, live-verified through a full
+    install → doctor → uninstall → status → reinstall → doctor cycle.
+  - **Live validation, full bidirectional controlled handoff** on the disposable project, through
+    the real plugin and the real adopted profiles, using `--simulate-usage exhausted` (no real
+    quota spent): profile A launched a real writer, handed off to profile B (`COMPLETE`, same
+    session id, lease moved, lock released), the reverse direction correctly hit a genuine
+    `target_stale_ancestor` conflict (profile A's own pre-handoff copy — resolved via
+    `session conflict resolve --yes`, never force-discard), then completed back to profile A.
+    Session id unchanged throughout; `claude agents --json` empty for both profiles afterward
+    (single writer, no orphan); Herdr's own workspace list and server status unaffected.
+  - **Noted, not fixed**: two of four `watch run`/`handoff run` attempts during that sequence hit
+    `untracked_writer_detected` even though only the expected session was ever listed — resolved
+    itself on retry both times. This is the existing (pre-M3) `ClaudeSourceLiveness` check, not
+    something the Herdr integration introduced; per the M3 core-freeze rule it was not patched
+    blind since it could not be reproduced deterministically enough to trust a regression test,
+    and is recorded for a future dedicated investigation instead.
+  - 43 new tests (34 actions/mapping + 11 install), all against scripted `relay`/`herdr` processes.
+    Workspace total 243 -> 286 passing; fmt/clippy clean throughout. Zero changes to `relay-core`,
+    `relay-provider-claude`, or the standalone handoff machinery itself.
+  - **Not observed**: genuine (non-simulated) provider exhaustion end to end — this pass used
+    fault injection throughout, exactly as M2C's original validation did.
+  - Full account: `docs/herdr-integration.md`, `M3_FINAL_REPORT.md`.
+
 ## In progress
 
-- Nothing in progress. M1.5, M2A, M2B, M2B.5, M2B.75 (with its soak test), and M2C are all
-  complete. Herdr integration has not started and requires separate owner authorization.
+- Nothing in progress. M1.5, M2A, M2B, M2B.5, M2B.75 (with its soak test), M2C, M2C.1, and M3 (both
+  M3.0/M3.1 and M3.2) are all complete.
 
 ## Blockers
 
@@ -462,16 +510,17 @@ underneath it.
 
 ## Next exact action
 
-M2C.1 is done; automatic handoff is now live-validated in both directions (Profile A -> Profile B
-and Profile B -> Profile A) through `watch run`. Remaining before Herdr/public release: observe a
-genuine exhaustion end to end (the statusline snapshot and StopFailure payload on a real limit) and
-decide packaging (the installed hooks embed the relay path).
-The text below is the earlier M2C-era note.
+M3 (Herdr integration) is done through M3.2. Remaining before a further milestone: observe a
+genuine (non-simulated) exhaustion end to end; investigate the intermittent
+`untracked_writer_detected` observation from M3.2's live validation; decide whether to wire Herdr's
+session-report hook into isolated profiles' `settings.json` (would make the `relay_session_id`
+token fallback unnecessary); and decide packaging for a marketplace-style `herdr plugin install`
+(both `relay-herdr-plugin`'s `relay` discovery and `relay integration herdr install`'s manifest
+discovery currently require a local repo checkout).
 
-
-Await explicit owner authorization before starting Herdr integration, automatic fail-back, or
-unattended (non-`--probe`) usage detection, and before trusting this path across any Claude Code
-version/layout other than 2.1.276 or any launch mode other than foreground `-p` / `--bg`.
-Given M2B.75 and M2C each found real bugs during live validation, treat any further Claude
-`--bg`/interactive daemon behavior assumption as unverified until it has been tested live.
-Profile B -> Profile A through `relay watch run` has since been live-validated (see M2C.1 above).
+Await explicit owner authorization before automatic fail-back, unattended (non-`--probe`) usage
+detection, writing Herdr's session-report hook into any real profile's `settings.json`, or trusting
+this path across any Claude Code version/layout other than 2.1.276/2.1.277 or any launch mode other
+than foreground `-p` / `--bg`. Given M2B.75, M2C, and M3.2 each found real bugs or races during live
+validation, treat any further Claude `--bg`/interactive daemon behavior assumption, and any further
+Herdr CLI/schema assumption, as unverified until it has been tested live.

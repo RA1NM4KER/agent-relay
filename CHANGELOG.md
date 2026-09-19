@@ -8,6 +8,7 @@ All notable changes to Agent Relay will be documented here.
 
 - M2C.1: structured Claude usage detection (StopFailure hook, statusline `rate_limits`, stream-json `rate_limit_event`), `relay integration claude install|status|uninstall`, automatic startup recovery in `relay watch run`, `--workload-model`, and Claude Code version/capability gating; see `docs/automatic-handoff.md`.
 - M2C.1 automatic handoff via `relay watch run` is now live-validated in both directions (Profile A -> Profile B and Profile B -> Profile A); see `STATUS.md`.
+- M3: optional Herdr plugin (`plugins/herdr/herdr-plugin.toml`) exposing status/doctor/recovery/watch/manual-handoff behind Herdr actions and an automatic `pane.agent_status_changed` event, plus `relay integration herdr install|status|doctor|uninstall`; live-validated against a real Herdr 0.9.0 server including a full controlled bidirectional handoff between the real adopted profiles — see `docs/herdr-integration.md` and `M3_FINAL_REPORT.md`. No `relay-core` changes.
 - Fixed: the usage phrase matcher now recognizes real Claude limit messages.
 - Rust workspace with provider-neutral core, CLI, Claude boundary, Herdr boundary, and testkit crates.
 - Secure profile-directory creation, permission validation, canonical path handling, and atomic state writes.

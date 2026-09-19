@@ -108,10 +108,25 @@ installs, the detection policy, reset windows and uninstall.
 - One writer per project; a handoff is refused while the source profile has any live Claude process.
 - The statusline usage snapshot only refreshes in interactive sessions; headless sessions leave it
   stale, and stale means `UNKNOWN` (no handoff).
-- No automatic fail-back, quota pooling, or Herdr/terminal integration yet.
+- No automatic fail-back or quota pooling.
 - A handoff spends one small real API turn to verify the target session.
+- Herdr's own session detection only reaches the default `~/.claude`; an isolated profile's pane
+  needs an explicit `relay_session_id` token until Herdr's built-in Claude integration supports
+  `CLAUDE_CONFIG_DIR` (see [Herdr integration](docs/herdr-integration.md)).
 - Claude's transcript layout and `--resume` behavior are not a stable public API; Relay gates on
   validated versions and fails closed.
+
+## Herdr integration
+
+An optional, thin plugin (`plugins/herdr/herdr-plugin.toml`) wires Relay's existing `status`,
+`doctor`, `recovery`, `watch`, and manual `handoff` behind Herdr actions and an automatic
+`pane.agent_status_changed` event, so a Claude pane inside [Herdr](https://herdr.dev) can surface
+and trigger them without a separate terminal. Herdr never gains writer authority — the plugin only
+maps a pane to a registered profile (via an explicit `relay_profile`/`relay_profile_fallback`
+token, never guessed) and invokes the same `relay --json` CLI this README documents. Install with
+`relay integration herdr install` (requires `herdr plugin link` support, i.e. running from this
+repo checkout). Details, live-validation results, and current limitations:
+[docs/herdr-integration.md](docs/herdr-integration.md).
 
 ## Security model
 
@@ -124,9 +139,9 @@ Every mutating step is opt-in and previewable. Details: [docs/security.md](docs/
 
 ## More
 
-[Automatic handoff](docs/automatic-handoff.md) · [architecture](docs/architecture.md) ·
-[threat model](docs/security.md) · [research](docs/research.md) · [status](STATUS.md) ·
-[changelog](CHANGELOG.md)
+[Automatic handoff](docs/automatic-handoff.md) · [Herdr integration](docs/herdr-integration.md) ·
+[architecture](docs/architecture.md) · [threat model](docs/security.md) ·
+[research](docs/research.md) · [status](STATUS.md) · [changelog](CHANGELOG.md)
 
 ## License
 

@@ -341,20 +341,149 @@ backstop even if the Herdr-side gating were somehow bypassed. What is *not* yet 
 coexistence (e.g. both plugins showing a toast for the same event) — that is a product polish
 question for a later slice, not a safety one.
 
-## What is explicitly deferred to a later M3 slice
+## M3.2: real-context live validation, session resolution, and completion
 
-- **Live verification of `HERDR_PLUGIN_CONTEXT_JSON`'s exact field layout** for a `pane`-context
-  action. `relay-herdr-plugin`'s parsing is written from the documented/schema-derived shape above
-  but was never run against a real Herdr server tonight (disallowed by the M3 safety boundary). See
-  `M3_OVERNIGHT_REPORT.md` for the exact steps to verify this by hand.
+M3.1 above shipped without ever having run the plugin against a real Herdr server; two of its
+assumptions turned out wrong the moment it was actually linked and invoked
+(`herdr plugin link`, a disposable workspace, the real adopted profiles). This section records
+what changed and why, using the same LIVE VERIFIED / TEST VERIFIED / UNVERIFIED split as the rest
+of this document.
+
+**LIVE VERIFIED — `HERDR_PLUGIN_CONTEXT_JSON` is flat, with no tokens and no session id.** A real
+`herdr plugin action invoke status --plugin agent-relay` produced:
+
+```json
+{
+  "workspace_id": "w7", "workspace_label": "agent-relay", "workspace_cwd": "/path/to/repo",
+  "tab_id": "w7:t1", "tab_label": "1",
+  "focused_pane_id": "w7:p5", "focused_pane_cwd": "/path/to/repo",
+  "focused_pane_agent": "claude", "focused_pane_status": "working",
+  "invocation_source": "cli", "correlation_id": "cli:plugin"
+}
+```
+
+No `tokens` map, no `agent_session` field — M3.1's `PluginContext`/`PaneInfo` parser assumed a
+nested shape with both inline and would have silently misread every real invocation. The same flat
+shape and field set was independently confirmed for an **event** invocation
+(`pane.agent_status_changed`), with `invocation_source: "api"` and `correlation_id` set to the
+event name instead — no separate parsing path was needed for events versus actions.
+
+**LIVE VERIFIED — getting tokens and the session id needs a real follow-up call.** `herdr pane get
+<focused_pane_id>` returns the full `PaneInfo` (`agent`, `agent_session: {kind, value, ...}`,
+`tokens`); `herdr workspace get <workspace_id>` returns `WorkspaceInfo.tokens`. `relay-herdr-plugin`
+now makes these calls itself, via `HERDR_BIN_PATH` (handed to every plugin invocation), rather than
+trusting anything inline in the context payload. New module: `relay-herdr::herdr_client`.
+
+**LIVE VERIFIED — Herdr's own CLI is inconsistent about `--json`, and guessing from one command's
+behavior to another's is wrong.** Confirmed by actually running each one, not by extrapolating:
+
+| Command | Behavior |
+|---|---|
+| `pane get`, `workspace get` | JSON unconditionally; `--json` is rejected as an unknown flag (usage error, exit 2) |
+| `plugin link`, `plugin unlink` | Same as above — JSON always, `--json` rejected |
+| `plugin list` | Human-readable text by default; `--json` required for JSON |
+| `status` | JSON only with `--json`; without it, human-readable text |
+
+The M3.1-era code omitted `--json` uniformly and happened to work for `pane get`/`workspace
+get`/`plugin link` by coincidence, then failed on `plugin list` and `status` the first time they
+were actually called — caught immediately as a clear `HerdrMalformedOutput`, not a silent
+misbehavior, because parsing never guesses at a partial match. Each `herdr_client.rs` call site now
+states which behavior it verified.
+
+**LIVE VERIFIED — `herdr pane|workspace report-metadata` require an explicit `--source <id>`**,
+undocumented in the M3.1 manifest notes. Only affects the one-time operator setup command
+(`herdr pane report-metadata <pane_id> --source agent-relay --token relay_profile=<name>`), not
+`relay-herdr-plugin` itself.
+
+**CONFIRMED, GENUINE UPSTREAM LIMITATION — Herdr's built-in Claude integration is default-account
+only.** `herdr integration status` shows the Claude hook installed at a single hard-coded path
+(`~/.claude/hooks/herdr-agent-state.sh`); `herdr integration install claude` has no per-profile or
+`--config-dir` form. Reading that hook script (read-only — it is Herdr's own file) confirms it is
+otherwise generic: it only depends on `HERDR_ENV`/`HERDR_SOCKET_PATH`/`HERDR_PANE_ID` (present in
+any Herdr-managed pane's environment regardless of `CLAUDE_CONFIG_DIR`) and Claude's own
+`SessionStart` hook stdin payload. So a Claude session running under an **isolated** Relay
+profile's own `CLAUDE_CONFIG_DIR` is invisible to Herdr's session detection today — not because of
+anything Relay does, but because Herdr's installer never wires the (otherwise reusable) hook script
+into anything but the default account's `settings.json`. Manually adding the same hook command to
+an isolated profile's `settings.json` would very likely work (the script itself has no
+`CLAUDE_CONFIG_DIR` dependency) but was deliberately not done live tonight — it means writing to a
+real, live profile's Claude settings, which deserves its own explicit review rather than folding
+into this pass.
+
+**Design response — `relay_session_id` token, matching the `relay_profile`/`relay_profile_fallback`
+pattern exactly.** `mapping::resolve_session_id` prefers Herdr's own `agent_session` (only a
+`kind: "id"` reference — a `kind: "path"` reference is a hard `SessionReferenceNotAnId` refusal,
+never silently downgraded to "no session," since the pane genuinely does have a session, just not
+one addressable as an id); if Herdr has none, it falls back to a pane/workspace `relay_session_id`
+token, set once via `herdr pane report-metadata --source agent-relay --token relay_session_id=<uuid>`
+and reused by every later invocation — never re-typed, never guessed, and pane/workspace
+disagreement is `ProfileMappingAmbiguous` exactly like the profile token.
+
+**LIVE VERIFIED — full bidirectional controlled handoff, through the real plugin and the real
+adopted profiles, on the disposable project.** Using `relay watch run --simulate-usage exhausted`
+(fault injection, no real quota spent) to trigger it without waiting for genuine exhaustion:
+
+1. `relay launch --profile <A> --project-dir <disposable> "<harmless prompt>"` — real writer
+   lease, real session id.
+2. `<A> → <B>`: `relay watch run --simulate-usage exhausted` reached `COMPLETE` — same session id,
+   lease moved to `<B>`, lock released, no process left running for `<A>`.
+3. Reverse direction hit a genuine `target_stale_ancestor` conflict (`<A>`'s own pre-handoff copy
+   was a strict prefix of `<B>`'s post-verification copy) — classified correctly, resolved with
+   `session conflict resolve --yes` (backup taken first; **never** `--force-discard-divergent`,
+   since this was the safe ancestor case, not a divergent one).
+4. `<B> → <A>`: `relay handoff run` reached `COMPLETE` — same session id throughout both
+   directions, `<A>` now owns the lease, `claude agents --json` empty for both profiles (single
+   writer, no orphan), Herdr's own workspace list and server status unaffected afterward.
+
+One real, non-safety-relevant intermittent finding: two of the four `watch run`/`handoff run`
+attempts during this sequence failed closed with `untracked_writer_detected` even though
+`claude agents --json` only ever listed the one expected session — a real, timing-sensitive
+condition in the existing (pre-M3, already `relay-core`-owned) `ClaudeSourceLiveness` check, not
+something this integration introduced. It resolved itself on retry both times, consistent with the
+kind of live-only race M2B.5/M2B.75 each already documented in `STATUS.md` for the same subsystem.
+Per the M3 core-freeze rule, this was **not** patched blind — it could not be reproduced
+deterministically enough to trust a regression test for it, so it is recorded here as an observed
+characteristic for a future dedicated investigation instead. See `M3_FINAL_REPORT.md`.
+
+**Automatic orchestration — `[[events]]` on `pane.agent_status_changed`.** Confirmed live to carry
+the identical flat `HERDR_PLUGIN_CONTEXT_JSON` shape actions get, so no separate parsing path was
+needed. The manifest wires it straight to the same `watch` binary mode; for any pane without a
+`relay_profile` token this is a fast, local, no-API-cost no-op (confirmed live: ~1s round trip,
+`ProfileMappingUnknown`, nothing else touched) — the same pattern `herdr-claude-auto-retry`/
+`herdr-agent-usage` already rely on by subscribing globally rather than per-workspace. No
+client-side throttling was added on top: Relay's own cooldown/per-hour-cap/known-exhausted ledger
+(exercised live during the handoff sequence above) is what actually prevents the same session being
+handed off repeatedly.
+
+**New: `relay integration herdr install|status|doctor|uninstall`** (`relay-herdr::install`,
+wired into `relay-cli`). Mirrors the existing `relay integration claude install|status|uninstall`
+pattern. Live-verified install → doctor(healthy) → uninstall → status(unregistered) →
+uninstall-again(idempotent, no-op) → install(reinstall) → doctor(healthy) cycle. **Known packaging
+gap, not solved here**: `install` needs to find `plugins/herdr/herdr-plugin.toml` on local disk
+(defaults to `./plugins/herdr` relative to the current working directory — i.e. running from the
+`agent-relay` repo checkout — or an explicit `--plugin-path`); a `cargo install`'d `relay` binary
+elsewhere on the system has no way to locate the manifest automatically. This is the same
+deferred question as `relay-herdr-plugin`'s own `relay` binary discovery for a marketplace-style
+`herdr plugin install` (as opposed to `link`) — unsolved, and out of scope until that packaging
+model is actually needed.
+
+## What remains deferred
+
 - **Coexistence of Relay's `StopFailure`/`statusLine` hooks with Herdr's own `SessionStart` hook**
   in the same profile's `settings.json` — expected to be fine (different hook types, and Relay's
   installer already documents preserving/chaining existing hooks) but not live-verified with both
-  installed simultaneously.
+  installed simultaneously on an isolated profile.
+- **Manually wiring Herdr's session-report hook into an isolated profile's `settings.json`** — the
+  fix that would make Herdr's own session detection work for Relay profiles instead of relying on
+  the `relay_session_id` token fallback. Deliberately not attempted live (writes to a real
+  profile's Claude settings); a good candidate for the next milestone with explicit owner sign-off.
 - **UI-level coexistence** with `herdr-agent-usage`/`herdr-claude-auto-retry` (toast/sidebar
   double-notification on the same event) — a polish question, not a safety one.
-- **Environment-derived mapping (Strategy 1)** — reusing the M2C orphan-detection process-table
-  scan to read a pane's actual `CLAUDE_CONFIG_DIR` — was considered and explicitly not chosen for
-  this slice; Strategy 2 (Herdr-native tokens) needed no `relay-core`/`relay-provider-claude`
-  changes and matches Herdr's own extension point. Revisit only if the explicit-token UX proves too
-  manual in practice.
+- **Marketplace-style `herdr plugin install` packaging** (as opposed to `herdr plugin link`) for
+  both `relay-herdr-plugin` locating `relay` and `relay integration herdr install` locating the
+  manifest itself.
+- **The intermittent `untracked_writer_detected` observation** above — needs a dedicated,
+  reproducible investigation before any `relay-core` change is justified.
+- **Genuine (non-simulated) provider exhaustion end to end** — this pass used
+  `--simulate-usage exhausted` throughout, exactly as M2C's original validation did; no real
+  account was ever actually rate-limited.
