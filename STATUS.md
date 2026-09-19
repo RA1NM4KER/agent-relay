@@ -2,6 +2,17 @@
 
 ## Current milestone
 
+M4 (consumer-CLI UX) complete: `relay setup` (interactive wizard) and `relay claude` (daily
+entrypoint) sit on top of the unchanged M2/M3 machinery — a normal user authenticates via Claude's
+own official login, picks primary/fallback, and then just runs `relay claude` in a project; the
+existing transactional handoff, recovery, and Herdr integration all still do the real work
+underneath, unchanged. Interactive attach uses Claude's own documented `claude attach <id>`
+mechanism on a session Relay launched with `--bg`, preserving the writer lease/liveness checks
+throughout. Live-verified on the disposable project, including one controlled end-to-end handoff
+triggered through the new UX with no manual pane id/session id/lease entry. Details:
+`docs/getting-started.md`, `M4_FINAL_REPORT.md`. No `relay-core` changes were required (one small,
+live-found `relay-cli` fix: a couple of informational messages were leaking into `--json` output).
+
 M3 (Herdr integration) complete through M3.2: a thin, optional Herdr plugin
 (`plugins/herdr/herdr-plugin.toml`) exposes Relay's existing status/doctor/recovery/watch/handoff
 behind Herdr actions plus an automatic `pane.agent_status_changed` event, live-validated against a

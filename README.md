@@ -1,88 +1,115 @@
 # Agent Relay
 
-Agent Relay is a local-first orchestrator for **explicitly** handing an active Claude Code session
-from one authenticated profile to another, with single-writer safety. It is continuity, not hidden
-account rotation: it never stores credentials, never pools quota, and never switches profiles
-unless you run it.
+Agent Relay keeps Claude Code working when one account runs out of quota. It moves your session —
+same conversation, same context — to a backup account, automatically, so you don't have to notice.
 
-Status: **v0.1.0, standalone, macOS-first.** The handoff, recovery and usage-detection paths are
-validated live on macOS with Claude Code 2.1.276 and 2.1.277. Linux builds and passes the tests in
-CI but has not been validated live (some process-scan code is macOS-specific).
+Status: **v0.1.0, standalone, macOS-first.** The handoff, recovery, usage-detection, and Herdr
+integration paths are validated live on macOS with Claude Code 2.1.276–2.1.278. Linux builds and
+passes the tests in CI but has not been validated live (some process-scan code is macOS-specific).
 
-## Prerequisites
+Requires [Claude Code](https://docs.claude.com/en/docs/claude-code) 2.1.x (2.1.276–2.1.278
+validated; a newer 2.1.x patch works, `relay setup` explains if it isn't verified yet) and `git`
+(Relay checkpoints a project's git state before a handoff). [Herdr](https://herdr.dev) is optional.
 
-- Rust (the exact toolchain is pinned in `rust-toolchain.toml`; install [rustup](https://rustup.rs)
-  and it is fetched automatically).
-- [Claude Code](https://docs.claude.com/en/docs/claude-code) **2.1.x, currently 2.1.276–2.1.277**
-  (`claude --version`). Other release lines are refused; a newer 2.1.x patch works for handoff but
-  the usage integration asks for `--allow-unverified-version`.
-- Two Claude accounts, each logged in inside its **own isolated config directory** (see below).
-- `git` (Relay checkpoints a project's git state before a handoff).
-
-## Build
+## Install
 
 ```sh
 git clone <this repository> && cd agent-relay
 cargo build --release
-# binary: target/release/relay   (copy it onto your PATH, e.g. ~/.local/bin)
+# binary: target/release/relay — copy it onto your PATH, e.g. ~/.local/bin
 ```
 
-`cargo install --path crates/relay-cli` also works. The installed hook commands embed the absolute
-path of the `relay` binary that installed them, so install the integration from the binary you
-intend to keep.
+(Rust is required to build — the exact toolchain is pinned in `rust-toolchain.toml`; install
+[rustup](https://rustup.rs) and it's fetched automatically. `cargo install --path crates/relay-cli`
+also works.)
 
 ## Quickstart
 
-1. **Create two isolated Claude profiles and log in to each** (Relay never touches credentials):
+```sh
+relay setup
+```
 
-   ```sh
-   mkdir -p -m 700 ~/.config/agent-relay/profiles/alice/claude ~/.config/agent-relay/profiles/bob/claude
-   CLAUDE_CONFIG_DIR=~/.config/agent-relay/profiles/alice/claude claude   # then /login
-   CLAUDE_CONFIG_DIR=~/.config/agent-relay/profiles/bob/claude   claude   # then /login
-   ```
+One interactive wizard: it detects Claude Code and (optionally) [Herdr](https://herdr.dev), walks
+you through logging in to one or more **isolated** Claude accounts (Relay opens Claude's own
+official login — it never sees your password or token), and asks which is primary and which are
+fallbacks.
 
-2. **Adopt them** (reference-only; preview first with `--dry-run`):
+Then, for daily work:
 
-   ```sh
-   relay profile adopt alice --provider claude --config-dir ~/.config/agent-relay/profiles/alice/claude --dry-run
-   relay profile adopt alice --provider claude --config-dir ~/.config/agent-relay/profiles/alice/claude
-   relay profile adopt bob   --provider claude --config-dir ~/.config/agent-relay/profiles/bob/claude
-   relay profile doctor alice
-   ```
+```sh
+cd ~/repos/my-project
+relay claude
+```
 
-   Two profiles with the same account identity are rejected.
+That's it. Relay launches Claude under your primary account, tracks the session, and — if that
+account genuinely runs out of quota — automatically hands the exact same conversation off to your
+next fallback account. You never see a config path, a pane id, or a session UUID; `relay status`
+tells you what's going on if you're curious.
 
-3. **(Optional but recommended) install the usage integration** so Relay can detect a real limit:
+Full walkthrough, including what happens when quota actually runs out: **[docs/getting-started.md](docs/getting-started.md)**.
 
-   ```sh
-   relay integration claude install --profile alice --dry-run
-   relay integration claude install --profile alice
-   relay integration claude install --profile bob
-   ```
+## Everyday commands
 
-4. **Start work as a Relay-managed writer, then let Relay watch it:**
+| Command | What it does |
+|---|---|
+| `relay setup` | First-run wizard; safe to re-run any time (detects and reuses what's already there). |
+| `relay claude [message]` | Start/attach to your Relay-managed Claude session in the current project. |
+| `relay status` | Plain-language summary: project, session, current profile, fallback, usage, Herdr. |
+| `relay profiles` | List registered profiles and which is primary/fallback. |
+| `relay login <name>` / `relay logout <name>` | Friendly wrappers around Claude's own official login/logout for one isolated profile. |
 
-   ```sh
-   relay launch --profile alice --project-dir ~/repos/foo "your prompt"      # prints the session id
-   relay watch run --profile alice --fallback bob --project ~/repos/foo --session <session-id>
-   ```
+## Is Herdr required?
 
-   `watch run` is one evaluation, not a daemon; run it from cron or a shell loop. When alice is
-   truly exhausted it performs the transactional handoff to bob; otherwise it does nothing.
+**No.** Herdr is optional. `relay claude` works as a standalone Relay-managed session either way;
+inside a [Herdr](https://herdr.dev) pane it additionally auto-registers the pane metadata so
+Herdr's own `status`/`doctor`/`watch`/`handoff` actions work without you typing anything. See
+[Herdr integration](docs/herdr-integration.md).
+
+## Is the usage integration required?
+
+**No**, but it's what makes automatic handoff possible without spending a real API call to check.
+`relay setup` offers to install it (`relay integration claude install` under the hood) for every
+profile you choose. Without it, `relay watch run` (which `relay claude` doesn't need you to run
+directly) reports `UNKNOWN` unless you pass `--probe`, an explicit diagnostic that **spends a real
+API request**. See [docs/automatic-handoff.md](docs/automatic-handoff.md) for exactly what it
+installs, the detection policy, reset windows, and uninstall.
+
+## Advanced / manual setup
+
+`relay setup`/`relay claude` are a UX layer over the commands below — everything still works
+exactly as before for scripting or when you want explicit control:
+
+```sh
+# Create two isolated Claude profiles and log in to each yourself (Relay never touches credentials):
+mkdir -p -m 700 ~/.config/agent-relay/profiles/alice/claude ~/.config/agent-relay/profiles/bob/claude
+CLAUDE_CONFIG_DIR=~/.config/agent-relay/profiles/alice/claude claude   # then /login
+CLAUDE_CONFIG_DIR=~/.config/agent-relay/profiles/bob/claude   claude   # then /login
+
+# Adopt them (reference-only; preview first with --dry-run). Two profiles with the same account
+# identity are rejected.
+relay profile adopt alice --provider claude --config-dir ~/.config/agent-relay/profiles/alice/claude --dry-run
+relay profile adopt alice --provider claude --config-dir ~/.config/agent-relay/profiles/alice/claude
+relay profile adopt bob   --provider claude --config-dir ~/.config/agent-relay/profiles/bob/claude
+relay profile doctor alice
+
+# (Optional but recommended) usage integration, so Relay can detect a real limit for free:
+relay integration claude install --profile alice --dry-run
+relay integration claude install --profile alice
+relay integration claude install --profile bob
+
+# Start work as a Relay-managed writer, then let Relay watch it:
+relay launch --profile alice --project-dir ~/repos/foo "your prompt"      # prints the session id
+relay watch run --profile alice --fallback bob --project ~/repos/foo --session <session-id>
+```
+
+`watch run` is one evaluation, not a daemon; run it from cron or a shell loop. When alice is truly
+exhausted it performs the transactional handoff to bob; otherwise it does nothing.
 
 Manual handoff, no usage detection needed:
 
 ```sh
 relay handoff run --from alice --to bob --project ~/repos/foo --session <session-id>
 ```
-
-## Is the integration required?
-
-**Optional.** Manual `relay handoff run` and `relay launch` work without it. Without the integration,
-`relay watch run` has no free usage signal and reports `UNKNOWN` (never handing off) unless you pass
-`--probe`, an explicit diagnostic that **spends a real API request**. Install it per profile if you
-want automatic handoff. See [docs/automatic-handoff.md](docs/automatic-handoff.md) for exactly what it
-installs, the detection policy, reset windows and uninstall.
 
 ## Recovery and conflicts
 
@@ -115,6 +142,13 @@ installs, the detection policy, reset windows and uninstall.
   `CLAUDE_CONFIG_DIR` (see [Herdr integration](docs/herdr-integration.md)).
 - Claude's transcript layout and `--resume` behavior are not a stable public API; Relay gates on
   validated versions and fails closed.
+- `relay claude`'s interactive experience is `claude attach <id>` on a session Relay launched with
+  `claude --bg` — Claude's own documented mechanism for attaching to a background session, not a
+  Relay workaround — rather than a plain `claude` process; the first exchange happens before you
+  attach (Relay needs an initial message to start the tracked session).
+- Outside Herdr, nothing watches usage automatically in the background (Relay is not a daemon);
+  automatic handoff happens when Herdr's event fires or when `relay claude`/`relay watch run` is
+  invoked again.
 
 ## Herdr integration
 
@@ -139,9 +173,10 @@ Every mutating step is opt-in and previewable. Details: [docs/security.md](docs/
 
 ## More
 
-[Automatic handoff](docs/automatic-handoff.md) · [Herdr integration](docs/herdr-integration.md) ·
-[architecture](docs/architecture.md) · [threat model](docs/security.md) ·
-[research](docs/research.md) · [status](STATUS.md) · [changelog](CHANGELOG.md)
+[Getting started](docs/getting-started.md) · [Automatic handoff](docs/automatic-handoff.md) ·
+[Herdr integration](docs/herdr-integration.md) · [architecture](docs/architecture.md) ·
+[threat model](docs/security.md) · [research](docs/research.md) · [status](STATUS.md) ·
+[changelog](CHANGELOG.md)
 
 ## License
 
