@@ -1,5 +1,21 @@
 //! Read-only profile inspection and non-executing process plans for Claude Code.
 
+/// Some sandboxed CI environments (confirmed on GitHub's hosted macOS runners, image
+/// `macos-26-arm64`, as of this writing) refuse `ps -E` (list a process's environment) outright —
+/// `ps` exits 1 with no output, unrelated to anything Relay does. `SystemProcessLister` (used by
+/// real handoff/conflict-resolution safety checks) correctly reports this as
+/// `Error::ProviderCommandFailed` (fail closed, never silently treated as "no process running").
+/// Real developer machines (this repository's own live validation) do not hit this restriction.
+/// Tests that exercise `SystemProcessLister` for real use this to skip rather than fail in an
+/// environment where the restriction itself, not Relay's code, is what's being observed.
+#[cfg(test)]
+pub(crate) fn ps_dash_e_is_available() -> bool {
+    std::process::Command::new("ps")
+        .args(["-Eww", "-o", "command="])
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
 mod adoption;
 mod capabilities;
 mod conflict;

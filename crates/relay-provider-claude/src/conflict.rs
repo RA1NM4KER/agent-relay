@@ -769,6 +769,12 @@ mod tests {
 
     #[test]
     fn resolve_missing_target_stages_normally() {
+        if !crate::ps_dash_e_is_available() {
+            eprintln!(
+                "skipping: `ps -E` is refused in this sandbox (not a Relay defect — resolve_conflict's SystemProcessLister check; see crate::ps_dash_e_is_available)"
+            );
+            return;
+        }
         let root = tempdir().expect("temp dir");
         let source = root.path().join("source");
         let target = root.path().join("target");
