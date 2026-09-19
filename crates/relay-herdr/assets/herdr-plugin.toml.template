@@ -1,0 +1,61 @@
+# Agent Relay's Herdr plugin manifest.
+#
+# This copy is embedded in the `relay` binary (`relay-herdr` crate, `assets/herdr-plugin.toml.template`)
+# and materialized by `relay integration herdr install` into a Relay-owned directory
+# (`<config_root>/herdr-plugin/herdr-plugin.toml`) with `{{RELAY_HERDR_PLUGIN_BIN}}` replaced by the
+# absolute path of the `relay-herdr-plugin` binary that shipped alongside this `relay` binary. This
+# lets `relay integration herdr install` work from a packaged install (Homebrew, a release tarball)
+# with no source checkout and no dependency on the current working directory. The source-of-truth
+# copy for repository/`herdr plugin link` development remains `plugins/herdr/herdr-plugin.toml`;
+# keep the two in sync by hand (a test asserts they agree on everything but `command`/`[[build]]`).
+#
+# Which profile/fallback an action uses comes from two Herdr-native `tokens` (set once via
+# `herdr pane|workspace report-metadata --token ...`, or automatically by `relay claude`), never
+# typed in per invocation:
+#   relay_profile           = the Relay profile this pane/workspace maps to
+#   relay_profile_fallback  = comma-separated fallback priority list (used by watch/handoff)
+
+id = "agent-relay"
+name = "Agent Relay"
+version = "0.1.0"
+description = "Safe transactional handoff of Claude Code sessions between isolated authenticated profiles."
+min_herdr_version = "0.9.0"
+platforms = ["linux", "macos"]
+
+# No [[build]] section: this manifest is only ever used with `herdr plugin link` (which skips
+# [[build]] entirely), and the `relay-herdr-plugin` binary it points at is already built —
+# installed alongside `relay` itself, never compiled from this directory.
+
+[[actions]]
+id = "status"
+title = "Relay: Status"
+contexts = ["pane"]
+command = ["{{RELAY_HERDR_PLUGIN_BIN}}", "status"]
+
+[[actions]]
+id = "doctor"
+title = "Relay: Doctor"
+contexts = ["pane"]
+command = ["{{RELAY_HERDR_PLUGIN_BIN}}", "doctor"]
+
+[[actions]]
+id = "recovery"
+title = "Relay: Recovery Status"
+contexts = ["pane"]
+command = ["{{RELAY_HERDR_PLUGIN_BIN}}", "recovery"]
+
+[[actions]]
+id = "watch"
+title = "Relay: Evaluate Usage"
+contexts = ["pane"]
+command = ["{{RELAY_HERDR_PLUGIN_BIN}}", "watch"]
+
+[[actions]]
+id = "handoff"
+title = "Relay: Manual Handoff"
+contexts = ["pane"]
+command = ["{{RELAY_HERDR_PLUGIN_BIN}}", "handoff"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["{{RELAY_HERDR_PLUGIN_BIN}}", "watch"]

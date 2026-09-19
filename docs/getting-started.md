@@ -13,14 +13,18 @@ Here, you only need three ideas:
 ## 1. Install
 
 ```sh
-git clone <this repository> && cd agent-relay
-cargo build --release
-# copy target/release/relay onto your PATH, e.g. ~/.local/bin
+brew install RA1NM4KER/tap/agent-relay
 ```
 
-You also need [Claude Code](https://docs.claude.com/en/docs/claude-code) itself installed
-(`claude --version` should print something in the `2.1.x` range) and `git`.
-[Herdr](https://herdr.dev) is optional — everything below works without it.
+No Rust, no `git clone`, no repository checkout. You also need
+[Claude Code](https://docs.claude.com/en/docs/claude-code) itself installed (`claude --version`
+should print something in the `2.1.x` range) and `git`. [Herdr](https://herdr.dev) is optional —
+everything below works without it.
+
+Not on macOS, or don't want Homebrew? See the README's
+["Advanced / manual setup / building from source"](../README.md#advanced--manual-setup--building-from-source)
+section — it builds the same two binaries (`relay`, `relay-herdr-plugin`) from source with
+`cargo build --release`.
 
 ## 2. `relay setup`
 
@@ -162,5 +166,20 @@ Everything above is a friendly layer over commands that still work exactly as th
 want to script Agent Relay, inspect a transaction's internals, or understand exactly what's
 happening under the hood, start with [`docs/architecture.md`](architecture.md) and
 [`docs/automatic-handoff.md`](automatic-handoff.md) — and the main [README](../README.md)'s
-"Advanced / manual setup" section shows the equivalent manual commands for everything `relay
-setup`/`relay claude` do automatically.
+"Advanced / manual setup / building from source" section shows the equivalent manual commands for
+everything `relay setup`/`relay claude` do automatically.
+
+## 9. Using Claude Code to help install Agent Relay
+
+This is a secondary convenience, not the recommended way to install — `brew install
+RA1NM4KER/tap/agent-relay` (step 1 above) is simpler and doesn't involve an LLM in the loop at all.
+If you'd rather have Claude Code do it for you (e.g. you're already in a Claude Code session and
+want to set this up without leaving it), a safe prompt is:
+
+> Install Agent Relay from the official RA1NM4KER/agent-relay repository using the documented
+> installation method. Do not manually edit or copy Claude credential files. After installation,
+> run `relay setup` and let Agent Relay use Claude's official authentication flow.
+
+The important part is the constraint, not the convenience: Agent Relay's own installer and setup
+wizard never touch Claude's credentials directly, and neither should any assistant helping you
+install it.

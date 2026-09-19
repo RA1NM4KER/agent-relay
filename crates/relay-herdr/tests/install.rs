@@ -176,13 +176,62 @@ fn uninstall_removes_a_registered_plugin() {
 
 #[test]
 fn resolve_plugin_path_fails_closed_when_manifest_missing() {
-    let error = install::resolve_plugin_path(Some(std::path::Path::new(
-        "/definitely/not/a/real/plugin/dir",
-    )))
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let error = install::resolve_plugin_path(
+        Some(std::path::Path::new("/definitely/not/a/real/plugin/dir")),
+        tmp.path(),
+    )
     .expect_err("must fail closed");
     assert_eq!(
         error,
         relay_herdr::HerdrIntegrationError::HerdrMetadataUnavailable
+    );
+}
+
+/// M5.5: with no explicit `--plugin-path`, the manifest is materialized from the binary's own
+/// embedded copy into `<config_root>/herdr-plugin`, with the override parameter standing in for
+/// the sibling-binary discovery a real packaged install performs (`resolve_plugin_path_with_override`
+/// takes it directly, instead of `resolve_plugin_path`'s `RELAY_HERDR_PLUGIN_BIN` env read, so this
+/// test never mutates process-global env — this workspace forbids `unsafe`, which
+/// `std::env::set_var` requires since Rust 2024). No source checkout, no reliance on the current
+/// working directory.
+#[test]
+fn resolve_plugin_path_with_override_materializes_the_embedded_manifest() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let config_root = tmp.path().join("config");
+    let resolved = install::resolve_plugin_path_with_override(
+        None,
+        &config_root,
+        Some(std::path::Path::new(
+            "/opt/agent-relay/bin/relay-herdr-plugin",
+        )),
+    )
+    .expect("materializes without a checkout");
+    assert_eq!(resolved, config_root.join("herdr-plugin"));
+    let manifest = std::fs::read_to_string(resolved.join("herdr-plugin.toml"))
+        .expect("manifest file was written");
+    assert!(manifest.contains("/opt/agent-relay/bin/relay-herdr-plugin"));
+    assert!(!manifest.contains("{{RELAY_HERDR_PLUGIN_BIN}}"));
+    assert!(!manifest.contains("../../target/release"));
+    let parsed: toml::Value = toml::from_str(&manifest).expect("materialized manifest parses");
+    assert!(
+        parsed.get("build").is_none(),
+        "embedded manifest must not declare a [[build]] step (it is only ever `herdr plugin link`ed, never built from this directory)"
+    );
+}
+
+/// With no override and no `relay-herdr-plugin` next to the running test binary, discovery falls
+/// through to a `PATH` search; a `cargo test` binary's `PATH` does not carry `relay-herdr-plugin`
+/// in this repository's CI/dev environment, so this proves the fail-closed branch without needing
+/// to mutate `PATH` itself.
+#[test]
+fn resolve_plugin_path_with_override_fails_closed_when_the_plugin_binary_cannot_be_found() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let config_root = tmp.path().join("config");
+    let error = install::resolve_plugin_path_with_override(None, &config_root, None);
+    assert_eq!(
+        error,
+        Err(relay_herdr::HerdrIntegrationError::HerdrMetadataUnavailable)
     );
 }
 
@@ -204,4 +253,61 @@ fn plan_install_reports_not_yet_linked() {
     let plan = install::plan_install(&client, std::path::Path::new("plugins/herdr"))
         .expect("plan composes");
     assert!(!plan.already_linked);
+}
+
+/// M5.5: the embedded manifest (linked for a packaged install) and the repository's own
+/// `plugins/herdr/herdr-plugin.toml` (linked directly for local `herdr plugin link` development)
+/// must never silently drift apart on anything but `command`/`[[build]]`, which necessarily
+/// differ (absolute installed-binary path vs. relative in-repo path, and the repo copy alone
+/// keeps `[[build]]` for `herdr plugin install` from a checkout).
+#[test]
+fn embedded_manifest_matches_the_repository_manifest_except_command_and_build() {
+    let repo_manifest_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../plugins/herdr/herdr-plugin.toml");
+    let repo_manifest = std::fs::read_to_string(&repo_manifest_path)
+        .expect("repository plugins/herdr/herdr-plugin.toml is present");
+
+    let repo: toml::Value = toml::from_str(&repo_manifest).expect("repo manifest parses");
+    let embedded: toml::Value =
+        toml::from_str(install::PLUGIN_MANIFEST_TEMPLATE).expect("embedded template parses");
+
+    for key in [
+        "id",
+        "name",
+        "version",
+        "description",
+        "min_herdr_version",
+        "platforms",
+    ] {
+        assert_eq!(
+            repo.get(key),
+            embedded.get(key),
+            "top-level field '{key}' drifted between the repo manifest and the embedded template"
+        );
+    }
+
+    let repo_actions = repo["actions"].as_array().expect("repo actions array");
+    let embedded_actions = embedded["actions"]
+        .as_array()
+        .expect("embedded actions array");
+    assert_eq!(repo_actions.len(), embedded_actions.len());
+    for (repo_action, embedded_action) in repo_actions.iter().zip(embedded_actions) {
+        for key in ["id", "title", "contexts"] {
+            assert_eq!(
+                repo_action.get(key),
+                embedded_action.get(key),
+                "action field '{key}' drifted for action {:?}",
+                repo_action.get("id")
+            );
+        }
+    }
+
+    let repo_events = repo["events"].as_array().expect("repo events array");
+    let embedded_events = embedded["events"]
+        .as_array()
+        .expect("embedded events array");
+    assert_eq!(repo_events.len(), embedded_events.len());
+    for (repo_event, embedded_event) in repo_events.iter().zip(embedded_events) {
+        assert_eq!(repo_event.get("on"), embedded_event.get("on"));
+    }
 }

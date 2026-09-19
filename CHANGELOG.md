@@ -4,12 +4,38 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+Nothing yet.
+
+## v0.2.0
+
+The release that makes Agent Relay installable rather than only buildable, and easy to run day to
+day rather than only correct.
+
 ### Added
 
+- **Packaging (M5):** GitHub Releases with prebuilt `macOS` binaries (Apple Silicon primary,
+  Intel where cross-build validation allows), SHA-256 checksums, and a Homebrew tap
+  (`brew install RA1NM4KER/tap/agent-relay`) as the primary macOS install path — no Rust, no
+  `git clone` required. The Herdr plugin manifest is now embedded in the `relay` binary and
+  materialized into a Relay-owned directory at install time, so `relay integration herdr install`
+  (and `relay setup`'s Herdr step) work from a packaged install with no `agent-relay` source
+  checkout nearby — a known gap M3 left open. See `M5_FINAL_REPORT.md`.
+- **Daily UX (M4):** `relay setup` (interactive first-run wizard; `--non-interactive` for
+  scripting), `relay claude` (the daily entry point: resolves project/profile/fallback
+  automatically, launches or reattaches, hands you a real interactive terminal via
+  `claude attach`, auto-writes Herdr metadata when applicable), `relay status`/`relay profiles`
+  (plain-language summaries), `relay login`/`relay logout` (friendly wrappers around Claude's own
+  official `auth login`/`auth logout`). A new Relay-owned `preferences.toml` stores only profile
+  names and booleans, never credentials. See `docs/getting-started.md` and `M4_FINAL_REPORT.md`.
+- **Herdr integration (M3):** optional Herdr plugin (`plugins/herdr/herdr-plugin.toml`) exposing
+  status/doctor/recovery/watch/manual-handoff behind Herdr actions and an automatic
+  `pane.agent_status_changed` event, plus `relay integration herdr install|status|doctor|uninstall`;
+  live-validated against a real Herdr 0.9.0 server including a full controlled bidirectional
+  handoff between real adopted profiles — see `docs/herdr-integration.md` and `M3_FINAL_REPORT.md`.
+  Profile↔pane binding is now written automatically by `relay claude` (M4) instead of requiring a
+  manual `herdr pane report-metadata` call.
 - M2C.1: structured Claude usage detection (StopFailure hook, statusline `rate_limits`, stream-json `rate_limit_event`), `relay integration claude install|status|uninstall`, automatic startup recovery in `relay watch run`, `--workload-model`, and Claude Code version/capability gating; see `docs/automatic-handoff.md`.
 - M2C.1 automatic handoff via `relay watch run` is now live-validated in both directions (Profile A -> Profile B and Profile B -> Profile A); see `STATUS.md`.
-- M3: optional Herdr plugin (`plugins/herdr/herdr-plugin.toml`) exposing status/doctor/recovery/watch/manual-handoff behind Herdr actions and an automatic `pane.agent_status_changed` event, plus `relay integration herdr install|status|doctor|uninstall`; live-validated against a real Herdr 0.9.0 server including a full controlled bidirectional handoff between the real adopted profiles — see `docs/herdr-integration.md` and `M3_FINAL_REPORT.md`. No `relay-core` changes.
-- M4: consumer-CLI UX layer — `relay setup` (interactive first-run wizard; `--non-interactive` for scripting), `relay claude` (the daily entry point: resolves project/profile/fallback automatically, launches or reattaches, hands you a real interactive terminal via `claude attach`, auto-writes Herdr metadata when applicable), `relay status`/`relay profiles` (plain-language summaries), `relay login`/`relay logout` (friendly wrappers around Claude's own official `auth login`/`auth logout`). A new Relay-owned `preferences.toml` stores only profile names and booleans, never credentials. All existing advanced commands are unchanged. See `docs/getting-started.md` and `M4_FINAL_REPORT.md`. No `relay-core` changes.
 - Fixed: `relay watch run`'s "Claude Code version not verified" warning, and two new M4 informational messages, no longer print under `--json` — they were contaminating the stable stdout/stderr JSON contract for machine consumers (including Relay's own Herdr plugin), live-found during M4 dogfooding.
 - Fixed: the usage phrase matcher now recognizes real Claude limit messages.
 - Rust workspace with provider-neutral core, CLI, Claude boundary, Herdr boundary, and testkit crates.

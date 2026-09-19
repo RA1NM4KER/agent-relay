@@ -458,14 +458,17 @@ handed off repeatedly.
 **New: `relay integration herdr install|status|doctor|uninstall`** (`relay-herdr::install`,
 wired into `relay-cli`). Mirrors the existing `relay integration claude install|status|uninstall`
 pattern. Live-verified install → doctor(healthy) → uninstall → status(unregistered) →
-uninstall-again(idempotent, no-op) → install(reinstall) → doctor(healthy) cycle. **Known packaging
-gap, not solved here**: `install` needs to find `plugins/herdr/herdr-plugin.toml` on local disk
-(defaults to `./plugins/herdr` relative to the current working directory — i.e. running from the
-`agent-relay` repo checkout — or an explicit `--plugin-path`); a `cargo install`'d `relay` binary
-elsewhere on the system has no way to locate the manifest automatically. This is the same
-deferred question as `relay-herdr-plugin`'s own `relay` binary discovery for a marketplace-style
-`herdr plugin install` (as opposed to `link`) — unsolved, and out of scope until that packaging
-model is actually needed.
+uninstall-again(idempotent, no-op) → install(reinstall) → doctor(healthy) cycle.
+
+**Packaging gap fixed (M5.5)**: `install` no longer needs `plugins/herdr/herdr-plugin.toml` on
+local disk or a repo checkout. The manifest (`crates/relay-herdr/assets/herdr-plugin.toml.template`)
+is embedded into the `relay` binary via `include_str!` and, by default, materialized into
+`<config_root>/herdr-plugin/herdr-plugin.toml` with its `command` entries pointing at the absolute
+path of the `relay-herdr-plugin` binary Relay locates next to the running `relay` executable (or
+on `PATH`). `herdr plugin link <that materialized dir>` is what actually gets linked — an explicit
+`--plugin-path` still works unchanged for the local-checkout/dev case (`herdr plugin link
+plugins/herdr`). `relay-herdr-plugin`'s own `relay` binary discovery (documented below) is
+unaffected — it already had a `PATH`-search fallback for exactly this case.
 
 ## What remains deferred
 
@@ -479,9 +482,10 @@ model is actually needed.
   profile's Claude settings); a good candidate for the next milestone with explicit owner sign-off.
 - **UI-level coexistence** with `herdr-agent-usage`/`herdr-claude-auto-retry` (toast/sidebar
   double-notification on the same event) — a polish question, not a safety one.
-- **Marketplace-style `herdr plugin install` packaging** (as opposed to `herdr plugin link`) for
-  both `relay-herdr-plugin` locating `relay` and `relay integration herdr install` locating the
-  manifest itself.
+- **Marketplace-style `herdr plugin install` packaging** (as opposed to `herdr plugin link`) —
+  `relay integration herdr install` always uses `link` against a materialized local directory
+  (M5.5), so this is only relevant if Herdr's own `plugin install` (GitHub-checkout style) becomes
+  the desired distribution path for the manifest itself; not currently pursued.
 - **The intermittent `untracked_writer_detected` observation** above — needs a dedicated,
   reproducible investigation before any `relay-core` change is justified.
 - **Genuine (non-simulated) provider exhaustion end to end** — this pass used

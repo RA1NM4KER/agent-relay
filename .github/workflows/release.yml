@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace
+
+  build:
+    needs: quality
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            name: aarch64-apple-darwin
+          - target: x86_64-apple-darwin
+            name: x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Add cross-compile target
+        run: rustup target add ${{ matrix.target }}
+      - name: Build release binaries
+        run: cargo build --release --target ${{ matrix.target }} --bin relay --bin relay-herdr-plugin
+      - name: Package archive
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          stage="agent-relay-${version}-${{ matrix.name }}"
+          mkdir -p "dist/${stage}"
+          cp "target/${{ matrix.target }}/release/relay" "dist/${stage}/"
+          cp "target/${{ matrix.target }}/release/relay-herdr-plugin" "dist/${stage}/"
+          cp LICENSE "dist/${stage}/"
+          cp README.md "dist/${stage}/"
+          tar -C dist -czf "dist/${stage}.tar.gz" "${stage}"
+          rm -rf "dist/${stage}"
+          shasum -a 256 "dist/${stage}.tar.gz" > "dist/${stage}.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Combined checksums
+        run: |
+          cd dist
+          cat *.sha256 > SHA256SUMS.txt
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+            dist/SHA256SUMS.txt
+          draft: true
+          generate_release_notes: false

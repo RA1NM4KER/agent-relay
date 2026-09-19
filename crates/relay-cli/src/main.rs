@@ -1335,7 +1335,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
         }
         Command::Hook(_) => Err(Error::ProviderUnsupported),
         Command::Integration(integration) => match &integration.command {
-            IntegrationCommand::Herdr(herdr) => run_herdr_integration(herdr),
+            IntegrationCommand::Herdr(herdr) => run_herdr_integration(herdr, &paths),
             IntegrationCommand::Claude(claude) => {
                 let resolve = |target: &IntegrationTarget| -> Result<PathBuf, Error> {
                     match (&target.profile, &target.config_dir) {
@@ -1746,7 +1746,10 @@ enum WatchRunOutput {
     },
 }
 
-fn run_herdr_integration(herdr: &HerdrIntegrationArgs) -> Result<CommandOutput, Error> {
+fn run_herdr_integration(
+    herdr: &HerdrIntegrationArgs,
+    paths: &RelayPaths,
+) -> Result<CommandOutput, Error> {
     let refused =
         |error: relay_herdr::HerdrIntegrationError| Error::IntegrationRefused(error.to_string());
     match &herdr.command {
@@ -1757,7 +1760,8 @@ fn run_herdr_integration(herdr: &HerdrIntegrationArgs) -> Result<CommandOutput, 
         } => {
             let client = HerdrCliClient::discover(herdr_executable.as_deref()).map_err(refused)?;
             let resolved_path =
-                herdr_install::resolve_plugin_path(plugin_path.as_deref()).map_err(refused)?;
+                herdr_install::resolve_plugin_path(plugin_path.as_deref(), paths.config_root())
+                    .map_err(refused)?;
             let plan = herdr_install::plan_install(&client, &resolved_path).map_err(refused)?;
             if *dry_run {
                 let human = format!(
@@ -2872,7 +2876,7 @@ fn run_setup(
         false
     };
     if enable_herdr {
-        match install_herdr_integration() {
+        match install_herdr_integration(paths) {
             Ok(healthy) => println!(
                 "  \u{2713} Herdr integration installed ({})",
                 if healthy {
@@ -2959,10 +2963,10 @@ fn install_usage_integration_interactive(
 
 /// Shared by the interactive and non-interactive setup paths: links `plugins/herdr` and confirms
 /// it with the same `doctor` check `relay integration herdr doctor` exposes.
-fn install_herdr_integration() -> Result<bool, Error> {
+fn install_herdr_integration(paths: &RelayPaths) -> Result<bool, Error> {
     let client = HerdrCliClient::discover(None)
         .map_err(|error| Error::IntegrationRefused(error.to_string()))?;
-    let plugin_path = herdr_install::resolve_plugin_path(None)
+    let plugin_path = herdr_install::resolve_plugin_path(None, paths.config_root())
         .map_err(|error| Error::IntegrationRefused(error.to_string()))?;
     herdr_install::apply_install(&client, &plugin_path)
         .map_err(|error| Error::IntegrationRefused(error.to_string()))?;
@@ -3023,7 +3027,7 @@ fn run_setup_non_interactive(
 
     if let Some(enable_herdr) = args.herdr {
         if enable_herdr {
-            install_herdr_integration()?;
+            install_herdr_integration(paths)?;
         }
         preferences.herdr_enabled = Some(enable_herdr);
     }
