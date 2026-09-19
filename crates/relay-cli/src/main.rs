@@ -1687,13 +1687,19 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             }
         },
         Command::Setup(args) => run_setup(&service, &paths, args),
-        Command::Claude(args) => run_claude(&service, &paths, args),
+        Command::Claude(args) => run_claude(&service, &paths, args, cli.json),
         Command::Status { project_dir } => run_status(&service, &paths, project_dir.as_deref()),
         Command::Profiles => run_profiles(&service, &paths),
         Command::Login {
             name,
             claude_executable,
-        } => run_login(&service, &paths, name, claude_executable.as_deref()),
+        } => run_login(
+            &service,
+            &paths,
+            name,
+            cli.json,
+            claude_executable.as_deref(),
+        ),
         Command::Logout {
             name,
             claude_executable,
@@ -2152,6 +2158,7 @@ fn run_login(
     service: &ProfileService,
     paths: &RelayPaths,
     name: &ProfileName,
+    json_mode: bool,
     claude_executable: Option<&Path>,
 ) -> Result<CommandOutput, Error> {
     let registered = service.list()?;
@@ -2162,7 +2169,9 @@ fn run_login(
                 observed: format!("{:?}", existing.provider),
             });
         }
-        println!("Opening Claude login for '{name}'...");
+        if !json_mode {
+            println!("Opening Claude login for '{name}'...");
+        }
         run_claude_auth_subcommand(claude_executable, &existing.config_dir, "login")?;
         let report = verify_authenticated(&existing.config_dir, claude_executable)?;
         if !report.authenticated {
@@ -2174,7 +2183,9 @@ fn run_login(
             json!({ "profile": name.as_str(), "authenticated": true }),
         );
     }
-    println!("'{name}' is not a registered profile yet; creating it.");
+    if !json_mode {
+        println!("'{name}' is not a registered profile yet; creating it.");
+    }
     let profile = create_and_authenticate_profile(service, paths, name, claude_executable)?;
     success(
         "login",
@@ -2477,6 +2488,7 @@ fn run_claude(
     service: &ProfileService,
     paths: &RelayPaths,
     args: &ClaudeArgs,
+    json_mode: bool,
 ) -> Result<CommandOutput, Error> {
     let project_dir = match &args.project_dir {
         Some(path) => path.clone(),
@@ -2511,7 +2523,11 @@ fn run_claude(
     // M4.7: safe reauthentication for the primary; fallback unauthenticated is a warning only.
     let (primary_auth, _) = friendly_auth_state(primary_profile, args.claude_executable.as_deref());
     if primary_auth != "authenticated" {
-        println!("Profile \"{primary}\" needs Claude authentication.\n\nOpening Claude login...");
+        if !json_mode {
+            println!(
+                "Profile \"{primary}\" needs Claude authentication.\n\nOpening Claude login..."
+            );
+        }
         run_claude_auth_subcommand(
             args.claude_executable.as_deref(),
             &primary_profile.config_dir,
@@ -2532,7 +2548,7 @@ fn run_claude(
         {
             let (fallback_auth, _) =
                 friendly_auth_state(fallback_profile, args.claude_executable.as_deref());
-            if fallback_auth != "authenticated" {
+            if fallback_auth != "authenticated" && !json_mode {
                 eprintln!(
                     "Warning: fallback profile '{fallback_name}' is not authenticated ({fallback_auth}); primary work may still proceed."
                 );
