@@ -45,7 +45,7 @@ jobs:
       - name: Package archive
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${GITHUB_REF_NAME}"
           stage="agent-relay-${version}-${{ matrix.name }}"
           mkdir -p "dist/${stage}"
           cp "target/${{ matrix.target }}/release/relay" "dist/${stage}/"
@@ -54,7 +54,7 @@ jobs:
           cp README.md "dist/${stage}/"
           tar -C dist -czf "dist/${stage}.tar.gz" "${stage}"
           rm -rf "dist/${stage}"
-          shasum -a 256 "dist/${stage}.tar.gz" > "dist/${stage}.tar.gz.sha256"
+          cd dist && shasum -a 256 "${stage}.tar.gz" > "${stage}.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
