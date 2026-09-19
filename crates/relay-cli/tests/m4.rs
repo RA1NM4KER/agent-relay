@@ -48,14 +48,30 @@ fn relay(root: &Path, arguments: &[&str]) -> std::process::Output {
 /// Like [`relay`] but feeds `stdin_lines` (already newline-joined) to the child — for the
 /// interactive `relay setup` wizard, which is otherwise indistinguishable from a real terminal
 /// session: it just reads lines from stdin, same as a human answering prompts.
+///
+/// `relay setup`'s environment-check step looks for a plain `claude` on `PATH` (by design —
+/// `setup_interactive_first_run_with_zero_profiles_fails_closed` below locks in that it refuses
+/// to proceed at all otherwise), which a real developer machine always has but a bare CI runner
+/// does not. `root.join("bin")` is prepended to the child's `PATH` here — harmless if that
+/// directory doesn't exist — so a test can drop a `claude`-named fixture there and get realistic
+/// "Claude Code is installed" behavior regardless of what's actually on the host's `PATH`.
 fn relay_interactive(root: &Path, arguments: &[&str], stdin_lines: &str) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    let fixture_path = std::env::join_paths(
+        std::iter::once(root.join("bin")).chain(
+            std::env::var_os("PATH")
+                .iter()
+                .flat_map(std::env::split_paths),
+        ),
+    )
+    .expect("joinable PATH");
     command
         .arg("--config-root")
         .arg(root.join("config"))
         .arg("--state-root")
         .arg(root.join("state"))
         .args(arguments)
+        .env("PATH", fixture_path)
         .env_remove("CLAUDE_CONFIG_DIR")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -315,6 +331,12 @@ fn setup_interactive_detects_and_reuses_existing_profiles() {
     adopt_profile(root.path(), "alice", &claude);
     let claude_bob = FakeClaude::new(root.path(), &auth_json_for("bob"), "bbbb2222", "s2", 222);
     adopt_profile(root.path(), "bob", &claude_bob);
+    // The wizard's environment-check step looks for a plain `claude` on `PATH` regardless of
+    // which profiles are already adopted (see `relay_interactive`'s doc comment) — a copy of
+    // alice's fixture, named `claude`, standing in for a real machine-wide Claude Code install.
+    let bin_dir = root.path().join("bin");
+    std::fs::create_dir_all(&bin_dir).expect("bin dir");
+    std::fs::copy(&claude.executable, bin_dir.join("claude")).expect("claude fixture on PATH");
 
     // Answers: "Use these?" (default yes) / "Add another?" (no) / primary (default alice) /
     // fallback (default bob) / usage detection (no) / herdr (no). The herdr answer is supplied
