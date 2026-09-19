@@ -16,10 +16,8 @@ fn project_dir(pane: &HerdrPaneContext) -> String {
     pane.working_directory.to_string_lossy().into_owned()
 }
 
-fn require_session_id(pane: &HerdrPaneContext) -> Result<&str, HerdrIntegrationError> {
-    pane.agent_session_id
-        .as_deref()
-        .ok_or(HerdrIntegrationError::MissingSessionIdentity)
+fn require_session_id(pane: &HerdrPaneContext) -> Result<String, HerdrIntegrationError> {
+    mapping::resolve_session_id(pane)?.ok_or(HerdrIntegrationError::MissingSessionIdentity)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -222,10 +220,39 @@ pub enum WatchRunView {
     },
 }
 
+/// Mirrors `relay watch run --simulate-usage`'s values exactly. **Fault injection, for tests and
+/// controlled validation only** — deliberately not exposed by any manifest action in
+/// `plugins/herdr/herdr-plugin.toml`, since a production action that can fabricate exhaustion
+/// would be a real footgun (anyone able to invoke it could force a live handoff). It exists here
+/// only so `watch_evaluate` itself can be exercised against a **real** `relay` binary without
+/// waiting for or burning genuine API quota — the same technique M2C's own original live
+/// validation used (`STATUS.md`).
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum SimulateUsage {
+    Available,
+    NearLimit,
+    Exhausted,
+    ResetPending,
+    Unknown,
+}
+
+impl SimulateUsage {
+    const fn as_cli_value(self) -> &'static str {
+        match self {
+            Self::Available => "available",
+            Self::NearLimit => "near-limit",
+            Self::Exhausted => "exhausted",
+            Self::ResetPending => "reset-pending",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 pub struct WatchEvaluateRequest<'a> {
     pub fallback_profiles: &'a [String],
     pub dry_run: bool,
     pub workload_model: Option<&'a str>,
+    pub simulate_usage: Option<SimulateUsage>,
 }
 
 /// Evaluates the mapped source profile's usage state once and, only if genuinely exhausted,
@@ -252,13 +279,17 @@ pub fn watch_evaluate<R: CommandRunner>(
     args.push("--project");
     args.push(&dir);
     args.push("--session");
-    args.push(session_id);
+    args.push(&session_id);
     if request.dry_run {
         args.push("--dry-run");
     }
     if let Some(model) = request.workload_model {
         args.push("--workload-model");
         args.push(model);
+    }
+    if let Some(simulate) = request.simulate_usage {
+        args.push("--simulate-usage");
+        args.push(simulate.as_cli_value());
     }
     client.run_json(&args)
 }
@@ -285,6 +316,6 @@ pub fn handoff_manual<R: CommandRunner>(
         "--project",
         &dir,
         "--session",
-        session_id,
+        &session_id,
     ])
 }

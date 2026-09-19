@@ -296,6 +296,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "relay-core",
+ "relay-herdr",
  "relay-provider-claude",
  "relay-testkit",
  "serde",

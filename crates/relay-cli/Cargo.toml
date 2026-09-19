@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 relay-core = { path = "../relay-core" }
+relay-herdr = { path = "../relay-herdr" }
 relay-provider-claude = { path = "../relay-provider-claude" }
 relay-testkit = { path = "../relay-testkit" }
 serde.workspace = true

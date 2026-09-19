@@ -47,4 +47,29 @@ pub enum HerdrIntegrationError {
     /// pane, malformed response, etc.). This is a Herdr-side problem, not a Relay-side one.
     #[error("Herdr pane/workspace metadata is unavailable")]
     HerdrMetadataUnavailable,
+    /// The pane reports a Claude session, but as a `kind: "path"` reference (a transcript file
+    /// path) rather than `kind: "id"` (a session id). `relay handoff run`/`relay watch run` need
+    /// an exact session id; a path is never converted to one by guessing which id it belongs to.
+    #[error("this pane's Claude session is referenced by path, not by id, and cannot be used")]
+    SessionReferenceNotAnId,
+
+    // --- Herdr-side subprocess transport (invoking `herdr` itself, e.g. `herdr pane get`) ---
+    #[error("the `herdr` executable could not be found on PATH or at the given path")]
+    HerdrExecutableMissing,
+    #[error(
+        "the `herdr` executable failed a basic safety check (world/group-writable, or not owned \
+         by root or the current user)"
+    )]
+    HerdrUnsafeExecutable,
+    #[error("invoking the `herdr` executable failed to start or exited abnormally")]
+    HerdrCommandFailed,
+    #[error("invoking the `herdr` executable did not complete within the allotted time")]
+    HerdrCommandTimeout,
+    #[error("the `herdr` executable's JSON output was not the expected envelope shape")]
+    HerdrMalformedOutput,
+    /// Herdr's own CLI refused the request (e.g. `pane_not_found`, `workspace_not_found`).
+    /// `code`/`message` are Herdr's own, reported verbatim; never pattern-matched on beyond what
+    /// is explicitly documented.
+    #[error("herdr refused ({code}): {message}")]
+    HerdrRefused { code: String, message: String },
 }

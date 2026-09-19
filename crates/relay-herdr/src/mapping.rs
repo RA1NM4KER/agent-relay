@@ -9,7 +9,9 @@ use serde::Deserialize;
 
 use crate::client::{CommandRunner, RelayClient};
 use crate::error::HerdrIntegrationError;
-use crate::{HerdrPaneContext, RELAY_FALLBACK_TOKEN_KEY, RELAY_PROFILE_TOKEN_KEY};
+use crate::{
+    HerdrPaneContext, RELAY_FALLBACK_TOKEN_KEY, RELAY_PROFILE_TOKEN_KEY, RELAY_SESSION_TOKEN_KEY,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedProfile {
@@ -112,4 +114,39 @@ pub fn resolve_fallback_profiles(pane: &HerdrPaneContext) -> Vec<String> {
             .collect()
     })
     .unwrap_or_default()
+}
+
+/// The session id an action should actually use: Herdr's own detected `agent_session_id` when
+/// present, otherwise the pane's (or workspace's) explicit `relay_session_id` token fallback.
+///
+/// This fallback exists for a **confirmed real limitation**, not a hypothetical one (M3.2,
+/// `docs/herdr-integration.md`): Herdr's built-in Claude integration only watches the default
+/// `~/.claude`, so a pane running Claude under an isolated Relay profile's own `CLAUDE_CONFIG_DIR`
+/// never gets an `agent_session` from Herdr at all. Rather than silently treating that pane as
+/// having no session (which would make every session-requiring action permanently unusable for
+/// isolated profiles), a pane may carry an explicit, one-time-set token instead — still
+/// deterministic, still never guessed, just supplied by the operator once instead of derived.
+/// Pane-level and workspace-level values disagreeing is ambiguous, exactly like profile mapping;
+/// this never silently prefers one.
+pub fn resolve_session_id(
+    pane: &HerdrPaneContext,
+) -> Result<Option<String>, HerdrIntegrationError> {
+    if let Some(id) = &pane.agent_session_id {
+        return Ok(Some(id.clone()));
+    }
+    let pane_token = pane.pane_tokens.get(RELAY_SESSION_TOKEN_KEY);
+    let workspace_token = pane.workspace_tokens.get(RELAY_SESSION_TOKEN_KEY);
+    match (pane_token, workspace_token) {
+        (Some(pane_value), Some(workspace_value)) => {
+            if pane_value == workspace_value {
+                Ok(Some(pane_value.clone()))
+            } else {
+                Err(HerdrIntegrationError::ProfileMappingAmbiguous {
+                    candidates: vec![pane_value.clone(), workspace_value.clone()],
+                })
+            }
+        }
+        (Some(value), None) | (None, Some(value)) => Ok(Some(value.clone())),
+        (None, None) => Ok(None),
+    }
 }

@@ -1,11 +1,8 @@
-# Agent Relay's Herdr plugin manifest (M3.1 first slice).
+# Agent Relay's Herdr plugin manifest.
 #
-# NOT YET LIVE-VERIFIED. Schema confirmed live against installed Herdr 0.9.0 and current
-# herdr.dev/docs/plugins/ (see docs/herdr-integration.md), but this manifest itself has not been
-# loaded with `herdr plugin link` against a real Herdr server — the M3 safety boundary explicitly
-# forbids that tonight. Do not `herdr plugin link` or `herdr plugin install` this until the steps
-# in M3_OVERNIGHT_REPORT.md's "exact live validation steps" have been run on a disposable
-# workspace with no real account.
+# LIVE-VERIFIED against Herdr 0.9.0 (M3.2): linked with `herdr plugin link`, all five actions
+# below invoked for real against real adopted profiles on a disposable project, including one
+# full controlled bidirectional handoff (see `docs/herdr-integration.md`, `M3_FINAL_REPORT.md`).
 #
 # Every action below is deliberately parameterless (current Herdr plugins take no action
 # parameters — docs/herdr-integration.md). Which profile/fallback an action uses comes from two
@@ -25,35 +22,55 @@ platforms = ["linux", "macos"]
 # `senna-lang/herdr-agent-usage` uses (`plugin install` always replaces the managed directory with
 # a fresh checkout, so there is nothing to compile-once-and-keep). Requires the same Rust
 # toolchain the main `agent-relay` repository already pins (`rust-toolchain.toml`).
+#
+# Also builds `relay` itself: Herdr spawns plugin/build commands with the server's own PATH,
+# which will not have a system-installed `relay` on it (confirmed live, M3.2) — the plugin binary
+# falls back to this same workspace's `target/release/relay` when `HERDR_PLUGIN_ROOT` indicates a
+# locally linked plugin (see `relay-herdr-plugin`'s `discover_relay_client`).
 [[build]]
-command = ["cargo", "build", "--release", "--bin", "relay-herdr-plugin"]
+command = ["cargo", "build", "--release", "--bin", "relay-herdr-plugin", "--bin", "relay"]
 
 [[actions]]
 id = "status"
 title = "Relay: Status"
 contexts = ["pane"]
-command = ["target/release/relay-herdr-plugin", "status"]
+command = ["../../target/release/relay-herdr-plugin", "status"]
 
 [[actions]]
 id = "doctor"
 title = "Relay: Doctor"
 contexts = ["pane"]
-command = ["target/release/relay-herdr-plugin", "doctor"]
+command = ["../../target/release/relay-herdr-plugin", "doctor"]
 
 [[actions]]
 id = "recovery"
 title = "Relay: Recovery Status"
 contexts = ["pane"]
-command = ["target/release/relay-herdr-plugin", "recovery"]
+command = ["../../target/release/relay-herdr-plugin", "recovery"]
 
 [[actions]]
 id = "watch"
 title = "Relay: Evaluate Usage"
 contexts = ["pane"]
-command = ["target/release/relay-herdr-plugin", "watch"]
+command = ["../../target/release/relay-herdr-plugin", "watch"]
 
 [[actions]]
 id = "handoff"
 title = "Relay: Manual Handoff"
 contexts = ["pane"]
-command = ["target/release/relay-herdr-plugin", "handoff"]
+command = ["../../target/release/relay-herdr-plugin", "handoff"]
+
+# Automatic orchestration (M3.2, live-verified): fires on every agent status transition in every
+# Claude pane, exactly like both reference plugins already do (`herdr-claude-auto-retry`,
+# `herdr-agent-usage`), not just panes Relay manages. `HERDR_PLUGIN_CONTEXT_JSON` carries the
+# exact same shape here as for an action invocation (confirmed live), so `relay-herdr-plugin`'s
+# `watch` mode needs no separate code path. For a pane with no `relay_profile` token this is a
+# fast, local, no-API-cost no-op (`ProfileMappingUnknown`/`NonClaudePane`, exit 1, logged and
+# ignored by Herdr) — the same cheap-no-op-when-not-opted-in pattern those reference plugins rely
+# on. Relay's own cooldown/per-hour cap/known-exhausted ledger (already live-verified, see
+# `M3_FINAL_REPORT.md`) is what actually prevents repeated evaluation from repeatedly handing off
+# the same session — this event handler adds no throttling of its own on top of that, by design
+# ("keep the Herdr adapter thin").
+[[events]]
+on = "pane.agent_status_changed"
+command = ["../../target/release/relay-herdr-plugin", "watch"]

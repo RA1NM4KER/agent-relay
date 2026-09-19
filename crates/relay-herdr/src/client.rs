@@ -184,7 +184,11 @@ impl RelayClient<SystemCommandRunner> {
 impl<R: CommandRunner> RelayClient<R> {
     pub fn with_runner(executable: PathBuf, runner: R) -> Result<Self, HerdrIntegrationError> {
         Ok(Self {
-            executable: validate_executable(&executable)?,
+            executable: validate_executable(
+                &executable,
+                HerdrIntegrationError::RelayExecutableMissing,
+                HerdrIntegrationError::RelayUnsafeExecutable,
+            )?,
             runner,
             timeout: DEFAULT_TIMEOUT,
         })
@@ -220,38 +224,61 @@ impl<R: CommandRunner> RelayClient<R> {
 }
 
 fn resolve_executable(requested: Option<&Path>) -> Result<PathBuf, HerdrIntegrationError> {
-    if let Some(requested) = requested {
-        return validate_executable(requested);
-    }
-    let path = std::env::var_os("PATH").ok_or(HerdrIntegrationError::RelayExecutableMissing)?;
-    for directory in std::env::split_paths(&path) {
-        let candidate = directory.join("relay");
-        if candidate.is_file() {
-            return validate_executable(&candidate);
-        }
-    }
-    Err(HerdrIntegrationError::RelayExecutableMissing)
+    validate_executable_for(
+        requested,
+        "relay",
+        HerdrIntegrationError::RelayExecutableMissing,
+        HerdrIntegrationError::RelayUnsafeExecutable,
+    )
 }
 
-fn validate_executable(path: &Path) -> Result<PathBuf, HerdrIntegrationError> {
-    let canonical =
-        fs::canonicalize(path).map_err(|_| HerdrIntegrationError::RelayExecutableMissing)?;
-    let metadata =
-        fs::metadata(&canonical).map_err(|_| HerdrIntegrationError::RelayExecutableMissing)?;
-    if !metadata.is_file() {
-        return Err(HerdrIntegrationError::RelayUnsafeExecutable);
+/// Resolves and safety-checks a subprocess executable: an explicit path if given, otherwise the
+/// first `binary_name` found on `PATH`; canonicalized and checked for unsafe permissions/
+/// ownership before ever being invoked. Shared by [`crate::RelayClient`] (for `relay`) and
+/// [`crate::herdr_client::HerdrCliClient`] (for `herdr`) so both apply the identical safety bar.
+pub(crate) fn validate_executable_for(
+    requested: Option<&Path>,
+    binary_name: &str,
+    missing_error: HerdrIntegrationError,
+    unsafe_error: HerdrIntegrationError,
+) -> Result<PathBuf, HerdrIntegrationError> {
+    if let Some(requested) = requested {
+        return validate_executable(requested, missing_error, unsafe_error);
     }
-    validate_executable_platform(&metadata)?;
+    let path = std::env::var_os("PATH").ok_or_else(|| missing_error.clone())?;
+    for directory in std::env::split_paths(&path) {
+        let candidate = directory.join(binary_name);
+        if candidate.is_file() {
+            return validate_executable(&candidate, missing_error, unsafe_error);
+        }
+    }
+    Err(missing_error)
+}
+
+fn validate_executable(
+    path: &Path,
+    missing_error: HerdrIntegrationError,
+    unsafe_error: HerdrIntegrationError,
+) -> Result<PathBuf, HerdrIntegrationError> {
+    let canonical = fs::canonicalize(path).map_err(|_| missing_error.clone())?;
+    let metadata = fs::metadata(&canonical).map_err(|_| missing_error)?;
+    if !metadata.is_file() {
+        return Err(unsafe_error);
+    }
+    validate_executable_platform(&metadata, unsafe_error)?;
     Ok(canonical)
 }
 
 #[cfg(unix)]
-fn validate_executable_platform(metadata: &fs::Metadata) -> Result<(), HerdrIntegrationError> {
+fn validate_executable_platform(
+    metadata: &fs::Metadata,
+    unsafe_error: HerdrIntegrationError,
+) -> Result<(), HerdrIntegrationError> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     let mode = metadata.permissions().mode();
     if mode & 0o111 == 0 || mode & 0o022 != 0 {
-        return Err(HerdrIntegrationError::RelayUnsafeExecutable);
+        return Err(unsafe_error);
     }
     let home = std::env::var_os("HOME");
     if let Some(home) = home
@@ -259,14 +286,17 @@ fn validate_executable_platform(metadata: &fs::Metadata) -> Result<(), HerdrInte
     {
         let home_owner = home_metadata.uid();
         if metadata.uid() != 0 && metadata.uid() != home_owner {
-            return Err(HerdrIntegrationError::RelayUnsafeExecutable);
+            return Err(unsafe_error);
         }
     }
     Ok(())
 }
 
 #[cfg(not(unix))]
-fn validate_executable_platform(_metadata: &fs::Metadata) -> Result<(), HerdrIntegrationError> {
+fn validate_executable_platform(
+    _metadata: &fs::Metadata,
+    _unsafe_error: HerdrIntegrationError,
+) -> Result<(), HerdrIntegrationError> {
     Ok(())
 }
 

@@ -17,6 +17,8 @@ use relay_core::{
     },
     usage::{UsageSignal, UsageState},
 };
+use relay_herdr::herdr_client::HerdrCliClient;
+use relay_herdr::install as herdr_install;
 use relay_provider_claude::{
     CapabilityStatus, ClaudeAdoptionProvider, ClaudeIdentityPin, ClaudeInspectionReport,
     ClaudeInspector, ClaudeSessionStager, ClaudeSessionStopper, ClaudeSourceLiveness,
@@ -113,6 +115,44 @@ struct IntegrationArgs {
 enum IntegrationCommand {
     /// Claude Code usage integration.
     Claude(ClaudeIntegrationArgs),
+    /// Herdr plugin integration (M3).
+    Herdr(HerdrIntegrationArgs),
+}
+
+#[derive(Debug, Args)]
+struct HerdrIntegrationArgs {
+    #[command(subcommand)]
+    command: HerdrIntegrationCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum HerdrIntegrationCommand {
+    /// Link `plugins/herdr` into the local Herdr server (`herdr plugin link`). Run from the
+    /// `agent-relay` repository root, or pass `--plugin-path`.
+    Install {
+        #[arg(long, value_name = "PATH")]
+        plugin_path: Option<PathBuf>,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, value_name = "PATH")]
+        herdr_executable: Option<PathBuf>,
+    },
+    /// Show whether the plugin is registered, enabled, and Herdr's own compatibility.
+    Status {
+        #[arg(long, value_name = "PATH")]
+        herdr_executable: Option<PathBuf>,
+    },
+    /// Validate the whole Herdr -> Relay chain.
+    Doctor {
+        #[arg(long, value_name = "PATH")]
+        herdr_executable: Option<PathBuf>,
+    },
+    /// Unlink the plugin (`herdr plugin unlink agent-relay`). Idempotent; never touches any other
+    /// plugin or Herdr configuration.
+    Uninstall {
+        #[arg(long, value_name = "PATH")]
+        herdr_executable: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -1274,152 +1314,156 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             success("launch", human, lease)
         }
         Command::Hook(_) => Err(Error::ProviderUnsupported),
-        Command::Integration(integration) => {
-            let IntegrationCommand::Claude(claude) = &integration.command;
-            let resolve = |target: &IntegrationTarget| -> Result<PathBuf, Error> {
-                match (&target.profile, &target.config_dir) {
-                    (Some(name), None) => {
-                        let profile = service
-                            .list()?
-                            .into_iter()
-                            .find(|candidate| &candidate.name == name)
-                            .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
-                        if profile.provider != ProviderKind::Claude {
-                            return Err(Error::ProviderMismatch {
-                                expected: "claude".to_owned(),
-                                observed: format!("{:?}", profile.provider),
-                            });
+        Command::Integration(integration) => match &integration.command {
+            IntegrationCommand::Herdr(herdr) => run_herdr_integration(herdr),
+            IntegrationCommand::Claude(claude) => {
+                let resolve = |target: &IntegrationTarget| -> Result<PathBuf, Error> {
+                    match (&target.profile, &target.config_dir) {
+                        (Some(name), None) => {
+                            let profile = service
+                                .list()?
+                                .into_iter()
+                                .find(|candidate| &candidate.name == name)
+                                .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+                            if profile.provider != ProviderKind::Claude {
+                                return Err(Error::ProviderMismatch {
+                                    expected: "claude".to_owned(),
+                                    observed: format!("{:?}", profile.provider),
+                                });
+                            }
+                            Ok(profile.config_dir)
                         }
-                        Ok(profile.config_dir)
+                        (None, Some(path)) => Ok(path.clone()),
+                        _ => Err(Error::ProviderUnsupported),
                     }
-                    (None, Some(path)) => Ok(path.clone()),
-                    _ => Err(Error::ProviderUnsupported),
-                }
-            };
-            match &claude.command {
-                ClaudeIntegrationCommand::Install {
-                    target,
-                    dry_run,
-                    allow_unverified_version,
-                    claude_executable,
-                } => {
-                    let config_dir = resolve(target)?;
-                    let capabilities = assess_installed(claude_executable.as_deref(), &config_dir)?;
-                    capabilities
-                        .usage_integration_ready(*allow_unverified_version)
-                        .map_err(Error::IntegrationRefused)?;
-                    let relay_executable = std::env::current_exe().map_err(|source| Error::Io {
-                        path: PathBuf::from("relay"),
-                        source,
-                    })?;
-                    let plan = plan_install(&config_dir, &relay_executable)?;
-                    if !dry_run {
-                        apply_install(&plan, current_unix_ms())?;
-                    }
-                    let human = format!(
-                        "{} for {}:\n{}{}",
-                        if *dry_run {
-                            "Dry run (nothing written): would install the Relay usage integration"
-                        } else if plan.already_installed {
-                            "Relay usage integration was already installed"
-                        } else {
-                            "Installed the Relay usage integration"
-                        },
-                        config_dir.display(),
-                        plan.changes
-                            .iter()
-                            .map(|change| format!("  - {change}"))
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                        if *dry_run || plan.already_installed {
-                            String::new()
-                        } else {
-                            "\nThe original settings were backed up under relay-integration/. \
+                };
+                match &claude.command {
+                    ClaudeIntegrationCommand::Install {
+                        target,
+                        dry_run,
+                        allow_unverified_version,
+                        claude_executable,
+                    } => {
+                        let config_dir = resolve(target)?;
+                        let capabilities =
+                            assess_installed(claude_executable.as_deref(), &config_dir)?;
+                        capabilities
+                            .usage_integration_ready(*allow_unverified_version)
+                            .map_err(Error::IntegrationRefused)?;
+                        let relay_executable =
+                            std::env::current_exe().map_err(|source| Error::Io {
+                                path: PathBuf::from("relay"),
+                                source,
+                            })?;
+                        let plan = plan_install(&config_dir, &relay_executable)?;
+                        if !dry_run {
+                            apply_install(&plan, current_unix_ms())?;
+                        }
+                        let human = format!(
+                            "{} for {}:\n{}{}",
+                            if *dry_run {
+                                "Dry run (nothing written): would install the Relay usage integration"
+                            } else if plan.already_installed {
+                                "Relay usage integration was already installed"
+                            } else {
+                                "Installed the Relay usage integration"
+                            },
+                            config_dir.display(),
+                            plan.changes
+                                .iter()
+                                .map(|change| format!("  - {change}"))
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                            if *dry_run || plan.already_installed {
+                                String::new()
+                            } else {
+                                "\nThe original settings were backed up under relay-integration/. \
                              Undo with `relay integration claude uninstall`."
-                                .to_owned()
-                        }
-                    );
-                    success(
-                        "integration.install",
-                        human,
-                        json!({
-                            "config_dir": config_dir,
-                            "dry_run": dry_run,
-                            "already_installed": plan.already_installed,
-                            "changes": plan.changes,
-                            "claude_version": capabilities.version,
-                        }),
-                    )
-                }
-                ClaudeIntegrationCommand::Status {
-                    target,
-                    claude_executable,
-                } => {
-                    let config_dir = resolve(target)?;
-                    let status = integration_status(&config_dir)?;
-                    let capabilities =
-                        assess_installed(claude_executable.as_deref(), &config_dir).ok();
-                    let human = format!(
-                        "Config dir: {}\nInstalled: {}\nStopFailure hook: {}\nStatusLine: {}\n\
+                                    .to_owned()
+                            }
+                        );
+                        success(
+                            "integration.install",
+                            human,
+                            json!({
+                                "config_dir": config_dir,
+                                "dry_run": dry_run,
+                                "already_installed": plan.already_installed,
+                                "changes": plan.changes,
+                                "claude_version": capabilities.version,
+                            }),
+                        )
+                    }
+                    ClaudeIntegrationCommand::Status {
+                        target,
+                        claude_executable,
+                    } => {
+                        let config_dir = resolve(target)?;
+                        let status = integration_status(&config_dir)?;
+                        let capabilities =
+                            assess_installed(claude_executable.as_deref(), &config_dir).ok();
+                        let human = format!(
+                            "Config dir: {}\nInstalled: {}\nStopFailure hook: {}\nStatusLine: {}\n\
                          Settings changed since install: {}\nHooks disabled: {}\n\
                          Recorded: statusline snapshot={}, StopFailure events={}, rate_limit events={}\n\
                          Claude Code: {}",
-                        config_dir.display(),
-                        status.installed,
-                        status.stop_failure_hook,
-                        status.statusline,
-                        status.settings_drifted_since_install,
-                        status.hooks_disabled,
-                        status.statusline_snapshot_present,
-                        status.recorded_stop_failures,
-                        status.recorded_rate_limit_events,
-                        capabilities.as_ref().map_or_else(
-                            || "could not be assessed".to_owned(),
-                            |report| format!(
-                                "{} ({})",
-                                report.version,
-                                if report.usage_integration_ready(false).is_ok() {
-                                    "verified"
-                                } else {
-                                    "NOT fully verified"
-                                }
+                            config_dir.display(),
+                            status.installed,
+                            status.stop_failure_hook,
+                            status.statusline,
+                            status.settings_drifted_since_install,
+                            status.hooks_disabled,
+                            status.statusline_snapshot_present,
+                            status.recorded_stop_failures,
+                            status.recorded_rate_limit_events,
+                            capabilities.as_ref().map_or_else(
+                                || "could not be assessed".to_owned(),
+                                |report| format!(
+                                    "{} ({})",
+                                    report.version,
+                                    if report.usage_integration_ready(false).is_ok() {
+                                        "verified"
+                                    } else {
+                                        "NOT fully verified"
+                                    }
+                                )
                             )
+                        );
+                        success(
+                            "integration.status",
+                            human,
+                            json!({ "config_dir": config_dir, "status": status, "capabilities": capabilities }),
                         )
-                    );
-                    success(
-                        "integration.status",
-                        human,
-                        json!({ "config_dir": config_dir, "status": status, "capabilities": capabilities }),
-                    )
-                }
-                ClaudeIntegrationCommand::Uninstall { target, dry_run } => {
-                    let config_dir = resolve(target)?;
-                    let plan = plan_uninstall(&config_dir)?;
-                    if !dry_run {
-                        apply_uninstall(&plan)?;
                     }
-                    let human = format!(
-                        "{} for {}:\n{}",
-                        if *dry_run {
-                            "Dry run (nothing written): would uninstall"
-                        } else {
-                            "Uninstalled the Relay usage integration"
-                        },
-                        config_dir.display(),
-                        plan.changes
-                            .iter()
-                            .map(|change| format!("  - {change}"))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    );
-                    success(
-                        "integration.uninstall",
-                        human,
-                        json!({ "config_dir": config_dir, "dry_run": dry_run, "installed": plan.installed, "changes": plan.changes }),
-                    )
+                    ClaudeIntegrationCommand::Uninstall { target, dry_run } => {
+                        let config_dir = resolve(target)?;
+                        let plan = plan_uninstall(&config_dir)?;
+                        if !dry_run {
+                            apply_uninstall(&plan)?;
+                        }
+                        let human = format!(
+                            "{} for {}:\n{}",
+                            if *dry_run {
+                                "Dry run (nothing written): would uninstall"
+                            } else {
+                                "Uninstalled the Relay usage integration"
+                            },
+                            config_dir.display(),
+                            plan.changes
+                                .iter()
+                                .map(|change| format!("  - {change}"))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        );
+                        success(
+                            "integration.uninstall",
+                            human,
+                            json!({ "config_dir": config_dir, "dry_run": dry_run, "installed": plan.installed, "changes": plan.changes }),
+                        )
+                    }
                 }
             }
-        }
+        },
         Command::Watch(watch) => match &watch.command {
             WatchCommand::Run {
                 profile,
@@ -1656,6 +1700,118 @@ enum WatchRunOutput {
     TransactionInFlight {
         transaction_id: String,
     },
+}
+
+fn run_herdr_integration(herdr: &HerdrIntegrationArgs) -> Result<CommandOutput, Error> {
+    let refused =
+        |error: relay_herdr::HerdrIntegrationError| Error::IntegrationRefused(error.to_string());
+    match &herdr.command {
+        HerdrIntegrationCommand::Install {
+            plugin_path,
+            dry_run,
+            herdr_executable,
+        } => {
+            let client = HerdrCliClient::discover(herdr_executable.as_deref()).map_err(refused)?;
+            let resolved_path =
+                herdr_install::resolve_plugin_path(plugin_path.as_deref()).map_err(refused)?;
+            let plan = herdr_install::plan_install(&client, &resolved_path).map_err(refused)?;
+            if *dry_run {
+                let human = format!(
+                    "Dry run (nothing linked): would link {} (already_linked={})",
+                    resolved_path.display(),
+                    plan.already_linked
+                );
+                return success(
+                    "integration.herdr.install",
+                    human,
+                    json!({ "plugin_path": resolved_path, "dry_run": true, "already_linked": plan.already_linked }),
+                );
+            }
+            let record = herdr_install::apply_install(&client, &resolved_path).map_err(refused)?;
+            let human = format!(
+                "Linked '{}' v{} (min_herdr_version {}) from {}",
+                record.plugin_id,
+                record.version,
+                record.min_herdr_version,
+                resolved_path.display()
+            );
+            success(
+                "integration.herdr.install",
+                human,
+                json!({ "plugin_path": resolved_path, "dry_run": false, "plugin": record.plugin_id, "version": record.version }),
+            )
+        }
+        HerdrIntegrationCommand::Status { herdr_executable } => {
+            let client = HerdrCliClient::discover(herdr_executable.as_deref()).map_err(refused)?;
+            let report = herdr_install::status(&client).map_err(refused)?;
+            let human = format!(
+                "Herdr: client {}, server running={} version={} compatible={}\nPlugin: {}",
+                report.herdr_client_version,
+                report.herdr_server_running,
+                report.herdr_server_version,
+                report.herdr_compatible,
+                report.plugin.as_ref().map_or_else(
+                    || "not registered".to_owned(),
+                    |p| format!("{} v{} (enabled={})", p.plugin_id, p.version, p.enabled)
+                )
+            );
+            success(
+                "integration.herdr.status",
+                human,
+                json!({
+                    "herdr_client_version": report.herdr_client_version,
+                    "herdr_server_running": report.herdr_server_running,
+                    "herdr_server_version": report.herdr_server_version,
+                    "herdr_compatible": report.herdr_compatible,
+                    "plugin_registered": report.plugin.is_some(),
+                }),
+            )
+        }
+        HerdrIntegrationCommand::Doctor { herdr_executable } => {
+            let client = HerdrCliClient::discover(herdr_executable.as_deref()).map_err(refused)?;
+            let report = herdr_install::doctor(&client).map_err(refused)?;
+            let mut lines = vec![format!(
+                "Herdr integration is {}",
+                if report.healthy {
+                    "healthy"
+                } else {
+                    "unhealthy"
+                }
+            )];
+            lines.extend(report.checks.iter().map(|check| {
+                format!(
+                    "[{}] {}: {}",
+                    if check.passed { "ok" } else { "failed" },
+                    check.name,
+                    check.message
+                )
+            }));
+            let checks_json: Vec<Value> = report
+                .checks
+                .iter()
+                .map(|check| json!({ "name": check.name, "passed": check.passed, "message": check.message }))
+                .collect();
+            success(
+                "integration.herdr.doctor",
+                lines.join("\n"),
+                json!({ "healthy": report.healthy, "checks": checks_json }),
+            )
+        }
+        HerdrIntegrationCommand::Uninstall { herdr_executable } => {
+            let client = HerdrCliClient::discover(herdr_executable.as_deref()).map_err(refused)?;
+            let removed = herdr_install::apply_uninstall(&client).map_err(refused)?;
+            let human = if removed {
+                "Unlinked the Agent Relay Herdr plugin".to_owned()
+            } else {
+                "Agent Relay Herdr plugin was not registered; nothing to do".to_owned()
+            };
+            success(
+                "integration.herdr.uninstall",
+                human,
+                json!({ "removed": removed }),
+            )
+        }
+    }
 }
 
 fn watch_run_output(outcome: WatchOutcome) -> Result<CommandOutput, Error> {

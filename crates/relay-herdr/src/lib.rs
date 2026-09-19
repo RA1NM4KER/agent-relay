@@ -19,6 +19,8 @@
 pub mod actions;
 pub mod client;
 pub mod error;
+pub mod herdr_client;
+pub mod install;
 pub mod mapping;
 pub mod usage_interop;
 
@@ -37,6 +39,18 @@ pub const RELAY_PROFILE_TOKEN_KEY: &str = "relay_profile";
 /// parameterless, matching current Herdr plugin conventions. See
 /// [`mapping::resolve_fallback_profiles`].
 pub const RELAY_FALLBACK_TOKEN_KEY: &str = "relay_profile_fallback";
+
+/// The Herdr `tokens` map key holding an explicit Claude session id, used only as a fallback when
+/// Herdr's own `agent_session` detection is unavailable. **Live-confirmed genuine upstream
+/// limitation** (M3.2, `docs/herdr-integration.md`): Herdr's built-in Claude integration
+/// (`herdr integration install claude`) hard-codes the default `~/.claude` config directory —
+/// there is no per-profile/`--config-dir` variant — so a Claude session running under an isolated
+/// Relay profile's own `CLAUDE_CONFIG_DIR` is invisible to Herdr's session detection today. This
+/// token is the "smallest explicit binding mechanism" fallback: set once
+/// (`herdr pane report-metadata --token relay_session_id=<uuid>`) and reused by every subsequent
+/// action against that pane, never re-typed per invocation. See
+/// [`mapping::resolve_session_id`].
+pub const RELAY_SESSION_TOKEN_KEY: &str = "relay_session_id";
 
 /// Everything the adapter needs about "the pane Herdr says is focused/current," gathered from
 /// Herdr's socket/CLI API. Construction of this type (talking to Herdr) is deliberately outside

@@ -243,6 +243,7 @@ fn watch_request<'a>(fallback: &'a [String]) -> WatchEvaluateRequest<'a> {
         fallback_profiles: fallback,
         dry_run: true,
         workload_model: None,
+        simulate_usage: None,
     }
 }
 
@@ -573,6 +574,7 @@ fn two_simultaneous_evaluate_attempts_each_defer_to_relays_own_lock_outcome() {
                         fallback_profiles: &fallback,
                         dry_run: false,
                         workload_model: None,
+                        simulate_usage: None,
                     },
                 )
             })
