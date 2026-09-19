@@ -53,15 +53,25 @@ pub fn resolve_plugin_path(
     config_root: &Path,
 ) -> Result<PathBuf, HerdrIntegrationError> {
     let override_path = std::env::var_os("RELAY_HERDR_PLUGIN_BIN").map(PathBuf::from);
-    resolve_plugin_path_with_override(explicit, config_root, override_path.as_deref())
+    let path_env = std::env::var_os("PATH");
+    resolve_plugin_path_with_override(
+        explicit,
+        config_root,
+        override_path.as_deref(),
+        path_env.as_deref(),
+    )
 }
 
 /// The testable core of [`resolve_plugin_path`]: same behavior, but the `relay-herdr-plugin`
-/// binary override is a parameter instead of an env var read.
+/// binary override and the `PATH` value to search are parameters instead of env reads — so a
+/// test can assert "not found anywhere" deterministically regardless of what the real `PATH` on
+/// the machine running the test happens to contain (a real `relay-herdr-plugin` on the host's
+/// `PATH`, e.g. from a Homebrew install, would otherwise make that case flaky).
 pub fn resolve_plugin_path_with_override(
     explicit: Option<&Path>,
     config_root: &Path,
     plugin_bin_override: Option<&Path>,
+    path_env: Option<&std::ffi::OsStr>,
 ) -> Result<PathBuf, HerdrIntegrationError> {
     if let Some(explicit) = explicit {
         return if explicit.join("herdr-plugin.toml").is_file() {
@@ -70,7 +80,7 @@ pub fn resolve_plugin_path_with_override(
             Err(HerdrIntegrationError::HerdrMetadataUnavailable)
         };
     }
-    let plugin_bin = locate_relay_herdr_plugin_binary(plugin_bin_override)?;
+    let plugin_bin = locate_relay_herdr_plugin_binary(plugin_bin_override, path_env)?;
     materialize_embedded_plugin(&config_root.join("herdr-plugin"), &plugin_bin)
 }
 
@@ -80,9 +90,11 @@ pub fn resolve_plugin_path_with_override(
 /// 2. A sibling of the currently running executable named `relay-herdr-plugin` — true for both a
 ///    release tarball/Homebrew install (both binaries installed into the same `bin/`) and a local
 ///    `cargo build --release` (`target/release/relay-herdr-plugin` next to `target/release/relay`).
-/// 3. A normal `PATH` search, for any other install layout that still puts both binaries on PATH.
+/// 3. A search of `path_env` (`PATH` in real use), for any other install layout that still puts
+///    both binaries on `PATH`.
 fn locate_relay_herdr_plugin_binary(
     plugin_bin_override: Option<&Path>,
+    path_env: Option<&std::ffi::OsStr>,
 ) -> Result<PathBuf, HerdrIntegrationError> {
     if let Some(path) = plugin_bin_override {
         return Ok(path.to_path_buf());
@@ -95,8 +107,8 @@ fn locate_relay_herdr_plugin_binary(
             }
         }
     }
-    if let Some(path_var) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&path_var) {
+    if let Some(path_var) = path_env {
+        for dir in std::env::split_paths(path_var) {
             let candidate = dir.join(RELAY_HERDR_PLUGIN_BIN_NAME);
             if candidate.is_file() {
                 return Ok(candidate);

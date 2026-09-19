@@ -205,6 +205,7 @@ fn resolve_plugin_path_with_override_materializes_the_embedded_manifest() {
         Some(std::path::Path::new(
             "/opt/agent-relay/bin/relay-herdr-plugin",
         )),
+        None,
     )
     .expect("materializes without a checkout");
     assert_eq!(resolved, config_root.join("herdr-plugin"));
@@ -220,15 +221,17 @@ fn resolve_plugin_path_with_override_materializes_the_embedded_manifest() {
     );
 }
 
-/// With no override and no `relay-herdr-plugin` next to the running test binary, discovery falls
-/// through to a `PATH` search; a `cargo test` binary's `PATH` does not carry `relay-herdr-plugin`
-/// in this repository's CI/dev environment, so this proves the fail-closed branch without needing
-/// to mutate `PATH` itself.
+/// With no override, no `relay-herdr-plugin` next to the running test binary, and an explicitly
+/// empty `PATH` (passed as a parameter rather than the real `PATH`, so this stays deterministic
+/// even on a machine — such as this repository's own dev machine — that has a real
+/// `relay-herdr-plugin` installed via Homebrew), discovery must fail closed rather than guess.
 #[test]
 fn resolve_plugin_path_with_override_fails_closed_when_the_plugin_binary_cannot_be_found() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let config_root = tmp.path().join("config");
-    let error = install::resolve_plugin_path_with_override(None, &config_root, None);
+    let empty_path = std::ffi::OsStr::new("");
+    let error =
+        install::resolve_plugin_path_with_override(None, &config_root, None, Some(empty_path));
     assert_eq!(
         error,
         Err(relay_herdr::HerdrIntegrationError::HerdrMetadataUnavailable)
