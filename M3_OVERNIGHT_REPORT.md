@@ -154,8 +154,9 @@ cargo test --workspace           → 275 passed, 0 failed
 
 ## 10. Local commits created
 
-(See `git log` — commits are local only, `main` has not been pushed and the `v0.1.0` tag was not
-touched.)
+- `ef33543` — `feat: Agent Relay x Herdr integration, first safe slice (M3.0/M3.1)`
+
+Local only — `main` has not been pushed and the `v0.1.0` tag (still `4107a5f`) was not touched.
 
 ## 11. Anything blocked
 
