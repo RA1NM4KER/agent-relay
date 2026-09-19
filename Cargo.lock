@@ -320,8 +320,9 @@ dependencies = [
 name = "relay-herdr"
 version = "0.1.0"
 dependencies = [
- "relay-core",
  "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
