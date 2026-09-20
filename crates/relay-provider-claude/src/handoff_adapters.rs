@@ -11,8 +11,9 @@ use std::{
 use relay_core::{
     Error, Result,
     handoff::{
-        LivenessVerdict, ProcessIdentity, SessionStager, SessionStopper, SourceLiveness,
-        TargetLauncher, TargetVerification, TransferOutcome, TransferredArtifact,
+        LaunchDirective, LivenessVerdict, ProcessIdentity, SessionStager, SessionStopper,
+        SourceLiveness, TargetLauncher, TargetVerification, TransferOutcome, TransferredArtifact,
+        render_bootstrap_prompt,
     },
 };
 use serde_json::Value;
@@ -353,7 +354,9 @@ fn issue_stop(
     for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
         command.env_remove(variable);
     }
-    let _discarded = run_with_timeout(command, STOP_TIMEOUT, STOP_OUTPUT_LIMIT, &mut |_| Ok(()))?;
+    let _discarded = run_with_timeout(command, STOP_TIMEOUT, STOP_OUTPUT_LIMIT, None, &mut |_| {
+        Ok(())
+    })?;
     Ok(())
 }
 
@@ -412,10 +415,9 @@ impl TargetLauncher for ClaudeTargetLauncher {
         &self,
         target_config_dir: &Path,
         project_dir: &Path,
-        session_id: &str,
+        directive: &LaunchDirective<'_>,
         on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> Result<()>,
     ) -> Result<TargetVerification> {
-        session_transfer::validate_session_id(session_id)?;
         let inspector = ClaudeInspector::discover(self.claude_executable.as_deref())?;
         let executable = inspector.executable().to_path_buf();
 
@@ -423,22 +425,45 @@ impl TargetLauncher for ClaudeTargetLauncher {
         command
             .current_dir(project_dir)
             .arg("-p")
-            .arg("--resume")
-            .arg(session_id)
             .arg("--permission-mode")
             .arg("acceptEdits")
             .arg("--output-format")
             .arg("json")
-            .arg(VERIFICATION_PROMPT)
             .env("CLAUDE_CONFIG_DIR", target_config_dir)
-            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
             command.env_remove(variable);
         }
 
-        let stdout = run_with_timeout(command, LAUNCH_TIMEOUT, LAUNCH_OUTPUT_LIMIT, on_started)?;
+        // `STATE_CONTINUATION`'s bootstrap prompt carries real project/repo context and is
+        // passed over stdin rather than argv, matching the M6 spec's transport preference (never
+        // in a process's command line, where it would be visible via `ps`/shell history).
+        // `SESSION_CONTINUATION`'s verification canary is fixed, content-free text (see
+        // [`VERIFICATION_PROMPT`]'s doc comment) and stays on argv as before.
+        let stdin_payload = match directive {
+            LaunchDirective::ResumeSession { session_id } => {
+                session_transfer::validate_session_id(session_id)?;
+                command
+                    .arg("--resume")
+                    .arg(session_id)
+                    .arg(VERIFICATION_PROMPT);
+                command.stdin(Stdio::null());
+                None
+            }
+            LaunchDirective::Bootstrap { bundle } => {
+                command.stdin(Stdio::piped());
+                Some(render_bootstrap_prompt(bundle).into_bytes())
+            }
+        };
+
+        let stdout = run_with_timeout(
+            command,
+            LAUNCH_TIMEOUT,
+            LAUNCH_OUTPUT_LIMIT,
+            stdin_payload.as_deref(),
+            on_started,
+        )?;
         parse_verification(&stdout)
     }
 }
@@ -446,14 +471,28 @@ impl TargetLauncher for ClaudeTargetLauncher {
 /// `on_spawned` is invoked exactly once, immediately after `spawn()` succeeds and before the
 /// (potentially long) wait for the child to finish — callers that need durable evidence of a
 /// live child (M2C's orphan-target supervision) rely on this ordering.
+///
+/// `stdin_payload`, when present, is written to the child's stdin on a dedicated thread and the
+/// handle is then dropped (closing stdin so the child sees EOF) — never written on the thread
+/// that is also draining stdout, so a child that starts producing output before it has finished
+/// reading stdin can never deadlock against this process.
 fn run_with_timeout(
     mut command: std::process::Command,
     timeout: Duration,
     output_limit: usize,
+    stdin_payload: Option<&[u8]>,
     on_spawned: &mut dyn FnMut(Option<ProcessIdentity>) -> Result<()>,
 ) -> Result<Vec<u8>> {
     let mut child = command.spawn().map_err(|_| Error::ProviderCommandFailed)?;
     on_spawned(Some(ProcessIdentity::query(child.id())))?;
+    let stdin_writer = stdin_payload.map(|payload| {
+        let mut stdin = child.stdin.take().expect("stdin was configured as piped");
+        let payload = payload.to_vec();
+        thread::spawn(move || {
+            use std::io::Write;
+            let _ignored = stdin.write_all(&payload);
+        })
+    });
     let stdout = child.stdout.take().ok_or(Error::ProviderCommandFailed)?;
     let stderr = child.stderr.take().ok_or(Error::ProviderCommandFailed)?;
     let stdout_reader = thread::spawn(move || read_limited(stdout, output_limit));
@@ -469,10 +508,16 @@ fn run_with_timeout(
             let _ignored = child.wait();
             let _ignored = stdout_reader.join();
             let _ignored = stderr_reader.join();
+            if let Some(writer) = stdin_writer {
+                let _ignored = writer.join();
+            }
             return Err(Error::ProviderCommandTimeout);
         }
         thread::sleep(Duration::from_millis(50));
     };
+    if let Some(writer) = stdin_writer {
+        let _ignored = writer.join();
+    }
 
     let stdout_bytes = stdout_reader
         .join()
@@ -550,6 +595,7 @@ pub fn launch_background(
         command,
         LAUNCH_BG_TIMEOUT,
         LAUNCH_BG_OUTPUT_LIMIT,
+        None,
         &mut |_| Ok(()),
     )?;
     let text = String::from_utf8_lossy(&stdout);
