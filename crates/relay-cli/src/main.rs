@@ -3027,12 +3027,27 @@ fn resolve_initial_message(args_message: &[String]) -> Result<String, Error> {
 /// running the real `claude` binary with full TTY control, identical to running `claude attach
 /// <id>` themselves. Only returns at all if `exec` itself failed to start (e.g. permissions) —
 /// on success there is no "after" to return to.
+///
+/// `config_dir` must be the *lease owner's* registered `CLAUDE_CONFIG_DIR` (looked up by
+/// `lease.owner_profile`, never assumed to be the configured primary — a handoff can leave a
+/// fallback profile holding the lease). Without it, `claude attach` falls back to whatever
+/// `CLAUDE_CONFIG_DIR` this process inherited from its parent shell — typically the default
+/// account, not the isolated profile that actually owns the background job registry entry — so
+/// attach fails with "No job matching '<id>'" even though the session is live under the correct
+/// profile (dogfood-found: M6). Set only on the child's environment (`Command::env`), never on
+/// this process's own, so credential isolation between profiles is preserved and no global state
+/// is mutated.
 #[cfg(unix)]
-fn exec_claude_attach(executable: &Path, short_id: &str) -> Result<CommandOutput, Error> {
+fn exec_claude_attach(
+    executable: &Path,
+    config_dir: &Path,
+    short_id: &str,
+) -> Result<CommandOutput, Error> {
     use std::os::unix::process::CommandExt as _;
     let error = std::process::Command::new(executable)
         .arg("attach")
         .arg(short_id)
+        .env("CLAUDE_CONFIG_DIR", config_dir)
         .exec();
     Err(Error::Io {
         path: executable.to_path_buf(),
@@ -3041,10 +3056,15 @@ fn exec_claude_attach(executable: &Path, short_id: &str) -> Result<CommandOutput
 }
 
 #[cfg(not(unix))]
-fn exec_claude_attach(executable: &Path, short_id: &str) -> Result<CommandOutput, Error> {
+fn exec_claude_attach(
+    executable: &Path,
+    config_dir: &Path,
+    short_id: &str,
+) -> Result<CommandOutput, Error> {
     let status = std::process::Command::new(executable)
         .arg("attach")
         .arg(short_id)
+        .env("CLAUDE_CONFIG_DIR", config_dir)
         .status()
         .map_err(|_| Error::ProviderCommandFailed)?;
     std::process::exit(status.code().unwrap_or(1));
@@ -3237,8 +3257,15 @@ fn run_claude(
         .provider_handle
         .clone()
         .ok_or(Error::MalformedProviderOutput)?;
+    // Bug found dogfooding M6: attach must use the *lease owner's* config_dir, not `primary`'s —
+    // after a handoff the owner may be a fallback profile.
+    let owner_config_dir = registered
+        .iter()
+        .find(|profile| profile.name == lease.owner_profile)
+        .map(|profile| profile.config_dir.clone())
+        .ok_or_else(|| Error::ProfileNotFound(lease.owner_profile.to_string()))?;
     let inspector = ClaudeInspector::discover(args.claude_executable.as_deref())?;
-    exec_claude_attach(inspector.executable(), &short_id)
+    exec_claude_attach(inspector.executable(), &owner_config_dir, &short_id)
 }
 
 /// M4.1: the interactive first-run wizard. Every step reuses existing, already-tested machinery

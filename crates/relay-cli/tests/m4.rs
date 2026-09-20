@@ -871,3 +871,202 @@ fn claude_entrypoint_reuses_an_active_lease_without_relaunching() {
     assert_eq!(data["new_session"], false);
     assert_eq!(data["session_id"], "11111111-1111-4111-8111-111111111111");
 }
+
+/// Dogfood-found bug (M6): `relay claude`'s final `claude attach <id>` step must run under the
+/// isolated profile's own `CLAUDE_CONFIG_DIR`. Before this fix `exec_claude_attach` set no
+/// `CLAUDE_CONFIG_DIR` at all, so `claude attach` searched whatever config dir this process's
+/// *parent shell* happened to have (or the real default account's, if none) instead of the
+/// profile Relay itself just launched the background job under — `claude attach` then reported
+/// "No job matching '<id>'" even though the session was live under the correct profile.
+#[test]
+fn claude_attach_execs_under_the_lease_owners_isolated_config_dir() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    let claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("alice"),
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    let alice_config_dir = adopt_profile(root.path(), "alice", &claude);
+    relay(
+        root.path(),
+        &["setup", "--non-interactive", "--primary", "alice"],
+    );
+
+    // No `--no-attach`: this exercises the real launch-then-attach path end to end.
+    let output = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--claude-executable",
+            &claude.path_text(),
+            "hello there",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let attach_invocation = claude
+        .invocations()
+        .into_iter()
+        .find(|invocation| {
+            invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("attach "))
+        })
+        .expect("an `attach` invocation was logged");
+    // Canonicalize: on macOS `tempdir()` paths live under a `/var/...` symlink that resolves to
+    // `/private/var/...`, and profile registration stores the canonical form.
+    let expected_config_dir = std::fs::canonicalize(&alice_config_dir).expect("alice config dir");
+    assert_eq!(
+        attach_invocation["config_dir"],
+        expected_config_dir.to_string_lossy().to_string(),
+        "attach must run under alice's own CLAUDE_CONFIG_DIR, not whatever this process inherited"
+    );
+}
+
+/// Requirement from the same dogfood bug: "do not assume the configured primary is the owner,
+/// because after handoff the owner may be a fallback." `relay switch` (Claude -> Claude is
+/// SESSION_CONTINUATION) leaves exactly this on-disk shape behind: a project `lease.json` whose
+/// `owner_profile` is the handoff target, while `preferences.toml`'s primary profile is
+/// untouched. `run_claude`'s still-active-existing-lease branch reads that same `lease.json` file
+/// the same way no matter how it got that shape — a completed `relay switch`, or (as constructed
+/// directly here, to avoid needing a full Claude session-transfer fixture) a `relay launch
+/// --profile bob` — both leave `owner_profile = bob` with `primary = alice`, so this exercises
+/// the exact code path a post-handoff `relay claude` hits.
+#[test]
+fn claude_attach_after_a_handoff_uses_the_new_owners_config_dir_not_the_primarys() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+
+    let alice_claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("alice"),
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        1111,
+    );
+    let alice_config_dir = adopt_profile(root.path(), "alice", &alice_claude);
+
+    let bob_claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("bob"),
+        "bbbb2222",
+        "22222222-2222-4222-8222-222222222222",
+        2222,
+    );
+    let bob_config_dir = adopt_profile(root.path(), "bob", &bob_claude);
+
+    relay(
+        root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "alice",
+            "--fallback",
+            "bob",
+        ],
+    );
+
+    // bob (a fallback, not the primary) is the project's writer — the state a completed
+    // Claude A -> Claude B handoff leaves behind.
+    let launch = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--profile",
+            "bob",
+            "--no-attach",
+            "--claude-executable",
+            &bob_claude.path_text(),
+            "hi",
+        ],
+    );
+    assert!(
+        launch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launch.stderr)
+    );
+    assert_eq!(json_stdout(&launch)["data"]["profile"], "bob");
+
+    let bg_launches_before = bg_invocation_count(&bob_claude);
+
+    // A plain `relay claude` — no `--profile` override, so it resolves to the configured primary
+    // (alice) exactly as a user's daily invocation would. bob's active lease must still win, and
+    // attach must run under bob's config dir, never alice's. Note: this exec's `claude attach`
+    // (replacing the child process image), so unlike `--no-attach` calls its stdout carries no
+    // JSON — status and the invocation log are all that's observable here.
+    let output = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--claude-executable",
+            &bob_claude.path_text(),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        bg_invocation_count(&bob_claude),
+        bg_launches_before,
+        "must reuse bob's active lease, not relaunch a fresh session under the primary"
+    );
+
+    let attach_invocation = bob_claude
+        .invocations()
+        .into_iter()
+        .rfind(|invocation| {
+            invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("attach "))
+        })
+        .expect("an `attach` invocation was logged");
+    let attach_config_dir = attach_invocation["config_dir"]
+        .as_str()
+        .expect("config_dir logged as a string")
+        .to_owned();
+    // Canonicalize: on macOS `tempdir()` paths live under a `/var/...` symlink that resolves to
+    // `/private/var/...`, and profile registration stores the canonical form.
+    let expected_bob_config_dir =
+        std::fs::canonicalize(&bob_config_dir).expect("bob config dir exists");
+    let expected_alice_config_dir =
+        std::fs::canonicalize(&alice_config_dir).expect("alice config dir exists");
+    assert_eq!(
+        attach_config_dir,
+        expected_bob_config_dir.to_string_lossy().to_string(),
+        "attach must run under the lease owner's (bob's) CLAUDE_CONFIG_DIR, not the primary's"
+    );
+    assert_ne!(
+        attach_config_dir,
+        expected_alice_config_dir.to_string_lossy().to_string()
+    );
+}
+
+/// Counts logged `--bg` (background-launch) invocations for one `FakeClaude` — used to prove a
+/// second `relay claude` call reused an existing lease rather than launching a fresh session.
+fn bg_invocation_count(claude: &FakeClaude) -> usize {
+    claude
+        .invocations()
+        .into_iter()
+        .filter(|invocation| {
+            invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("--bg"))
+        })
+        .count()
+}
