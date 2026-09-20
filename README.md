@@ -47,9 +47,14 @@ Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**.
 
 If your primary account genuinely, verifiably runs out of quota (not a transient rate-limit blip),
 Agent Relay safely stops your current session, moves it to your next fallback account, and resumes
-it there — same conversation, same context, just under a different account. If you're in Herdr,
-this can happen automatically; outside Herdr, it happens the next time `relay claude` or
-`relay watch run` runs (Relay is intentionally not a background daemon).
+it there — same conversation, same context, just under a different account. This is automatic:
+the usage integration `relay setup` installs runs a hook the instant Claude reports a rate limit,
+and when that hook fires for the session Relay manages it starts one short-lived evaluation for
+that project (not a background daemon, not polling — it exists only because a real limit event just
+happened). If you are attached in a terminal via `relay claude` / `relay resume`, that terminal
+carries you onto the fallback by itself: you see "continuing this conversation on '<profile>'" and
+keep working, with no command to discover. Herdr's own status event is a second, best-effort
+trigger, and `relay watch run` remains available to run an evaluation by hand.
 
 ## Security
 
@@ -189,9 +194,16 @@ relay handoff run --from alice --to bob --project ~/repos/foo --session <session
   attach (Relay needs an initial message to start the tracked session). `relay resume` instead execs
   an interactive `claude --resume <id>` (or `codex resume <thread-id>`) under the session's actual
   owner profile.
-- Outside Herdr, nothing watches usage automatically in the background (Relay is not a daemon);
-  automatic handoff happens when Herdr's event fires or when `relay claude`/`relay watch run` is
-  invoked again.
+- Relay is not a daemon and never polls providers. Automatic handoff needs a *trigger*: the
+  usage-integration `StopFailure` hook (installed by `relay setup`, per profile — a fallback
+  profile needs it installed too for a *second* hop), Herdr's status event, or a manual
+  `relay watch run`. A profile without the integration installed cannot start an automatic
+  handoff. Hooks record `relay`'s own path at install time, so after upgrading Relay re-run
+  `relay integration claude install` to point them at the new binary.
+- Automatic continuation into the fallback happens in the terminal `relay claude`/`relay resume`
+  is running in. A session attached some other way (plain `claude attach`, another terminal that
+  wasn't started through Relay) is still handed off correctly, but that terminal has to run
+  `relay resume` itself.
 
 ## Herdr integration
 

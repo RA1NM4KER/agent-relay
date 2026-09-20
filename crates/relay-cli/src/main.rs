@@ -1,7 +1,10 @@
+mod auto_handoff;
 mod preferences;
 mod providers;
+mod terminal;
 
 use std::{
+    ffi::OsString,
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -426,6 +429,26 @@ enum WatchCommand {
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
     },
+    /// Internal: what the Claude `StopFailure` hook starts when a rate-limit failure hits the
+    /// session Relay manages. Runs `watch run`'s exact evaluation, retrying (bounded) only while
+    /// the answer is "no action needed" — the statusline snapshot that corroborates a limit can
+    /// land just after the failure itself. Not a daemon: it exits on any decisive outcome or when
+    /// the attempts are used up.
+    #[command(hide = true)]
+    Auto {
+        #[arg(long)]
+        profile: ProfileName,
+        #[arg(long, required = true)]
+        fallback: Vec<ProfileName>,
+        #[arg(long = "project", value_name = "PATH")]
+        project_dir: PathBuf,
+        #[arg(long = "session")]
+        session_id: String,
+        #[arg(long, default_value_t = auto_handoff::DEFAULT_ATTEMPTS)]
+        attempts: u32,
+        #[arg(long, default_value_t = auto_handoff::DEFAULT_INTERVAL_MS)]
+        interval_ms: u64,
+    },
     /// Read-only: the project's automation ledger (recent automatic handoffs, profiles ever
     /// observed exhausted) plus its current writer lease.
     Status {
@@ -740,7 +763,7 @@ struct PlannedWrite {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     if let Command::Hook(hook) = &cli.command {
-        return run_hook(hook);
+        return run_hook(hook, &cli);
     }
     match run(&cli) {
         Ok(output) => {
@@ -777,19 +800,48 @@ fn main() -> ExitCode {
 }
 
 /// Runs inside a live Claude Code session: never prints errors, never fails the session.
-fn run_hook(hook: &HookArgs) -> ExitCode {
+fn run_hook(hook: &HookArgs, cli: &Cli) -> ExitCode {
     let HookCommand::Claude(claude) = &hook.command;
     let stdin = read_stdin_bounded(std::io::stdin());
     let now = current_unix_ms();
     match &claude.command {
         ClaudeHookCommand::StopFailure { config_dir } => {
             handle_stop_failure(config_dir, &stdin, now);
+            // The evidence is recorded first so the evaluation this may start can see it.
+            trigger_automatic_handoff(cli, config_dir, &stdin);
             ExitCode::SUCCESS
         }
         ClaudeHookCommand::Statusline { config_dir, chain } => {
             let code = handle_statusline(config_dir, &stdin, now, chain.as_deref());
             ExitCode::from(u8::try_from(code).unwrap_or(0))
         }
+    }
+}
+
+/// Starts a one-shot, detached automatic-handoff evaluation when a rate-limit `StopFailure` hook
+/// fires for the session Relay manages (see [`auto_handoff`] for why this is the trigger). Best
+/// effort and silent: a hook must never fail, print into, or block the Claude session it runs in.
+fn trigger_automatic_handoff(cli: &Cli, config_dir: &Path, stdin: &[u8]) {
+    let Ok(discovered) = RelayPaths::discover() else {
+        return;
+    };
+    let config_root = cli
+        .config_root
+        .clone()
+        .unwrap_or_else(|| discovered.config_root().to_path_buf());
+    let state_root = cli
+        .state_root
+        .clone()
+        .unwrap_or_else(|| discovered.state_root().to_path_buf());
+    let Ok(paths) = RelayPaths::new(config_root, state_root) else {
+        return;
+    };
+    let service = ProfileService::new(paths.clone());
+    let Ok(Some(preferences)) = preferences::Preferences::load(paths.config_root()) else {
+        return;
+    };
+    if let Some(plan) = auto_handoff::plan(&paths, &service, &preferences, config_dir, stdin) {
+        auto_handoff::spawn_detached(&plan);
     }
 }
 
@@ -1811,6 +1863,22 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
 
                 watch_run_output(outcome)
             }
+            WatchCommand::Auto {
+                profile,
+                fallback,
+                project_dir,
+                session_id,
+                attempts,
+                interval_ms,
+            } => run_watch_auto(
+                cli,
+                profile,
+                fallback,
+                project_dir,
+                session_id,
+                *attempts,
+                *interval_ms,
+            ),
             WatchCommand::Status { project_dir } => {
                 let canonical = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
                     path: project_dir.clone(),
@@ -2050,6 +2118,57 @@ fn run_herdr_integration(
                 json!({ "removed": removed }),
             )
         }
+    }
+}
+
+/// `relay watch auto`: `watch run`'s evaluation, retried a bounded number of times while it keeps
+/// answering "no action needed". Every attempt is a full, ordinary `watch run` (so recovery,
+/// cooldown, the per-window cap, the known-exhausted ledger and the orchestration lock all apply
+/// exactly as they do for a manual run); this only decides whether to ask again.
+fn run_watch_auto(
+    cli: &Cli,
+    profile: &ProfileName,
+    fallback: &[ProfileName],
+    project_dir: &Path,
+    session_id: &str,
+    attempts: u32,
+    interval_ms: u64,
+) -> Result<CommandOutput, Error> {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let mut argv: Vec<OsString> = vec!["relay".into(), "--json".into()];
+        if let Some(root) = &cli.config_root {
+            argv.extend(["--config-root".into(), root.clone().into_os_string()]);
+        }
+        if let Some(root) = &cli.state_root {
+            argv.extend(["--state-root".into(), root.clone().into_os_string()]);
+        }
+        argv.extend([
+            "watch".into(),
+            "run".into(),
+            "--profile".into(),
+            profile.as_str().into(),
+        ]);
+        for name in fallback {
+            argv.extend(["--fallback".into(), name.as_str().into()]);
+        }
+        argv.extend([
+            "--project".into(),
+            project_dir.as_os_str().to_owned(),
+            "--session".into(),
+            session_id.into(),
+        ]);
+        let inner = Cli::try_parse_from(argv).map_err(|_| Error::ProviderUnsupported)?;
+        let output = run(&inner)?;
+        // Each attempt is logged as it happens (stderr is the triggered run's log file), so
+        // "did it fire and what did it decide" is answerable while the retries are still going.
+        eprintln!("[attempt {attempt}/{attempts}] {}", output.human);
+        let undecided = output.json["data"]["outcome"] == "no_action_needed";
+        if !undecided || attempt >= attempts {
+            return Ok(output);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(interval_ms));
     }
 }
 
@@ -2640,12 +2759,26 @@ fn run_switch(
     }
 
     match target.provider {
-        ProviderKind::Codex => exec_codex_resume(
-            providers::executable_override(ProviderKind::Codex, &executables),
-            &target.config_dir,
-            &canonical_project,
-            &new_session_id,
-        ),
+        ProviderKind::Codex => {
+            let command = plan_codex_resume(
+                providers::executable_override(ProviderKind::Codex, &executables),
+                &target.config_dir,
+                &canonical_project,
+                &new_session_id,
+            )?;
+            run_managed_terminal(
+                &ContinuationContext::new(
+                    service,
+                    paths,
+                    &canonical_project,
+                    args.claude_executable.clone(),
+                    args.codex_executable.clone(),
+                    json_mode,
+                )?,
+                command,
+                target.name.clone(),
+            )
+        }
         ProviderKind::Claude | ProviderKind::Fake => success(
             "switch",
             format!("{human}\n\nRun `relay claude` to attach."),
@@ -2707,14 +2840,13 @@ fn run_resume(
 
     // Resolved before printing anything: on `AmbiguousSessionLiveness` this must fail closed
     // without ever claiming to be "resuming" a session it then can't safely continue.
-    let claude_action = match profile.provider {
-        ProviderKind::Codex => None,
-        ProviderKind::Claude | ProviderKind::Fake => Some(resolve_claude_resume_action(
-            &profile.config_dir,
-            args.claude_executable.as_deref(),
-            &lease,
-        )?),
-    };
+    let command = plan_terminal_for_lease(
+        profile,
+        &lease,
+        &canonical_project,
+        args.claude_executable.as_deref(),
+        args.codex_executable.as_deref(),
+    )?;
 
     if !json_mode {
         let provider_label = match profile.provider {
@@ -2730,28 +2862,200 @@ fn run_resume(
         let _ = std::io::stdout().flush();
     }
 
-    match profile.provider {
-        ProviderKind::Codex => exec_codex_resume(
-            args.codex_executable.as_deref(),
-            &profile.config_dir,
+    run_managed_terminal(
+        &ContinuationContext::new(
+            service,
+            paths,
             &canonical_project,
+            args.claude_executable.clone(),
+            args.codex_executable.clone(),
+            json_mode,
+        )?,
+        command,
+        resolved_profile,
+    )
+}
+
+/// The interactive command that safely continues `lease` under its *owner's* provider and
+/// isolated config directory: Codex is unconditionally `NATIVE_RESUME`; Claude is decided by
+/// [`resolve_claude_resume_action`] (attach to a live background job, native resume otherwise, or
+/// fail closed on ambiguous liveness). Shared by `relay resume` and by the automatic continuation
+/// after a handoff, so both always pick the identical command for the identical lease.
+fn plan_terminal_for_lease(
+    profile: &Profile,
+    lease: &relay_core::handoff::WriterLease,
+    canonical_project: &Path,
+    claude_executable: Option<&Path>,
+    codex_executable: Option<&Path>,
+) -> Result<terminal::TerminalCommand, Error> {
+    match profile.provider {
+        ProviderKind::Codex => plan_codex_resume(
+            codex_executable,
+            &profile.config_dir,
+            canonical_project,
             &lease.session_id,
         ),
         ProviderKind::Claude | ProviderKind::Fake => {
-            match claude_action.expect("computed above for this provider arm") {
+            match resolve_claude_resume_action(&profile.config_dir, claude_executable, lease)? {
                 ClaudeResumeAction::Attach(short_id) => {
-                    let inspector = ClaudeInspector::discover(args.claude_executable.as_deref())?;
-                    exec_claude_attach(inspector.executable(), &profile.config_dir, &short_id)
+                    let inspector = ClaudeInspector::discover(claude_executable)?;
+                    Ok(plan_claude_attach(
+                        inspector.executable(),
+                        &profile.config_dir,
+                        &short_id,
+                    ))
                 }
-                ClaudeResumeAction::NativeResume => exec_claude_resume(
-                    args.claude_executable.as_deref(),
+                ClaudeResumeAction::NativeResume => plan_claude_resume(
+                    claude_executable,
                     &profile.config_dir,
-                    &canonical_project,
+                    canonical_project,
                     &lease.session_id,
                 ),
             }
         }
     }
+}
+
+/// Everything [`run_managed_terminal`] needs to continue a conversation on whichever profile
+/// owns the project's lease *now*, without re-deriving anything from the configured primary.
+struct ContinuationContext<'a> {
+    service: &'a ProfileService,
+    project_state_dir: PathBuf,
+    canonical_project: PathBuf,
+    claude_executable: Option<PathBuf>,
+    codex_executable: Option<PathBuf>,
+    json_mode: bool,
+}
+
+impl<'a> ContinuationContext<'a> {
+    fn new(
+        service: &'a ProfileService,
+        paths: &RelayPaths,
+        canonical_project: &Path,
+        claude_executable: Option<PathBuf>,
+        codex_executable: Option<PathBuf>,
+        json_mode: bool,
+    ) -> Result<Self, Error> {
+        let project_id = ProjectId::for_canonical_path(canonical_project)?;
+        Ok(Self {
+            service,
+            project_state_dir: paths.project_state_dir(&project_id),
+            canonical_project: canonical_project.to_path_buf(),
+            claude_executable,
+            codex_executable,
+            json_mode,
+        })
+    }
+}
+
+/// How many times one terminal invocation will follow the conversation across handoffs before it
+/// stops and leaves the rest to an explicit `relay resume` (main -> fallback1 -> fallback2 ->
+/// fallback3 is already more than a realistic priority list).
+const MAX_CONTINUATIONS: usize = 4;
+
+/// Runs an interactive provider session in the user's terminal as a child of Relay and, if the
+/// project's writer lease moves to a different profile while (or right after) it runs — i.e. an
+/// automatic or manual handoff completed — continues the *same conversation* on the new owner
+/// with no command for the user to discover.
+///
+/// This is deliberately not a daemon and not a usage poller: it lives only as long as the user's
+/// own interactive session, only re-reads its own project's lease, never starts or stops any
+/// writer itself (every ownership change still goes through the `HandoffCoordinator` under the
+/// orchestration lock), and treats anything unexpected — a missing/unreadable lease, a handoff
+/// that never settles, an ambiguous-liveness lease — as a reason to stop and hand control back,
+/// never to guess.
+fn run_managed_terminal(
+    context: &ContinuationContext<'_>,
+    first: terminal::TerminalCommand,
+    first_owner: ProfileName,
+) -> Result<CommandOutput, Error> {
+    use std::io::Write as _;
+    let lease_store = LeaseStore::at_path(context.project_state_dir.join("lease.json"));
+    let lock = OrchestrationLock::at_path(context.project_state_dir.join("orchestration.lock"));
+    let timing = terminal::Timing::default();
+    let mut command = first;
+    let mut owner = terminal::LeaseOwner(first_owner);
+
+    for continuation in 0..=MAX_CONTINUATIONS {
+        let _ = std::io::stdout().flush();
+        let end = terminal::run_watching_lease(&command, &lease_store, &owner, &timing).map_err(
+            |source| Error::Io {
+                path: command.program.clone(),
+                source,
+            },
+        )?;
+        let code = match end {
+            terminal::TerminalEnd::Exited(code) => code,
+            terminal::TerminalEnd::OwnerMoved => 0,
+        };
+
+        // A handoff stops the source session itself, so the session can end *before* the lease
+        // has moved: wait for any in-flight transaction to settle before deciding.
+        if !terminal::wait_until_settled(
+            &lock,
+            timing.settle_timeout,
+            std::time::Duration::from_millis(500),
+        ) {
+            if !context.json_mode {
+                eprintln!(
+                    "\nAgent Relay: a handoff is still in progress; run `relay resume` once it completes."
+                );
+            }
+            std::process::exit(code);
+        }
+        let Ok(Some(lease)) = lease_store.load() else {
+            std::process::exit(code);
+        };
+        if terminal::LeaseOwner::of(&lease) == owner || continuation == MAX_CONTINUATIONS {
+            if continuation == MAX_CONTINUATIONS
+                && terminal::LeaseOwner::of(&lease) != owner
+                && !context.json_mode
+            {
+                eprintln!(
+                    "\nAgent Relay: the conversation moved to '{}'; run `relay resume` to continue it.",
+                    lease.owner_profile
+                );
+            }
+            std::process::exit(code);
+        }
+
+        // Continue the same conversation on whoever owns it now — resolved from the lease, never
+        // from the configured primary.
+        let registered = context.service.list()?;
+        let Some(profile) = registered
+            .iter()
+            .find(|candidate| candidate.name == lease.owner_profile)
+        else {
+            std::process::exit(code);
+        };
+        let next = match plan_terminal_for_lease(
+            profile,
+            &lease,
+            &context.canonical_project,
+            context.claude_executable.as_deref(),
+            context.codex_executable.as_deref(),
+        ) {
+            Ok(next) => next,
+            Err(error) => {
+                if !context.json_mode {
+                    eprintln!(
+                        "\nAgent Relay: the conversation moved to '{}' but could not be continued automatically ({error}); run `relay resume`.",
+                        lease.owner_profile
+                    );
+                }
+                std::process::exit(code);
+            }
+        };
+        if !context.json_mode {
+            println!(
+                "\nAgent Relay: '{}' reached its limit — continuing this conversation on '{}'...",
+                owner.0, lease.owner_profile
+            );
+        }
+        owner = terminal::LeaseOwner::of(&lease);
+        command = next;
+    }
+    unreachable!("the loop above always exits the process")
 }
 
 /// Which real Claude command safely continues this lease. Dogfood-found (M6): `relay resume`
@@ -2807,82 +3111,38 @@ enum ClaudeResumeAction {
     NativeResume,
 }
 
-#[cfg(unix)]
-fn exec_codex_resume(
+/// Builds (does not run) `codex resume <thread-id>` under the profile's own `CODEX_HOME`.
+/// Codex has no background-job/attach concept, so this is unconditional (`NATIVE_RESUME`).
+fn plan_codex_resume(
     codex_executable: Option<&Path>,
     config_dir: &Path,
     project_dir: &Path,
     thread_id: &str,
-) -> Result<CommandOutput, Error> {
-    use std::os::unix::process::CommandExt as _;
+) -> Result<terminal::TerminalCommand, Error> {
     let inspector = relay_provider_codex::CodexInspector::discover(codex_executable)?;
-    let error = std::process::Command::new(inspector.executable())
-        .current_dir(project_dir)
-        .arg("resume")
-        .arg(thread_id)
-        .env("CODEX_HOME", config_dir)
-        .exec();
-    Err(Error::Io {
-        path: inspector.executable().to_path_buf(),
-        source: error,
+    Ok(terminal::TerminalCommand {
+        program: inspector.executable().to_path_buf(),
+        args: vec!["resume".into(), thread_id.into()],
+        envs: vec![("CODEX_HOME".into(), config_dir.into())],
+        current_dir: Some(project_dir.to_path_buf()),
     })
 }
 
-#[cfg(not(unix))]
-fn exec_codex_resume(
-    codex_executable: Option<&Path>,
-    config_dir: &Path,
-    project_dir: &Path,
-    thread_id: &str,
-) -> Result<CommandOutput, Error> {
-    let inspector = relay_provider_codex::CodexInspector::discover(codex_executable)?;
-    let status = std::process::Command::new(inspector.executable())
-        .current_dir(project_dir)
-        .arg("resume")
-        .arg(thread_id)
-        .env("CODEX_HOME", config_dir)
-        .status()
-        .map_err(|_| Error::ProviderCommandFailed)?;
-    std::process::exit(status.code().unwrap_or(1));
-}
-
-#[cfg(unix)]
-fn exec_claude_resume(
+/// Builds (does not run) an interactive `claude --resume <session-id>` under the given profile's
+/// own `CLAUDE_CONFIG_DIR`.
+fn plan_claude_resume(
     claude_executable: Option<&Path>,
     config_dir: &Path,
     project_dir: &Path,
     session_id: &str,
-) -> Result<CommandOutput, Error> {
-    use std::os::unix::process::CommandExt as _;
+) -> Result<terminal::TerminalCommand, Error> {
     let inspector = ClaudeInspector::discover(claude_executable)?;
-    let error = std::process::Command::new(inspector.executable())
-        .current_dir(project_dir)
-        .arg("--resume")
-        .arg(session_id)
-        .env("CLAUDE_CONFIG_DIR", config_dir)
-        .exec();
-    Err(Error::Io {
-        path: inspector.executable().to_path_buf(),
-        source: error,
+    Ok(terminal::TerminalCommand {
+        program: inspector.executable().to_path_buf(),
+        args: vec!["--resume".into(), session_id.into()],
+        envs: vec![("CLAUDE_CONFIG_DIR".into(), config_dir.into())],
+        current_dir: Some(project_dir.to_path_buf()),
     })
-}
-
-#[cfg(not(unix))]
-fn exec_claude_resume(
-    claude_executable: Option<&Path>,
-    config_dir: &Path,
-    project_dir: &Path,
-    session_id: &str,
-) -> Result<CommandOutput, Error> {
-    let inspector = ClaudeInspector::discover(claude_executable)?;
-    let status = std::process::Command::new(inspector.executable())
-        .current_dir(project_dir)
-        .arg("--resume")
-        .arg(session_id)
-        .env("CLAUDE_CONFIG_DIR", config_dir)
-        .status()
-        .map_err(|_| Error::ProviderCommandFailed)?;
-    std::process::exit(status.code().unwrap_or(1));
 }
 
 // -------------------------------------------------------------------------------------------
@@ -3147,10 +3407,10 @@ fn resolve_initial_message(args_message: &[String]) -> Result<String, Error> {
 /// it preserves the process Relay's `WriterLease`/liveness checks already track — no new pid is
 /// spawned independently of the one Relay recorded.
 ///
-/// Replaces this process's image entirely (`exec`, POSIX `execve`) so the user's terminal ends up
-/// running the real `claude` binary with full TTY control, identical to running `claude attach
-/// <id>` themselves. Only returns at all if `exec` itself failed to start (e.g. permissions) —
-/// on success there is no "after" to return to.
+/// Builds (does not run) that command. It is run through [`run_managed_terminal`] as a child in
+/// the user's own terminal (full TTY, identical to typing `claude attach <id>` yourself) rather
+/// than `exec`'d, so Relay can continue the conversation on a fallback profile if a handoff
+/// happens while the user is attached.
 ///
 /// `config_dir` must be the *lease owner's* registered `CLAUDE_CONFIG_DIR` (looked up by
 /// `lease.owner_profile`, never assumed to be the configured primary — a handoff can leave a
@@ -3161,37 +3421,17 @@ fn resolve_initial_message(args_message: &[String]) -> Result<String, Error> {
 /// profile (dogfood-found: M6). Set only on the child's environment (`Command::env`), never on
 /// this process's own, so credential isolation between profiles is preserved and no global state
 /// is mutated.
-#[cfg(unix)]
-fn exec_claude_attach(
+fn plan_claude_attach(
     executable: &Path,
     config_dir: &Path,
     short_id: &str,
-) -> Result<CommandOutput, Error> {
-    use std::os::unix::process::CommandExt as _;
-    let error = std::process::Command::new(executable)
-        .arg("attach")
-        .arg(short_id)
-        .env("CLAUDE_CONFIG_DIR", config_dir)
-        .exec();
-    Err(Error::Io {
-        path: executable.to_path_buf(),
-        source: error,
-    })
-}
-
-#[cfg(not(unix))]
-fn exec_claude_attach(
-    executable: &Path,
-    config_dir: &Path,
-    short_id: &str,
-) -> Result<CommandOutput, Error> {
-    let status = std::process::Command::new(executable)
-        .arg("attach")
-        .arg(short_id)
-        .env("CLAUDE_CONFIG_DIR", config_dir)
-        .status()
-        .map_err(|_| Error::ProviderCommandFailed)?;
-    std::process::exit(status.code().unwrap_or(1));
+) -> terminal::TerminalCommand {
+    terminal::TerminalCommand {
+        program: executable.to_path_buf(),
+        args: vec!["attach".into(), short_id.into()],
+        envs: vec![("CLAUDE_CONFIG_DIR".into(), config_dir.into())],
+        current_dir: None,
+    }
 }
 
 /// M4.2/M4.3/M4.4/M4.5, revised post-M6: `relay claude` — the normal daily entry point for
@@ -3435,7 +3675,19 @@ fn run_claude(
         .map(|profile| profile.config_dir.clone())
         .ok_or_else(|| Error::ProfileNotFound(lease.owner_profile.to_string()))?;
     let inspector = ClaudeInspector::discover(args.claude_executable.as_deref())?;
-    exec_claude_attach(inspector.executable(), &owner_config_dir, &short_id)
+    let command = plan_claude_attach(inspector.executable(), &owner_config_dir, &short_id);
+    run_managed_terminal(
+        &ContinuationContext::new(
+            service,
+            paths,
+            &canonical_project,
+            args.claude_executable.clone(),
+            None,
+            json_mode,
+        )?,
+        command,
+        lease.owner_profile.clone(),
+    )
 }
 
 /// M4.1: the interactive first-run wizard. Every step reuses existing, already-tested machinery

@@ -135,9 +135,11 @@ Relay is deliberately conservative about that distinction), Agent Relay:
 2. moves it to your next fallback account,
 3. resumes it there — same conversation, same context, same session, just under a different
    account,
-4. and you keep working. If you're in Herdr, this can happen automatically as Herdr notices your
-   session's status change; outside Herdr, it happens the next time `relay claude` or
-   `relay watch run` is invoked (Relay is intentionally not a background daemon).
+4. and you keep working. The moment Claude reports a rate limit, the usage integration's hook
+   starts one short-lived evaluation for that project — Relay is not a background daemon and never
+   polls. If you're attached through `relay claude` or `relay resume`, your terminal continues on
+   the fallback account on its own ("continuing this conversation on '<profile>'"); Herdr's
+   status event and a manual `relay watch run` are additional triggers.
 
 You are never asked to copy a session id, look up a pane id, or run a lower-level handoff command
 for this to work.

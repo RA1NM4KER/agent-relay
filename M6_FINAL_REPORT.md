@@ -506,3 +506,49 @@ was deleted or torn down automatically.
 `cargo fmt --all -- --check`: clean. `cargo clippy --workspace --all-targets -- -D warnings`:
 clean. `cargo test --workspace`: **365/365, 0 failed** (362 before this fix, +3 net new: the 3
 `handoff_adapters` unit tests in `relay-provider-claude` listed above).
+
+## Dogfood-found bug #4 (release-blocking): a real usage limit never triggered the automatic handoff
+
+### The real (non-simulated) exhaustion test
+
+`erika` was the managed writer for this repository. She hit a genuine Claude session limit.
+
+Observed, in order:
+
+1. Relay's `StopFailure` hook fired and, corroborated by the statusline snapshot, **correctly recorded `erika` as known-exhausted**.
+2. **No automatic handoff occurred.** `relay watch status` showed `Current owner: erika`, `Known-exhausted profiles: erika`, `Recent automatic handoffs: 0`. The Herdr plugin log shows no invocation after 23:01, i.e. none across the real limit (~23:31).
+3. Running the real `relay watch run` by hand completed `erika -> megan` successfully (this session then continued on `megan`, verified by the `RELAY_HANDOFF_VERIFIED` turn). So detection, policy, coordinator and both providers were correct. The missing piece was purely *who calls the coordinator*.
+4. Four background audit subagents launched at the limit returned 429s; that is expected provider behaviour, not a Relay defect.
+
+### Root cause
+
+Nothing invoked `WatchCoordinator::evaluate` after the hook recorded exhaustion:
+
+- `relay watch run` is a one-shot evaluator. Its only in-tree caller was the Herdr `pane.agent_status_changed` plugin event, a best-effort third-party signal that did not fire.
+- Outside Herdr there was no caller at all.
+- `README.md` / `docs/automatic-handoff.md` claimed `relay claude` would re-evaluate. It never did (docs contradicted behaviour).
+
+Second half of the finding (UX): `relay claude` / `relay resume` `exec`'d into Claude and vanished, so even a successful handoff left the user at a dead session and required discovering `relay resume`.
+
+### Fix (smallest robust change; no daemon, no provider polling)
+
+- **Trigger (`crates/relay-cli/src/auto_handoff.rs`)**: when the `StopFailure` hook records a rate-limit failure, it starts one short-lived, detached `relay watch auto` for that project. It is gated so it only fires for the exact session Relay manages: the hook's config dir must be a registered Claude profile, the lease must name that profile *and* that session id, and at least one registered fallback must exist. It retries a bounded number of times (default 7 x 20s) only while the evaluation reports `no_action_needed`, because the corroborating statusline snapshot can land just after the failure, then exits. Output goes to `auto-handoff.log` (0600, size-capped) next to the project's state.
+- **Environment scrub**: the detached child runs with `CLAUDE_CONFIG_DIR` and every `AUTHENTICATION_OVERRIDE_VARIABLES` entry removed. The hook inherits Claude's own environment (source profile's `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_MESSAGING_TOKEN`), which trips Relay's `EnvironmentOverrideConflict` checks and made every fallback look unhealthy. A negative control showed the scrub is load-bearing.
+- **Continuity (`crates/relay-cli/src/terminal.rs`)**: `relay claude`, `relay resume` and `relay switch` (Codex target) now run the interactive session as a supervised child instead of `exec`. Relay only watches its own project's `lease.json` (1 local read/s while the user's terminal is in use). When the lease owner moves to another profile, the dead source session is closed, Relay waits (bounded) for the handoff transaction to settle, then continues the same conversation on the new owner (up to 4 hops), printing `Agent Relay: '<old>' reached its limit - continuing this conversation on '<new>'...`. An ordinary exit returns that session's own exit code and continues nowhere.
+- **Single-writer safety is unchanged**: every ownership change still goes through the existing `WatchCoordinator` / `HandoffCoordinator` under the orchestration lock, with the same cooldown, per-window loop cap and known-exhausted ledger. A concurrent second trigger (e.g. Herdr) simply sees the lock or the cooldown. The supervisor never starts, stops or hands off anything itself.
+
+### Regression coverage
+
+`crates/relay-cli/tests/m6_auto.rs` (8 tests) drives the real hook inputs (statusline at 100% plus a real `StopFailure` payload) with Claude's ambient environment present: automatic Claude->Codex handoff; automatic Claude->Claude SESSION_CONTINUATION; statusline arriving after the failure; unmanaged session never triggers; no fallback configured triggers nothing; `relay resume` and `relay claude` follow the conversation to the new owner; ordinary exit continues nowhere. `terminal.rs` has 6 unit tests (exit code passthrough, lease-move closes child, missing/corrupt/same-profile lease is not a move, lock-wait bounds).
+
+Gate: `cargo fmt --all -- --check` clean, `cargo clippy --workspace --all-targets -- -D warnings` clean, `cargo test --workspace` 0 failures (379 passed).
+
+### Known limitations / operator notes
+
+- Installed hook commands record Relay's binary path at install time. After upgrading or rebuilding to a new path, re-run `relay integration claude install --profile <p>`; a hook still pointing at an old binary will not trigger the new behaviour.
+- A fallback profile needs the usage integration installed for a *second* hop (checked read-only: `erika` and `megan` both have it installed; `megan` has recorded 0 stop failures so far).
+- No automatic fail-back to the primary once its window resets.
+- Unverified live: whether a real `claude attach` client exits on its own when its background session is stopped. Mitigated: the supervisor SIGTERMs the child when the lease owner moves.
+- The Herdr event remains best-effort and is now a redundant trigger, not the only one.
+- Codex usage detection is unsupported, so Codex cannot be an automatic *source*.
+- The end-to-end continuation after the new trigger has been exercised with fake providers only; the next real exhaustion is the live confirmation.
