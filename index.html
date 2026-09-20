@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent Relay</title>
-<meta name="description" content="Agent Relay safely moves a Claude Code session to a fallback profile when your current one hits its usage limit.">
+<meta name="description" content="Agent Relay hands your Claude Code work to the next available profile in your priority order when the current one hits its usage limit.">
 <style>
   :root {
     --bg: #0D0F12;
@@ -235,154 +235,186 @@
   .demo-dots { display: flex; gap: 6px; }
   .demo-dots span { width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
 
-  .demo-body {
-    display: grid;
-    grid-template-columns: 1fr 220px 1fr;
+  .scenes {
+    display: flex;
     gap: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .scene-tab {
+    flex: 1;
+    appearance: none;
+    background: none;
+    border: 0;
+    border-right: 1px solid var(--border);
+    color: var(--muted);
+    font: 0.74rem/1.35 var(--mono);
+    text-align: left;
+    padding: 11px 16px;
+    cursor: pointer;
+  }
+  .scene-tab:last-child { border-right: 0; }
+  .scene-tab .n { color: var(--accent-2); margin-right: 8px; }
+  .scene-tab[aria-selected="true"] { color: var(--text); background: var(--surface-2); box-shadow: inset 0 -2px 0 var(--accent); }
+  .scene-tab[aria-selected="true"] .n { color: var(--accent); }
+  @media (max-width: 760px) {
+    .scenes { flex-direction: column; }
+    .scene-tab { border-right: 0; border-bottom: 1px solid var(--border); }
+    .scene-tab:last-child { border-bottom: 0; }
+  }
+
+  .hier-body {
+    display: grid;
+    grid-template-columns: 1fr 300px;
     align-items: stretch;
   }
-  @media (max-width: 760px) {
-    .demo-body { grid-template-columns: 1fr; }
-    .transfer-col { order: 2; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-    .profile-col.source { order: 1; }
-    .profile-col.fallback { order: 3; }
-  }
+  @media (max-width: 860px) { .hier-body { grid-template-columns: 1fr; } }
 
-  .profile-col { padding: 24px; }
-  .profile-col + .profile-col { border-left: 1px solid var(--border); }
-  @media (max-width: 760px) {
-    .profile-col + .profile-col { border-left: none; }
-  }
-
-  .profile-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 18px;
-  }
-  .profile-role {
+  .rail { padding: 22px 24px 20px; }
+  .rail-title {
     font-family: var(--mono);
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--muted);
-  }
-  .profile-name { font-family: var(--mono); font-size: 0.95rem; font-weight: 600; }
-
-  .status-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--muted);
-    flex-shrink: 0;
-  }
-  .status-dot.active { background: var(--success); }
-  .status-dot.limit { background: var(--danger); }
-  .status-dot.stopped { background: var(--muted); }
-
-  .profile-row {
+    margin-bottom: 12px;
     display: flex;
     justify-content: space-between;
-    font-family: var(--mono);
-    font-size: 0.82rem;
-    padding: 7px 0;
-    border-top: 1px solid var(--border);
   }
-  .profile-row:first-of-type { border-top: none; }
-  .profile-row .k { color: var(--muted); }
-  .profile-row .v { color: var(--text); }
-  .profile-row .v.danger { color: var(--danger); }
-  .profile-row .v.success { color: var(--success); }
-  .profile-row .v.muted { color: var(--muted); }
-
-  .usage-bar {
-    width: 100%;
-    height: 6px;
-    background: var(--surface-2);
+  .hrow {
+    position: relative;
+    display: grid;
+    grid-template-columns: 34px 1fr auto;
+    gap: 6px 14px;
+    align-items: center;
+    padding: 14px 14px 14px 0;
+    margin-bottom: 8px;
     border: 1px solid var(--border);
-    border-radius: 3px;
-    overflow: hidden;
-    margin-top: 12px;
+    border-left: 3px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    transition: border-color 300ms ease, background-color 300ms ease, opacity 300ms ease;
   }
-  .usage-bar-fill {
-    height: 100%;
-    background: var(--muted);
-    width: 62%;
-    transition: width 900ms ease, background-color 400ms ease;
-  }
-  .usage-bar-fill.limit { background: var(--danger); }
-  .usage-bar-fill.reset { background: var(--success); }
-
-  .continuation {
-    margin-top: 16px;
-    padding-top: 14px;
-    border-top: 1px solid var(--border);
+  .hrow .rank {
     font-family: var(--mono);
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     color: var(--muted);
-    min-height: 1.2em;
+    text-align: center;
   }
-  .continuation .caret {
-    display: inline-block;
-    width: 6px; height: 12px;
-    background: var(--accent);
-    margin-left: 2px;
-    vertical-align: -2px;
+  .hrow .who { display: flex; flex-direction: column; min-width: 0; }
+  .hrow .nm { font-family: var(--mono); font-weight: 600; font-size: 0.95rem; }
+  .hrow .pv { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
+  .hrow .verdict {
+    grid-column: 2 / 4;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    min-height: 1.1em;
     opacity: 0;
+    transition: opacity 250ms ease;
   }
-  .continuation.show .caret { opacity: 1; }
+  .hrow .verdict.show { opacity: 1; }
+  .hrow .verdict.pick { color: var(--accent); }
+  .badge-state {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .hrow.s-available .badge-state { color: var(--success); border-color: #3B5A3B; }
+  .hrow.s-exhausted .badge-state { color: var(--danger); border-color: #6B3535; }
+  .hrow.s-reset .badge-state { color: var(--accent); border-color: var(--accent-2); }
+  .hrow.s-writer { border-left-color: var(--accent); background: var(--surface-2); }
+  .hrow.s-writer .badge-state { background: var(--accent); border-color: var(--accent); color: #0D0F12; font-weight: 700; }
+  .hrow.s-writer.s-exhausted .badge-state { background: none; color: var(--danger); border-color: #6B3535; }
+  .hrow.scan { border-color: var(--accent-2); border-left-color: var(--accent); }
+  .hrow.dim { opacity: 0.5; }
+  .hrow .meter {
+    grid-column: 2 / 4;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .hrow .meter i {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--muted);
+    transition: width 700ms ease, background-color 300ms ease;
+  }
+  .hrow.s-exhausted .meter i, .hrow.s-reset .meter i { background: var(--danger); }
+  .hrow.s-writer .meter i { background: var(--accent); }
+  .hrow.s-writer.s-exhausted .meter i { background: var(--danger); }
 
-  .transfer-col {
-    padding: 24px 20px;
+  .relay-panel {
     background: var(--surface-2);
+    border-left: 1px solid var(--border);
+    padding: 22px 20px;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    position: relative;
+    gap: 14px;
   }
-  .transfer-label {
+  @media (max-width: 860px) { .relay-panel { border-left: 0; border-top: 1px solid var(--border); } }
+  .relay-panel .rp-label {
     font-family: var(--mono);
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--accent);
-    text-align: center;
-    margin-bottom: 16px;
   }
-  .transfer-track {
-    position: relative;
-    height: 2px;
-    background: var(--border);
-    margin-bottom: 20px;
+  .rp-note {
+    font-size: 0.86rem;
+    line-height: 1.45;
+    color: var(--text);
+    min-height: 3.9em;
   }
-  .transfer-dot {
-    position: absolute;
-    top: 50%;
-    left: 0;
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--accent);
-    transform: translate(-50%, -50%);
-    transition: left 900ms ease;
-  }
-  .transfer-log {
+  .rp-log {
     font-family: var(--mono);
-    font-size: 0.76rem;
+    font-size: 0.74rem;
     color: var(--muted);
     display: flex;
     flex-direction: column;
-    gap: 9px;
-    min-height: 96px;
+    gap: 8px;
+    min-height: 92px;
   }
-  .transfer-log .line {
+  .rp-log .line {
     display: flex;
-    align-items: baseline;
     gap: 7px;
     opacity: 0;
     transform: translateY(3px);
     transition: opacity 300ms ease, transform 300ms ease;
   }
-  .transfer-log .line.show { opacity: 1; transform: translateY(0); }
-  .transfer-log .line.done { color: var(--success); }
-  .transfer-log .mark { width: 1em; flex-shrink: 0; text-align: center; }
+  .rp-log .line.show { opacity: 1; transform: none; }
+  .rp-log .line.done { color: var(--success); }
+  .rp-log .mark { width: 1em; flex-shrink: 0; text-align: center; }
+
+  .continuity {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+  @media (max-width: 860px) { .continuity { grid-template-columns: 1fr; } }
+  .cont {
+    padding: 14px 18px;
+    border-right: 1px solid var(--border);
+    transition: background-color 300ms ease;
+  }
+  .cont:last-child { border-right: 0; }
+  @media (max-width: 860px) { .cont { border-right: 0; border-bottom: 1px solid var(--border); } .cont:last-child { border-bottom: 0; } }
+  .cont .route { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
+  .cont .kind { font-family: var(--mono); font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; margin: 2px 0 4px; color: var(--muted); }
+  .cont .what { font-size: 0.78rem; line-height: 1.4; color: var(--muted); }
+  .cont.on { background: var(--surface-2); box-shadow: inset 0 2px 0 var(--accent); }
+  .cont.on .kind { color: var(--accent); }
+  .cont.on .what, .cont.on .route { color: var(--text); }
+  .demo-foot { padding: 12px 18px; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 0.72rem; color: var(--muted); background: var(--surface-2); }
 
   /* ---------- Proof points ---------- */
   .proof-grid {
@@ -538,7 +570,7 @@
   <section class="hero">
     <div class="wrap">
       <h1>Keep coding when Claude hits its limit.</h1>
-      <p class="sub">Agent Relay safely moves the same Claude Code session to a fallback profile when your current one reaches its usage limit. Same conversation, same context, different account.</p>
+      <p class="sub">When your current Claude profile reaches its usage limit, Agent Relay hands the work to the next available profile in your priority order: the same Claude session on another Claude profile, or a state-seeded Codex session.</p>
 
       <div class="hero-ctas">
         <div class="install-cmd">
@@ -565,59 +597,74 @@
     <div class="wrap">
       <div class="section-head">
         <span class="eyebrow">Live handoff</span>
-        <h2>A session doesn't stop. It moves.</h2>
-        <p>What happens under the hood when a profile reaches its usage limit.</p>
+        <h2>One priority order. One writer at a time.</h2>
+        <p>Profiles are ranked once. The current writer stays active until it blocks; then Relay re-checks the whole order and hands off to the first eligible profile.</p>
       </div>
 
       <div class="demo" id="handoff-demo">
         <div class="demo-titlebar">
           <div class="demo-dots"><span></span><span></span><span></span></div>
-          <span class="name">relay watch run</span>
+          <span class="name">relay watch auto</span>
         </div>
-        <div class="demo-body">
-
-          <div class="profile-col source">
-            <div class="profile-head">
-              <div>
-                <span class="profile-role">Primary</span><br>
-                <span class="profile-name">work</span>
-              </div>
-              <span class="status-dot" id="source-dot"></span>
-            </div>
-            <div class="profile-row"><span class="k">agent</span><span class="v">claude code</span></div>
-            <div class="profile-row"><span class="k">usage</span><span class="v" id="source-usage-text">62%</span></div>
-            <div class="profile-row"><span class="k">status</span><span class="v" id="source-status">active</span></div>
-            <div class="usage-bar"><div class="usage-bar-fill" id="source-usage-bar"></div></div>
-          </div>
-
-          <div class="transfer-col">
-            <span class="transfer-label">Agent Relay</span>
-            <div class="transfer-track"><div class="transfer-dot" id="transfer-dot"></div></div>
-            <div class="transfer-log" id="transfer-log">
-              <div class="line" data-line="0"><span class="mark"></span><span class="txt">checkpointing session…</span></div>
-              <div class="line" data-line="1"><span class="mark"></span><span class="txt">stopping source writer…</span></div>
-              <div class="line" data-line="2"><span class="mark"></span><span class="txt">transferring session…</span></div>
-              <div class="line" data-line="3"><span class="mark"></span><span class="txt">verifying target…</span></div>
-            </div>
-          </div>
-
-          <div class="profile-col fallback">
-            <div class="profile-head">
-              <div>
-                <span class="profile-role">Fallback</span><br>
-                <span class="profile-name">backup</span>
-              </div>
-              <span class="status-dot" id="fallback-dot"></span>
-            </div>
-            <div class="profile-row"><span class="k">agent</span><span class="v">claude code</span></div>
-            <div class="profile-row"><span class="k">session</span><span class="v muted" id="fallback-session">—</span></div>
-            <div class="profile-row"><span class="k">status</span><span class="v muted" id="fallback-status">standby</span></div>
-            <div class="continuation" id="fallback-continuation">
-              <span id="fallback-continuation-text"></span><span class="caret"></span>
-            </div>
-          </div>
-
+        <div class="scenes" role="tablist" aria-label="Handoff scenarios">
+          <button class="scene-tab" role="tab" type="button" data-scene="0"><span class="n">01</span>Erika exhausts</button>
+          <button class="scene-tab" role="tab" type="button" data-scene="1"><span class="n">02</span>Megan exhausts, Erika still reset-pending</button>
+          <button class="scene-tab" role="tab" type="button" data-scene="2"><span class="n">03</span>Megan exhausts, Erika has reset</button>
         </div>
+        <div class="hier-body">
+          <div class="rail" id="rail">
+            <div class="rail-title"><span>Priority hierarchy</span><span>first eligible wins</span></div>
+            <div class="hrow" data-row="0">
+              <span class="rank">1</span>
+              <span class="who"><span class="nm">Erika</span><span class="pv">Claude</span></span>
+              <span class="badge-state"></span>
+              <span class="meter"><i></i></span>
+              <span class="verdict"></span>
+            </div>
+            <div class="hrow" data-row="1">
+              <span class="rank">2</span>
+              <span class="who"><span class="nm">Megan</span><span class="pv">Claude</span></span>
+              <span class="badge-state"></span>
+              <span class="meter"><i></i></span>
+              <span class="verdict"></span>
+            </div>
+            <div class="hrow" data-row="2">
+              <span class="rank">3</span>
+              <span class="who"><span class="nm">Codex</span><span class="pv">Codex</span></span>
+              <span class="badge-state"></span>
+              <span class="meter"><i></i></span>
+              <span class="verdict"></span>
+            </div>
+          </div>
+          <div class="relay-panel" aria-live="polite">
+            <span class="rp-label">Agent Relay</span>
+            <p class="rp-note" id="rp-note"></p>
+            <div class="rp-log" id="rp-log">
+              <div class="line"><span class="mark"></span><span class="txt"></span></div>
+              <div class="line"><span class="mark"></span><span class="txt"></span></div>
+              <div class="line"><span class="mark"></span><span class="txt"></span></div>
+              <div class="line"><span class="mark"></span><span class="txt"></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="continuity" id="continuity">
+          <div class="cont" data-kind="session">
+            <div class="route">Claude → Claude</div>
+            <div class="kind">SESSION CONTINUATION</div>
+            <div class="what">The same Claude session, resumed on the next Claude profile.</div>
+          </div>
+          <div class="cont" data-kind="state">
+            <div class="route">Claude → Codex</div>
+            <div class="kind">STATE CONTINUATION</div>
+            <div class="what">A new Codex session seeded from a bounded state bundle. Not the same native conversation.</div>
+          </div>
+          <div class="cont" data-kind="native">
+            <div class="route">Codex → same Codex profile</div>
+            <div class="kind">NATIVE RESUME</div>
+            <div class="what">Codex's own resume, on the profile that already owns the thread.</div>
+          </div>
+        </div>
+        <div class="demo-foot">Codex is an automatic target today, not an automatic trigger: reliable Codex usage detection is not supported yet.</div>
       </div>
     </div>
   </section>
@@ -629,8 +676,8 @@
       <div class="proof-grid">
         <div class="proof-card">
           <span class="proof-num">01</span>
-          <h3>Same session</h3>
-          <p>The handoff preserves the same Claude conversation and context — not a new chat under a different account.</p>
+          <h3>Honest continuity</h3>
+          <p>Claude → Claude continues the same Claude session. Claude → Codex continues from a state bundle: a new Codex session, not the same native conversation.</p>
         </div>
         <div class="proof-card">
           <span class="proof-num">02</span>
@@ -640,7 +687,7 @@
         <div class="proof-card">
           <span class="proof-num">03</span>
           <h3>One writer</h3>
-          <p>Relay enforces a single-writer handoff, so two profiles never write to the same session at once.</p>
+          <p>Relay enforces a single writer per project. The current writer is sticky: it stays active until it blocks, with no eager fail-back.</p>
         </div>
       </div>
     </div>
@@ -657,17 +704,17 @@
         <div class="step">
           <span class="step-num">01</span>
           <h3>relay setup</h3>
-          <p>Authenticate your Claude profiles and choose a primary and fallback order.</p>
+          <p>Authenticate your Claude (and optionally Codex) profiles and set one priority order.</p>
         </div>
         <div class="step">
           <span class="step-num">02</span>
           <h3>relay claude</h3>
-          <p>Start your work through Agent Relay and continue using Claude Code normally.</p>
+          <p>Start your work through Agent Relay and keep using Claude Code normally. A supervised terminal follows the conversation after a handoff.</p>
         </div>
         <div class="step">
           <span class="step-num">03</span>
           <h3>Automatic handoff</h3>
-          <p>When Relay confirms the active profile has exhausted its limit, it moves the session to the next configured profile.</p>
+          <p>When a real Claude limit is hit, Relay re-checks the whole priority order and hands off to the first eligible profile. Codex can be a target, not yet a trigger.</p>
         </div>
       </div>
     </div>
@@ -680,11 +727,11 @@
         <div>
           <span class="eyebrow">Security</span>
           <h2>Runs locally. Credentials stay put.</h2>
-          <p class="muted" style="margin-top:16px; font-size:1rem;">Agent Relay coordinates handoffs between isolated Claude profiles on your own machine. It never becomes a party to your Claude credentials.</p>
+          <p class="muted" style="margin-top:16px; font-size:1rem;">Agent Relay coordinates handoffs between isolated Claude and Codex profiles on your own machine. It never becomes a party to your credentials.</p>
         </div>
         <ul class="security-list">
           <li>Runs entirely on your machine<span class="sub">no Relay-operated server; Relay does not send your session data to its own backend</span></li>
-          <li>Credentials remain provider-owned<span class="sub">Relay launches Claude's own official login flow</span></li>
+          <li>Credentials remain provider-owned<span class="sub">Relay launches each provider's own official login flow</span></li>
           <li>No token storage<span class="sub">Relay never reads, copies, or stores OAuth tokens, cookies, API keys, or passwords</span></li>
           <li>Transactional handoff<span class="sub">a handoff either completes cleanly or is recovered — never left half-done</span></li>
           <li>Single-writer safety<span class="sub">one active writer per project, enforced, not assumed</span></li>
@@ -700,13 +747,13 @@
     <div class="wrap-narrow">
       <span class="eyebrow">Optional</span>
       <h2 style="margin-bottom: 16px;">Herdr integration</h2>
-      <p class="muted" style="font-size: 1rem; margin-bottom: 24px;">Optional <a href="https://herdr.dev">Herdr</a> integration gives Agent Relay automatic pane/session context and event-driven handoff orchestration — no separate terminal or manual session id required.</p>
+      <p class="muted" style="font-size: 1rem; margin-bottom: 24px;">Optional <a href="https://herdr.dev">Herdr</a> integration gives Agent Relay automatic pane/session context and an additional event trigger — no separate terminal or manual session id required.</p>
       <div class="herdr-flow">
         <span class="node">herdr</span>
         <span class="arrow">↓ pane + session context</span>
         <span class="node">agent relay</span>
         <span class="arrow">↓ transactional handoff</span>
-        <span class="node">claude profiles</span>
+        <span class="node">agent profiles</span>
       </div>
       <p style="margin-top:20px;"><code class="mono" style="background:var(--surface); border:1px solid var(--border); padding:8px 12px; border-radius:6px; display:inline-block; font-size:0.85rem;">relay integration herdr install</code></p>
     </div>
@@ -790,147 +837,170 @@ relay claude" aria-label="Copy all three commands">
   // ---------- Handoff demo ----------
   var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  var el = {
-    sourceDot: document.getElementById("source-dot"),
-    sourceUsageText: document.getElementById("source-usage-text"),
-    sourceStatus: document.getElementById("source-status"),
-    sourceUsageBar: document.getElementById("source-usage-bar"),
-    fallbackDot: document.getElementById("fallback-dot"),
-    fallbackSession: document.getElementById("fallback-session"),
-    fallbackStatus: document.getElementById("fallback-status"),
-    fallbackContinuation: document.getElementById("fallback-continuation"),
-    fallbackContinuationText: document.getElementById("fallback-continuation-text"),
-    transferDot: document.getElementById("transfer-dot"),
-    lines: Array.prototype.slice.call(document.querySelectorAll("#transfer-log .line"))
-  };
+  var rows = Array.prototype.slice.call(document.querySelectorAll("#rail .hrow"));
+  var logLines = Array.prototype.slice.call(document.querySelectorAll("#rp-log .line"));
+  var noteEl = document.getElementById("rp-note");
+  var conts = Array.prototype.slice.call(document.querySelectorAll("#continuity .cont"));
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".scene-tab"));
+  var NAMES = ["Erika", "Megan", "Codex"];
 
-  var SESSION_ID = "8f21ac93";
+  // state: writer | available | exhausted | reset ; `use` is the usage meter width.
+  var SCENES = [
+    {
+      note: "Erika is the current writer. Everyone below her is on standby.",
+      start: [["writer", 78], ["available", 12], ["available", 0]],
+      from: 0, to: 1, kind: "session",
+      verdicts: ["current writer · exhausted", "first eligible", "not needed"],
+      after: [["reset", 100], ["writer", 12], ["available", 0]],
+      done: "Erika is reset-pending. Megan is the writer."
+    },
+    {
+      note: "Erika is still reset-pending. Megan is the current writer.",
+      start: [["reset", 100], ["writer", 81], ["available", 0]],
+      from: 1, to: 2, kind: "state",
+      verdicts: ["reset pending · skip", "current writer · exhausted", "first eligible"],
+      after: [["reset", 100], ["reset", 100], ["writer", 0]],
+      done: "Codex is the writer, continuing from a state bundle."
+    },
+    {
+      note: "Erika has reset, but Megan stays the writer. No eager fail-back.",
+      start: [["available", 0], ["writer", 84], ["available", 0]],
+      from: 1, to: 0, kind: "session",
+      verdicts: ["reset passed · first eligible", "current writer · exhausted", "not needed"],
+      after: [["writer", 0], ["reset", 100], ["available", 0]],
+      done: "Erika is the writer again, and only because Megan blocked."
+    }
+  ];
+  var LABEL = { writer: "Current writer", available: "Available", exhausted: "Exhausted", reset: "Reset pending" };
+
+  var current = 0;
   var timers = [];
   function clearTimers() { timers.forEach(clearTimeout); timers = []; }
   function at(ms, fn) { timers.push(setTimeout(fn, ms)); }
 
-  function resetDemo() {
-    el.sourceDot.className = "status-dot active";
-    el.sourceUsageText.textContent = "62%";
-    el.sourceUsageText.className = "v";
-    el.sourceStatus.textContent = "active";
-    el.sourceStatus.className = "v";
-    el.sourceUsageBar.style.width = "62%";
-    el.sourceUsageBar.className = "usage-bar-fill";
-
-    el.fallbackDot.className = "status-dot";
-    el.fallbackSession.textContent = "—";
-    el.fallbackSession.className = "v muted";
-    el.fallbackStatus.textContent = "standby";
-    el.fallbackStatus.className = "v muted";
-    el.fallbackContinuation.classList.remove("show");
-    el.fallbackContinuationText.textContent = "";
-
-    el.transferDot.style.left = "0%";
-    el.lines.forEach(function (line) {
-      line.classList.remove("show", "done");
-      var mark = line.querySelector(".mark");
-      mark.textContent = "";
+  function paint(i, st, use) {
+    var r = rows[i];
+    r.className = "hrow s-" + st;
+    r.querySelector(".badge-state").textContent = LABEL[st];
+    r.querySelector(".meter i").style.width = use + "%";
+  }
+  function paintAll(states) { states.forEach(function (s, i) { paint(i, s[0], s[1]); }); }
+  function clearVerdicts() {
+    rows.forEach(function (r) {
+      r.classList.remove("scan", "dim");
+      var v = r.querySelector(".verdict");
+      v.className = "verdict";
+      v.textContent = "";
     });
   }
-
-  function runSequence() {
-    resetDemo();
-
-    // Step 1: usage climbs to the limit
-    at(500, function () {
-      el.sourceUsageText.textContent = "100%";
-      el.sourceUsageText.className = "v danger";
-      el.sourceStatus.textContent = "limit reached";
-      el.sourceStatus.className = "v danger";
-      el.sourceUsageBar.style.width = "100%";
-      el.sourceUsageBar.className = "usage-bar-fill limit";
-      el.sourceDot.className = "status-dot limit";
-    });
-
-    // Step 2: transfer log lines, one by one, dot slides across
-    var lineDelays = [1600, 2500, 3400, 4300];
-    lineDelays.forEach(function (delay, i) {
-      at(delay, function () {
-        el.lines[i].classList.add("show");
-        if (i > 0) {
-          el.lines[i - 1].classList.add("done");
-          el.lines[i - 1].querySelector(".mark").textContent = "✓";
-        }
-      });
-    });
-    at(2600, function () { el.transferDot.style.left = "50%"; });
-    at(4300, function () { el.transferDot.style.left = "100%"; });
-    at(5100, function () {
-      el.lines[3].classList.add("done");
-      el.lines[3].querySelector(".mark").textContent = "✓";
-    });
-
-    // Step 3: source stops
-    at(4600, function () {
-      el.sourceStatus.textContent = "stopped";
-      el.sourceStatus.className = "v muted";
-      el.sourceDot.className = "status-dot stopped";
-      el.sourceUsageBar.className = "usage-bar-fill";
-    });
-
-    // Step 4: fallback resumes
-    at(5300, function () {
-      el.fallbackDot.className = "status-dot active";
-      el.fallbackSession.textContent = SESSION_ID;
-      el.fallbackSession.className = "v success";
-      el.fallbackStatus.textContent = "resumed";
-      el.fallbackStatus.className = "v success";
-    });
-    at(5800, function () {
-      el.fallbackContinuation.classList.add("show");
-      typeLine("> continuing from previous context…", el.fallbackContinuationText, 0);
-    });
-
-    // Hold, then loop
-    at(9500, runSequence);
+  function setLog(i, text, state) {
+    var l = logLines[i];
+    l.classList.toggle("show", !!text);
+    l.classList.toggle("done", state === "done");
+    l.querySelector(".mark").textContent = state === "done" ? "✓" : (text ? "·" : "");
+    l.querySelector(".txt").textContent = text || "";
+  }
+  function setCont(kind) {
+    conts.forEach(function (c) { c.classList.toggle("on", c.getAttribute("data-kind") === kind); });
+  }
+  function selectTab(n) {
+    tabs.forEach(function (t, i) { t.setAttribute("aria-selected", i === n ? "true" : "false"); });
   }
 
-  function typeLine(text, node, i) {
-    if (i > text.length) return;
-    node.textContent = text.slice(0, i);
-    at(18, function () { typeLine(text, node, i + 1); });
+  function resetScene(n) {
+    var sc = SCENES[n];
+    current = n;
+    selectTab(n);
+    clearVerdicts();
+    paintAll(sc.start);
+    noteEl.textContent = sc.note;
+    for (var i = 0; i < 4; i++) setLog(i, "", "");
+    setCont(null);
   }
 
-  function showFinalStateOnly() {
-    resetDemo();
-    el.sourceStatus.textContent = "stopped";
-    el.sourceStatus.className = "v muted";
-    el.sourceDot.className = "status-dot stopped";
-    el.sourceUsageText.textContent = "100%";
-    el.sourceUsageText.className = "v danger";
-    el.sourceUsageBar.style.width = "100%";
-    el.sourceUsageBar.className = "usage-bar-fill";
-    el.lines.forEach(function (line) {
-      line.classList.add("show", "done");
-      line.querySelector(".mark").textContent = "✓";
+  function runScene(n) {
+    clearTimers();
+    resetScene(n);
+    var sc = SCENES[n];
+    var t = 1400;
+    at(t, function () {
+      paint(sc.from, "exhausted", 100);
+      rows[sc.from].classList.add("s-writer");
+      setLog(0, NAMES[sc.from] + " hit its limit", "");
     });
-    el.transferDot.style.left = "100%";
-    el.fallbackDot.className = "status-dot active";
-    el.fallbackSession.textContent = SESSION_ID;
-    el.fallbackSession.className = "v success";
-    el.fallbackStatus.textContent = "resumed";
-    el.fallbackStatus.className = "v success";
-    el.fallbackContinuation.classList.add("show");
-    el.fallbackContinuationText.textContent = "> continuing from previous context…";
+    t += 900;
+    at(t, function () {
+      setLog(0, NAMES[sc.from] + " hit its limit", "done");
+      setLog(1, "re-checking the whole hierarchy…", "");
+    });
+    // scan from the top every time: this is a re-evaluation, not a step downward
+    for (var i = 0; i < 3; i++) {
+      (function (i) {
+        t += 700;
+        at(t, function () {
+          rows.forEach(function (r) { r.classList.remove("scan"); });
+          var r = rows[i];
+          var v = r.querySelector(".verdict");
+          if (i > sc.to) { r.classList.add("dim"); v.textContent = sc.verdicts[i]; v.className = "verdict show"; return; }
+          r.classList.add("scan");
+          v.textContent = sc.verdicts[i];
+          v.className = "verdict show" + (i === sc.to ? " pick" : "");
+        });
+      })(i);
+    }
+    t += 800;
+    at(t, function () {
+      setLog(1, "re-checking the whole hierarchy…", "done");
+      setLog(2, NAMES[sc.from] + " → " + NAMES[sc.to] + " · stop old writer, verify new", "");
+      setCont(sc.kind);
+    });
+    t += 1100;
+    at(t, function () {
+      setLog(2, NAMES[sc.from] + " → " + NAMES[sc.to] + " · stop old writer, verify new", "done");
+      rows.forEach(function (r) { r.classList.remove("scan", "dim"); });
+      paintAll(sc.after);
+      rows[sc.from].querySelector(".verdict").textContent = "was writer · limit hit";
+      setLog(3, sc.done, "done");
+      noteEl.textContent = "One writer at a time. It stays put until it blocks.";
+    });
+    t += 3400;
+    at(t, function () { runScene((n + 1) % SCENES.length); });
   }
+
+  function showFinalStateOnly(n) {
+    var sc = SCENES[n];
+    resetScene(n);
+    clearVerdicts();
+    paintAll(sc.after);
+    sc.verdicts.forEach(function (text, i) {
+      var v = rows[i].querySelector(".verdict");
+      v.textContent = text;
+      v.className = "verdict show" + (i === sc.to ? " pick" : "");
+    });
+    rows[sc.from].querySelector(".verdict").textContent = "was writer · limit hit";
+    setLog(0, NAMES[sc.from] + " hit its limit", "done");
+    setLog(1, "re-checking the whole hierarchy…", "done");
+    setLog(2, NAMES[sc.from] + " → " + NAMES[sc.to] + " · stop old writer, verify new", "done");
+    setLog(3, sc.done, "done");
+    setCont(sc.kind);
+    noteEl.textContent = "One writer at a time. It stays put until it blocks.";
+  }
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      var n = parseInt(tab.getAttribute("data-scene"), 10);
+      if (reduceMotion) { showFinalStateOnly(n); } else { runScene(n); }
+    });
+  });
 
   var demoEl = document.getElementById("handoff-demo");
   var started = false;
   function maybeStart() {
     if (started) return;
     started = true;
-    if (reduceMotion) {
-      showFinalStateOnly();
-    } else {
-      runSequence();
-    }
+    if (reduceMotion) { showFinalStateOnly(0); } else { runScene(0); }
   }
+  resetScene(0);
 
   if ("IntersectionObserver" in window) {
     var io = new IntersectionObserver(function (entries) {
