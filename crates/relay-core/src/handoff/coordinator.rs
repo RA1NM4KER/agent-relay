@@ -199,7 +199,16 @@ pub struct HandoffRequest {
 pub struct HandoffCoordinator<'a> {
     pub paths: &'a RelayPaths,
     pub liveness: &'a dyn SourceLiveness,
-    pub stopper: &'a dyn SessionStopper,
+    /// Stops the SOURCE's writer. For a same-provider transaction this is the same provider as
+    /// `target_stopper`; for a cross-provider one it is NOT — never assume one `SessionStopper`
+    /// implementation can serve both roles.
+    pub source_stopper: &'a dyn SessionStopper,
+    /// Stops an orphaned TARGET process during crash recovery
+    /// ([`Self::recover`]'s `supervise_orphan_target`) — a target process may exist under a
+    /// different provider than the source, so this must be the TARGET's provider's stopper, not
+    /// necessarily the same instance as `source_stopper`. Unused on the ordinary (non-crash)
+    /// path, which never stops a target.
+    pub target_stopper: &'a dyn SessionStopper,
     /// Required when `continuity_type` is [`ContinuityType::SessionContinuation`]; unused
     /// otherwise. `run` fails closed with [`Error::MissingHandoffPort`] if the wrong one is
     /// absent for the requested continuity type.
@@ -432,7 +441,7 @@ impl HandoffCoordinator<'_> {
         }
         // M2B.75: authoritative stop of our own session, verified quiescent across multiple
         // consecutive observations — not a single check, and not a raw kill.
-        match self.stopper.stop_and_verify(
+        match self.source_stopper.stop_and_verify(
             &request.source_config_dir,
             project_dir,
             &request.session_id,
@@ -717,7 +726,7 @@ impl HandoffCoordinator<'_> {
         // is preserved and simply resumed from.
         let stop_result = match journal.target_launch.clone() {
             Some(record) => self
-                .stopper
+                .target_stopper
                 .stop_orphan_target(
                     &journal.target_config_dir,
                     &journal.project_dir,
@@ -726,7 +735,7 @@ impl HandoffCoordinator<'_> {
                 )
                 .map_err(|error| (format!("pid {}", record.process.pid), error)),
             None => self
-                .stopper
+                .target_stopper
                 .stop_unrecorded_targets(
                     &journal.target_config_dir,
                     &journal.project_dir,

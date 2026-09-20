@@ -188,7 +188,8 @@ impl Fixture {
         let handoff = HandoffCoordinator {
             paths: &self.paths,
             liveness: &ports,
-            stopper: &ports,
+            source_stopper: &ports,
+            target_stopper: &ports,
             stager: Some(&ports),
             context_capturer: None,
             launcher: &ports,

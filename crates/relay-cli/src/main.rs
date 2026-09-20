@@ -1228,16 +1228,23 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     paths: &paths,
                     liveness: &liveness,
                     stopper: &stopper,
-                    stager: &stager,
+                    stager: Some(&stager),
+                    context_capturer: None,
                     launcher: &launcher,
                 };
+                // `relay handoff run` is the M2B low-level debugging entry point and predates
+                // multi-provider profiles; it stays Claude-only (SESSION_CONTINUATION), exactly
+                // as before M6. `relay switch` is the provider-aware M6 entry point.
                 let journal = coordinator.run(HandoffRequest {
                     project_dir: project_dir.clone(),
                     source_profile: source.name.clone(),
+                    source_provider: relay_core::ProviderKind::Claude,
                     source_config_dir: source.config_dir.clone(),
                     target_profile: target.name.clone(),
+                    target_provider: relay_core::ProviderKind::Claude,
                     target_config_dir: target.config_dir.clone(),
                     session_id: session_id.clone(),
+                    continuity_type: relay_core::handoff::ContinuityType::SessionContinuation,
                 })?;
                 let human = format!(
                     "Handoff {} ({} -> {}): {:?}\nSession: {}\nTransaction: {}",
@@ -1295,7 +1302,8 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 paths: &paths,
                 liveness: &liveness,
                 stopper: &stopper,
-                stager: &stager,
+                stager: Some(&stager),
+                context_capturer: None,
                 launcher: &launcher,
             };
             let journal = if *acknowledge {

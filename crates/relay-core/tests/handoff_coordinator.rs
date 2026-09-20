@@ -235,7 +235,8 @@ fn successful_handoff_reaches_complete_and_updates_the_lease() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -271,7 +272,8 @@ fn a_wrong_source_profile_is_rejected_once_a_lease_is_owned_by_someone_else() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -298,7 +300,8 @@ fn reverse_handoff_from_the_new_owner_succeeds() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -325,7 +328,8 @@ fn stop_verification_failure_fails_the_stop_phase_and_stages_nothing() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(true),
-        stopper: &FailingStopper,
+        source_stopper: &FailingStopper,
+        target_stopper: &FailingStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -347,7 +351,8 @@ fn an_active_source_is_stopped_rather_than_immediately_refused() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(true),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -369,7 +374,8 @@ fn journal_records_failed_phase_when_stop_cannot_be_verified() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(true),
-        stopper: &FailingStopper,
+        source_stopper: &FailingStopper,
+        target_stopper: &FailingStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -402,7 +408,8 @@ fn divergent_transcript_fails_the_transfer_phase() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&FailingStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -424,7 +431,8 @@ fn target_startup_failure_fails_the_target_start_phase() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &FailingLauncher,
@@ -446,7 +454,8 @@ fn target_identity_mismatch_fails_verification_and_does_not_move_the_lease() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &WrongSessionLauncher,
@@ -484,7 +493,8 @@ fn concurrent_handoff_attempts_are_serialized_and_exactly_one_transaction_per_sl
             let coordinator = HandoffCoordinator {
                 paths: &paths,
                 liveness: &liveness,
-                stopper: &OkStopper,
+                source_stopper: &OkStopper,
+                target_stopper: &OkStopper,
                 stager: Some(&OkStager),
                 context_capturer: None,
                 launcher: &OkLauncher,
@@ -527,7 +537,8 @@ fn a_live_orchestration_lock_blocks_recovery() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -581,7 +592,8 @@ fn recovery_at_every_interrupted_stage_produces_the_documented_safe_outcome() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -800,7 +812,8 @@ fn recovery_stops_a_recorded_orphan_target_then_reverifies_and_completes_without
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &stopper,
+        source_stopper: &stopper,
+        target_stopper: &stopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &launcher,
@@ -869,7 +882,8 @@ fn recovery_never_launches_a_second_target_when_the_orphan_cannot_be_confirmed_s
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &stopper,
+        source_stopper: &stopper,
+        target_stopper: &stopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &launcher,
@@ -924,7 +938,8 @@ fn a_failed_reverification_after_stopping_the_orphan_fails_closed_without_moving
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &stopper,
+        source_stopper: &stopper,
+        target_stopper: &stopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &WrongSessionLauncher,
@@ -986,7 +1001,8 @@ fn a_transient_orphan_stop_failure_can_be_retried_by_recovering_again() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &stopper,
+        source_stopper: &stopper,
+        target_stopper: &stopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &launcher,
@@ -1052,7 +1068,8 @@ fn a_target_that_may_have_spawned_before_its_identity_was_recorded_is_still_supe
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &stopper,
+        source_stopper: &stopper,
+        target_stopper: &stopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &launcher,
@@ -1091,7 +1108,8 @@ fn an_unrecorded_target_that_cannot_be_ruled_out_blocks_recovery_and_launches_no
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &stopper,
+        source_stopper: &stopper,
+        target_stopper: &stopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &launcher,
@@ -1124,7 +1142,8 @@ fn a_recovery_required_transaction_can_be_acknowledged_to_unblock_the_project() 
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &stopper,
+        source_stopper: &stopper,
+        target_stopper: &stopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -1170,7 +1189,8 @@ fn a_pending_recovery_required_transaction_blocks_a_fresh_handoff_for_the_same_p
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &stopper,
+        source_stopper: &stopper,
+        target_stopper: &stopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -1211,7 +1231,8 @@ fn a_terminal_prior_transaction_never_blocks_a_fresh_handoff() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -1236,7 +1257,8 @@ fn a_target_process_spawn_is_recorded_even_when_the_launch_ultimately_fails() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OrphaningLauncher { pid: 123_456 },
@@ -1274,7 +1296,8 @@ fn recovering_an_already_terminal_transaction_twice_is_idempotent() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -1309,7 +1332,8 @@ fn recovering_an_unknown_transaction_id_reports_not_found_rather_than_guessing()
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -1334,7 +1358,8 @@ fn a_corrupted_journal_fails_closed_during_recovery() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -1391,7 +1416,8 @@ fn wrong_project_never_collides_with_a_different_projects_state() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -1439,7 +1465,8 @@ fn an_untracked_session_for_the_source_profile_blocks_the_handoff() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &UntrackedLiveness,
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -1485,7 +1512,8 @@ fn a_confirmed_dead_recorded_owner_is_not_treated_as_active() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: Some(&OkStager),
         context_capturer: None,
         launcher: &OkLauncher,
@@ -1576,7 +1604,8 @@ fn a_state_continuation_handoff_completes_with_a_new_target_session_id() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: None,
         context_capturer: Some(&FixedBundleCapturer),
         launcher: &BootstrapEchoLauncher,
@@ -1619,7 +1648,8 @@ fn a_state_continuation_without_a_context_capturer_fails_closed() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: None,
         context_capturer: None,
         launcher: &BootstrapEchoLauncher,
@@ -1641,7 +1671,8 @@ fn a_session_continuation_without_a_stager_fails_closed() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: None,
         context_capturer: None,
         launcher: &OkLauncher,
@@ -1680,7 +1711,8 @@ fn an_empty_target_session_id_fails_state_continuation_verification() {
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &OkStopper,
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
         stager: None,
         context_capturer: Some(&FixedBundleCapturer),
         launcher: &EmptySessionLauncher,
@@ -1699,7 +1731,14 @@ fn a_crash_during_state_continuation_target_launch_requires_explicit_recovery() 
     init_git_repo(&project_dir);
     let project_dir = project_dir.canonicalize().expect("canonicalize");
     let paths = relay_paths(root.path());
-    let stopper = RecordingStopper {
+    // Distinct source/target stoppers, as a real cross-provider (Claude source, Codex target)
+    // handoff would use: proves recovery stops the orphan TARGET with the TARGET's own stopper,
+    // never the source's provider's stopper.
+    let source_stopper = RecordingStopper {
+        calls: Mutex::new(Vec::new()),
+        fail: false,
+    };
+    let target_stopper = RecordingStopper {
         calls: Mutex::new(Vec::new()),
         fail: false,
     };
@@ -1709,7 +1748,8 @@ fn a_crash_during_state_continuation_target_launch_requires_explicit_recovery() 
     let coordinator = HandoffCoordinator {
         paths: &paths,
         liveness: &FixedLiveness(false),
-        stopper: &stopper,
+        source_stopper: &source_stopper,
+        target_stopper: &target_stopper,
         stager: None,
         context_capturer: Some(&FixedBundleCapturer),
         launcher: &launcher,
@@ -1738,9 +1778,14 @@ fn a_crash_during_state_continuation_target_launch_requires_explicit_recovery() 
         other => panic!("expected RecoveryRequired, got {other:?}"),
     }
     assert_eq!(
-        stopper.calls.lock().expect("calls").len(),
+        target_stopper.calls.lock().expect("calls").len(),
         1,
         "the orphan target must still be stopped even though it is not relaunched"
+    );
+    assert_eq!(
+        source_stopper.calls.lock().expect("calls").len(),
+        0,
+        "a cross-provider orphan target must never be stopped with the SOURCE's stopper"
     );
     assert_eq!(
         *launcher.launches.lock().expect("launch count"),
