@@ -207,6 +207,9 @@ struct SetupArgs {
     herdr: Option<bool>,
     #[arg(long, value_name = "PATH")]
     claude_executable: Option<PathBuf>,
+    /// Explicit Codex executable, primarily for controlled validation.
+    #[arg(long, value_name = "PATH")]
+    codex_executable: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -2814,17 +2817,29 @@ fn prompt_yes_no(question: &str, default_yes: bool) -> Result<bool, Error> {
 /// one broken profile does not hide every other one.
 fn friendly_auth_state(
     profile: &Profile,
-    claude_executable: Option<&Path>,
+    executables: &providers::ExecutableOverrides,
 ) -> (&'static str, Option<String>) {
-    if profile.provider != ProviderKind::Claude {
-        return ("unknown", None);
+    if profile.provider == ProviderKind::Claude {
+        // Kept on the strict Claude-specific inspector (identity pin required, not just
+        // "authenticated") rather than the generic Provider::inspect_profile dispatch: this is
+        // the pre-M6 behavior and changing it is out of M6's scope.
+        let Ok(inspector) = ClaudeInspector::discover(executables.claude.as_deref()) else {
+            return ("unreachable", None);
+        };
+        let environment = inspect_environment(&profile.config_dir);
+        return match inspector.inspect(&profile.config_dir, environment) {
+            Ok(report) if report.authenticated && report.identity_pin.is_some() => {
+                ("authenticated", None)
+            }
+            Ok(_) => ("needs login", None),
+            Err(error) => ("unreachable", Some(error.to_string())),
+        };
     }
-    let Ok(inspector) = ClaudeInspector::discover(claude_executable) else {
+    let Ok(provider) = providers::provider_backend(profile.provider, executables) else {
         return ("unreachable", None);
     };
-    let environment = inspect_environment(&profile.config_dir);
-    match inspector.inspect(&profile.config_dir, environment) {
-        Ok(report) if report.authenticated && report.identity_pin.is_some() => {
+    match provider.inspect_profile(&profile.config_dir) {
+        Ok(observation) if observation.authentication == AuthenticationState::Authenticated => {
             ("authenticated", None)
         }
         Ok(_) => ("needs login", None),
@@ -2845,16 +2860,29 @@ fn run_profiles(service: &ProfileService, paths: &RelayPaths) -> Result<CommandO
         } else {
             "unassigned"
         };
-        let (auth_state, _detail) = friendly_auth_state(profile, None);
-        lines.push(format!("{:<12} {:<10} {}", profile.name, role, auth_state));
+        let (auth_state, _detail) =
+            friendly_auth_state(profile, &providers::ExecutableOverrides::default());
+        lines.push(format!(
+            "{:<12} {:<8} {:<10} {}",
+            profile.name, profile.provider, role, auth_state
+        ));
         rows.push(json!({
             "name": profile.name.as_str(),
+            "provider": profile.provider.to_string(),
             "role": role,
             "authentication": auth_state,
         }));
     }
     if lines.is_empty() {
         lines.push("No profiles registered yet. Run `relay setup` to get started.".to_owned());
+    } else {
+        lines.insert(
+            0,
+            format!(
+                "{:<12} {:<8} {:<10} {}",
+                "PROFILE", "PROVIDER", "ROLE", "AUTH"
+            ),
+        );
     }
     success("profiles", lines.join("\n"), json!({ "profiles": rows }))
 }
@@ -2886,7 +2914,7 @@ fn run_status(
     let registered = service.list()?;
     let primary_profile = registered.iter().find(|profile| profile.name == primary);
     let (primary_auth, _) = primary_profile.map_or(("not registered", None), |profile| {
-        friendly_auth_state(profile, None)
+        friendly_auth_state(profile, &providers::ExecutableOverrides::default())
     });
 
     let project_id = ProjectId::for_canonical_path(&canonical)?;
@@ -3064,8 +3092,12 @@ fn run_claude(
         .find(|profile| profile.name == primary)
         .ok_or_else(|| Error::ProfileNotFound(primary.to_string()))?;
 
+    let executables = providers::ExecutableOverrides {
+        claude: args.claude_executable.clone(),
+        codex: None,
+    };
     // M4.7: safe reauthentication for the primary; fallback unauthenticated is a warning only.
-    let (primary_auth, _) = friendly_auth_state(primary_profile, args.claude_executable.as_deref());
+    let (primary_auth, _) = friendly_auth_state(primary_profile, &executables);
     if primary_auth != "authenticated" {
         if !json_mode {
             println!(
@@ -3090,8 +3122,7 @@ fn run_claude(
             .iter()
             .find(|profile| &profile.name == fallback_name)
         {
-            let (fallback_auth, _) =
-                friendly_auth_state(fallback_profile, args.claude_executable.as_deref());
+            let (fallback_auth, _) = friendly_auth_state(fallback_profile, &executables);
             if fallback_auth != "authenticated" && !json_mode {
                 eprintln!(
                     "Warning: fallback profile '{fallback_name}' is not authenticated ({fallback_auth}); primary work may still proceed."
@@ -3235,6 +3266,16 @@ fn run_setup(
         Ok(version) => println!("  Claude Code        \u{2713} ({version})"),
         Err(_) => println!("  Claude Code        \u{2717} not found"),
     }
+    // M6: detected only — never required. A user with no Codex CLI installed sees exactly the
+    // pre-M6 wizard; the Codex-profile prompt below only appears when this succeeds.
+    let codex_executable = args.codex_executable.as_deref();
+    let codex_version = relay_provider_codex::CodexInspector::discover(codex_executable)
+        .and_then(|inspector| inspector.inspect_version());
+    match &codex_version {
+        Ok(version) => println!("  Codex CLI          \u{2713} ({version})"),
+        Err(_) => println!("  Codex CLI          (not found; optional)"),
+    }
+    let codex_available = codex_version.is_ok();
     let herdr_client = HerdrCliClient::discover(None);
     let herdr_probe = herdr_client
         .as_ref()
@@ -3267,7 +3308,13 @@ fn run_setup(
     if !registered.is_empty() {
         println!("\nExisting profiles found:");
         for profile in &registered {
-            let (auth, _) = friendly_auth_state(profile, claude_executable);
+            let (auth, _) = friendly_auth_state(
+                profile,
+                &providers::ExecutableOverrides {
+                    claude: claude_executable.map(Path::to_path_buf),
+                    codex: None,
+                },
+            );
             println!("  \u{2713} {} ({auth})", profile.name);
         }
         prompt_yes_no("\nUse these?", true)?;
@@ -3282,6 +3329,22 @@ fn run_setup(
             .map_err(|_| Error::InvalidProfileName(name_text.clone()))?;
         if registered.iter().any(|profile| profile.name == name) {
             println!("'{name}' is already registered.");
+            continue;
+        }
+        let use_codex = codex_available
+            && prompt_yes_no(
+                &format!("Is '{name}' a Codex profile? (no = Claude)"),
+                false,
+            )?;
+        if use_codex {
+            println!("\nOpening Codex login for '{name}'...");
+            match create_and_authenticate_codex_profile(service, paths, &name, codex_executable) {
+                Ok(profile) => {
+                    println!("\u{2713} {} authenticated", profile.name);
+                    registered.push(profile);
+                }
+                Err(error) => println!("Could not authenticate '{name}': {error}"),
+            }
             continue;
         }
         let create_new = prompt_yes_no(
