@@ -5,3 +5,5 @@
 
 # Agent Relay's per-project runtime state is intentionally local.
 .relay/
+
+.claude/settings.local.json

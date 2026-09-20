@@ -1,7 +1,15 @@
 # Automatic handoff: day-to-day use
 
-Automatic handoff is **opt-in and explicit**. Nothing runs unless you install the integration into a
-profile and invoke `relay watch run`. Relay is not a daemon.
+Automatic handoff is **opt-in**. Nothing runs unless you install the integration into a profile.
+Once installed, the profile's `StopFailure` hook is the trigger: when Claude reports a rate limit
+for the session Relay manages for that project, the hook starts one short-lived, detached
+`relay watch auto` (a hidden command) that runs exactly the evaluation `relay watch run` runs,
+retrying for about two minutes only while it answers "no action needed" (the statusline snapshot
+that corroborates a limit can land just after the failure). It logs each attempt to
+`<state>/projects/<project>/auto-handoff.log`. Relay is not a daemon and never polls; you can still
+invoke `relay watch run` by hand at any time. Only the exact session named by the project's writer
+lease can trigger it, and every safety rule below (cooldown, per-window cap, known-exhausted
+ledger, single-writer lock) applies unchanged.
 
 ## One-time setup (per profile)
 

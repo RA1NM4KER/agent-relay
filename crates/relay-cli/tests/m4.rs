@@ -124,17 +124,58 @@ fn secure_relay_config_ancestors(root: &Path) {
 struct FakeClaude {
     executable: std::path::PathBuf,
     log_path: std::path::PathBuf,
+    stopped_marker: std::path::PathBuf,
 }
 
 impl FakeClaude {
     fn new(root: &Path, auth_json: &str, bg_id: &str, session_id: &str, pid: u32) -> Self {
+        Self::build(root, auth_json, bg_id, session_id, pid, true)
+    }
+
+    /// Like [`Self::new`], but `stop <id>` "succeeds" (exit 0, as the real `claude stop` would
+    /// for a hung/unresponsive session) without ever making `agents --json` stop listing the
+    /// session — i.e. the authoritative stop is issued but quiescence never actually arrives.
+    /// Exists to prove `--new`'s stop-and-verify step fails closed (`StopNotVerified`) rather
+    /// than trusting the stop command's own exit code, and that a failed stop never launches a
+    /// second writer.
+    fn new_with_ineffective_stop(
+        root: &Path,
+        auth_json: &str,
+        bg_id: &str,
+        session_id: &str,
+        pid: u32,
+    ) -> Self {
+        Self::build(root, auth_json, bg_id, session_id, pid, false)
+    }
+
+    fn build(
+        root: &Path,
+        auth_json: &str,
+        bg_id: &str,
+        session_id: &str,
+        pid: u32,
+        stop_is_effective: bool,
+    ) -> Self {
         use std::os::unix::fs::PermissionsExt;
         let log_path = root.join("claude-invocations.log");
-        let executable = root.join("fake-claude");
+        let executable = root.join(format!("fake-claude-{bg_id}"));
+        let stopped_marker = root.join(format!("stopped-{bg_id}"));
+        // `stop_is_effective = false`: `stop` still exits 0 (as the real command would) but never
+        // touches the marker, so `agents --json` keeps listing the session as live forever —
+        // simulating a stop that was issued but never actually took effect.
+        let stop_case = if stop_is_effective {
+            format!(
+                r#"stop) touch "{marker}"; exit 0 ;;"#,
+                marker = stopped_marker.display()
+            )
+        } else {
+            "stop) exit 0 ;;".to_owned()
+        };
         let script = format!(
             r#"#!/bin/sh
 LOG="{log}"
 printf '{{"args":"%s","config_dir":"%s"}}\n' "$*" "$CLAUDE_CONFIG_DIR" >> "$LOG"
+STOPPED="{marker}"
 case "$1" in
   --version) printf '%s\n' "2.1.276 (Claude Code)" ;;
   auth)
@@ -145,15 +186,26 @@ case "$1" in
       *) exit 2 ;;
     esac
     ;;
-  --bg) printf 'backgrounded \302\267 %s\n' "{bg_id}" ;;
+  --bg) rm -f "$STOPPED"; printf 'backgrounded \302\267 %s\n' "{bg_id}" ;;
   agents)
-    printf '[{{"pid":{pid},"id":"{bg_id}","cwd":"%s","kind":"background","startedAt":1,"sessionId":"{session_id}","name":"x","status":"idle","state":"done"}}]\n' "$PWD"
+    if [ -f "$STOPPED" ]; then
+      printf '[]\n'
+    else
+      # No "cwd" field: query_active_sessions never sets the spawned command's working
+      # directory, so a real $PWD here would just be relay's own cwd, never the project
+      # directory under test -- omitting it (deserializes as None) makes Relay's own cwd
+      # filters treat every record as "in this project", matching purely on session id instead.
+      printf '[{{"pid":{pid},"id":"{bg_id}","kind":"background","startedAt":1,"sessionId":"{session_id}","name":"x","status":"idle","state":"done"}}]\n'
+    fi
     ;;
+  {stop_case}
   attach) exit 0 ;;
+  --resume) exit 0 ;;
   *) exit 2 ;;
 esac
 "#,
             log = log_path.display(),
+            marker = stopped_marker.display(),
         );
         std::fs::write(&executable, script).expect("fake claude script");
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
@@ -161,11 +213,19 @@ esac
         Self {
             executable,
             log_path,
+            stopped_marker,
         }
     }
 
     fn path_text(&self) -> String {
         self.executable.to_string_lossy().into_owned()
+    }
+
+    /// Path this instance's `stop` case touches once a stop is actually issued for its session —
+    /// lets a test observe (or synchronize on) the exact moment a stop takes effect, independent
+    /// of wall-clock guessing.
+    fn stopped_marker_path(&self) -> std::path::PathBuf {
+        self.stopped_marker.clone()
     }
 
     fn invocations(&self) -> Vec<Value> {
@@ -816,8 +876,12 @@ fn claude_and_launch_share_one_writer_creation_implementation() {
     assert_eq!(claude_data["profile"], "alice");
 }
 
+/// Product contract (post-M4/M6 UX revision): `relay claude` never silently reattaches to an
+/// already-active managed session — it fails closed, pointing at `relay resume`/`relay claude
+/// --new` instead. Superseded the old `claude_entrypoint_reuses_an_active_lease_without_relaunching`
+/// test, whose whole premise (silent reattach) is exactly the behavior this contract removes.
 #[test]
-fn claude_entrypoint_reuses_an_active_lease_without_relaunching() {
+fn claude_refuses_when_a_live_managed_session_already_exists() {
     let root = tempdir().expect("tempdir");
     let project = tempdir().expect("project dir");
     let claude = FakeClaude::new(
@@ -848,9 +912,8 @@ fn claude_entrypoint_reuses_an_active_lease_without_relaunching() {
     assert!(first.status.success());
     assert_eq!(json_stdout(&first)["data"]["new_session"], true);
 
-    // Second invocation: the fake `agents --json` still reports the same session as live
-    // (state "done"/idle but *listed*, exactly the M2B.75 "still trusted as active" case), so
-    // this must reuse it rather than starting a second writer.
+    // Second invocation: the fake `agents --json` still reports the same session as live (state
+    // "done"/idle but *listed*), so this must refuse rather than reattaching or relaunching.
     let second = relay(
         root.path(),
         &[
@@ -862,12 +925,814 @@ fn claude_entrypoint_reuses_an_active_lease_without_relaunching() {
             &claude.path_text(),
         ],
     );
+    assert!(!second.status.success());
+    let error = json_stderr(&second)["error"].clone();
+    assert_eq!(error["code"], "managed_session_active");
+    assert!(error["message"].as_str().unwrap().contains("alice"));
+    assert!(error["message"].as_str().unwrap().contains("relay resume"));
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("relay claude --new")
+    );
+
+    // No second writer was ever attempted: exactly the one `--bg` launch from `first`.
+    assert_eq!(bg_invocation_count(&claude), 1);
+}
+
+/// Dogfood-found bug (M6): `relay claude`'s final `claude attach <id>` step must run under the
+/// isolated profile's own `CLAUDE_CONFIG_DIR`. Before this fix `exec_claude_attach` set no
+/// `CLAUDE_CONFIG_DIR` at all, so `claude attach` searched whatever config dir this process's
+/// *parent shell* happened to have (or the real default account's, if none) instead of the
+/// profile Relay itself just launched the background job under — `claude attach` then reported
+/// "No job matching '<id>'" even though the session was live under the correct profile.
+#[test]
+fn claude_attach_execs_under_the_lease_owners_isolated_config_dir() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    let claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("alice"),
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    let alice_config_dir = adopt_profile(root.path(), "alice", &claude);
+    relay(
+        root.path(),
+        &["setup", "--non-interactive", "--primary", "alice"],
+    );
+
+    // No `--no-attach`: this exercises the real launch-then-attach path end to end.
+    let output = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--claude-executable",
+            &claude.path_text(),
+            "hello there",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let attach_invocation = claude
+        .invocations()
+        .into_iter()
+        .find(|invocation| {
+            invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("attach "))
+        })
+        .expect("an `attach` invocation was logged");
+    // Canonicalize: on macOS `tempdir()` paths live under a `/var/...` symlink that resolves to
+    // `/private/var/...`, and profile registration stores the canonical form.
+    let expected_config_dir = std::fs::canonicalize(&alice_config_dir).expect("alice config dir");
+    assert_eq!(
+        attach_invocation["config_dir"],
+        expected_config_dir.to_string_lossy().to_string(),
+        "attach must run under alice's own CLAUDE_CONFIG_DIR, not whatever this process inherited"
+    );
+}
+
+/// Requirement from the same dogfood bug (commit `142668f`): "do not assume the configured
+/// primary is the owner, because after handoff the owner may be a fallback." `relay switch`
+/// (Claude -> Claude is SESSION_CONTINUATION) leaves exactly this on-disk shape behind: a project
+/// `lease.json` whose `owner_profile` is the handoff target, while `preferences.toml`'s primary
+/// profile is untouched. `relay resume`'s bare (no-profile) form reads that same `lease.json` the
+/// same way no matter how it got that shape — a completed `relay switch`, or (as constructed
+/// directly here, to avoid needing a full Claude session-transfer fixture) a `relay launch
+/// --profile bob` — both leave `owner_profile = bob` with `primary = alice`, so this exercises
+/// the exact code path a post-handoff `relay resume` hits. (Under the post-M6-UX-revision
+/// contract, a second `relay claude` here would correctly *refuse* rather than reattach — see
+/// `claude_refuses_when_a_live_managed_session_already_exists` — so this test uses `relay resume`,
+/// the sanctioned way to reattach.)
+#[test]
+fn resume_after_a_handoff_uses_the_new_owners_config_dir_not_the_primarys() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+
+    let alice_claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("alice"),
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        1111,
+    );
+    let alice_config_dir = adopt_profile(root.path(), "alice", &alice_claude);
+
+    let bob_claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("bob"),
+        "bbbb2222",
+        "22222222-2222-4222-8222-222222222222",
+        2222,
+    );
+    let bob_config_dir = adopt_profile(root.path(), "bob", &bob_claude);
+
+    relay(
+        root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "alice",
+            "--fallback",
+            "bob",
+        ],
+    );
+
+    // bob (a fallback, not the primary) is the project's writer — the state a completed
+    // Claude A -> Claude B handoff leaves behind.
+    let launch = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--profile",
+            "bob",
+            "--no-attach",
+            "--claude-executable",
+            &bob_claude.path_text(),
+            "hi",
+        ],
+    );
+    assert!(
+        launch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launch.stderr)
+    );
+    assert_eq!(json_stdout(&launch)["data"]["profile"], "bob");
+
+    // `relay resume` — no profile argument, so it resolves to the *lease owner* (bob), not the
+    // configured primary (alice), exactly as a user's daily "continue where I left off" would.
+    // bob's fake `agents --json` still lists the background job as live (never stopped), so the
+    // correct native command is `claude attach <bob's handle>` — never `--resume` (M6 dogfood
+    // finding #2: `--resume` against a still-live background job is rejected by real Claude).
+    // Note: this exec's the chosen command (replacing the child process image), so unlike
+    // `--no-attach` calls its stdout carries no JSON — status and the invocation log are all
+    // that's observable here.
+    let output = relay(
+        root.path(),
+        &[
+            "resume",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--claude-executable",
+            &bob_claude.path_text(),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let attach_invocation = bob_claude
+        .invocations()
+        .into_iter()
+        .rfind(|invocation| {
+            invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("attach "))
+        })
+        .expect("an `attach` invocation was logged");
+    assert_eq!(attach_invocation["args"], "attach bbbb2222");
+    assert!(
+        bob_claude.invocations().iter().all(|invocation| {
+            !invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("--resume "))
+        }),
+        "a live background job must never be resumed via `--resume`"
+    );
+    let resume_config_dir = attach_invocation["config_dir"]
+        .as_str()
+        .expect("config_dir logged as a string")
+        .to_owned();
+    // Canonicalize: on macOS `tempdir()` paths live under a `/var/...` symlink that resolves to
+    // `/private/var/...`, and profile registration stores the canonical form.
+    let expected_bob_config_dir =
+        std::fs::canonicalize(&bob_config_dir).expect("bob config dir exists");
+    let expected_alice_config_dir =
+        std::fs::canonicalize(&alice_config_dir).expect("alice config dir exists");
+    assert_eq!(
+        resume_config_dir,
+        expected_bob_config_dir.to_string_lossy().to_string(),
+        "resume must run under the lease owner's (bob's) CLAUDE_CONFIG_DIR, not the primary's"
+    );
+    assert_ne!(
+        resume_config_dir,
+        expected_alice_config_dir.to_string_lossy().to_string()
+    );
+}
+
+/// Counts logged `--bg` (background-launch) invocations for one `FakeClaude` — used to prove a
+/// second `relay claude` call reused an existing lease rather than launching a fresh session, and
+/// (post-UX-revision) that `--new` launches exactly one replacement, never more.
+fn bg_invocation_count(claude: &FakeClaude) -> usize {
+    claude
+        .invocations()
+        .into_iter()
+        .filter(|invocation| {
+            invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("--bg"))
+        })
+        .count()
+}
+
+/// Counts logged `claude stop <id>` invocations — used to prove `--new` issues exactly one
+/// authoritative stop (never zero when a live session exists, never more than one), and that a
+/// plain `relay claude`/stale-lease recovery never issues one at all.
+fn stop_invocation_count(claude: &FakeClaude) -> usize {
+    claude
+        .invocations()
+        .into_iter()
+        .filter(|invocation| {
+            invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("stop "))
+        })
+        .count()
+}
+
+/// Dogfood-found bug (M6, second finding): `relay resume` used to unconditionally run
+/// `claude --resume <session_id>` — but real Claude rejects `--resume` against a session whose
+/// `claude --bg` background job is still live ("running as a background session ... run `claude
+/// attach <id>`"). `relay resume` (bare, no profile argument) must use `claude attach
+/// <provider_handle>` for a live job, proven here via the fake's own invocation log — not
+/// `--resume`, which must never be invoked at all in this scenario.
+#[test]
+fn resume_bare_attaches_to_a_live_background_job_not_resume() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    let claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("alice"),
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        111,
+    );
+    adopt_profile(root.path(), "alice", &claude);
+    relay(
+        root.path(),
+        &["setup", "--non-interactive", "--primary", "alice"],
+    );
+
+    let launch = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "hello",
+        ],
+    );
+    assert!(launch.status.success());
+
+    // The launched background job still lists as live (fake `agents --json`, never stopped).
+    let output = relay(
+        root.path(),
+        &[
+            "resume",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let invocations = claude.invocations();
+    let attach_invocation = invocations
+        .iter()
+        .rfind(|invocation| {
+            invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("attach "))
+        })
+        .expect("an `attach` invocation was logged");
+    assert_eq!(attach_invocation["args"], "attach aaaa1111");
+    assert!(
+        invocations.iter().all(|invocation| {
+            !invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("--resume "))
+        }),
+        "a live background job must never be resumed via `--resume`"
+    );
+}
+
+/// The other half of the same M6 dogfood finding: once the recorded background job is
+/// confirmed gone (a real, previously-alive pid — see the `--new`/stale-lease tests' doc
+/// comments for why a synthetic pid can't prove "confirmed gone" — now killed and reaped, and
+/// dropped from the fake's own `agents --json` listing), `relay resume` must fall back to native
+/// `claude --resume <session_id>` — attaching would find nothing to attach to.
+#[test]
+fn resume_uses_native_resume_when_the_background_job_is_confirmed_dead() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    let mut long_lived = std::process::Command::new("sleep")
+        .arg("300")
+        .spawn()
+        .expect("spawn long-lived process");
+    let claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("alice"),
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        long_lived.id(),
+    );
+    adopt_profile(root.path(), "alice", &claude);
+    relay(
+        root.path(),
+        &["setup", "--non-interactive", "--primary", "alice"],
+    );
+
+    let launch = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "hello",
+        ],
+    );
+    assert!(launch.status.success());
+
+    // The background job has genuinely ended: the real process behind the recorded pid is
+    // confirmed gone, and the provider's own bookkeeping no longer lists it — but the native
+    // session itself is still safely resumable.
+    let _ = long_lived.kill();
+    long_lived.wait().expect("long-lived process exits");
+    std::fs::write(claude.stopped_marker_path(), b"").expect("mark session no longer listed");
+
+    let output = relay(
+        root.path(),
+        &[
+            "resume",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let invocations = claude.invocations();
+    let resume_invocation = invocations
+        .iter()
+        .rfind(|invocation| {
+            invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("--resume "))
+        })
+        .expect("a `--resume` invocation was logged");
+    assert_eq!(
+        resume_invocation["args"],
+        "--resume 11111111-1111-4111-8111-111111111111"
+    );
+    assert!(
+        invocations.iter().all(|invocation| {
+            !invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("attach "))
+        }),
+        "a confirmed-dead background job must never be attached to"
+    );
+}
+
+/// Safety property: when the background job isn't listed and the recorded owner process's
+/// identity can't be established either way (a synthetic pid never has a real start-time
+/// fingerprint to compare against — genuinely indeterminate, not confirmed-gone), `relay resume`
+/// must fail closed rather than guess between attaching and resuming — and, critically, must
+/// never start a second writer as a side effect of that guess.
+#[test]
+fn resume_fails_closed_when_liveness_is_ambiguous() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    let claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("alice"),
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        111,
+    );
+    adopt_profile(root.path(), "alice", &claude);
+    relay(
+        root.path(),
+        &["setup", "--non-interactive", "--primary", "alice"],
+    );
+
+    let launch = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "hello",
+        ],
+    );
+    assert!(launch.status.success());
+
+    // Drop the session from the provider's own listing with no way to establish whether the
+    // recorded (synthetic) pid is really gone -- an indeterminate, not a confirmed, state.
+    std::fs::write(claude.stopped_marker_path(), b"").expect("mark session no longer listed");
+
+    let output = relay(
+        root.path(),
+        &[
+            "resume",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(!output.status.success());
+    assert_eq!(
+        json_stderr(&output)["error"]["code"],
+        "ambiguous_session_liveness"
+    );
+
+    // Fails closed: no attach, no resume, and no second writer launched (still just the one
+    // `--bg` from the initial launch above).
+    let invocations = claude.invocations();
+    assert!(invocations.iter().all(|invocation| {
+        let args = invocation["args"].as_str().unwrap_or("");
+        !args.starts_with("attach ") && !args.starts_with("--resume ")
+    }));
+    assert_eq!(bg_invocation_count(&claude), 1);
+}
+
+/// Requirement 2: "If there is no resumable managed session, say so clearly."
+#[test]
+fn resume_with_no_active_session_says_so_clearly() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    let output = relay(
+        root.path(),
+        &["resume", "--project-dir", &project.path().to_string_lossy()],
+    );
+    assert!(!output.status.success());
+    assert_eq!(
+        json_stderr(&output)["error"]["code"],
+        "no_active_writer_for_project"
+    );
+}
+
+/// Core `--new` behavior: an active managed session is safely stopped (via the same
+/// stop-and-verify machinery `relay switch`/recovery use) and confirmed gone before a genuinely
+/// fresh one is launched — proven by the invocation log's exact ordering, never by internal state
+/// alone.
+///
+/// Uses a real OS process's pid rather than a synthetic number: Relay's own liveness/quiescence
+/// checks fall back to an authoritative pid+start-time-fingerprint comparison whenever a session
+/// drops out of `claude agents --json`'s listing (see `ClaudeSourceLiveness::check`'s
+/// "unestablishable identity fails closed" note), and that fallback can only ever resolve to a
+/// genuine "confirmed gone" (`Some(false)`) — as opposed to an indeterminate reading it must
+/// conservatively treat as still active — for a pid that was really alive when Relay first
+/// recorded it. The process is killed and reaped the moment the fake `stop` case actually fires
+/// (watched via its marker file) rather than after a fixed sleep: this machine's own per-`relay`-
+/// invocation subprocess overhead varies (observed ~1.5s for a single call), so timing the real
+/// process's death off wall-clock elapsed time would be flaky; tying it to the actual stop event
+/// is not.
+#[test]
+fn claude_new_stops_the_existing_writer_and_starts_a_fresh_one() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    // Long-lived on purpose: it only needs to survive until the real `stop` event fires, which
+    // the reaper thread below watches for directly.
+    let mut long_lived = std::process::Command::new("sleep")
+        .arg("300")
+        .spawn()
+        .expect("spawn long-lived process");
+    let long_lived_pid = long_lived.id();
+    let claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("alice"),
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        long_lived_pid,
+    );
+    let marker_path = claude.stopped_marker_path();
+    let reaper = std::thread::spawn(move || {
+        while !marker_path.exists() {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let _ = long_lived.kill();
+        let _ = long_lived.wait();
+    });
+
+    adopt_profile(root.path(), "alice", &claude);
+    relay(
+        root.path(),
+        &["setup", "--non-interactive", "--primary", "alice"],
+    );
+
+    let first = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "hello",
+        ],
+    );
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert_eq!(bg_invocation_count(&claude), 1);
+    assert_eq!(stop_invocation_count(&claude), 0);
+
+    // The session still lists as active (fake `agents --json`), so a plain `relay claude` here
+    // would refuse (proven separately by `claude_refuses_when_a_live_managed_session_already_exists`).
+    // `--new` must instead stop it (which triggers the reaper thread above, killing the real
+    // process behind the recorded pid), confirm quiescence, then launch a genuinely fresh one —
+    // never two writers coexisting.
+    let second = relay(
+        root.path(),
+        &[
+            "claude",
+            "--new",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "hello again",
+        ],
+    );
     assert!(
         second.status.success(),
         "{}",
         String::from_utf8_lossy(&second.stderr)
     );
-    let data = json_stdout(&second)["data"].clone();
-    assert_eq!(data["new_session"], false);
-    assert_eq!(data["session_id"], "11111111-1111-4111-8111-111111111111");
+    assert_eq!(json_stdout(&second)["data"]["new_session"], true);
+
+    assert_eq!(bg_invocation_count(&claude), 2, "exactly one relaunch");
+    assert_eq!(
+        stop_invocation_count(&claude),
+        1,
+        "exactly one stop, for the one prior writer"
+    );
+
+    let invocations = claude.invocations();
+    let bg_indices: Vec<usize> = invocations
+        .iter()
+        .enumerate()
+        .filter(|(_, invocation)| {
+            invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("--bg"))
+        })
+        .map(|(index, _)| index)
+        .collect();
+    let stop_index = invocations
+        .iter()
+        .position(|invocation| {
+            invocation["args"]
+                .as_str()
+                .is_some_and(|args| args.starts_with("stop "))
+        })
+        .expect("a stop invocation was logged");
+    assert_eq!(bg_indices.len(), 2);
+    assert!(
+        bg_indices[0] < stop_index && stop_index < bg_indices[1],
+        "stop must happen strictly between the two launches — no window where two writers exist"
+    );
+
+    reaper.join().expect("reaper thread");
+}
+
+/// Requirement: "If there is no existing session, it [`--new`] should simply behave like `relay
+/// claude`" — in particular, never issuing a stop when there is nothing to stop.
+#[test]
+fn claude_new_behaves_like_claude_when_no_existing_session() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    let claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("alice"),
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        111,
+    );
+    adopt_profile(root.path(), "alice", &claude);
+    relay(
+        root.path(),
+        &["setup", "--non-interactive", "--primary", "alice"],
+    );
+
+    let output = relay(
+        root.path(),
+        &[
+            "claude",
+            "--new",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "hello",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(json_stdout(&output)["data"]["new_session"], true);
+    assert_eq!(bg_invocation_count(&claude), 1);
+    assert_eq!(
+        stop_invocation_count(&claude),
+        0,
+        "nothing to stop, so stop must never be called"
+    );
+}
+
+/// Safety property: if the authoritative stop can never be verified quiescent (a hung/unresponsive
+/// session), `--new` must fail closed and must never proceed to launch a second writer — the
+/// original lease is left exactly as it was.
+///
+/// Uses this test process's own pid — guaranteed alive for the test's entire duration — as the
+/// recorded owner, so the pid+fingerprint fallback (see the previous test's doc comment) reads a
+/// genuine "still the same process" the whole time and can never spuriously resolve to quiescent.
+#[test]
+fn claude_new_fails_closed_when_stop_cannot_be_verified_and_never_launches_a_second_writer() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    let claude = FakeClaude::new_with_ineffective_stop(
+        root.path(),
+        &auth_json_for("alice"),
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        std::process::id(),
+    );
+    adopt_profile(root.path(), "alice", &claude);
+    relay(
+        root.path(),
+        &["setup", "--non-interactive", "--primary", "alice"],
+    );
+
+    let first = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "hello",
+        ],
+    );
+    assert!(first.status.success());
+
+    let second = relay(
+        root.path(),
+        &[
+            "claude",
+            "--new",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "hello again",
+        ],
+    );
+    assert!(!second.status.success());
+    assert_eq!(json_stderr(&second)["error"]["code"], "stop_not_verified");
+
+    // The failed stop must never be followed by a launch attempt: still just the one `--bg`.
+    assert_eq!(bg_invocation_count(&claude), 1);
+
+    // The original lease is untouched — still alice, still the original session.
+    let projects_dir = root.path().join("state").join("projects");
+    let project_entry = projects_dir
+        .read_dir()
+        .expect("projects dir")
+        .next()
+        .expect("one project")
+        .expect("entry");
+    let lease =
+        std::fs::read_to_string(project_entry.path().join("lease.json")).expect("lease file");
+    assert!(lease.contains("11111111-1111-4111-8111-111111111111"));
+    assert!(lease.contains("\"alice\""));
+}
+
+/// Requirement: "stale/dead lease behavior remains recoverable" — without `--new`. When the
+/// recorded owner's process is genuinely gone, a plain `relay claude` must recover automatically
+/// (launching fresh) rather than refusing or requiring `--new`. Uses a real process's pid
+/// (confirmed alive at first launch, then explicitly killed — a crash, not a `stop`), for the
+/// same reason the `--new` tests above do: Relay's liveness check can only resolve a session
+/// that has dropped out of `agents --json`'s listing to a genuine "confirmed gone" via a real,
+/// previously-established pid+start-time fingerprint (see `ClaudeSourceLiveness::check`'s
+/// "unestablishable identity fails closed" note) — a synthetic pid can't prove it. Long-lived
+/// (not a fixed short sleep) so it reliably survives this machine's own variable per-call
+/// subprocess overhead until this test explicitly kills it.
+#[test]
+fn claude_recovers_a_stale_lease_without_the_new_flag() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    let mut long_lived = std::process::Command::new("sleep")
+        .arg("300")
+        .spawn()
+        .expect("spawn long-lived process");
+    let live_claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("alice"),
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        long_lived.id(),
+    );
+    adopt_profile(root.path(), "alice", &live_claude);
+    relay(
+        root.path(),
+        &["setup", "--non-interactive", "--primary", "alice"],
+    );
+
+    let first = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &live_claude.path_text(),
+            "hello",
+        ],
+    );
+    assert!(first.status.success());
+
+    // The recorded process is now genuinely, confirmably gone — a crash, not a `stop`.
+    let _ = long_lived.kill();
+    long_lived.wait().expect("long-lived process exits");
+
+    // A fresh FakeClaude under a different bg_id/session: its own `agents --json` listing never
+    // mentions the original session id at all, exactly as a real crashed-then-restarted `claude
+    // agents --json` would report once the crashed process is truly gone — the recorded pid (now
+    // confirmed absent) is what settles the liveness check definitively.
+    let crashed_claude = FakeClaude::new(
+        root.path(),
+        &auth_json_for("alice"),
+        "cccc3333",
+        "33333333-3333-4333-8333-333333333333",
+        333,
+    );
+
+    let recovered = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &crashed_claude.path_text(),
+            "picking back up",
+        ],
+    );
+    assert!(
+        recovered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recovered.stderr)
+    );
+    let data = json_stdout(&recovered)["data"].clone();
+    assert_eq!(data["new_session"], true);
+    assert_eq!(data["session_id"], "33333333-3333-4333-8333-333333333333");
+    // No stop was needed or attempted — a stale lease is simply recoverable without `--new`.
+    assert_eq!(stop_invocation_count(&crashed_claude), 0);
 }

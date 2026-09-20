@@ -298,6 +298,7 @@ dependencies = [
  "relay-core",
  "relay-herdr",
  "relay-provider-claude",
+ "relay-provider-codex",
  "relay-testkit",
  "serde",
  "serde_json",
@@ -331,6 +332,17 @@ dependencies = [
 
 [[package]]
 name = "relay-provider-claude"
+version = "0.2.0"
+dependencies = [
+ "relay-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
+name = "relay-provider-codex"
 version = "0.2.0"
 dependencies = [
  "relay-core",

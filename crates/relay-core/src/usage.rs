@@ -63,6 +63,11 @@ pub enum UsageEvidence {
     /// A fresh statusline `rate_limits` snapshot on its own (used for `AVAILABLE`/`NEAR_LIMIT`
     /// readings, never sufficient by itself for `EXHAUSTED`).
     StatusLine,
+    /// M6: a provider-owned structured health/auth check (e.g. `codex doctor --json`) that says
+    /// nothing about usage/quota at all. Always pairs with [`UsageState::Unknown`] — it exists so
+    /// a provider without any trustworthy usage signal can still report *why* it doesn't know,
+    /// rather than silently reusing a signal name that implies usage evidence it doesn't have.
+    ProviderHealthCheck,
 }
 
 /// A single usage/exhaustion observation for one profile. Never contains raw provider output —

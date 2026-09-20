@@ -62,33 +62,69 @@ This is a one-time interactive wizard. It walks through six things:
 5. **Herdr** (if installed, recommended, default yes). Wires the same status/doctor/watch/handoff
    behavior into Herdr so a Claude pane inside Herdr can trigger them without a separate terminal.
    If Herdr isn't installed, Relay just says so and moves on — it works fine standalone.
-6. **Done.** It prints your primary/fallback and reminds you of the one command you actually need
-   day to day: `relay claude`.
+6. **Done.** It prints your primary/fallback and reminds you of the two commands you actually need
+   day to day: `relay claude` to start, `relay resume` to continue.
 
 You can re-run `relay setup` any time — to add another account, change the primary, or toggle an
 integration. It's safe: it never re-authenticates something that's already logged in, and it never
 throws away an existing profile.
 
-## 3. `relay claude`
+## 3. `relay claude` and `relay resume`
+
+The mental model: **`relay claude` = `claude` + Relay supervision.** It always starts something
+new; it never silently reattaches you to something old. Continuing is a separate, explicit command.
 
 ```sh
 cd ~/repos/my-project
 relay claude
 ```
 
-This is the command you actually use every day. It:
+This is the command you use to **start** a conversation. It:
 
 - figures out the project from your current directory,
 - figures out which account to use from what `relay setup` saved (no `--profile` needed),
-- starts Claude under that account (if there's no session for this project yet) or reconnects you
-  to the one already running,
+- starts a **new** Claude conversation under that account, tracked from the first message,
 - if you're inside a Herdr pane, tells Herdr which account/session this pane belongs to
   automatically (you never type a pane id or copy a session UUID anywhere),
 - and hands you a normal, interactive Claude terminal.
 
-The first time you run it for a project with no existing session, it needs an opening message —
-either give it on the command line (`relay claude "let's refactor the auth module"`) or it asks you
-once. After that, you're talking to Claude normally.
+It needs an opening message — either give it on the command line
+(`relay claude "let's refactor the auth module"`) or it asks you once.
+
+If a Relay-managed session is *already* active for this project, `relay claude` refuses rather than
+guessing what you meant:
+
+```
+A Relay-managed session is already active for this project.
+
+Current profile: erika
+
+Run:
+  relay resume
+to continue it.
+
+Or:
+  relay claude --new
+to stop the existing managed session and start a fresh one.
+```
+
+```sh
+relay resume
+```
+
+This is the command you use to **continue** a conversation later — same project, same session,
+picked back up under whichever profile actually owns it (you don't need to know or type a profile
+name; that's only for the advanced explicit form, `relay resume <profile>`). If nothing is
+running, it says so clearly instead of starting something you didn't ask for.
+
+```sh
+relay claude --new
+```
+
+The explicit escape hatch: safely stop the active managed session (the same authoritative
+stop-and-verify machinery `relay switch` and recovery already use — never a raw kill, never two
+writers coexisting even for an instant) and start a genuinely fresh conversation in its place. Use
+this when you actually want a clean slate, not a continuation.
 
 ## 4. What happens when quota runs out
 
@@ -99,9 +135,11 @@ Relay is deliberately conservative about that distinction), Agent Relay:
 2. moves it to your next fallback account,
 3. resumes it there — same conversation, same context, same session, just under a different
    account,
-4. and you keep working. If you're in Herdr, this can happen automatically as Herdr notices your
-   session's status change; outside Herdr, it happens the next time `relay claude` or
-   `relay watch run` is invoked (Relay is intentionally not a background daemon).
+4. and you keep working. The moment Claude reports a rate limit, the usage integration's hook
+   starts one short-lived evaluation for that project — Relay is not a background daemon and never
+   polls. If you're attached through `relay claude` or `relay resume`, your terminal continues on
+   the fallback account on its own ("continuing this conversation on '<profile>'"); Herdr's
+   status event and a manual `relay watch run` are additional triggers.
 
 You are never asked to copy a session id, look up a pane id, or run a lower-level handoff command
 for this to work.

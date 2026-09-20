@@ -96,6 +96,17 @@ pub enum Error {
     #[error("a writer is already active for this project, owned by: {0}")]
     WriterAlreadyActive(String),
     #[error(
+        "A Relay-managed session is already active for this project.\n\nCurrent profile: {0}\n\nRun:\n  relay resume\nto continue it.\n\nOr:\n  relay claude --new\nto stop the existing managed session and start a fresh one."
+    )]
+    ManagedSessionAlreadyActive(String),
+    #[error(
+        "cannot safely determine whether profile '{0}''s managed session is still live; refusing \
+         to guess between attaching to it and replaying it natively. Investigate manually (e.g. \
+         `claude agents --json` under that profile), or use `relay claude --new` to safely \
+         replace it."
+    )]
+    AmbiguousSessionLiveness(String),
+    #[error(
         "a prior handoff transaction for this project requires explicit recovery before a new one can start: {0}"
     )]
     PendingRecoveryRequired(String),
@@ -113,6 +124,20 @@ pub enum Error {
     RecoveryRequired(String),
     #[error("serialization failed")]
     SerializationFailed,
+    #[error("required handoff port is not configured for this continuity type: {0}")]
+    MissingHandoffPort(String),
+    #[error(
+        "no writer currently owns this project; run `relay claude` (or an equivalent provider \
+         entry point) first"
+    )]
+    NoActiveWriterForProject,
+    #[error("'{0}' is already the current writer for this project")]
+    AlreadyCurrentWriter(String),
+    #[error(
+        "recovery cannot durably reconstruct a state-continuation bundle; the source's own \
+         state may have changed since capture, so the target was not relaunched automatically: {0}"
+    )]
+    ContinuationBundleNotRecoverable(String),
     #[error("required environment path is unavailable: {0}")]
     MissingEnvironment(&'static str),
     #[error("I/O operation failed for {path}")]
@@ -173,6 +198,8 @@ impl Error {
             Self::TargetVerificationMismatch => "target_verification_mismatch",
             Self::UntrackedWriterDetected(_) => "untracked_writer_detected",
             Self::WriterAlreadyActive(_) => "writer_already_active",
+            Self::ManagedSessionAlreadyActive(_) => "managed_session_active",
+            Self::AmbiguousSessionLiveness(_) => "ambiguous_session_liveness",
             Self::PendingRecoveryRequired(_) => "pending_recovery_required",
             Self::StopNotVerified(_) => "stop_not_verified",
             Self::ConflictRequiresResolution(_) => "conflict_requires_resolution",
@@ -181,6 +208,10 @@ impl Error {
             Self::IntegrationRefused(_) => "integration_refused",
             Self::RecoveryRequired(_) => "recovery_required",
             Self::SerializationFailed => "serialization_failed",
+            Self::MissingHandoffPort(_) => "missing_handoff_port",
+            Self::NoActiveWriterForProject => "no_active_writer_for_project",
+            Self::AlreadyCurrentWriter(_) => "already_current_writer",
+            Self::ContinuationBundleNotRecoverable(_) => "continuation_bundle_not_recoverable",
             Self::MissingEnvironment(_) => "missing_environment",
             Self::Io { .. } => "io_error",
         }

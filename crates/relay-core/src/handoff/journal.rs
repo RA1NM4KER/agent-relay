@@ -7,10 +7,26 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AtomicWrite, Error, FsAtomicWriter, ProfileName, Result,
-    handoff::{HandoffState, ProcessIdentity, ProjectId, TransactionId},
+    handoff::{ContinuityType, HandoffState, ProcessIdentity, ProjectId, TransactionId},
 };
 
-const JOURNAL_VERSION: u32 = 1;
+/// M6: bumped from 1 to 2 to add `continuity_type` (and, for `STATE_CONTINUATION` transactions,
+/// `bundle_summary`). Journals are short-lived per-transaction records, not long-term config, so
+/// — matching the existing version-mismatch-is-fatal design — a journal written by a pre-M6
+/// Relay is simply never readable by this version rather than migrated; that only matters for a
+/// transaction that was already interrupted across an upgrade, which `relay recover` already
+/// treats as requiring explicit operator attention.
+const JOURNAL_VERSION: u32 = 2;
+
+/// Evidence that a [`super::ContinuationBundle`] was built and delivered to the target, without
+/// persisting its content — matching docs/security.md's rule that continuation content never
+/// lands in the journal.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BundleSummary {
+    pub sha256: String,
+    pub size_bytes: u64,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -66,12 +82,17 @@ pub struct HandoffJournal {
     /// interrupted before it was ever verified.
     pub target_config_dir: PathBuf,
     pub session_id: String,
+    pub continuity_type: ContinuityType,
     pub state: HandoffState,
     pub revision: u64,
     pub created_unix_ms: u64,
     pub updated_unix_ms: u64,
     pub checkpoint: Option<Checkpoint>,
     pub transferred_artifacts: Vec<ArtifactRecord>,
+    /// Set only for `STATE_CONTINUATION` transactions, once the bundle has been built. Content
+    /// is never stored here — see [`BundleSummary`].
+    #[serde(default)]
+    pub bundle_summary: Option<BundleSummary>,
     pub verification: Option<VerificationRecord>,
     #[serde(default)]
     pub target_launch: Option<TargetLaunchRecord>,
@@ -91,6 +112,7 @@ impl HandoffJournal {
         target_profile: ProfileName,
         target_config_dir: PathBuf,
         session_id: String,
+        continuity_type: ContinuityType,
     ) -> Self {
         let now = now_unix_ms();
         Self {
@@ -102,12 +124,14 @@ impl HandoffJournal {
             target_profile,
             target_config_dir,
             session_id,
+            continuity_type,
             state: HandoffState::Preparing,
             revision: 0,
             created_unix_ms: now,
             updated_unix_ms: now,
             checkpoint: None,
             transferred_artifacts: Vec::new(),
+            bundle_summary: None,
             verification: None,
             target_launch: None,
             notes: Vec::new(),
@@ -218,7 +242,7 @@ mod tests {
     use super::{HandoffJournal, HandoffState, JournalStore};
     use crate::{
         ProfileName,
-        handoff::{FailedPhase, ProjectId, TransactionId},
+        handoff::{ContinuityType, FailedPhase, ProjectId, TransactionId},
     };
 
     fn sample_journal() -> HandoffJournal {
@@ -230,6 +254,7 @@ mod tests {
             ProfileName::new("megan").expect("name"),
             std::path::PathBuf::from("/tmp/megan-config"),
             "8586fe71-395b-4449-b973-78011d561fed".to_owned(),
+            ContinuityType::SessionContinuation,
         )
     }
 

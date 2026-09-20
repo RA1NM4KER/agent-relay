@@ -19,6 +19,7 @@ pub(crate) fn ps_dash_e_is_available() -> bool {
 mod adoption;
 mod capabilities;
 mod conflict;
+mod context_capture;
 mod handoff_adapters;
 mod hook_handlers;
 mod inspection;
@@ -38,6 +39,7 @@ pub use conflict::{
     ConflictClassification, ConflictReport, ConflictResolution, ResolveDecision, inspect_conflict,
     resolve_conflict, rollback_conflict,
 };
+pub use context_capture::ClaudeContextCapturer;
 pub use handoff_adapters::{
     ClaudeSessionStager, ClaudeSessionStopper, ClaudeSourceLiveness, ClaudeTargetLauncher,
     LaunchedWriter, launch_background,
@@ -72,8 +74,21 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use relay_core::{IdentityMetadata, ProfileName, Provider, Result};
+use relay_core::{IdentityMetadata, ProfileName, Provider, ProviderCapabilities, Result};
 use serde::Serialize;
+
+/// M6: Claude's declared capabilities — see [`ProviderCapabilities`]'s field docs.
+/// `native_session_transfer` is `true`: cross-PROFILE Claude session resume (`claude -p --resume
+/// <id>` under a different `CLAUDE_CONFIG_DIR`) is the machinery M2B already proved live.
+pub const PROVIDER_CAPABILITIES: ProviderCapabilities = ProviderCapabilities {
+    native_session_resume: true,
+    native_session_transfer: true,
+    state_export: true,
+    state_import: true,
+    usage_detection: true,
+    process_control: true,
+    auth_status: true,
+};
 
 /// Native cross-profile continuation is not a stable provider API.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

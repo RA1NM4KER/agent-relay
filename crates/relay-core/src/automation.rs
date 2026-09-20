@@ -16,20 +16,23 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AtomicWrite, Error, FsAtomicWriter, ProfileName, Result,
+    AtomicWrite, Error, FsAtomicWriter, ProfileName, ProviderKind, Result,
     handoff::{
-        HandoffCoordinator, HandoffJournal, HandoffRequest, HandoffState, JournalStore,
-        OrchestrationLock, ProjectId, TransactionId,
+        ContinuityType, HandoffCoordinator, HandoffJournal, HandoffRequest, HandoffState,
+        JournalStore, OrchestrationLock, ProjectId, TransactionId,
     },
     usage::{UsageEvidence, UsageObservation, UsageState},
 };
 
 /// One profile under consideration, with the caller-supplied health/identity facts and a fresh
 /// usage observation. The caller (provider-aware code) is responsible for gathering these; this
-/// module's decision logic is pure and provider-neutral.
+/// module's decision logic is pure and provider-neutral — [`decide`] never reads `provider` at
+/// all, only the execution step (in [`WatchCoordinator::evaluate`]) uses it, to pick the right
+/// mix of provider adapters and the right [`ContinuityType`] for the chosen target.
 #[derive(Clone, Debug)]
 pub struct ProfileCandidate {
     pub name: ProfileName,
+    pub provider: ProviderKind,
     pub config_dir: PathBuf,
     /// `None` when identity could not be established; never treated as a safe non-match.
     pub identity_stable_id: Option<String>,
@@ -277,6 +280,7 @@ pub fn decide(
 pub struct WatchRequest {
     pub project_dir: PathBuf,
     pub source_profile: ProfileName,
+    pub source_provider: ProviderKind,
     pub source_config_dir: PathBuf,
     pub source_identity_stable_id: Option<String>,
     pub session_id: String,
@@ -332,7 +336,13 @@ pub enum WatchOutcome {
 
 pub struct WatchCoordinator<'a> {
     pub paths: &'a crate::RelayPaths,
-    pub handoff: &'a HandoffCoordinator<'a>,
+    /// M6: a single fixed [`HandoffCoordinator`] cannot serve every (source, target) provider
+    /// pairing — its `stager`/`launcher` are provider-specific. The caller (which owns the
+    /// concrete provider adapters and the profile registry) supplies a resolver keyed by the
+    /// two profile names involved, so automatic handoff can pick the right mix of adapters
+    /// (and, indirectly, the right [`ContinuityType`]) for whichever target [`decide`] selects —
+    /// without `relay-core` itself ever branching on provider identity.
+    pub handoff_for: &'a dyn Fn(&ProfileName, &ProfileName) -> &'a HandoffCoordinator<'a>,
     pub policy: AutomationPolicy,
 }
 
@@ -361,6 +371,7 @@ impl WatchCoordinator<'_> {
 
         let mut source_candidate = ProfileCandidate {
             name: request.source_profile.clone(),
+            provider: request.source_provider,
             config_dir: request.source_config_dir.clone(),
             identity_stable_id: request.source_identity_stable_id.clone(),
             enabled: true,
@@ -434,13 +445,20 @@ impl WatchCoordinator<'_> {
                     .iter()
                     .find(|candidate| candidate.name == target)
                     .expect("decide() only selects a name present in fallbacks");
-                let result = self.handoff.run(HandoffRequest {
+                let coordinator = (self.handoff_for)(&request.source_profile, &target);
+                let result = coordinator.run(HandoffRequest {
                     project_dir: canonical_project.clone(),
                     source_profile: request.source_profile.clone(),
+                    source_provider: request.source_provider,
                     source_config_dir: request.source_config_dir.clone(),
                     target_profile: target.clone(),
+                    target_provider: target_candidate.provider,
                     target_config_dir: target_candidate.config_dir.clone(),
                     session_id: request.session_id.clone(),
+                    continuity_type: ContinuityType::for_transition(
+                        request.source_provider,
+                        target_candidate.provider,
+                    ),
                 });
                 // Every attempt counts toward the cooldown and the bounded-handoff guard, whether
                 // it completed or failed: a failing target must not be retried in a tight loop
@@ -507,7 +525,9 @@ impl WatchCoordinator<'_> {
             }
             match JournalStore::at_path(path.clone()).load() {
                 Ok(journal) if journal.state.is_terminal() => {}
-                Ok(_) => pending.push(id),
+                Ok(journal) => {
+                    pending.push((id, journal.source_profile, journal.target_profile));
+                }
                 Err(error) => {
                     // A journal written by an older Relay may not match today's schema; if its
                     // raw state is terminal it is history, otherwise it is ambiguous.
@@ -524,10 +544,10 @@ impl WatchCoordinator<'_> {
         if pending.is_empty() {
             return Ok(None);
         }
-        pending.sort();
+        pending.sort_by(|left, right| left.0.cmp(&right.0));
         if dry_run {
             return Ok(Some(WatchOutcome::RecoveryRequired {
-                transaction_id: pending[0].to_string(),
+                transaction_id: pending[0].0.to_string(),
                 reason: format!(
                     "dry run: {} incomplete transaction(s) would be recovered before any new work",
                     pending.len()
@@ -535,8 +555,9 @@ impl WatchCoordinator<'_> {
             }));
         }
         let mut recovered = Vec::new();
-        for id in pending {
-            match self.handoff.recover(project_state_dir, &id) {
+        for (id, source_profile, target_profile) in pending {
+            let coordinator = (self.handoff_for)(&source_profile, &target_profile);
+            match coordinator.recover(project_state_dir, &id) {
                 Err(Error::OrchestrationLockHeld) => {
                     return Ok(Some(WatchOutcome::TransactionInFlight {
                         transaction_id: id.to_string(),
@@ -619,6 +640,7 @@ mod tests {
     fn candidate(name: &str, state: UsageState) -> ProfileCandidate {
         ProfileCandidate {
             name: ProfileName::new(name).expect("name"),
+            provider: crate::ProviderKind::Claude,
             config_dir: PathBuf::from(format!("/tmp/{name}")),
             identity_stable_id: Some(format!("identity-{name}")),
             enabled: true,
@@ -778,6 +800,66 @@ mod tests {
             decision,
             AutomationDecision::WaitingForCapacity { .. }
         ));
+    }
+
+    fn exhausted_until(name: &str, reset_unix_ms: u64) -> (ProfileName, UsageObservation) {
+        (
+            ProfileName::new(name).expect("name"),
+            UsageObservation {
+                reset_unix_ms: Some(reset_unix_ms),
+                ..observation(UsageState::Exhausted)
+            },
+        )
+    }
+
+    /// erika -> megan happened; megan now exhausts while erika's window has not reset: the full
+    /// ordered hierarchy is reconsidered and erika is skipped, so the next healthy one (codex) wins.
+    #[test]
+    fn after_erika_to_megan_a_megan_limit_skips_still_blocked_erika_for_codex() {
+        let source = candidate("megan", UsageState::Exhausted);
+        let erika = candidate("erika", UsageState::Unknown);
+        let codex = candidate("codex", UsageState::Available);
+        let mut ledger = AutomationLedger::default();
+        let (name, usage) = exhausted_until("erika", 50_000);
+        ledger.mark_exhausted(name, &usage);
+        let decision = decide(
+            10_000,
+            &source,
+            &[erika, codex],
+            &ledger,
+            &AutomationPolicy::default(),
+        );
+        assert_eq!(
+            decision,
+            AutomationDecision::Handoff {
+                target: ProfileName::new("codex").expect("name")
+            }
+        );
+    }
+
+    /// Same situation once erika's reset has passed: she is first in the hierarchy and eligible
+    /// again, so she is chosen ahead of codex (sticky writer, but no permanent demotion).
+    #[test]
+    fn once_erikas_reset_has_passed_she_is_first_eligible_again_ahead_of_codex() {
+        let source = candidate("megan", UsageState::Exhausted);
+        let erika = candidate("erika", UsageState::Available);
+        let codex = candidate("codex", UsageState::Available);
+        let mut ledger = AutomationLedger::default();
+        let (name, usage) = exhausted_until("erika", 5_000);
+        ledger.mark_exhausted(name, &usage);
+        let decision = decide(
+            10_000,
+            &source,
+            &[erika, codex],
+            &ledger,
+            &AutomationPolicy::default(),
+        );
+        assert_eq!(
+            decision,
+            AutomationDecision::Handoff {
+                target: ProfileName::new("erika").expect("name")
+            }
+        );
     }
 
     #[test]

@@ -48,6 +48,7 @@ impl FromStr for ProfileName {
 pub enum ProviderKind {
     Fake,
     Claude,
+    Codex,
 }
 
 impl fmt::Display for ProviderKind {
@@ -55,6 +56,7 @@ impl fmt::Display for ProviderKind {
         match self {
             Self::Fake => formatter.write_str("fake"),
             Self::Claude => formatter.write_str("claude"),
+            Self::Codex => formatter.write_str("codex"),
         }
     }
 }

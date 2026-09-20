@@ -18,7 +18,8 @@ brew install RA1NM4KER/tap/agent-relay
 ```sh
 relay setup
 cd ~/repos/my-project
-relay claude
+relay claude          # start a new Relay-managed conversation
+relay resume          # continue it later, in the same project
 ```
 
 `relay setup` is a one-time wizard: it detects Claude Code and (optionally) [Herdr](https://herdr.dev),
@@ -26,10 +27,19 @@ walks you through logging in to one or more **isolated** Claude accounts (Relay 
 official login — it never sees your password or token), and asks which is primary and which are
 fallbacks.
 
-`relay claude` is the command you run every day. It launches Claude under your primary account,
-tracks the session, and — if that account genuinely runs out of quota — automatically hands the
-exact same conversation off to your next fallback account. You never see a config path, a pane id,
-or a session UUID; `relay status` tells you what's going on if you're curious.
+The mental model is simple: **`relay claude` = `claude` + Relay supervision.**
+
+- `relay claude` always starts a **new** conversation under your primary account, tracked by Relay
+  from the first message. If a Relay-managed session is already active for the project, it refuses
+  rather than silently reattaching or replacing it — run `relay resume` to continue that one, or
+  `relay claude --new` to explicitly stop it and start fresh.
+- `relay resume` continues the project's existing Relay-managed session, under whichever profile
+  actually owns it right now (you never need to know or type a profile name for the normal case).
+- Once a session is running, Relay still does the thing this project exists for: if the account
+  genuinely runs out of quota, it hands the exact same conversation off to your next fallback
+  account automatically — Claude profile A → Claude profile B → Codex → however your fallback
+  order is configured. You never see a config path, a pane id, or a session UUID; `relay status`
+  tells you what's going on if you're curious.
 
 Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**.
 
@@ -37,9 +47,14 @@ Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**.
 
 If your primary account genuinely, verifiably runs out of quota (not a transient rate-limit blip),
 Agent Relay safely stops your current session, moves it to your next fallback account, and resumes
-it there — same conversation, same context, just under a different account. If you're in Herdr,
-this can happen automatically; outside Herdr, it happens the next time `relay claude` or
-`relay watch run` runs (Relay is intentionally not a background daemon).
+it there — same conversation, same context, just under a different account. This is automatic:
+the usage integration `relay setup` installs runs a hook the instant Claude reports a rate limit,
+and when that hook fires for the session Relay manages it starts one short-lived evaluation for
+that project (not a background daemon, not polling — it exists only because a real limit event just
+happened). If you are attached in a terminal via `relay claude` / `relay resume`, that terminal
+carries you onto the fallback by itself: you see "continuing this conversation on '<profile>'" and
+keep working, with no command to discover. Herdr's own status event is a second, best-effort
+trigger, and `relay watch run` remains available to run an evaluation by hand.
 
 ## Security
 
@@ -65,7 +80,10 @@ brew update && brew upgrade agent-relay
 | Command | What it does |
 |---|---|
 | `relay setup` | First-run wizard; safe to re-run any time (detects and reuses what's already there). |
-| `relay claude [message]` | Start/attach to your Relay-managed Claude session in the current project. |
+| `relay claude [message]` | Start a **new** Relay-managed Claude conversation in the current project. Refuses if one is already active. |
+| `relay claude --new [message]` | Explicitly stop the active managed session (safely, with the same authoritative stop-and-verify machinery `relay switch`/recovery use) and start a fresh one. |
+| `relay resume [profile]` | Continue the project's active Relay-managed session — resolves the current owner automatically; the profile argument is only needed for the advanced explicit form. |
+| `relay switch <profile>` | Hand the *current* conversation off to a different profile/provider — not the same as starting or resuming. |
 | `relay status` | Plain-language summary: project, session, current profile, fallback, usage, Herdr. |
 | `relay profiles` | List registered profiles and which is primary/fallback. |
 | `relay login <name>` / `relay logout <name>` | Friendly wrappers around Claude's own official login/logout for one isolated profile. |
@@ -157,7 +175,10 @@ relay handoff run --from alice --to bob --project ~/repos/foo --session <session
 
 ## Limitations
 
-- One writer per project; a handoff is refused while the source profile has any live Claude process.
+- One writer per project; Relay never silently creates a second one — `relay claude` refuses
+  outright while a managed session is already active (`relay resume` to continue it, `relay claude
+  --new` to explicitly replace it), and a handoff is refused while the source profile has any live
+  Claude process.
 - The statusline usage snapshot only refreshes in interactive sessions; headless sessions leave it
   stale, and stale means `UNKNOWN` (no handoff).
 - No automatic fail-back or quota pooling.
@@ -167,13 +188,22 @@ relay handoff run --from alice --to bob --project ~/repos/foo --session <session
   `CLAUDE_CONFIG_DIR` (see [Herdr integration](docs/herdr-integration.md)).
 - Claude's transcript layout and `--resume` behavior are not a stable public API; Relay gates on
   validated versions and fails closed.
-- `relay claude`'s interactive experience is `claude attach <id>` on a session Relay launched with
-  `claude --bg` — Claude's own documented mechanism for attaching to a background session, not a
-  Relay workaround — rather than a plain `claude` process; the first exchange happens before you
-  attach (Relay needs an initial message to start the tracked session).
-- Outside Herdr, nothing watches usage automatically in the background (Relay is not a daemon);
-  automatic handoff happens when Herdr's event fires or when `relay claude`/`relay watch run` is
-  invoked again.
+- `relay claude`'s interactive experience is `claude attach <id>` on a session Relay just launched
+  with `claude --bg` — Claude's own documented mechanism for attaching to a background session, not
+  a Relay workaround — rather than a plain `claude` process; the first exchange happens before you
+  attach (Relay needs an initial message to start the tracked session). `relay resume` instead execs
+  an interactive `claude --resume <id>` (or `codex resume <thread-id>`) under the session's actual
+  owner profile.
+- Relay is not a daemon and never polls providers. Automatic handoff needs a *trigger*: the
+  usage-integration `StopFailure` hook (installed by `relay setup`, per profile — a fallback
+  profile needs it installed too for a *second* hop), Herdr's status event, or a manual
+  `relay watch run`. A profile without the integration installed cannot start an automatic
+  handoff. Hooks record `relay`'s own path at install time, so after upgrading Relay re-run
+  `relay integration claude install` to point them at the new binary.
+- Automatic continuation into the fallback happens in the terminal `relay claude`/`relay resume`
+  is running in. A session attached some other way (plain `claude attach`, another terminal that
+  wasn't started through Relay) is still handed off correctly, but that terminal has to run
+  `relay resume` itself.
 
 ## Herdr integration
 
