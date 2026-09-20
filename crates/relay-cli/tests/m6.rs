@@ -1,0 +1,609 @@
+//! M6 tests: Codex as a second provider. Against the real compiled `relay` binary, with fake
+//! `claude` and `codex` shell-script executables standing in for the real CLIs — never a real
+//! account, never real network calls. Synthetic `alice`(Claude)/`codex-main`(Codex) profile
+//! names only.
+
+use std::path::Path;
+use std::process::Command;
+
+use serde_json::Value;
+use tempfile::tempdir;
+
+use relay_provider_claude::AUTHENTICATION_OVERRIDE_VARIABLES as CLAUDE_AUTH_OVERRIDE_VARIABLES;
+use relay_provider_codex::AUTHENTICATION_OVERRIDE_VARIABLES as CODEX_AUTH_OVERRIDE_VARIABLES;
+
+fn relay(root: &Path, arguments: &[&str]) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--json")
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(arguments)
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("CODEX_HOME");
+    for variable in CLAUDE_AUTH_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    for variable in CODEX_AUTH_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    command.output().expect("run relay")
+}
+
+fn json_stdout(output: &std::process::Output) -> Value {
+    serde_json::from_slice(&output.stdout).expect("valid JSON stdout")
+}
+
+fn json_stderr(output: &std::process::Output) -> Value {
+    serde_json::from_slice(&output.stderr).expect("valid JSON stderr")
+}
+
+fn init_git_repo(dir: &Path) {
+    std::fs::create_dir_all(dir).expect("project dir");
+    let run = |args: &[&str]| {
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(args)
+                .status()
+                .expect("git")
+                .success()
+        );
+    };
+    run(&["-c", "init.defaultBranch=main", "init", "-q"]);
+    run(&["config", "user.email", "test@example.com"]);
+    run(&["config", "user.name", "Test"]);
+    std::fs::write(dir.join("README.md"), "hello\n").expect("seed file");
+    run(&["add", "README.md"]);
+    run(&["commit", "-q", "-m", "init"]);
+}
+
+/// A fake `claude` covering the subcommands M6's cross-provider paths call. Mirrors
+/// `crates/relay-cli/tests/m4.rs`'s `FakeClaude` (kept separate: integration test binaries can't
+/// share private items across files).
+struct FakeClaude {
+    executable: std::path::PathBuf,
+}
+
+impl FakeClaude {
+    fn new(root: &Path, name: &str, bg_id: &str, session_id: &str, pid: u32) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let executable = root.join(format!("fake-claude-{name}"));
+        let auth_json = format!(
+            r#"{{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"account-{name}","email":"{name}@example.com","orgId":"org-1"}}"#
+        );
+        // `-p` (verification / bootstrap-target turn) replies with a fresh, deterministic
+        // session id so a STATE_CONTINUATION Codex -> Claude switch can be asserted against it.
+        let script = format!(
+            r#"#!/bin/sh
+case "$1" in
+  --version) printf '%s\n' "2.1.276 (Claude Code)" ;;
+  auth)
+    case "$2" in
+      status) printf '%s\n' '{auth_json}' ;;
+      login) exit 0 ;;
+      logout) exit 0 ;;
+      *) exit 2 ;;
+    esac
+    ;;
+  --bg) printf 'backgrounded \302\267 %s\n' "{bg_id}" ;;
+  agents)
+    printf '[{{"pid":{pid},"id":"{bg_id}","cwd":"%s","kind":"background","startedAt":1,"sessionId":"{session_id}","name":"x","status":"idle","state":"done"}}]\n' "$PWD"
+    ;;
+  attach) exit 0 ;;
+  -p)
+    cat >/dev/null
+    printf '{{"session_id":"%s","is_error":false,"subtype":"success"}}\n' "{session_id}-bootstrapped"
+    ;;
+  *) exit 2 ;;
+esac
+"#,
+        );
+        std::fs::write(&executable, script).expect("fake claude script");
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+            .expect("script permissions");
+        Self { executable }
+    }
+
+    fn path_text(&self) -> String {
+        self.executable.to_string_lossy().into_owned()
+    }
+}
+
+/// A fake `codex` covering `--version`, `doctor --json`, `login`, `logout`, `exec --json`
+/// (reads the bootstrap prompt from stdin, logs it, emits a deterministic `thread.started` +
+/// `turn.completed`), and `resume <thread-id>` (for `relay resume`).
+struct FakeCodex {
+    executable: std::path::PathBuf,
+    exec_log_path: std::path::PathBuf,
+    resume_log_path: std::path::PathBuf,
+}
+
+impl FakeCodex {
+    fn new(root: &Path, name: &str, thread_id: &str) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let executable = root.join(format!("fake-codex-{name}"));
+        let exec_log_path = root.join(format!("codex-exec-{name}.log"));
+        let resume_log_path = root.join(format!("codex-resume-{name}.log"));
+        let script = format!(
+            r#"#!/bin/sh
+case "$1" in
+  --version) printf 'codex-cli 0.155.0\n' ;;
+  doctor) printf '{{"checks":{{"auth.credentials":{{"status":"ok","summary":"logged in via fake"}}}}}}\n' ;;
+  login) exit 0 ;;
+  logout) exit 0 ;;
+  exec)
+    PROMPT="$(cat)"
+    printf '{{"codex_home":"%s","project_dir":"%s","prompt":%s}}\n' "$CODEX_HOME" "$PWD" "$(printf '%s' "$PROMPT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '"unavailable"')" >> "{exec_log}"
+    printf '{{"type":"thread.started","thread_id":"%s"}}\n' "{thread_id}"
+    printf '{{"type":"turn.started"}}\n'
+    printf '{{"type":"turn.completed"}}\n'
+    ;;
+  resume)
+    printf '%s %s\n' "$2" "$CODEX_HOME" >> "{resume_log}"
+    ;;
+  *) exit 2 ;;
+esac
+"#,
+            exec_log = exec_log_path.display(),
+            resume_log = resume_log_path.display(),
+        );
+        std::fs::write(&executable, script).expect("fake codex script");
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+            .expect("script permissions");
+        Self {
+            executable,
+            exec_log_path,
+            resume_log_path,
+        }
+    }
+
+    fn path_text(&self) -> String {
+        self.executable.to_string_lossy().into_owned()
+    }
+
+    fn exec_invocations(&self) -> Vec<Value> {
+        std::fs::read_to_string(&self.exec_log_path)
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("logged invocation is JSON"))
+            .collect()
+    }
+
+    fn resume_invocations(&self) -> Vec<String> {
+        std::fs::read_to_string(&self.resume_log_path)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+}
+
+/// Registers a fresh Claude profile and returns its config dir, exactly as `relay login`'s
+/// create-new path does (never manually pre-creates the directory — that is Relay's own job).
+fn login_claude(root: &Path, name: &str, claude: &FakeClaude) {
+    let output = relay(
+        root,
+        &[
+            "login",
+            name,
+            "--provider",
+            "claude",
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "login {name} (claude) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn login_codex(root: &Path, name: &str, codex: &FakeCodex) {
+    let output = relay(
+        root,
+        &[
+            "login",
+            name,
+            "--provider",
+            "codex",
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "login {name} (codex) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Establishes an active Claude writer lease for `project` via the real `relay claude` path
+/// (mirrors `crates/relay-cli/tests/m4.rs`'s equivalent flow).
+fn launch_claude_writer(root: &Path, project: &Path, profile: &str, claude: &FakeClaude) {
+    let output = relay(
+        root,
+        &[
+            "claude",
+            "--project-dir",
+            &project.to_string_lossy(),
+            "--profile",
+            profile,
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "hello there",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "relay claude failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn a_codex_profile_registers_with_the_codex_provider_and_a_distinct_config_dir() {
+    let root = tempdir().expect("tempdir");
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-thread-init");
+    login_codex(root.path(), "codex-main", &codex);
+
+    let status = relay(
+        root.path(),
+        &[
+            "profile",
+            "status",
+            "codex-main",
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(
+        status.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let data = json_stdout(&status)["data"].clone();
+    assert_eq!(data["profile"]["provider"], "codex");
+    assert!(
+        data["profile"]["config_dir"]
+            .as_str()
+            .expect("config dir")
+            .ends_with("codex-main/codex")
+    );
+    assert_eq!(data["authentication"], "authenticated");
+}
+
+#[test]
+fn switch_claude_to_codex_is_state_continuation_and_moves_the_lease() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    login_claude(root.path(), "alice", &claude);
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-real-thread");
+    login_codex(root.path(), "codex-main", &codex);
+
+    launch_claude_writer(root.path(), project.path(), "alice", &claude);
+
+    let output = relay(
+        root.path(),
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "switch failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let journal = json_stdout(&output)["data"].clone();
+    assert_eq!(journal["state"]["state"], "COMPLETE");
+    assert_eq!(journal["continuity_type"], "STATE_CONTINUATION");
+    assert_eq!(
+        journal["verification"]["target_session_id"],
+        "01a-real-thread"
+    );
+    // No provider-native transcript artifacts are ever copied for STATE_CONTINUATION.
+    assert!(
+        journal["transferred_artifacts"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    // Only a hash/size summary of the bundle is recorded, never its content.
+    assert!(journal["bundle_summary"]["sha256"].as_str().unwrap().len() == 64);
+
+    let status = relay(
+        root.path(),
+        &[
+            "lock",
+            "status",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+        ],
+    );
+    let lease = json_stdout(&status)["data"]["lease"].clone();
+    assert_eq!(lease["owner_profile"], "codex-main");
+    assert_eq!(lease["session_id"], "01a-real-thread");
+
+    // The bootstrap prompt reached Codex over stdin (never argv/env): the fake logged what it
+    // read on stdin, and it must contain real project context, never a transcript dump.
+    let invocations = codex.exec_invocations();
+    assert_eq!(invocations.len(), 1);
+    let prompt = invocations[0]["prompt"].as_str().unwrap_or_default();
+    assert!(prompt.contains("STATE_CONTINUATION"));
+    assert!(prompt.contains("main")); // branch name from the seeded git repo
+}
+
+#[test]
+fn switch_codex_to_claude_is_also_state_continuation() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-thread-a");
+    login_codex(root.path(), "codex-main", &codex);
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    login_claude(root.path(), "alice", &claude);
+
+    // Seed a Codex-owned writer lease via the already-proven Claude -> Codex switch path, then
+    // switch back and assert the reverse direction.
+    launch_claude_writer(root.path(), project.path(), "alice", &claude);
+    relay(
+        root.path(),
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+
+    let output = relay(
+        root.path(),
+        &[
+            "switch",
+            "alice",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "switch back failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let journal = json_stdout(&output)["data"].clone();
+    assert_eq!(journal["state"]["state"], "COMPLETE");
+    assert_eq!(journal["continuity_type"], "STATE_CONTINUATION");
+    assert_eq!(
+        journal["verification"]["target_session_id"],
+        "11111111-1111-4111-8111-111111111111-bootstrapped"
+    );
+}
+
+#[test]
+fn switching_to_the_current_writer_fails_closed() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    login_claude(root.path(), "alice", &claude);
+    launch_claude_writer(root.path(), project.path(), "alice", &claude);
+
+    let output = relay(
+        root.path(),
+        &[
+            "switch",
+            "alice",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(!output.status.success());
+    assert_eq!(
+        json_stderr(&output)["error"]["code"],
+        "already_current_writer"
+    );
+}
+
+#[test]
+fn switching_with_no_active_writer_fails_closed() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-thread");
+    login_codex(root.path(), "codex-main", &codex);
+
+    let output = relay(
+        root.path(),
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(!output.status.success());
+    assert_eq!(
+        json_stderr(&output)["error"]["code"],
+        "no_active_writer_for_project"
+    );
+}
+
+#[test]
+fn a_malformed_codex_response_fails_the_switch_closed_without_moving_the_lease() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    login_claude(root.path(), "alice", &claude);
+    launch_claude_writer(root.path(), project.path(), "alice", &claude);
+
+    // A Codex fixture whose `exec --json` never emits a `thread.started` line at all.
+    use std::os::unix::fs::PermissionsExt;
+    let executable = root.path().join("fake-codex-broken");
+    std::fs::write(
+        &executable,
+        "#!/bin/sh\ncase \"$1\" in\n  --version) printf 'codex-cli 0.155.0\\n' ;;\n  doctor) printf '{\"checks\":{\"auth.credentials\":{\"status\":\"ok\",\"summary\":\"ok\"}}}\\n' ;;\n  login) exit 0 ;;\n  exec) cat >/dev/null ; printf '{\"type\":\"turn.failed\"}\\n' ;;\n  *) exit 2 ;;\nesac\n",
+    )
+    .expect("broken codex script");
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+        .expect("permissions");
+    let broken_path = executable.to_string_lossy().into_owned();
+    login_codex(
+        root.path(),
+        "codex-broken",
+        &FakeCodex {
+            executable: executable.clone(),
+            exec_log_path: root.path().join("unused.log"),
+            resume_log_path: root.path().join("unused2.log"),
+        },
+    );
+
+    let output = relay(
+        root.path(),
+        &[
+            "switch",
+            "codex-broken",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "--codex-executable",
+            &broken_path,
+        ],
+    );
+    assert!(!output.status.success());
+    assert_eq!(
+        json_stderr(&output)["error"]["code"],
+        "malformed_provider_output"
+    );
+
+    let status = relay(
+        root.path(),
+        &[
+            "lock",
+            "status",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+        ],
+    );
+    let lease = json_stdout(&status)["data"]["lease"].clone();
+    assert_eq!(
+        lease["owner_profile"], "alice",
+        "a failed switch must never move ownership"
+    );
+}
+
+#[test]
+fn resume_execs_codex_resume_under_the_profiles_own_codex_home() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    login_claude(root.path(), "alice", &claude);
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-resume-me");
+    login_codex(root.path(), "codex-main", &codex);
+    launch_claude_writer(root.path(), project.path(), "alice", &claude);
+    relay(
+        root.path(),
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--config-root")
+        .arg(root.path().join("config"))
+        .arg("--state-root")
+        .arg(root.path().join("state"))
+        .arg("resume")
+        .arg("codex-main")
+        .arg("--project-dir")
+        .arg(project.path())
+        .arg("--codex-executable")
+        .arg(codex.path_text())
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("CODEX_HOME");
+    let output = command.output().expect("run relay resume");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let resumed = codex.resume_invocations();
+    assert_eq!(resumed.len(), 1);
+    assert!(resumed[0].starts_with("01a-resume-me"));
+}

@@ -622,6 +622,9 @@ enum ProfileCommand {
         /// Explicit Claude executable, primarily for controlled validation.
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
+        /// Explicit Codex executable, primarily for controlled validation.
+        #[arg(long, value_name = "PATH")]
+        codex_executable: Option<PathBuf>,
     },
     /// Unregister a profile while retaining its provider-owned directory.
     Remove { name: ProfileName },
@@ -631,6 +634,9 @@ enum ProfileCommand {
         /// Explicit Claude executable, primarily for controlled validation.
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
+        /// Explicit Codex executable, primarily for controlled validation.
+        #[arg(long, value_name = "PATH")]
+        codex_executable: Option<PathBuf>,
     },
     /// Inspect an existing Claude profile without changing it.
     InspectExisting {
@@ -841,13 +847,14 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             ProfileCommand::Status {
                 name,
                 claude_executable,
+                codex_executable,
             } => {
                 let provider = provider_for_profile(
                     &service,
                     name,
                     &providers::ExecutableOverrides {
                         claude: claude_executable.clone(),
-                        codex: None,
+                        codex: codex_executable.clone(),
                     },
                 )?;
                 let status = service.status(name, provider.as_ref())?;
@@ -877,13 +884,14 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             ProfileCommand::Doctor {
                 name,
                 claude_executable,
+                codex_executable,
             } => {
                 let provider = provider_for_profile(
                     &service,
                     name,
                     &providers::ExecutableOverrides {
                         claude: claude_executable.clone(),
-                        codex: None,
+                        codex: codex_executable.clone(),
                     },
                 )?;
                 let report = service.doctor(name, provider.as_ref())?;
