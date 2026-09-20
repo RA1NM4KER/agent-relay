@@ -2925,7 +2925,14 @@ struct ContinuationContext<'a> {
     claude_executable: Option<PathBuf>,
     codex_executable: Option<PathBuf>,
     json_mode: bool,
+    paths: RelayPaths,
+    preferences: preferences::Preferences,
 }
+
+/// How often a supervised *Codex* session asks Codex's structured usage interface whether it is
+/// exhausted (Codex has no limit event to hook). Seconds; `RELAY_CODEX_POLL_SECS=0` disables.
+const CODEX_POLL_DEFAULT_SECS: u64 = 120;
+const CODEX_POLL_ENV: &str = "RELAY_CODEX_POLL_SECS";
 
 impl<'a> ContinuationContext<'a> {
     fn new(
@@ -2944,6 +2951,8 @@ impl<'a> ContinuationContext<'a> {
             claude_executable,
             codex_executable,
             json_mode,
+            paths: paths.clone(),
+            preferences: preferences::Preferences::load(paths.config_root())?.unwrap_or_default(),
         })
     }
 }
@@ -2978,12 +2987,52 @@ fn run_managed_terminal(
 
     for continuation in 0..=MAX_CONTINUATIONS {
         let _ = std::io::stdout().flush();
-        let end = terminal::run_watching_lease(&command, &lease_store, &owner, &timing).map_err(
-            |source| Error::Io {
+        // A Codex session has no "limit reached" event to hang a trigger on, so while the user's
+        // own terminal session is running, periodically start the same one-shot evaluation the
+        // Claude hook starts. It only *evaluates*: any handoff goes through the unchanged
+        // coordinator, lock, cooldown and ledger.
+        let poll_secs = std::env::var(CODEX_POLL_ENV)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(CODEX_POLL_DEFAULT_SECS);
+        let mut poll_action = || {
+            let Ok(Some(lease)) = lease_store.load() else {
+                return;
+            };
+            let Ok(registered) = context.service.list() else {
+                return;
+            };
+            let Some(profile) = registered
+                .iter()
+                .find(|candidate| candidate.name == lease.owner_profile)
+            else {
+                return;
+            };
+            if let Some(plan) = auto_handoff::plan_poll(
+                &context.paths,
+                &context.preferences,
+                &registered,
+                profile,
+                &lease,
+                &context.canonical_project,
+            ) {
+                auto_handoff::spawn_detached(&plan);
+            }
+        };
+        let owner_is_codex = context.service.list().is_ok_and(|registered| {
+            registered
+                .iter()
+                .any(|profile| profile.name == owner.0 && profile.provider == ProviderKind::Codex)
+        });
+        let tick = (owner_is_codex && poll_secs > 0).then(|| terminal::Tick {
+            every: std::time::Duration::from_secs(poll_secs),
+            action: &mut poll_action,
+        });
+        let end = terminal::run_watching_lease(&command, &lease_store, &owner, &timing, tick)
+            .map_err(|source| Error::Io {
                 path: command.program.clone(),
                 source,
-            },
-        )?;
+            })?;
         let code = match end {
             terminal::TerminalEnd::Exited(code) => code,
             terminal::TerminalEnd::OwnerMoved => 0,
@@ -3113,6 +3162,29 @@ enum ClaudeResumeAction {
 
 /// Builds (does not run) `codex resume <thread-id>` under the profile's own `CODEX_HOME`.
 /// Codex has no background-job/attach concept, so this is unconditional (`NATIVE_RESUME`).
+fn verify_codex_thread(
+    codex_executable: &Path,
+    config_dir: &Path,
+    project_dir: &Path,
+    thread_id: &str,
+) -> Result<(), Error> {
+    let not_verified = || Error::CodexThreadNotVerified(thread_id.to_owned());
+    let identity =
+        relay_provider_codex::app_server::read_thread(codex_executable, config_dir, thread_id)
+            .map_err(|_| not_verified())?;
+    if identity.id != thread_id {
+        return Err(not_verified());
+    }
+    if let Some(cwd) = identity.cwd {
+        let canonical =
+            |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        if canonical(&cwd) != canonical(project_dir) {
+            return Err(not_verified());
+        }
+    }
+    Ok(())
+}
+
 fn plan_codex_resume(
     codex_executable: Option<&Path>,
     config_dir: &Path,
@@ -3120,6 +3192,10 @@ fn plan_codex_resume(
     thread_id: &str,
 ) -> Result<terminal::TerminalCommand, Error> {
     let inspector = relay_provider_codex::CodexInspector::discover(codex_executable)?;
+    // NATIVE_RESUME is only claimed for a thread Codex itself confirms: the id must exist in this
+    // profile's own CODEX_HOME and belong to this project. (An interactive `codex resume` with a
+    // missing or stale id can otherwise start a different thread without any clear failure.)
+    verify_codex_thread(inspector.executable(), config_dir, project_dir, thread_id)?;
     Ok(terminal::TerminalCommand {
         program: inspector.executable().to_path_buf(),
         args: vec!["resume".into(), thread_id.into()],

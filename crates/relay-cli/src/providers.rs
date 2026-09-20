@@ -64,8 +64,9 @@ pub fn ports_for(provider: ProviderKind, executables: &ExecutableOverrides) -> P
 
 /// A provider's usage/exhaustion signal. `probe` mirrors `relay watch run`'s existing
 /// `--probe`/`ledger.is_known_exhausted` gating for Claude's real-API-spend probe; Codex's signal
-/// never spends anything (it always reports Unknown — see `relay_provider_codex::usage`), so the
-/// flag is accepted for interface uniformity but has no effect there.
+/// is a read-only structured rate-limit query that never spends anything (see
+/// `relay_provider_codex::usage`), so the flag is accepted for interface uniformity but has no
+/// effect there.
 #[must_use]
 pub fn usage_signal_for(
     provider: ProviderKind,
@@ -74,7 +75,7 @@ pub fn usage_signal_for(
     workload_model: Option<String>,
 ) -> Box<dyn UsageSignal> {
     match provider {
-        ProviderKind::Codex => Box::new(CodexUsageSignal),
+        ProviderKind::Codex => Box::new(CodexUsageSignal::new(executables.codex.clone())),
         ProviderKind::Claude | ProviderKind::Fake => Box::new(
             ClaudeUsageSignal::new(executables.claude.clone(), probe)
                 .with_workload_model(workload_model),

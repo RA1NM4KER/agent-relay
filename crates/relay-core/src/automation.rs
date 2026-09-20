@@ -862,6 +862,75 @@ mod tests {
         );
     }
 
+    /// Codex is the writer and genuinely exhausted; the first Claude profile is still
+    /// reset-pending, so the next eligible one in the global order is chosen.
+    #[test]
+    fn an_exhausted_codex_writer_skips_a_reset_pending_claude_for_the_next_eligible_one() {
+        let mut source = candidate("codex", UsageState::Exhausted);
+        source.provider = crate::ProviderKind::Codex;
+        let primary = candidate("claude-primary", UsageState::Unknown);
+        let backup = candidate("claude-backup", UsageState::Available);
+        let mut ledger = AutomationLedger::default();
+        let (name, usage) = exhausted_until("claude-primary", 50_000);
+        ledger.mark_exhausted(name, &usage);
+        let decision = decide(
+            10_000,
+            &source,
+            &[primary, backup],
+            &ledger,
+            &AutomationPolicy::default(),
+        );
+        assert_eq!(
+            decision,
+            AutomationDecision::Handoff {
+                target: ProfileName::new("claude-backup").expect("name")
+            }
+        );
+    }
+
+    /// The same Codex writer once the primary Claude has reset: the primary is chosen first.
+    #[test]
+    fn an_exhausted_codex_writer_prefers_the_primary_claude_once_it_has_reset() {
+        let mut source = candidate("codex", UsageState::Exhausted);
+        source.provider = crate::ProviderKind::Codex;
+        let primary = candidate("claude-primary", UsageState::Available);
+        let backup = candidate("claude-backup", UsageState::Available);
+        let mut ledger = AutomationLedger::default();
+        let (name, usage) = exhausted_until("claude-primary", 5_000);
+        ledger.mark_exhausted(name, &usage);
+        let decision = decide(
+            10_000,
+            &source,
+            &[primary, backup],
+            &ledger,
+            &AutomationPolicy::default(),
+        );
+        assert_eq!(
+            decision,
+            AutomationDecision::Handoff {
+                target: ProfileName::new("claude-primary").expect("name")
+            }
+        );
+    }
+
+    /// A healthy Codex writer never moves, however ready the higher-priority Claude profile is.
+    #[test]
+    fn a_healthy_codex_writer_is_sticky_even_when_the_primary_is_ready() {
+        let mut source = candidate("codex", UsageState::Available);
+        source.provider = crate::ProviderKind::Codex;
+        let primary = candidate("claude-primary", UsageState::Available);
+        assert_eq!(
+            decide(
+                10_000,
+                &source,
+                &[primary],
+                &AutomationLedger::default(),
+                &AutomationPolicy::default()
+            ),
+            AutomationDecision::NoActionNeeded
+        );
+    }
+
     #[test]
     fn cooldown_blocks_a_second_handoff_immediately_after_the_first() {
         let source = candidate("erika", UsageState::Exhausted);

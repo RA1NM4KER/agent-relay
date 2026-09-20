@@ -572,3 +572,52 @@ Configuration note: the current `preferences.toml` is `primary=erika, fallback=[
 ### 2. Hook freshness
 
 Hooks call the path `/Users/kefasmanda/repos/agent-relay/target/debug/relay` (not a copy), so they pick up any rebuild at that path; no reinstall is required as long as the binary is rebuilt from HEAD. See the final verification in the commit for the binary's build state.
+
+## M7: Codex as an automatic exhaustion source (structured usage) and Codex continuity
+
+### Upstream research (installed `codex-cli 0.155.0`; protocol schema generated locally with `codex app-server generate-json-schema`, no auth involved)
+
+- `codex app-server` is the official local client protocol: JSON-RPC 2.0, one message per line over stdio (default), also unix/ws transports. A client sends `initialize` (+ `initialized`), then typed requests.
+- `account/rateLimits/read` returns `ordinaryUsageAllowed` (documented as the backend's permission for ordinary usage, *validated against the active account*; `null` = unavailable and "clients must not infer recovery from percentages or reset times"), `rateLimits` (backward-compatible single bucket), `rateLimitsByLimitId` (multi-bucket, e.g. `codex`), per-window `usedPercent` / `windowDurationMins` / `resetsAt`, `rateLimitReachedType`, `spendControlReached`, credits, and `accountId`. `account/read` returns the account kind (`chatgpt` / `apiKey` / `amazonBedrock`). `initialize`'s response names the `codexHome` the server actually used.
+- `thread/read` (metadata-only) returns the thread `id` and `cwd`, or a JSON-RPC error for an unknown id.
+- Codex has hooks (`sessionStart`, `stop`, `interrupt`, …) but **no equivalent of Claude's `StopFailure`**, and installing hooks means editing the profile's Codex config, which Relay does not do. The server also pushes `account/rateLimits/updated`, but only on a connection Relay would have to hold open against the user's own TUI process, which it does not own. So there is no event to hang a trigger on.
+
+### Live checks performed (real, read-only; isolated profile `codex-m6-validation`; default `~/.codex` untouched; nothing exhausted, no quota spent for the reads)
+
+1. `initialize` returned `codexHome` equal to the isolated profile directory (isolation confirmed); ambient `CODEX_HOME`/`OPENAI_*` were removed from the child.
+2. `account/read` = ChatGPT plus account; `account/rateLimits/read` = `ordinaryUsageAllowed: true`, primary 0% (5h window), secondary **95%** (weekly), with reset times. **The real Codex account is at 95% of its weekly window** — Relay classifies that `NEAR_LIMIT` (verified through `relay watch run --dry-run`, `source_usage: NearLimit`).
+3. `thread/read` on the real persisted validation thread returned the exact id and `cwd` = the disposable workspace; a bogus id returned a clear `thread not loaded` error (no silent new thread, no model call).
+4. Manual **Codex -> Claude `STATE_CONTINUATION`** in the disposable workspace (`relay switch erika`, `codex-m6-validation -> erika`): `state: COMPLETE`, `continuity_type: STATE_CONTINUATION`, target `started_successfully: true` under erika's own config dir. (One small Claude turn on erika; the session had ended by cleanup time, nothing left running.)
+
+Not done live (and not claimed): a real Codex exhaustion (never forced); the periodic trigger against real Codex; Codex profile A -> Codex profile B (only one real Codex account exists).
+
+### What Relay now does
+
+- `relay-provider-codex::app_server`: a minimal read-only JSON-RPC client. Spawns `codex app-server` with only `CODEX_HOME=<profile dir>` (auth-override variables removed), 20 s session budget, bounded line size/count, killed on drop. Fails closed on spawn failure, timeout, malformed data, JSON-RPC error, or a `codexHome` different from the profile's.
+- `CodexUsageSignal` (now real): `ordinaryUsageAllowed=false` -> `EXHAUSTED` (reset = latest still-future `resetsAt` among windows at 100%; none known -> no reset time, i.e. blocked until `relay watch clear`); `true` -> `AVAILABLE`, or `NEAR_LIMIT` at >=90% in any window; missing verdict, a "reached" type contradicting `allowed`, non-ChatGPT account, no account id, wrong home, any app-server failure -> `UNKNOWN`. New evidence tier `ProviderRateLimitApi`. `PROVIDER_CAPABILITIES.usage_detection` is now `true`. Never parses English error text.
+- Routing needed no change: the ledger, reset handling, the global `primary > fallbacks` hierarchy (which already includes Claude profiles below a Codex writer), coordinator pairs (Codex -> Claude/Codex), cooldown, loop guard and the single-writer lock are the existing code.
+- **Trigger** (the honest gap): a supervised Codex terminal (`relay resume`/`relay switch`) now runs the same bounded one-shot `watch auto` the Claude hook starts, every 120 s (`RELAY_CODEX_POLL_SECS`, `0` disables), *only while that foreground terminal is open* (`terminal::Tick`). Relay stays non-daemon; Claude is still never polled. An unsupervised Codex session is evaluated only by `relay watch run` or the Herdr event.
+- **Same-profile resume**: `relay resume`/handoff continuation now confirms the thread through `thread/read` (id equal, `cwd` equal to the project) before running `codex resume`; a missing/stale/mismatched thread fails closed with `codex_thread_not_verified`.
+
+### Continuity guarantees (final)
+
+| Path | Type | Status |
+|---|---|---|
+| Codex -> same Codex profile | `NATIVE_RESUME` | verified thread id + cwd via Codex before resuming; live-checked read side |
+| Claude -> Claude | `SESSION_CONTINUATION` | unchanged |
+| Claude -> Codex | `STATE_CONTINUATION` | unchanged (live-proven in M6) |
+| Codex -> Claude | `STATE_CONTINUATION` | **automatic now possible** when Codex is exhausted (fake-provider e2e); manual path live-proven above |
+| Codex A -> Codex B | `STATE_CONTINUATION` (never native) | routed by the same coordinator/`ContinuityType::for_transition` code; covered by a fake-provider e2e (two fake Codex profiles, `STATE_CONTINUATION` asserted) but **not live-validated** (one Codex account). Thread history is local to a `CODEX_HOME`; cross-home native resume is unsupported and not attempted |
+
+### Tests (synthetic unless stated)
+
+`relay-provider-codex`: 12 new tests (scripted app-server: typed parse, wrong `codexHome`, dead/garbage/missing server, thread read/unknown thread; AVAILABLE, NEAR_LIMIT, EXHAUSTED + reset, past/absent reset, missing verdict, contradictory snapshot, API-key/no-account -> UNKNOWN, end-to-end exhausted/available/failure). `relay-core`: Codex exhausted -> first Claude reset-pending -> next eligible; -> primary Claude once reset; healthy Codex is sticky. `relay-cli` e2e (fake providers): exhausted Codex -> Claude STATE_CONTINUATION with ledger/reset; healthy Codex stays; failing app-server or missing verdict never hands off; two simultaneous triggers -> one handoff/one writer; supervised `relay resume` on Codex notices exhaustion via the periodic check and the terminal follows the conversation onto Claude; stale Codex thread -> `resume` fails closed and never runs `codex resume`; `terminal::Tick` unit test.
+
+Gate: `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings` clean, `cargo test --workspace` 407 passed, 0 failed.
+
+### Remaining limitations
+
+- Codex accounts are not pinned to an identity (profile identity is still the isolated `CODEX_HOME` path); `codexHome` matching plus the account-validated verdict is the isolation guarantee. Two Codex profiles logged into the same account would share one quota; Relay cannot yet tell.
+- The Codex trigger only runs inside a supervised terminal; there is no unsupervised background trigger by design.
+- Thread `cwd` equality is required when Codex reports one; a thread created from a different directory is refused rather than resumed.
+- Website not updated (per instruction). The Live handoff visual can now truthfully show automatic Codex -> Claude once the next real Codex exhaustion is observed; until then the strongest honest wording is "supported and tested with fakes; live-proven manually".

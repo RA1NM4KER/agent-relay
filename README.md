@@ -194,7 +194,15 @@ relay handoff run --from alice --to bob --project ~/repos/foo --session <session
   attach (Relay needs an initial message to start the tracked session). `relay resume` instead execs
   an interactive `claude --resume <id>` (or `codex resume <thread-id>`) under the session's actual
   owner profile.
-- Relay is not a daemon and never polls providers. Automatic handoff needs a *trigger*: the
+- Codex can be an automatic *source* as well as a target. Its exhaustion is read from Codex's own
+  typed interface (`codex app-server` → `account/rateLimits/read`, `ordinaryUsageAllowed`), never
+  from error text; anything unavailable or ambiguous is `UNKNOWN` and moves nothing. Codex has no
+  limit event to hook, so while you are inside a supervised `relay resume`/`relay switch` Codex
+  session Relay checks that interface every 2 minutes (`RELAY_CODEX_POLL_SECS`, `0` disables) — only
+  for as long as that terminal is open. Codex → Claude (and Codex → another Codex profile, tested with fakes only) hand over as state
+  continuation, never as the same native conversation; only same-profile Codex resume is native, and
+  Relay confirms the thread with Codex before resuming it.
+- Relay is not a daemon. Claude is never polled. Automatic handoff needs a *trigger*: the
   usage-integration `StopFailure` hook (installed by `relay setup`, per profile — a fallback
   profile needs it installed too for a *second* hop), Herdr's status event, or a manual
   `relay watch run`. A profile without the integration installed cannot start an automatic

@@ -101,7 +101,63 @@ pub fn plan(
     if fallbacks.is_empty() {
         return None;
     }
+    Some(assemble(
+        paths,
+        &profile.name,
+        &fallbacks,
+        project,
+        session_id,
+        (
+            env_number(ATTEMPTS_ENV, u64::from(DEFAULT_ATTEMPTS)),
+            env_number(INTERVAL_MS_ENV, DEFAULT_INTERVAL_MS),
+        ),
+        project_state_dir.join(LOG_FILE_NAME),
+    ))
+}
 
+/// The plan for one poll of a supervised session whose provider has no limit event to hang a
+/// trigger on (Codex): the same bounded one-shot evaluation as the hook trigger, but a single
+/// attempt with no retry window, for the session the lease says this profile owns right now.
+/// `None` when the profile has nothing to fall back to.
+#[must_use]
+pub fn plan_poll(
+    paths: &RelayPaths,
+    preferences: &Preferences,
+    registered: &[relay_core::Profile],
+    profile: &relay_core::Profile,
+    lease: &relay_core::handoff::WriterLease,
+    project: &Path,
+) -> Option<AutoWatchPlan> {
+    if lease.owner_profile != profile.name {
+        return None;
+    }
+    let fallbacks = hierarchy_without(preferences, &profile.name, |name| {
+        registered.iter().any(|candidate| &candidate.name == name)
+    });
+    if fallbacks.is_empty() {
+        return None;
+    }
+    let project_id = ProjectId::for_canonical_path(project).ok()?;
+    Some(assemble(
+        paths,
+        &profile.name,
+        &fallbacks,
+        project.to_path_buf(),
+        &lease.session_id,
+        (1, 0),
+        paths.project_state_dir(&project_id).join(LOG_FILE_NAME),
+    ))
+}
+
+fn assemble(
+    paths: &RelayPaths,
+    profile: &ProfileName,
+    fallbacks: &[&ProfileName],
+    project: PathBuf,
+    session_id: &str,
+    (attempts, interval_ms): (u64, u64),
+    log_path: PathBuf,
+) -> AutoWatchPlan {
     let mut args: Vec<OsString> = vec![
         "--config-root".into(),
         paths.config_root().into(),
@@ -110,9 +166,9 @@ pub fn plan(
         "watch".into(),
         "auto".into(),
         "--profile".into(),
-        profile.name.as_str().into(),
+        profile.as_str().into(),
     ];
-    for fallback in &fallbacks {
+    for fallback in fallbacks {
         args.push("--fallback".into());
         args.push(fallback.as_str().into());
     }
@@ -122,18 +178,11 @@ pub fn plan(
         "--session".into(),
         session_id.into(),
         "--attempts".into(),
-        env_number(ATTEMPTS_ENV, u64::from(DEFAULT_ATTEMPTS))
-            .to_string()
-            .into(),
+        attempts.to_string().into(),
         "--interval-ms".into(),
-        env_number(INTERVAL_MS_ENV, DEFAULT_INTERVAL_MS)
-            .to_string()
-            .into(),
+        interval_ms.to_string().into(),
     ]);
-    Some(AutoWatchPlan {
-        args,
-        log_path: project_state_dir.join(LOG_FILE_NAME),
-    })
+    AutoWatchPlan { args, log_path }
 }
 
 /// One global ordered hierarchy (`primary > fallbacks…`), reconsidered in full at every

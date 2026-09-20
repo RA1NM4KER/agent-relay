@@ -146,6 +146,29 @@ case "$1" in
   resume)
     printf '%s %s\n' "$2" "$CODEX_HOME" >> "{resume_log}"
     ;;
+  app-server)
+    while IFS= read -r line; do
+      id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+      [ -z "$id" ] && continue
+      case "$line" in
+        *'"method":"initialize"'*) printf '{{"id":%s,"result":{{"codexHome":"%s"}}}}\n' "$id" "$CODEX_HOME" ;;
+        *'"method":"thread/read"'*)
+          tid=$(printf '%s' "$line" | sed -n 's/.*"threadId":"\([^"]*\)".*/\1/p')
+          if [ "$tid" = "{thread_id}" ]; then
+            printf '{{"id":%s,"result":{{"thread":{{"id":"%s"}}}}}}\n' "$id" "$tid"
+          else
+            printf '{{"id":%s,"error":{{"code":-32600,"message":"thread not loaded"}}}}\n' "$id"
+          fi ;;
+        *'"method":"account/read"'*) printf '{{"id":%s,"result":{{"account":{{"type":"chatgpt","email":null,"planType":"plus"}},"requiresOpenaiAuth":true}}}}\n' "$id" ;;
+        *'"method":"account/rateLimits/read"'*)
+          if [ -f "$CODEX_HOME/limits.json" ]; then
+            printf '{{"id":%s,"result":%s}}\n' "$id" "$(cat "$CODEX_HOME/limits.json")"
+          else
+            printf '{{"id":%s,"result":{{"ordinaryUsageAllowed":true,"accountId":"a","rateLimits":{{"primary":{{"usedPercent":1}}}}}}}}\n' "$id"
+          fi ;;
+        *) printf '{{"id":%s,"error":{{"code":-32601,"message":"method not found"}}}}\n' "$id" ;;
+      esac
+    done ;;
   *) exit 2 ;;
 esac
 "#,
@@ -663,4 +686,63 @@ fn interactive_setup_can_register_a_codex_only_profile() {
         .expect("codex-main registered");
     assert_eq!(row["provider"], "codex");
     assert_eq!(row["role"], "primary");
+}
+
+/// NATIVE_RESUME is only launched for a thread Codex itself confirms in the profile's own home:
+/// when the lease's thread id is unknown to Codex, `relay resume` fails closed and never runs
+/// `codex resume` (which could otherwise start a different thread).
+#[test]
+fn resume_refuses_a_codex_thread_the_profile_cannot_confirm() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project");
+    init_git_repo(project.path());
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    login_claude(root.path(), "alice", &claude);
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-real-thread");
+    login_codex(root.path(), "codex-main", &codex);
+    launch_claude_writer(root.path(), project.path(), "alice", &claude);
+    relay(
+        root.path(),
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    // The same profile, but a Codex whose home does not contain the lease's thread.
+    let stale = FakeCodex::new(root.path(), "codex-stale", "01a-some-other-thread");
+    let output = Command::new(env!("CARGO_BIN_EXE_relay"))
+        .arg("--config-root")
+        .arg(root.path().join("config"))
+        .arg("--state-root")
+        .arg(root.path().join("state"))
+        .arg("resume")
+        .arg("codex-main")
+        .arg("--project-dir")
+        .arg(project.path())
+        .arg("--codex-executable")
+        .arg(stale.path_text())
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("CODEX_HOME")
+        .output()
+        .expect("run relay resume");
+    assert!(!output.status.success(), "must fail closed");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("could not prove that Codex thread"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stale.resume_invocations().is_empty(), "never resumed");
 }

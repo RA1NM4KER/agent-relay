@@ -164,7 +164,33 @@ case "$1" in
     printf '{{"type":"turn.started"}}\n'
     printf '{{"type":"turn.completed"}}\n'
     ;;
-  resume) exit 0 ;;
+  resume)
+    [ -f "$CODEX_HOME/resume_sleep" ] && sleep 30
+    exit 0 ;;
+  app-server)
+    [ -f "$CODEX_HOME/app_server_fail" ] && exit 1
+    while IFS= read -r line; do
+      id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+      [ -z "$id" ] && continue
+      case "$line" in
+        *'"method":"initialize"'*) printf '{{"id":%s,"result":{{"codexHome":"%s"}}}}\n' "$id" "$CODEX_HOME" ;;
+        *'"method":"thread/read"'*)
+          tid=$(printf '%s' "$line" | sed -n 's/.*"threadId":"\([^"]*\)".*/\1/p')
+          if [ "$tid" = "01a-auto-thread" ]; then
+            printf '{{"id":%s,"result":{{"thread":{{"id":"%s"}}}}}}\n' "$id" "$tid"
+          else
+            printf '{{"id":%s,"error":{{"code":-32600,"message":"thread not loaded"}}}}\n' "$id"
+          fi ;;
+        *'"method":"account/read"'*) printf '{{"id":%s,"result":{{"account":{{"type":"chatgpt","email":null,"planType":"plus"}},"requiresOpenaiAuth":true}}}}\n' "$id" ;;
+        *'"method":"account/rateLimits/read"'*)
+          if [ -f "$CODEX_HOME/limits.json" ]; then
+            printf '{{"id":%s,"result":%s}}\n' "$id" "$(cat "$CODEX_HOME/limits.json")"
+          else
+            printf '{{"id":%s,"result":{{"ordinaryUsageAllowed":true,"accountId":"a","rateLimits":{{"primary":{{"usedPercent":1}}}}}}}}\n' "$id"
+          fi ;;
+        *) printf '{{"id":%s,"error":{{"code":-32601,"message":"method not found"}}}}\n' "$id" ;;
+      esac
+    done ;;
   *) exit 2 ;;
 esac
 "#,
@@ -811,4 +837,283 @@ fn an_ordinary_exit_returns_the_sessions_own_status_and_continues_nowhere() {
         .count();
     assert_eq!(continuations, 0);
     assert_eq!(lease_owner(world.root.path()), "alice");
+}
+
+// ---------------------------------------------------------------------------------------------
+// M7: Codex as an automatic *source* (structured usage from `codex app-server`).
+// ---------------------------------------------------------------------------------------------
+
+/// alice (Claude, primary) and codex-main (Codex); the CODEX profile is the current writer.
+fn codex_writer_world() -> World {
+    let world = world(true);
+    let root = world.root.path();
+    let switch = relay_command(
+        root,
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &root.join("bin").join("claude").to_string_lossy(),
+            "--codex-executable",
+            &root.join("bin").join("codex").to_string_lossy(),
+        ],
+    )
+    .output()
+    .expect("switch");
+    assert!(
+        switch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&switch.stderr)
+    );
+    assert_eq!(lease_owner(root), "codex-main");
+    world
+}
+
+fn codex_home(world: &World) -> PathBuf {
+    profile_dir(world.root.path(), "codex-main", "codex")
+}
+
+/// What the scripted `account/rateLimits/read` answers for the Codex profile.
+fn set_codex_limits(world: &World, allowed: &str, used: u32, resets_at: u64) {
+    std::fs::write(
+        codex_home(world).join("limits.json"),
+        format!(
+            r#"{{"ordinaryUsageAllowed":{allowed},"accountId":"acct","rateLimits":{{"primary":{{"usedPercent":{used},"windowDurationMins":300,"resetsAt":{resets_at}}},"secondary":{{"usedPercent":10,"resetsAt":{resets_at}}}}}}}"#
+        ),
+    )
+    .expect("limits");
+}
+
+fn lease_session(root: &Path) -> String {
+    let lease =
+        std::fs::read_to_string(project_state_dir(root).join("lease.json")).expect("lease file");
+    serde_json::from_str::<Value>(&lease).expect("lease json")["session_id"]
+        .as_str()
+        .expect("session")
+        .to_owned()
+}
+
+fn watch_run_codex(world: &World) -> Command {
+    let root = world.root.path();
+    let mut command = relay_command(
+        root,
+        &[
+            "watch",
+            "run",
+            "--profile",
+            "codex-main",
+            "--fallback",
+            "alice",
+            "--project",
+            &world.project.path().to_string_lossy(),
+            "--session",
+            &lease_session(root),
+            "--claude-executable",
+            &root.join("bin").join("claude").to_string_lossy(),
+        ],
+    );
+    command.env("PATH", path_with_fixtures(root));
+    command
+}
+
+fn ledger(world: &World) -> Value {
+    json_stdout(&relay(
+        world.root.path(),
+        &[
+            "watch",
+            "status",
+            "--project",
+            &world.project.path().to_string_lossy(),
+        ],
+    ))["data"]["ledger"]
+        .clone()
+}
+
+/// The headline: a genuinely exhausted Codex writer (structured `ordinaryUsageAllowed=false`)
+/// hands off to the first eligible Claude profile with STATE_CONTINUATION, the Codex thread is
+/// never resumed on Claude, and Codex is recorded exhausted with its reset time.
+#[test]
+fn an_exhausted_codex_writer_hands_off_to_claude_with_state_continuation() {
+    let world = codex_writer_world();
+    set_codex_limits(&world, "false", 100, 4_000_000_000);
+    let output = watch_run_codex(&world).output().expect("watch run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = json_stdout(&output);
+    assert_eq!(json["data"]["outcome"], "handoff", "{json}");
+    assert_eq!(json["data"]["target"], "alice");
+    assert_eq!(lease_owner(world.root.path()), "alice");
+    let ledger = ledger(&world);
+    assert_eq!(
+        ledger["recent_handoffs"].as_array().expect("array").len(),
+        1
+    );
+    assert_eq!(ledger["known_exhausted"][0]["profile"], "codex-main");
+    assert_eq!(
+        ledger["known_exhausted"][0]["reset_unix_ms"],
+        4_000_000_000_000_u64
+    );
+    // The provider-neutral bundle path was used (Codex -> Claude is STATE_CONTINUATION), not a
+    // resume of the Codex thread on Claude.
+    assert_eq!(
+        json["data"]["journal"]["continuity_type"], "STATE_CONTINUATION",
+        "{json}"
+    );
+}
+
+/// Sticky writer: Codex is healthy, Claude Primary is ready — nothing moves.
+#[test]
+fn a_healthy_codex_writer_stays_put_even_though_claude_is_ready() {
+    let world = codex_writer_world();
+    set_codex_limits(&world, "true", 12, 4_000_000_000);
+    let output = watch_run_codex(&world).output().expect("watch run");
+    assert!(output.status.success());
+    assert_eq!(json_stdout(&output)["data"]["outcome"], "no_action_needed");
+    assert_eq!(lease_owner(world.root.path()), "codex-main");
+}
+
+/// A broken app-server yields UNKNOWN usage, which never starts a handoff.
+#[test]
+fn a_failing_codex_app_server_never_triggers_a_handoff() {
+    let world = codex_writer_world();
+    set_codex_limits(&world, "false", 100, 4_000_000_000);
+    std::fs::write(codex_home(&world).join("app_server_fail"), "").expect("marker");
+    let output = watch_run_codex(&world).output().expect("watch run");
+    assert!(output.status.success());
+    assert_eq!(json_stdout(&output)["data"]["outcome"], "no_action_needed");
+    assert_eq!(lease_owner(world.root.path()), "codex-main");
+    // and "usage allowed: unknown" (the verdict is missing) is equally inert
+    std::fs::remove_file(codex_home(&world).join("app_server_fail")).expect("remove marker");
+    std::fs::write(
+        codex_home(&world).join("limits.json"),
+        r#"{"accountId":"acct","rateLimits":{"primary":{"usedPercent":100,"resetsAt":4000000000}}}"#,
+    )
+    .expect("limits");
+    let output = watch_run_codex(&world).output().expect("watch run");
+    assert_eq!(json_stdout(&output)["data"]["outcome"], "no_action_needed");
+    assert_eq!(lease_owner(world.root.path()), "codex-main");
+}
+
+/// Two simultaneous triggers for the same exhausted Codex writer produce exactly one handoff
+/// and exactly one writer.
+#[test]
+fn duplicate_triggers_for_an_exhausted_codex_writer_create_one_handoff() {
+    let world = codex_writer_world();
+    set_codex_limits(&world, "false", 100, 4_000_000_000);
+    let first = watch_run_codex(&world).spawn().expect("first");
+    let second = watch_run_codex(&world).spawn().expect("second");
+    let _ = first.wait_with_output().expect("first done");
+    let _ = second.wait_with_output().expect("second done");
+    assert_eq!(lease_owner(world.root.path()), "alice");
+    let ledger = ledger(&world);
+    assert_eq!(
+        ledger["recent_handoffs"].as_array().expect("array").len(),
+        1
+    );
+}
+
+/// The whole automatic path with the supervised terminal: `relay resume` on a Codex writer; while
+/// the terminal is up, the periodic structured-usage check notices real exhaustion, hands the
+/// conversation to Claude, and the terminal continues on the new owner — nobody types anything.
+#[test]
+fn a_supervised_codex_session_notices_exhaustion_and_follows_the_conversation_to_claude() {
+    let world = codex_writer_world();
+    let root = world.root.path();
+    // Healthy at start; the fake `codex resume` blocks (like the TUI) until Relay closes it.
+    set_codex_limits(&world, "true", 5, 4_000_000_000);
+    std::fs::write(codex_home(&world).join("resume_sleep"), "").expect("marker");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(["resume", "--project-dir"])
+        .arg(world.project.path())
+        .arg("--claude-executable")
+        .arg(root.join("bin").join("claude"))
+        .arg("--codex-executable")
+        .arg(root.join("bin").join("codex"))
+        .env("PATH", path_with_fixtures(root))
+        .env("RELAY_CODEX_POLL_SECS", "1")
+        .env("RELAY_AUTO_WATCH_ATTEMPTS", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    scrub(&mut command);
+    let child = command.spawn().expect("relay resume");
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(lease_owner(root), "codex-main", "healthy: nothing may move");
+    // The real limit is hit.
+    set_codex_limits(&world, "false", 100, 4_000_000_000);
+    wait_for(
+        "the periodic check to hand the conversation to alice",
+        Duration::from_secs(60),
+        || lease_owner(root) == "alice",
+    );
+    let output = child.wait_with_output().expect("relay resume finishes");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let log = claude_log(root);
+    assert!(
+        log.iter()
+            .any(|(args, _)| args.starts_with("attach ") || args.starts_with("--resume ")),
+        "the terminal must continue on alice: {log:?}"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("continuing this conversation on 'alice'")
+    );
+}
+
+/// Codex -> another Codex profile (fake providers only): the hierarchy is honoured and the
+/// continuity is STATE_CONTINUATION, never a native resume of the first profile's thread.
+#[test]
+fn an_exhausted_codex_writer_can_hand_off_to_a_second_codex_profile_with_state_continuation() {
+    let world = codex_writer_world();
+    let root = world.root.path();
+    login(
+        root,
+        "codex-backup",
+        "codex",
+        "--codex-executable",
+        &root.join("bin").join("codex"),
+    );
+    set_codex_limits(&world, "false", 100, 4_000_000_000);
+    let mut command = relay_command(
+        root,
+        &[
+            "watch",
+            "run",
+            "--profile",
+            "codex-main",
+            "--fallback",
+            "codex-backup",
+            "--project",
+            &world.project.path().to_string_lossy(),
+            "--session",
+            &lease_session(root),
+        ],
+    );
+    command.env("PATH", path_with_fixtures(root));
+    let output = command.output().expect("watch run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = json_stdout(&output);
+    assert_eq!(json["data"]["outcome"], "handoff", "{json}");
+    assert_eq!(
+        json["data"]["journal"]["continuity_type"],
+        "STATE_CONTINUATION"
+    );
+    assert_eq!(lease_owner(root), "codex-backup");
 }

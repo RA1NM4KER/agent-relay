@@ -107,6 +107,13 @@ pub enum Error {
     )]
     AmbiguousSessionLiveness(String),
     #[error(
+        "Relay could not prove that Codex thread '{0}' exists in this profile's own Codex home \
+         (for the expected project), so it did not resume it: an interactive `codex resume` with a \
+         missing or stale id may silently start a different thread. Start a new session with \
+         `relay claude --new` or hand off explicitly with `relay switch`."
+    )]
+    CodexThreadNotVerified(String),
+    #[error(
         "a prior handoff transaction for this project requires explicit recovery before a new one can start: {0}"
     )]
     PendingRecoveryRequired(String),
@@ -200,6 +207,7 @@ impl Error {
             Self::WriterAlreadyActive(_) => "writer_already_active",
             Self::ManagedSessionAlreadyActive(_) => "managed_session_active",
             Self::AmbiguousSessionLiveness(_) => "ambiguous_session_liveness",
+            Self::CodexThreadNotVerified(_) => "codex_thread_not_verified",
             Self::PendingRecoveryRequired(_) => "pending_recovery_required",
             Self::StopNotVerified(_) => "stop_not_verified",
             Self::ConflictRequiresResolution(_) => "conflict_requires_resolution",

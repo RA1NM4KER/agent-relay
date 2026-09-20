@@ -2,6 +2,7 @@
 //! Codex adapter, structured to mirror `relay-provider-claude`'s shape wherever Codex actually
 //! has an equivalent (see each module's doc comment for where it genuinely doesn't).
 
+pub mod app_server;
 mod context_capture;
 mod handoff_adapters;
 mod inspection;
@@ -34,16 +35,15 @@ use sha2::{Digest, Sha256};
 /// upstream). A cross-profile Codex handoff is therefore always `STATE_CONTINUATION`, never
 /// `SESSION_CONTINUATION`, even though same-profile resume (`native_session_resume`) works.
 ///
-/// `usage_detection` is `false`: no reliable structured usage/rate-limit signal was found on the
-/// installed CLI (0.155.0) — see `usage.rs`. Automatic exhaustion-triggered handoff AWAY FROM a
-/// Codex profile is therefore not supported in M6; Codex can still be an automatic handoff
-/// TARGET (chosen because the SOURCE is exhausted) and a manual `relay switch` source/target.
+/// `usage_detection` is `true` (M7): `codex app-server`'s typed `account/rateLimits/read` gives an
+/// account-validated `ordinaryUsageAllowed` verdict plus usage windows — see `usage.rs`. Anything
+/// unavailable or ambiguous maps to `UNKNOWN`, which routing never acts on.
 pub const PROVIDER_CAPABILITIES: ProviderCapabilities = ProviderCapabilities {
     native_session_resume: true,
     native_session_transfer: false,
     state_export: false,
     state_import: true,
-    usage_detection: false,
+    usage_detection: true,
     process_control: true,
     auth_status: true,
 };

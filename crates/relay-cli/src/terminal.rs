@@ -99,6 +99,16 @@ impl Default for Timing {
     }
 }
 
+/// A periodic action run only while the user's own terminal session is in the foreground — used
+/// for providers (Codex) that have no "the limit was hit" event to hang a trigger on, so the
+/// only honest way to notice exhaustion in time is to ask the provider's structured usage
+/// interface now and then. It never decides anything: the action just starts the same bounded,
+/// one-shot evaluation the Claude hook starts, and dies with the terminal session.
+pub struct Tick<'a> {
+    pub every: Duration,
+    pub action: &'a mut dyn FnMut(),
+}
+
 /// Runs `command` in the foreground until it exits or the lease owner moves away from
 /// `expected`.
 pub fn run_watching_lease(
@@ -106,10 +116,18 @@ pub fn run_watching_lease(
     lease_store: &LeaseStore,
     expected: &LeaseOwner,
     timing: &Timing,
+    mut tick: Option<Tick<'_>>,
 ) -> std::io::Result<TerminalEnd> {
     let mut child = command.to_command().spawn()?;
     let mut last_lease_check = Instant::now();
+    let mut last_tick = Instant::now();
     loop {
+        if let Some(tick) = tick.as_mut()
+            && last_tick.elapsed() >= tick.every
+        {
+            last_tick = Instant::now();
+            (tick.action)();
+        }
         if let Some(status) = child.try_wait()? {
             return Ok(TerminalEnd::Exited(status.code().unwrap_or(1)));
         }
@@ -214,6 +232,7 @@ mod tests {
             &store,
             &LeaseOwner(ProfileName::new("erika").unwrap()),
             &fast(),
+            None,
         )
         .expect("run");
         assert_eq!(end, TerminalEnd::Exited(7));
@@ -239,11 +258,36 @@ mod tests {
             &store,
             &LeaseOwner(ProfileName::new("erika").unwrap()),
             &fast(),
+            None,
         )
         .expect("run");
         flipper.join().expect("flipper");
         assert_eq!(end, TerminalEnd::OwnerMoved);
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn the_tick_runs_periodically_while_the_child_runs_and_stops_with_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = LeaseStore::at_path(dir.path().join("lease.json"));
+        store
+            .save(&lease_for("erika", dir.path()))
+            .expect("save lease");
+        let mut ticks = 0_u32;
+        let mut action = || ticks += 1;
+        let end = run_watching_lease(
+            &sh("sleep 0.6"),
+            &store,
+            &LeaseOwner(ProfileName::new("erika").unwrap()),
+            &fast(),
+            Some(Tick {
+                every: Duration::from_millis(100),
+                action: &mut action,
+            }),
+        )
+        .expect("run");
+        assert_eq!(end, TerminalEnd::Exited(0));
+        assert!((3..=7).contains(&ticks), "ticked {ticks} times");
     }
 
     #[test]

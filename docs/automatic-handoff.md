@@ -92,6 +92,23 @@ relay integration claude uninstall --profile profile-a
 Restores `settings.json` byte for byte if unchanged since install; otherwise removes only Relay's
 entries and restores your original statusLine. The backup file is kept.
 
+## Codex as the exhausted writer
+
+Codex reports usage through `codex app-server` (typed JSON-RPC over stdio), which Relay queries
+read-only under the profile's own isolated `CODEX_HOME`: `initialize` (its response names the
+Codex home the server really used; a mismatch fails closed), `account/rateLimits/read`
+(`ordinaryUsageAllowed` is the authoritative allowed/blocked verdict; the window `resetsAt` values
+feed the same known-exhausted ledger as Claude), and `thread/read` (proves a same-profile resume
+target exists before `codex resume` runs). Anything unavailable, contradictory or not a plan-based
+account is `UNKNOWN`. Relay never reads `auth.json` and never matches English error text.
+
+Because Codex has no hook for "the limit was hit", a supervised Codex terminal (`relay resume`,
+`relay switch`) starts the same bounded one-shot evaluation the Claude hook starts, every 2
+minutes while that terminal is open (`RELAY_CODEX_POLL_SECS`; `0` disables). An unsupervised Codex
+session is only evaluated by an explicit `relay watch run` or the Herdr event.
+Codex → Claude and Codex → other Codex profiles are `STATE_CONTINUATION` (a new session seeded from
+the state bundle); cross-profile native resume is not supported.
+
 ## Limitations
 
 - The statusline only refreshes while an interactive Claude session is drawing it; headless

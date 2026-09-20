@@ -68,6 +68,10 @@ pub enum UsageEvidence {
     /// a provider without any trustworthy usage signal can still report *why* it doesn't know,
     /// rather than silently reusing a signal name that implies usage evidence it doesn't have.
     ProviderHealthCheck,
+    /// M7: a typed reading from the provider's own structured rate-limit interface (Codex's
+    /// `account/rateLimits/read` over `codex app-server`), whose `ordinaryUsageAllowed` verdict is
+    /// the provider's own account-validated statement of whether ordinary usage is permitted.
+    ProviderRateLimitApi,
 }
 
 /// A single usage/exhaustion observation for one profile. Never contains raw provider output —
