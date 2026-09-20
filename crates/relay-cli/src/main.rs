@@ -1,4 +1,5 @@
 mod preferences;
+mod providers;
 
 use std::{
     path::{Path, PathBuf},
@@ -7,8 +8,8 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use relay_core::{
-    AddProfileRequest, Error, IdentityMetadata, Profile, ProfileDirectory, ProfileName,
-    ProfileService, ProfileSetupMode, Provider, ProviderKind, RelayPaths,
+    AddProfileRequest, AuthenticationState, Error, IdentityMetadata, Profile, ProfileDirectory,
+    ProfileName, ProfileService, ProfileSetupMode, Provider, ProviderKind, RelayPaths,
     automation::{
         AutomationPolicy, LedgerStore, ProfileCandidate, WatchCoordinator, WatchOutcome,
         WatchRequest,
@@ -24,10 +25,10 @@ use relay_herdr::install as herdr_install;
 use relay_provider_claude::{
     AUTHENTICATION_OVERRIDE_VARIABLES, CapabilityStatus, ClaudeAdoptionProvider, ClaudeIdentityPin,
     ClaudeInspectionReport, ClaudeInspector, ClaudeSessionStager, ClaudeSessionStopper,
-    ClaudeSourceLiveness, ClaudeTargetLauncher, ClaudeUsageSignal, EnvironmentOverrideStatus,
-    SimulatedUsageSignal, SystemProcessLister, apply_install, apply_uninstall, assess_installed,
-    handle_statusline, handle_stop_failure, inspect_environment, integration_status, plan_install,
-    plan_uninstall, read_stdin_bounded, stage_transfer,
+    ClaudeSourceLiveness, ClaudeTargetLauncher, EnvironmentOverrideStatus, SimulatedUsageSignal,
+    SystemProcessLister, apply_install, apply_uninstall, assess_installed, handle_statusline,
+    handle_stop_failure, inspect_environment, integration_status, plan_install, plan_uninstall,
+    read_stdin_bounded, stage_transfer,
 };
 use relay_testkit::FakeProvider;
 use serde::Serialize;
@@ -121,20 +122,63 @@ enum Command {
     /// authentication state (unlike `relay profile list`, which is provider-neutral and does not
     /// show M4 preferences).
     Profiles,
-    /// M4: friendly wrapper around the official `claude auth login` flow for one isolated
-    /// profile's `CLAUDE_CONFIG_DIR` — the same flow `relay setup` uses for a new profile.
+    /// M4/M6: friendly wrapper around the official `claude auth login`/`codex login` flow for one
+    /// isolated profile's config directory — the same flow `relay setup` uses for a new profile.
+    /// Dispatches by the profile's already-registered provider; `--provider` picks the provider
+    /// for a brand-new profile name (defaults to `claude`, preserving pre-M6 behavior).
     Login {
         name: ProfileName,
+        #[arg(long, value_enum, default_value_t = ProviderArg::Claude)]
+        provider: ProviderArg,
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
+        #[arg(long, value_name = "PATH")]
+        codex_executable: Option<PathBuf>,
     },
-    /// M4: friendly wrapper around the official `claude auth logout` flow for one isolated
-    /// profile's `CLAUDE_CONFIG_DIR`. Never touches credential files directly.
+    /// M4/M6: friendly wrapper around the official `claude auth logout`/`codex logout` flow for
+    /// one isolated profile's config directory. Never touches credential files directly.
     Logout {
         name: ProfileName,
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
+        #[arg(long, value_name = "PATH")]
+        codex_executable: Option<PathBuf>,
     },
+    /// M6: explicit manual handoff to a different registered profile, same provider or not.
+    /// Uses SESSION_CONTINUATION when the current writer and the target are both Claude (the
+    /// only pairing with proven cross-profile session transfer), STATE_CONTINUATION otherwise.
+    Switch(SwitchArgs),
+    /// M6: reattaches interactively to the session/thread the current writer lease already
+    /// records, under that profile's own isolated config — Codex's NATIVE_RESUME, or (for a
+    /// Claude profile) an interactive `claude --resume`. Refuses if `profile` does not already
+    /// own this project's writer lease (use `relay switch` to move ownership first).
+    Resume(ResumeArgs),
+}
+
+#[derive(Debug, Args)]
+struct SwitchArgs {
+    target: ProfileName,
+    #[arg(long = "project-dir", value_name = "PATH")]
+    project_dir: Option<PathBuf>,
+    /// Stop after the transaction completes; print a status summary instead of exec'ing an
+    /// interactive continuation.
+    #[arg(long)]
+    no_attach: bool,
+    #[arg(long, value_name = "PATH")]
+    claude_executable: Option<PathBuf>,
+    #[arg(long, value_name = "PATH")]
+    codex_executable: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct ResumeArgs {
+    profile: ProfileName,
+    #[arg(long = "project-dir", value_name = "PATH")]
+    project_dir: Option<PathBuf>,
+    #[arg(long, value_name = "PATH")]
+    claude_executable: Option<PathBuf>,
+    #[arg(long, value_name = "PATH")]
+    codex_executable: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -398,6 +442,23 @@ impl From<SimulateUsageArg> for UsageState {
             SimulateUsageArg::Exhausted => Self::Exhausted,
             SimulateUsageArg::ResetPending => Self::ResetPending,
             SimulateUsageArg::Unknown => Self::Unknown,
+        }
+    }
+}
+
+/// M6: which provider to create a brand-new profile as. Defaults to `claude` everywhere it
+/// appears, so a pre-M6 invocation with no `--provider` flag behaves exactly as before.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum ProviderArg {
+    Claude,
+    Codex,
+}
+
+impl From<ProviderArg> for ProviderKind {
+    fn from(value: ProviderArg) -> Self {
+        match value {
+            ProviderArg::Claude => Self::Claude,
+            ProviderArg::Codex => Self::Codex,
         }
     }
 }
@@ -781,7 +842,14 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 name,
                 claude_executable,
             } => {
-                let provider = provider_for_profile(&service, name, claude_executable.as_deref())?;
+                let provider = provider_for_profile(
+                    &service,
+                    name,
+                    &providers::ExecutableOverrides {
+                        claude: claude_executable.clone(),
+                        codex: None,
+                    },
+                )?;
                 let status = service.status(name, provider.as_ref())?;
                 let human = format!(
                     "Profile: {}\nProvider: {}\nAuthentication: {:?}\nAvailability: {:?}\nIdentity matches: {}",
@@ -810,7 +878,14 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 name,
                 claude_executable,
             } => {
-                let provider = provider_for_profile(&service, name, claude_executable.as_deref())?;
+                let provider = provider_for_profile(
+                    &service,
+                    name,
+                    &providers::ExecutableOverrides {
+                        claude: claude_executable.clone(),
+                        codex: None,
+                    },
+                )?;
                 let report = service.doctor(name, provider.as_ref())?;
                 let mut lines = vec![format!(
                     "Profile '{}' is {}",
@@ -1227,7 +1302,8 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 let coordinator = HandoffCoordinator {
                     paths: &paths,
                     liveness: &liveness,
-                    stopper: &stopper,
+                    source_stopper: &stopper,
+                    target_stopper: &stopper,
                     stager: Some(&stager),
                     context_capturer: None,
                     launcher: &launcher,
@@ -1301,7 +1377,8 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             let coordinator = HandoffCoordinator {
                 paths: &paths,
                 liveness: &liveness,
-                stopper: &stopper,
+                source_stopper: &stopper,
+                target_stopper: &stopper,
                 stager: Some(&stager),
                 context_capturer: None,
                 launcher: &launcher,
@@ -1520,20 +1597,77 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     })
                     .collect::<Result<_, Error>>()?;
 
-                let liveness = ClaudeSourceLiveness::new(claude_executable.clone());
-                let stopper = ClaudeSessionStopper::new(claude_executable.clone());
-                let stager = ClaudeSessionStager;
-                let launcher = ClaudeTargetLauncher::new(claude_executable.clone());
-                let coordinator = HandoffCoordinator {
-                    paths: &paths,
-                    liveness: &liveness,
-                    stopper: &stopper,
-                    stager: &stager,
-                    launcher: &launcher,
+                let executables = providers::ExecutableOverrides {
+                    claude: claude_executable.clone(),
+                    codex: None,
+                };
+                // M6: one coordinator per (source_profile, target_profile) pair this round could
+                // possibly select, each built from its own two profiles' registered providers.
+                // `decide()` itself stays fully provider-neutral (see relay_core::automation);
+                // this is the only place that picks a concrete mix of adapters. Every
+                // `ProviderPorts` used by a coordinator must outlive `watch.evaluate(..)` below,
+                // so they are all collected up front rather than built lazily per decision.
+                let mut all_ports: std::collections::BTreeMap<
+                    ProfileName,
+                    providers::ProviderPorts,
+                > = std::collections::BTreeMap::new();
+                for profile in std::iter::once(source).chain(fallback_profiles.iter().copied()) {
+                    all_ports
+                        .entry(profile.name.clone())
+                        .or_insert_with(|| providers::ports_for(profile.provider, &executables));
+                }
+
+                let coordinators: std::collections::BTreeMap<
+                    (ProfileName, ProfileName),
+                    HandoffCoordinator<'_>,
+                > = {
+                    let mut map = std::collections::BTreeMap::new();
+                    for target_profile in
+                        std::iter::once(source).chain(fallback_profiles.iter().copied())
+                    {
+                        if target_profile.name == source.name {
+                            continue;
+                        }
+                        let continuity_type = relay_core::handoff::ContinuityType::for_transition(
+                            source.provider,
+                            target_profile.provider,
+                        );
+                        let source_ports = all_ports.get(&source.name).expect("inserted above");
+                        let target_ports =
+                            all_ports.get(&target_profile.name).expect("inserted above");
+                        map.insert(
+                            (source.name.clone(), target_profile.name.clone()),
+                            HandoffCoordinator {
+                                paths: &paths,
+                                liveness: source_ports.liveness.as_ref(),
+                                source_stopper: source_ports.stopper.as_ref(),
+                                target_stopper: target_ports.stopper.as_ref(),
+                                stager: match continuity_type {
+                                    relay_core::handoff::ContinuityType::SessionContinuation => {
+                                        source_ports.stager.as_deref()
+                                    }
+                                    _ => None,
+                                },
+                                context_capturer: match continuity_type {
+                                    relay_core::handoff::ContinuityType::StateContinuation => {
+                                        Some(source_ports.context_capturer.as_ref())
+                                    }
+                                    _ => None,
+                                },
+                                launcher: target_ports.launcher.as_ref(),
+                            },
+                        );
+                    }
+                    map
+                };
+                let resolve_coordinator = |from: &ProfileName, to: &ProfileName| {
+                    coordinators
+                        .get(&(from.clone(), to.clone()))
+                        .expect("decide() only selects a name present in fallbacks")
                 };
                 let watch = WatchCoordinator {
                     paths: &paths,
-                    handoff: &coordinator,
+                    handoff_for: &resolve_coordinator,
                     policy: AutomationPolicy::default(),
                 };
 
@@ -1552,47 +1686,55 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 }
 
                 // Version/capability gate: fail closed when a capability the handoff machinery
-                // depends on cannot be verified; merely-unverified newer versions only warn.
-                let capabilities =
-                    assess_installed(claude_executable.as_deref(), &source.config_dir)?;
-                for required in [
-                    relay_provider_claude::Capability::AgentsJsonShape,
-                    relay_provider_claude::Capability::TranscriptLayout,
-                    relay_provider_claude::Capability::AuthStatusSchema,
-                ] {
-                    if capabilities.status_of(required) == CapabilityStatus::Unsupported {
-                        return Err(Error::UnsupportedProviderVersion);
+                // depends on cannot be verified; merely-unverified newer versions only warn. Only
+                // meaningful for a Claude source (this is Claude's own capability-probing
+                // machinery); Codex's separate version gate lives in
+                // relay_provider_codex::assess_version and is checked inside the adapter itself.
+                if source.provider == ProviderKind::Claude {
+                    let capabilities =
+                        assess_installed(claude_executable.as_deref(), &source.config_dir)?;
+                    for required in [
+                        relay_provider_claude::Capability::AgentsJsonShape,
+                        relay_provider_claude::Capability::TranscriptLayout,
+                        relay_provider_claude::Capability::AuthStatusSchema,
+                    ] {
+                        if capabilities.status_of(required) == CapabilityStatus::Unsupported {
+                            return Err(Error::UnsupportedProviderVersion);
+                        }
                     }
-                }
-                if !cli.json
-                    && capabilities
-                        .entries
-                        .iter()
-                        .any(|entry| entry.status == CapabilityStatus::Unverified)
-                {
-                    // Live-found (M4.12): this must never print in --json mode. `--json`'s
-                    // contract is that stderr on a failed invocation is exactly the stable error
-                    // envelope and nothing else; an extra human-readable line ahead of it breaks
-                    // every machine consumer that parses stderr as JSON on failure (relay-herdr's
-                    // own client included — this is exactly what caught it).
-                    eprintln!(
-                        "warning: Claude Code {} has not been validated by Relay; usage \
-                         detection stays fail-closed, but re-validate before trusting handoffs",
-                        capabilities.version
-                    );
+                    if !cli.json
+                        && capabilities
+                            .entries
+                            .iter()
+                            .any(|entry| entry.status == CapabilityStatus::Unverified)
+                    {
+                        // Live-found (M4.12): this must never print in --json mode. `--json`'s
+                        // contract is that stderr on a failed invocation is exactly the stable
+                        // error envelope and nothing else; an extra human-readable line ahead of
+                        // it breaks every machine consumer that parses stderr as JSON on failure
+                        // (relay-herdr's own client included — this is exactly what caught it).
+                        eprintln!(
+                            "warning: Claude Code {} has not been validated by Relay; usage \
+                             detection stays fail-closed, but re-validate before trusting handoffs",
+                            capabilities.version
+                        );
+                    }
                 }
 
                 let ledger =
                     LedgerStore::at_path(project_state_dir.join("automation_state.json")).load()?;
                 let now = current_unix_ms();
                 // The probe spends real API usage: never against a profile already known
-                // exhausted, and only when the operator explicitly opted in.
-                let signal_for = |profile: &ProfileName| {
-                    ClaudeUsageSignal::new(
-                        claude_executable.clone(),
-                        *probe && !ledger.is_known_exhausted(profile, now),
+                // exhausted, and only when the operator explicitly opted in. Only meaningful for
+                // Claude candidates; Codex's usage signal ignores the flag (see
+                // relay_provider_codex::usage).
+                let signal_for = |profile: &Profile| {
+                    providers::usage_signal_for(
+                        profile.provider,
+                        &executables,
+                        *probe && !ledger.is_known_exhausted(&profile.name, now),
+                        workload_model.clone(),
                     )
-                    .with_workload_model(workload_model.clone())
                 };
 
                 // `--simulate-usage` fault-injects the SOURCE's own usage state only; fallback
@@ -1602,7 +1744,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         state: UsageState::from(*state),
                         reset_unix_ms: *simulate_reset_unix_ms,
                     }),
-                    None => Box::new(signal_for(&source.name)),
+                    None => signal_for(source),
                 };
 
                 let source_usage =
@@ -1610,15 +1752,15 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 let fallback_candidates = fallback_profiles
                     .iter()
                     .map(|candidate| -> Result<ProfileCandidate, Error> {
-                        let usage = signal_for(&candidate.name).detect(
+                        let usage = signal_for(candidate).detect(
                             &candidate.config_dir,
                             project_dir,
                             session_id,
                         )?;
-                        let healthy =
-                            doctor_is_healthy(&service, candidate, claude_executable.as_deref())?;
+                        let healthy = doctor_is_healthy(&service, candidate, &executables)?;
                         Ok(ProfileCandidate {
                             name: candidate.name.clone(),
+                            provider: candidate.provider,
                             config_dir: candidate.config_dir.clone(),
                             identity_stable_id: Some(candidate.expected_identity.stable_id.clone()),
                             enabled: candidate.enabled,
@@ -1632,6 +1774,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     WatchRequest {
                         project_dir: project_dir.clone(),
                         source_profile: source.name.clone(),
+                        source_provider: source.provider,
                         source_config_dir: source.config_dir.clone(),
                         source_identity_stable_id: Some(source.expected_identity.stable_id.clone()),
                         session_id: session_id.clone(),
@@ -1700,27 +1843,43 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
         Command::Profiles => run_profiles(&service, &paths),
         Command::Login {
             name,
+            provider,
             claude_executable,
+            codex_executable,
         } => run_login(
             &service,
             &paths,
             name,
+            (*provider).into(),
             cli.json,
-            claude_executable.as_deref(),
+            &providers::ExecutableOverrides {
+                claude: claude_executable.clone(),
+                codex: codex_executable.clone(),
+            },
         ),
         Command::Logout {
             name,
             claude_executable,
-        } => run_logout(&service, name, claude_executable.as_deref()),
+            codex_executable,
+        } => run_logout(
+            &service,
+            name,
+            &providers::ExecutableOverrides {
+                claude: claude_executable.clone(),
+                codex: codex_executable.clone(),
+            },
+        ),
+        Command::Switch(args) => run_switch(&service, &paths, args, cli.json),
+        Command::Resume(args) => run_resume(&service, &paths, args),
     }
 }
 
 fn doctor_is_healthy(
     service: &ProfileService,
     profile: &Profile,
-    claude_executable: Option<&Path>,
+    executables: &providers::ExecutableOverrides,
 ) -> Result<bool, Error> {
-    let provider = provider_for_profile(service, &profile.name, claude_executable)?;
+    let provider = provider_for_profile(service, &profile.name, executables)?;
     Ok(service.doctor(&profile.name, provider.as_ref())?.healthy)
 }
 
@@ -2166,28 +2325,108 @@ fn create_and_authenticate_profile(
     adopt_authenticated_profile(service, name, &config_dir, &report, claude_executable)
 }
 
+/// M6: mirrors `create_and_authenticate_profile` for Codex. `CodexBackend::setup_profile`
+/// only ever inspects (never creates credentials itself — see its doc comment), so exactly like
+/// the Claude path, Relay creates the private directory itself, runs the official `codex login`
+/// there (inherited stdio: if browser/device interaction is required, it happens in this exact
+/// process, which is the M6 spec's designated stop point for human authorization), then adopts
+/// the now-authenticated directory.
+fn create_and_authenticate_codex_profile(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    name: &ProfileName,
+    codex_executable: Option<&Path>,
+) -> Result<Profile, Error> {
+    let config_dir = paths.default_profile_dir(name, ProviderKind::Codex);
+    ProfileDirectory::new(paths.profiles_root())?.create_managed(&config_dir)?;
+    run_codex_auth_subcommand(codex_executable, &config_dir, "login")?;
+    let backend = relay_provider_codex::CodexBackend::discover(codex_executable)?;
+    let observation = backend.inspect_profile(&config_dir)?;
+    if observation.authentication != AuthenticationState::Authenticated {
+        return Err(Error::AuthenticationRequired);
+    }
+    let expected_identity = observation
+        .identity
+        .clone()
+        .ok_or(Error::IdentityUnavailable)?;
+    service.add(
+        AddProfileRequest {
+            name: name.clone(),
+            provider: ProviderKind::Codex,
+            config_dir: Some(config_dir),
+            mode: ProfileSetupMode::AdoptExisting,
+            expected_identity: Some(expected_identity),
+        },
+        &backend,
+    )
+}
+
+fn run_codex_auth_subcommand(
+    codex_executable: Option<&Path>,
+    config_dir: &Path,
+    subcommand: &str,
+) -> Result<(), Error> {
+    let inspector = relay_provider_codex::CodexInspector::discover(codex_executable)?;
+    let mut command = std::process::Command::new(inspector.executable());
+    command
+        .arg(subcommand)
+        .env("CODEX_HOME", config_dir)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
+    for variable in relay_provider_codex::AUTHENTICATION_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    let status = command.status().map_err(|_| Error::ProviderCommandFailed)?;
+    if !status.success() {
+        return Err(Error::ProviderCommandFailed);
+    }
+    Ok(())
+}
+
 fn run_login(
     service: &ProfileService,
     paths: &RelayPaths,
     name: &ProfileName,
+    provider: ProviderKind,
     json_mode: bool,
-    claude_executable: Option<&Path>,
+    executables: &providers::ExecutableOverrides,
 ) -> Result<CommandOutput, Error> {
     let registered = service.list()?;
     if let Some(existing) = registered.iter().find(|profile| &profile.name == name) {
-        if existing.provider != ProviderKind::Claude {
-            return Err(Error::ProviderMismatch {
-                expected: "claude".to_owned(),
-                observed: format!("{:?}", existing.provider),
-            });
-        }
-        if !json_mode {
-            println!("Opening Claude login for '{name}'...");
-        }
-        run_claude_auth_subcommand(claude_executable, &existing.config_dir, "login")?;
-        let report = verify_authenticated(&existing.config_dir, claude_executable)?;
-        if !report.authenticated {
-            return Err(Error::AuthenticationRequired);
+        match existing.provider {
+            ProviderKind::Claude => {
+                if !json_mode {
+                    println!("Opening Claude login for '{name}'...");
+                }
+                run_claude_auth_subcommand(
+                    executables.claude.as_deref(),
+                    &existing.config_dir,
+                    "login",
+                )?;
+                let report =
+                    verify_authenticated(&existing.config_dir, executables.claude.as_deref())?;
+                if !report.authenticated {
+                    return Err(Error::AuthenticationRequired);
+                }
+            }
+            ProviderKind::Codex => {
+                if !json_mode {
+                    println!("Opening Codex login for '{name}'...");
+                }
+                run_codex_auth_subcommand(
+                    executables.codex.as_deref(),
+                    &existing.config_dir,
+                    "login",
+                )?;
+                let backend =
+                    relay_provider_codex::CodexBackend::discover(executables.codex.as_deref())?;
+                let observation = backend.inspect_profile(&existing.config_dir)?;
+                if observation.authentication != AuthenticationState::Authenticated {
+                    return Err(Error::AuthenticationRequired);
+                }
+            }
+            ProviderKind::Fake => return Err(Error::ProviderUnsupported),
         }
         return success(
             "login",
@@ -2196,27 +2435,53 @@ fn run_login(
         );
     }
     if !json_mode {
-        println!("'{name}' is not a registered profile yet; creating it.");
+        println!("'{name}' is not a registered profile yet; creating it as {provider}.");
     }
-    let profile = create_and_authenticate_profile(service, paths, name, claude_executable)?;
+    let profile = match provider {
+        ProviderKind::Codex => create_and_authenticate_codex_profile(
+            service,
+            paths,
+            name,
+            executables.codex.as_deref(),
+        )?,
+        ProviderKind::Claude | ProviderKind::Fake => {
+            create_and_authenticate_profile(service, paths, name, executables.claude.as_deref())?
+        }
+    };
     success(
         "login",
         format!("\u{2713} {name} authenticated"),
-        json!({ "profile": profile.name.as_str(), "authenticated": true, "created": true }),
+        json!({
+            "profile": profile.name.as_str(),
+            "provider": profile.provider.to_string(),
+            "authenticated": true,
+            "created": true,
+        }),
     )
 }
 
 fn run_logout(
     service: &ProfileService,
     name: &ProfileName,
-    claude_executable: Option<&Path>,
+    executables: &providers::ExecutableOverrides,
 ) -> Result<CommandOutput, Error> {
     let registered = service.list()?;
     let profile = registered
         .iter()
         .find(|profile| &profile.name == name)
         .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
-    run_claude_auth_subcommand(claude_executable, &profile.config_dir, "logout")?;
+    match profile.provider {
+        ProviderKind::Codex => {
+            run_codex_auth_subcommand(executables.codex.as_deref(), &profile.config_dir, "logout")?;
+        }
+        ProviderKind::Claude | ProviderKind::Fake => {
+            run_claude_auth_subcommand(
+                executables.claude.as_deref(),
+                &profile.config_dir,
+                "logout",
+            )?;
+        }
+    }
     success(
         "logout",
         format!(
@@ -2224,6 +2489,265 @@ fn run_logout(
         ),
         json!({ "profile": name.as_str() }),
     )
+}
+
+/// M6: `relay switch <target>` — the manual cross-profile (same provider or not) handoff entry
+/// point. Reads the project's current writer lease to find the source (never takes it as an
+/// argument, so it can never be spoofed to claim ownership of a profile that isn't the real
+/// current writer), verifies the target is authenticated, chooses SESSION_CONTINUATION or
+/// STATE_CONTINUATION from the two profiles' providers, and runs one
+/// [`HandoffCoordinator::run`] transaction — the exact same safety machinery `relay watch run`'s
+/// automatic path uses.
+fn run_switch(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    args: &SwitchArgs,
+    json_mode: bool,
+) -> Result<CommandOutput, Error> {
+    let project_dir = match &args.project_dir {
+        Some(path) => path.clone(),
+        None => std::env::current_dir().map_err(|source| Error::Io {
+            path: PathBuf::from("."),
+            source,
+        })?,
+    };
+    let canonical_project = std::fs::canonicalize(&project_dir).map_err(|source| Error::Io {
+        path: project_dir.clone(),
+        source,
+    })?;
+    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let lease = LeaseStore::at_path(project_state_dir.join("lease.json"))
+        .load()?
+        .ok_or(Error::NoActiveWriterForProject)?;
+
+    let registered = service.list()?;
+    let source = registered
+        .iter()
+        .find(|profile| profile.name == lease.owner_profile)
+        .ok_or_else(|| Error::ProfileNotFound(lease.owner_profile.to_string()))?;
+    let target = registered
+        .iter()
+        .find(|profile| profile.name == args.target)
+        .ok_or_else(|| Error::ProfileNotFound(args.target.to_string()))?;
+    if target.name == source.name {
+        return Err(Error::AlreadyCurrentWriter(target.name.to_string()));
+    }
+
+    let executables = providers::ExecutableOverrides {
+        claude: args.claude_executable.clone(),
+        codex: args.codex_executable.clone(),
+    };
+
+    let target_backend = providers::provider_backend(target.provider, &executables)?;
+    let target_status = service.status(&target.name, target_backend.as_ref())?;
+    if target_status.authentication != AuthenticationState::Authenticated {
+        return Err(Error::AuthenticationRequired);
+    }
+
+    let continuity_type =
+        relay_core::handoff::ContinuityType::for_transition(source.provider, target.provider);
+    let source_ports = providers::ports_for(source.provider, &executables);
+    let target_ports = providers::ports_for(target.provider, &executables);
+    let coordinator = HandoffCoordinator {
+        paths,
+        liveness: source_ports.liveness.as_ref(),
+        source_stopper: source_ports.stopper.as_ref(),
+        target_stopper: target_ports.stopper.as_ref(),
+        stager: match continuity_type {
+            relay_core::handoff::ContinuityType::SessionContinuation => {
+                source_ports.stager.as_deref()
+            }
+            _ => None,
+        },
+        context_capturer: match continuity_type {
+            relay_core::handoff::ContinuityType::StateContinuation => {
+                Some(source_ports.context_capturer.as_ref())
+            }
+            _ => None,
+        },
+        launcher: target_ports.launcher.as_ref(),
+    };
+
+    if !json_mode {
+        println!(
+            "Switching '{}' -> '{}' ({:?})...",
+            source.name, target.name, continuity_type
+        );
+    }
+    let journal = coordinator.run(HandoffRequest {
+        project_dir: canonical_project.clone(),
+        source_profile: source.name.clone(),
+        source_provider: source.provider,
+        source_config_dir: source.config_dir.clone(),
+        target_profile: target.name.clone(),
+        target_provider: target.provider,
+        target_config_dir: target.config_dir.clone(),
+        session_id: lease.session_id.clone(),
+        continuity_type,
+    })?;
+
+    let new_session_id = journal
+        .verification
+        .as_ref()
+        .map(|verification| verification.target_session_id.clone())
+        .unwrap_or_default();
+    let human = format!(
+        "Switch {} ('{}' -> '{}'): {:?}\nContinuity: {:?}\nNew session: {}",
+        journal.transaction_id,
+        source.name,
+        target.name,
+        journal.state,
+        continuity_type,
+        new_session_id
+    );
+    if args.no_attach || journal.state != relay_core::handoff::HandoffState::Complete {
+        return success("switch", human, journal);
+    }
+
+    match target.provider {
+        ProviderKind::Codex => exec_codex_resume(
+            providers::executable_override(ProviderKind::Codex, &executables),
+            &target.config_dir,
+            &canonical_project,
+            &new_session_id,
+        ),
+        ProviderKind::Claude | ProviderKind::Fake => success(
+            "switch",
+            format!("{human}\n\nRun `relay claude` to attach."),
+            journal,
+        ),
+    }
+}
+
+/// M6: `relay resume <profile>` — reattaches interactively to the session/thread the writer
+/// lease already records, under that exact profile. This is `NATIVE_RESUME` for Codex
+/// (`codex resume <thread-id>`) and an interactive `claude --resume <id>` for Claude. Refuses
+/// unless `profile` is already the project's current writer (`relay switch` moves ownership;
+/// this command only ever reattaches to it).
+fn run_resume(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    args: &ResumeArgs,
+) -> Result<CommandOutput, Error> {
+    let project_dir = match &args.project_dir {
+        Some(path) => path.clone(),
+        None => std::env::current_dir().map_err(|source| Error::Io {
+            path: PathBuf::from("."),
+            source,
+        })?,
+    };
+    let canonical_project = std::fs::canonicalize(&project_dir).map_err(|source| Error::Io {
+        path: project_dir.clone(),
+        source,
+    })?;
+    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let lease = LeaseStore::at_path(project_state_dir.join("lease.json"))
+        .load()?
+        .ok_or(Error::NoActiveWriterForProject)?;
+    if lease.owner_profile != args.profile {
+        return Err(Error::WriterLeaseOwnedByAnotherProfile(
+            lease.owner_profile.to_string(),
+        ));
+    }
+    let registered = service.list()?;
+    let profile = registered
+        .iter()
+        .find(|profile| profile.name == args.profile)
+        .ok_or_else(|| Error::ProfileNotFound(args.profile.to_string()))?;
+    match profile.provider {
+        ProviderKind::Codex => exec_codex_resume(
+            args.codex_executable.as_deref(),
+            &profile.config_dir,
+            &canonical_project,
+            &lease.session_id,
+        ),
+        ProviderKind::Claude | ProviderKind::Fake => exec_claude_resume(
+            args.claude_executable.as_deref(),
+            &profile.config_dir,
+            &canonical_project,
+            &lease.session_id,
+        ),
+    }
+}
+
+#[cfg(unix)]
+fn exec_codex_resume(
+    codex_executable: Option<&Path>,
+    config_dir: &Path,
+    project_dir: &Path,
+    thread_id: &str,
+) -> Result<CommandOutput, Error> {
+    use std::os::unix::process::CommandExt as _;
+    let inspector = relay_provider_codex::CodexInspector::discover(codex_executable)?;
+    let error = std::process::Command::new(inspector.executable())
+        .current_dir(project_dir)
+        .arg("resume")
+        .arg(thread_id)
+        .env("CODEX_HOME", config_dir)
+        .exec();
+    Err(Error::Io {
+        path: inspector.executable().to_path_buf(),
+        source: error,
+    })
+}
+
+#[cfg(not(unix))]
+fn exec_codex_resume(
+    codex_executable: Option<&Path>,
+    config_dir: &Path,
+    project_dir: &Path,
+    thread_id: &str,
+) -> Result<CommandOutput, Error> {
+    let inspector = relay_provider_codex::CodexInspector::discover(codex_executable)?;
+    let status = std::process::Command::new(inspector.executable())
+        .current_dir(project_dir)
+        .arg("resume")
+        .arg(thread_id)
+        .env("CODEX_HOME", config_dir)
+        .status()
+        .map_err(|_| Error::ProviderCommandFailed)?;
+    std::process::exit(status.code().unwrap_or(1));
+}
+
+#[cfg(unix)]
+fn exec_claude_resume(
+    claude_executable: Option<&Path>,
+    config_dir: &Path,
+    project_dir: &Path,
+    session_id: &str,
+) -> Result<CommandOutput, Error> {
+    use std::os::unix::process::CommandExt as _;
+    let inspector = ClaudeInspector::discover(claude_executable)?;
+    let error = std::process::Command::new(inspector.executable())
+        .current_dir(project_dir)
+        .arg("--resume")
+        .arg(session_id)
+        .env("CLAUDE_CONFIG_DIR", config_dir)
+        .exec();
+    Err(Error::Io {
+        path: inspector.executable().to_path_buf(),
+        source: error,
+    })
+}
+
+#[cfg(not(unix))]
+fn exec_claude_resume(
+    claude_executable: Option<&Path>,
+    config_dir: &Path,
+    project_dir: &Path,
+    session_id: &str,
+) -> Result<CommandOutput, Error> {
+    let inspector = ClaudeInspector::discover(claude_executable)?;
+    let status = std::process::Command::new(inspector.executable())
+        .current_dir(project_dir)
+        .arg("--resume")
+        .arg(session_id)
+        .env("CLAUDE_CONFIG_DIR", config_dir)
+        .status()
+        .map_err(|_| Error::ProviderCommandFailed)?;
+    std::process::exit(status.code().unwrap_or(1));
 }
 
 // -------------------------------------------------------------------------------------------
@@ -3089,7 +3613,7 @@ fn target_is_active(
 fn provider_for_profile(
     service: &ProfileService,
     name: &ProfileName,
-    claude_executable: Option<&std::path::Path>,
+    executables: &providers::ExecutableOverrides,
 ) -> Result<Box<dyn Provider>, Error> {
     let kind = service
         .list()?
@@ -3097,9 +3621,10 @@ fn provider_for_profile(
         .find(|profile| &profile.name == name)
         .map(|profile| profile.provider);
     Ok(match kind {
-        Some(ProviderKind::Claude) => {
-            Box::new(ClaudeAdoptionProvider::discover(claude_executable)?)
-        }
+        Some(ProviderKind::Claude) => Box::new(ClaudeAdoptionProvider::discover(
+            executables.claude.as_deref(),
+        )?),
+        Some(ProviderKind::Codex) => providers::provider_backend(ProviderKind::Codex, executables)?,
         _ => Box::new(FakeProvider::default()),
     })
 }

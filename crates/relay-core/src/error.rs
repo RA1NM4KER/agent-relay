@@ -116,6 +116,13 @@ pub enum Error {
     #[error("required handoff port is not configured for this continuity type: {0}")]
     MissingHandoffPort(String),
     #[error(
+        "no writer currently owns this project; run `relay claude` (or an equivalent provider \
+         entry point) first"
+    )]
+    NoActiveWriterForProject,
+    #[error("'{0}' is already the current writer for this project")]
+    AlreadyCurrentWriter(String),
+    #[error(
         "recovery cannot durably reconstruct a state-continuation bundle; the source's own \
          state may have changed since capture, so the target was not relaunched automatically: {0}"
     )]
@@ -189,6 +196,8 @@ impl Error {
             Self::RecoveryRequired(_) => "recovery_required",
             Self::SerializationFailed => "serialization_failed",
             Self::MissingHandoffPort(_) => "missing_handoff_port",
+            Self::NoActiveWriterForProject => "no_active_writer_for_project",
+            Self::AlreadyCurrentWriter(_) => "already_current_writer",
             Self::ContinuationBundleNotRecoverable(_) => "continuation_bundle_not_recoverable",
             Self::MissingEnvironment(_) => "missing_environment",
             Self::Io { .. } => "io_error",

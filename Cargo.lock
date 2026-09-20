@@ -298,6 +298,7 @@ dependencies = [
  "relay-core",
  "relay-herdr",
  "relay-provider-claude",
+ "relay-provider-codex",
  "relay-testkit",
  "serde",
  "serde_json",
