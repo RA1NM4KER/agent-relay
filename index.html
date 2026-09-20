@@ -248,23 +248,22 @@
   .hrow {
     display: grid;
     grid-template-columns: 34px 1fr auto;
-    gap: 8px 14px;
+    gap: 6px 14px;
     align-items: center;
-    padding: 14px 14px 14px 0;
+    padding: 13px 14px 13px 0;
     margin-bottom: 8px;
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--surface);
-    transition: border-color 300ms ease, background-color 300ms ease;
   }
   .hrow .rank { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); text-align: center; }
   .hrow .who { display: flex; flex-direction: column; min-width: 0; }
   .hrow .nm { font-family: var(--mono); font-weight: 600; font-size: 0.95rem; }
   .hrow .pv { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
-  .hrow .use { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
   .hrow .right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .hrow .use { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .hrow .meter { grid-column: 2 / 4; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
-  .hrow .meter i { display: block; height: 100%; width: 0; background: var(--muted); transition: width 700ms ease, background-color 300ms ease; }
+  .hrow .meter i { display: block; height: 100%; width: 0; background: var(--muted); }
   .badge-state {
     font-family: var(--mono);
     font-size: 0.66rem;
@@ -277,17 +276,15 @@
     white-space: nowrap;
   }
   .hrow.s-ready .badge-state { color: var(--success); border-color: #3B5A3B; }
-  .hrow.s-limit .badge-state { color: var(--danger); border-color: #6B3535; }
-  .hrow.s-limit .meter i { background: var(--danger); }
+  .hrow.s-exhausted .badge-state { color: var(--danger); border-color: #6B3535; }
+  .hrow.s-exhausted .meter i { background: var(--danger); }
   .hrow.s-reset .badge-state { color: var(--accent); border-color: var(--accent-2); }
-  .hrow.s-reset .meter i { background: var(--danger); }
+  .hrow.s-reset .use { color: var(--text); }
+  .hrow.s-reset .meter i { background: var(--accent-2); }
   .hrow.s-current { background: var(--surface-2); }
   .hrow.s-current .badge-state { background: var(--accent); border-color: var(--accent); color: #0D0F12; font-weight: 700; }
   .hrow.s-current .meter i { background: var(--accent); }
-  .hrow.s-current.s-limit .badge-state { background: none; color: var(--danger); border-color: #6B3535; }
-  .hrow.s-current.s-limit .meter i { background: var(--danger); }
-  .hrow.check { border-color: var(--accent-2); }
-  /* the single amber bar that marks the writer and slides to the next one */
+  .hrow.s-ready .meter i { background: var(--success); }
   .marker {
     position: absolute;
     left: 0;
@@ -298,42 +295,44 @@
     pointer-events: none;
   }
 
-  .phases { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--border); background: var(--bg); }
-  .phase {
-    padding: 12px 18px;
-    border-right: 1px solid var(--border);
-    font-family: var(--mono);
-    font-size: 0.76rem;
-    color: var(--muted);
-    transition: color 300ms ease, background-color 300ms ease, box-shadow 300ms ease;
-  }
-  .phase:last-child { border-right: 0; }
-  .phase .n { color: var(--accent-2); margin-right: 8px; }
-  .phase.on { color: var(--text); background: var(--surface-2); box-shadow: inset 0 2px 0 var(--accent); }
-  .phase.on .n { color: var(--accent); }
-  @media (max-width: 640px) {
-    .phases { grid-template-columns: 1fr; }
-    .phase { border-right: 0; border-bottom: 1px solid var(--border); }
-    .phase:last-child { border-bottom: 0; }
-  }
-  .result {
-    padding: 14px 18px;
+  .ticker {
     border-top: 1px solid var(--border);
     background: var(--surface-2);
+    padding: 14px 18px;
     font-family: var(--mono);
     font-size: 0.78rem;
     color: var(--muted);
-    min-height: 3.2em;
+    min-height: 132px;
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px 14px;
-    align-items: center;
+    flex-direction: column;
+    gap: 6px;
   }
-  .result .kind { color: var(--accent); font-weight: 600; letter-spacing: 0.04em; opacity: 0; transition: opacity 300ms ease; }
-  .result .kind.show { opacity: 1; }
-  .demo-notes { max-width: 640px; margin: 24px auto 0; text-align: center; }
-  .demo-notes .primary-note { color: var(--text); font-size: 0.95rem; }
-  .demo-notes .secondary-note { color: var(--muted); font-size: 0.82rem; margin-top: 10px; }
+  .ticker .t0 { color: var(--text); }
+  .ticker .t0.accent { color: var(--accent); }
+  .ticker .tl { display: none; }
+  .ticker .tl.show { display: block; }
+  .ticker .chip { display: none; margin-top: 4px; color: var(--accent); font-weight: 600; letter-spacing: 0.04em; }
+  .ticker .chip.show { display: block; }
+  .ticker .chip small { display: block; color: var(--muted); font-weight: 400; letter-spacing: 0; margin-top: 2px; }
+  .sim-tag { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); letter-spacing: 0.06em; text-transform: uppercase; }
+  .demo-notes { max-width: 640px; margin: 20px auto 0; text-align: center; min-height: 3.2em; }
+  .demo-notes .end-note { color: var(--muted); font-size: 0.82rem; opacity: 0; transition: opacity 600ms ease; }
+  .demo-notes .end-note.show { opacity: 1; }
+
+  /* reduced motion: a static sequence replaces the animated timeline */
+  .static-seq { display: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .demo-anim { display: none; }
+    .static-seq { display: block; }
+  }
+  .static-seq ol { list-style: none; margin: 0; padding: 0; counter-reset: st; }
+  .static-seq li { counter-increment: st; padding: 16px 20px; border-top: 1px solid var(--border); font-size: 0.9rem; color: var(--muted); }
+  .static-seq li:first-child { border-top: 0; }
+  .static-seq li::before { content: counter(st); font-family: var(--mono); color: var(--accent); margin-right: 12px; }
+  .static-seq li b { color: var(--text); font-weight: 600; }
+  .static-seq li .st { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); }
+  .static-seq li .ex { color: var(--danger); }
+  .static-seq li .rd { color: var(--success); }
 
   /* ---------- Proof points ---------- */
   .proof-grid {
@@ -517,18 +516,20 @@
       <div class="section-head">
         <span class="eyebrow">Live handoff</span>
         <h2>One writer. An ordered fallback list.</h2>
-        <p>When the current profile hits its limit, Relay checks the priority order and the next eligible profile takes over.</p>
+        <p>Watch usage climb, limits hit and resets tick down. The writer only changes when it has to.</p>
       </div>
 
       <div class="demo" id="handoff-demo">
         <div class="demo-titlebar">
           <div class="demo-dots"><span></span><span></span><span></span></div>
-          <span class="name">priority order</span>
+          <span class="sim-tag">Simulated timeline</span>
         </div>
-        <div class="stack">
-          <div class="stack-title">Priority order</div>
-          <div class="stack-rows" id="stack-rows">
-            <div class="marker" id="marker"></div>
+
+        <div class="demo-anim">
+          <div class="stack">
+            <div class="stack-title">Priority order</div>
+            <div class="stack-rows" id="stack-rows">
+              <div class="marker" id="marker"></div>
             <div class="hrow" data-row="0">
               <span class="rank">1</span>
               <span class="who"><span class="nm">Claude Primary</span><span class="pv">Claude</span></span>
@@ -547,19 +548,29 @@
               <span class="right"><span class="badge-state"></span><span class="use"></span></span>
               <span class="meter"><i></i></span>
             </div>
+            </div>
+          </div>
+          <div class="ticker" id="ticker" aria-live="polite">
+            <span class="t0" id="t0"></span>
+            <span class="tl" id="tl1"></span>
+            <span class="tl" id="tl2"></span>
+            <span class="tl" id="tl3"></span>
+            <span class="chip" id="chip"></span>
           </div>
         </div>
-        <div class="phases" id="phases" aria-live="polite">
-          <div class="phase"><span class="n">1</span>Limit reached</div>
-          <div class="phase"><span class="n">2</span>Relay checks priority</div>
-          <div class="phase"><span class="n">3</span>Next eligible takes over</div>
+
+        <div class="static-seq">
+          <ol>
+            <li><b>Claude Primary</b> is <span class="st">Current</span> and reaches 100%. It is <span class="st ex">Exhausted</span> and resets in 1h 45m.</li>
+            <li>Relay checks the priority order. <b>Claude Backup</b> becomes <span class="st">Current</span> (session continuation, Claude → Claude). Claude Primary is <span class="st">Reset pending</span>.</li>
+            <li>Claude Backup is exhausted before Claude Primary resets. Relay checks again: <b>Codex Backup</b> becomes <span class="st">Current</span> (state continuation, Claude → Codex; not the same native conversation).</li>
+            <li>Claude Primary's reset completes and it is <span class="st rd">Ready</span>. Codex Backup stays <span class="st">Current</span>. Ready again, but Relay does not interrupt a healthy writer.</li>
+          </ol>
         </div>
-        <div class="result"><span id="result-text">Claude Primary is writing.</span><span class="kind" id="result-kind">SESSION CONTINUATION · Claude → Claude</span></div>
       </div>
 
       <div class="demo-notes">
-        <p class="primary-note">If the current writer later blocks, Relay checks the priority order again. Reset profiles become eligible again, but Relay never interrupts a working session just to move back.</p>
-        <p class="secondary-note">Claude → Codex uses state continuation rather than the same native conversation.</p>
+        <p class="end-note" id="end-note">Codex can currently be an automatic target. Automatic handoff away from Codex requires reliable Codex usage detection.</p>
       </div>
     </div>
   </section>
@@ -729,108 +740,136 @@ relay claude" aria-label="Copy all three commands">
     });
   });
 
-  // ---------- Handoff demo ----------
+  // ---------- Handoff demo: one continuous simulated timeline ----------
   var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  var stackEl = document.getElementById("stack-rows");
-  var rows = Array.prototype.slice.call(stackEl.querySelectorAll(".hrow"));
+  var rows = Array.prototype.slice.call(document.querySelectorAll("#stack-rows .hrow"));
   var marker = document.getElementById("marker");
-  var phases = Array.prototype.slice.call(document.querySelectorAll("#phases .phase"));
-  var resultText = document.getElementById("result-text");
-  var resultKind = document.getElementById("result-kind");
-  var LABEL = { current: "Current", ready: "Ready", limit: "Limit reached", reset: "Reset pending" };
+  var t0 = document.getElementById("t0");
+  var tl = [document.getElementById("tl1"), document.getElementById("tl2"), document.getElementById("tl3")];
+  var chip = document.getElementById("chip");
+  var endNote = document.getElementById("end-note");
+  var LABEL = { current: "Current", ready: "Ready", exhausted: "Exhausted", reset: "Reset pending" };
+  var TOTAL = 28500;
 
-  var timers = [];
-  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
-  function at(ms, fn) { timers.push(setTimeout(fn, ms)); }
-
-  function paint(i, states, use) {
-    var r = rows[i];
-    r.className = "hrow " + states.map(function (s) { return "s-" + s; }).join(" ");
-    r.querySelector(".badge-state").textContent = LABEL[states[states.length - 1] === "limit" ? "limit" : states[0]];
-    r.querySelector(".use").textContent = use + "%";
-    r.querySelector(".meter i").style.width = use + "%";
+  // Milestones (ms of demo time):
+  //  1000-3000 Primary climbs 96 -> 100      3000 Primary exhausted, reset shown (1h 45m)
+  //  3400-5800 priority check -> Backup      5200 Backup becomes current
+  //  5200-14200 Backup climbs while Primary's reset falls
+  //  14200 Backup exhausted (Primary still pending)   14600-17800 priority check -> Codex
+  //  16400 Codex becomes current             21000 Primary reset completes -> READY, Codex stays current
+  function lerp(t, a, b, x, y) { return t <= a ? x : t >= b ? y : x + (y - x) * (t - a) / (b - a); }
+  function fmt(sec) {
+    if (sec >= 3600) { var h = Math.floor(sec / 3600); return h + "h " + Math.round((sec - h * 3600) / 60) + "m"; }
+    return Math.max(1, Math.ceil(sec / 60)) + "m";
   }
+
+  function model(t) {
+    var m = {};
+    var pReset = t < 3000 ? null : t < 14200 ? lerp(t, 3000, 14200, 6300, 480) : lerp(t, 14200, 21000, 480, 0);
+    var bReset = t < 14200 ? null : 17880 - (t - 14200) * 0.5;
+    m.p = t < 3000 ? { s: "current", use: lerp(t, 1000, 3000, 96, 100), line: null }
+      : t < 5200 ? { s: "exhausted", fill: 100, line: "Resets in " + fmt(pReset) }
+      : t < 21000 ? { s: "reset", fill: pReset / 6300 * 100, line: "Resets in " + fmt(pReset) }
+      : { s: "ready", fill: 0, line: "Reset complete" };
+    m.b = t < 5200 ? { s: "ready", use: 55 }
+      : t < 14200 ? { s: "current", use: lerp(t, 5200, 14200, 55, 100) }
+      : t < 16400 ? { s: "exhausted", fill: 100, line: "Resets in " + fmt(bReset) }
+      : { s: "reset", fill: bReset / 17880 * 100, line: "Resets in " + fmt(bReset) };
+    m.c = { s: t < 16400 ? "ready" : "current" };
+    m.marker = t < 5200 ? 0 : t < 16400 ? 1 : 2;
+    return m;
+  }
+
+  function paintRow(i, r, isCodex) {
+    var el = rows[i];
+    var cls = "hrow s-" + r.s;
+    if (el.getAttribute("data-cls") !== cls) { el.className = cls; el.setAttribute("data-cls", cls); el.querySelector(".badge-state").textContent = LABEL[r.s]; }
+    var use = el.querySelector(".use");
+    var fill = el.querySelector(".meter i");
+    if (isCodex) {
+      use.textContent = "Usage: not tracked";
+      fill.style.width = r.s === "current" ? "100%" : "0%";
+      return;
+    }
+    if (r.line) { use.textContent = r.line; fill.style.width = r.fill + "%"; }
+    else { use.textContent = "Usage: " + Math.round(r.use) + "%"; fill.style.width = r.use + "%"; }
+  }
+
+  var lastMarker = -1;
   function place(i) {
+    if (i === lastMarker && marker.style.height) return;
+    lastMarker = i;
     marker.style.top = rows[i].offsetTop + "px";
     marker.style.height = rows[i].offsetHeight + "px";
   }
-  function setPhase(n) {
-    phases.forEach(function (p, i) { p.classList.toggle("on", i === n); });
+
+  function ticker(t) {
+    var head = "", lines = ["", "", ""], chipText = null, accent = false;
+    if (t < 3000) head = "Claude Primary is writing.";
+    else if (t < 3400) head = "Claude Primary hit its limit.";
+    else if (t < 5800) {
+      head = "Checking priority…";
+      if (t >= 3800) lines[0] = "1  Claude Primary — exhausted";
+      if (t >= 4300) lines[1] = "2  Claude Backup — available";
+      if (t >= 4700) chipText = ["SESSION CONTINUATION", "Claude → Claude"];
+    }
+    else if (t < 14200) head = "Claude Backup continues the work.";
+    else if (t < 14600) head = "Claude Backup hit its limit. Claude Primary has not reset yet.";
+    else if (t < 17800) {
+      head = "Checking priority…";
+      if (t >= 14900) lines[0] = "1  Claude Primary — reset pending, unavailable";
+      if (t >= 15300) lines[1] = "2  Claude Backup — exhausted, unavailable";
+      if (t >= 15700) lines[2] = "3  Codex Backup — available";
+      if (t >= 16050) chipText = ["STATE CONTINUATION", "Claude → Codex · Not the same native conversation"];
+    }
+    else if (t < 21000) head = "Codex Backup continues from a state summary.";
+    else { head = "Ready again, but Relay does not interrupt a healthy writer."; accent = true; }
+    t0.textContent = head;
+    t0.className = "t0" + (accent ? " accent" : "");
+    for (var i = 0; i < 3; i++) { tl[i].textContent = lines[i]; tl[i].className = "tl" + (lines[i] ? " show" : ""); }
+    if (chipText) { chip.innerHTML = chipText[0] + "<small></small>"; chip.querySelector("small").textContent = chipText[1]; chip.className = "chip show"; }
+    else { chip.className = "chip"; }
   }
 
-  function initial() {
-    paint(0, ["current"], 82);
-    paint(1, ["ready"], 40);
-    paint(2, ["ready"], 20);
-    place(0);
-    setPhase(-1);
-    resultText.textContent = "Claude Primary is writing.";
-    resultKind.classList.remove("show");
+  function frame(t) {
+    var m = model(t);
+    paintRow(0, m.p, false);
+    paintRow(1, m.b, false);
+    paintRow(2, m.c, true);
+    place(m.marker);
+    ticker(t);
+    endNote.classList.toggle("show", t >= 22000);
   }
-  function final() {
-    paint(0, ["reset"], 100);
-    paint(1, ["current"], 40);
-    paint(2, ["ready"], 20);
-    place(1);
-    setPhase(2);
-    resultText.textContent = "Claude Backup continues the work.";
-    resultKind.classList.add("show");
-  }
-
-  function run() {
-    clearTimers();
-    initial();
-    at(1200, function () {
-      paint(0, ["current", "limit"], 100);
-      setPhase(0);
-      resultText.textContent = "Claude Primary reached its limit.";
-    });
-    at(2600, function () {
-      setPhase(1);
-      resultText.textContent = "Checking the list from the top…";
-      rows[0].classList.add("check");
-    });
-    at(3300, function () {
-      rows[0].classList.remove("check");
-      rows[1].classList.add("check");
-    });
-    at(4200, function () {
-      rows[1].classList.remove("check");
-      setPhase(2);
-      paint(0, ["reset"], 100);
-      paint(1, ["current"], 40);
-      place(1);
-      resultText.textContent = "Claude Backup continues the work.";
-      resultKind.classList.add("show");
-    });
-    at(10500, run);
-  }
-
-  window.addEventListener("resize", function () {
-    var cur = 0;
-    rows.forEach(function (r, i) { if (r.classList.contains("s-current")) cur = i; });
-    place(cur);
-  });
 
   var demoEl = document.getElementById("handoff-demo");
-  var started = false;
-  function maybeStart() {
-    if (started) return;
-    started = true;
-    if (reduceMotion) { final(); } else { run(); }
+  var elapsed = 0, last = 0, raf = 0, running = false;
+  function loop(now) {
+    if (!running) return;
+    elapsed = (elapsed + (now - last)) % TOTAL;
+    last = now;
+    frame(elapsed);
+    raf = requestAnimationFrame(loop);
   }
-  initial();
+  function start() {
+    if (running) return;
+    running = true;
+    last = performance.now();
+    raf = requestAnimationFrame(loop);
+  }
+  function stop() { running = false; cancelAnimationFrame(raf); }
 
-  if ("IntersectionObserver" in window) {
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) { maybeStart(); }
-      });
-    }, { threshold: 0.3 });
-    io.observe(demoEl);
+  window.addEventListener("resize", function () { lastMarker = -1; frame(elapsed); });
+  frame(0);
+
+  if (!reduceMotion) {
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) { if (entry.isIntersecting) { start(); } else { stop(); } });
+      }, { threshold: 0.25 }).observe(demoEl);
+    } else { start(); }
   } else {
-    maybeStart();
+    endNote.classList.add("show");
   }
 })();
 </script>
