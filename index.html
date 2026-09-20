@@ -750,14 +750,20 @@ relay claude" aria-label="Copy all three commands">
   var chip = document.getElementById("chip");
   var endNote = document.getElementById("end-note");
   var LABEL = { current: "Current", ready: "Ready", exhausted: "Exhausted", reset: "Reset pending" };
-  var TOTAL = 28500;
+  // Paced for reading: every message holds >= 3s, every scan result >= 2.5s, and changes are
+  // sequenced (state change -> pause -> label) rather than simultaneous. Demo time in ms.
+  var K = {
+    climbFrom: 1000, exhaustP: 3500,            // Primary 96 -> 100, then exhausted (held 3s)
+    checkP: 6500, p1: 8300, p2: 9800,           // "Checking priority…" then the result lines
+    handoff1: 12300, chip1: 13000, chip1End: 16200,
+    exhaustB: 20000,                             // Backup reaches 100 before Primary resets
+    checkB: 23000, q1: 24800, q2: 26300, q3: 27800,
+    handoff2: 30300, chip2: 31000, chip2End: 34200,
+    readyP: 37500,                               // Primary's reset completes; Codex stays current
+    readyMsg: 40500, endNote: 42000
+  };
+  var TOTAL = 47000;
 
-  // Milestones (ms of demo time):
-  //  1000-3000 Primary climbs 96 -> 100      3000 Primary exhausted, reset shown (1h 45m)
-  //  3400-5800 priority check -> Backup      5200 Backup becomes current
-  //  5200-14200 Backup climbs while Primary's reset falls
-  //  14200 Backup exhausted (Primary still pending)   14600-17800 priority check -> Codex
-  //  16400 Codex becomes current             21000 Primary reset completes -> READY, Codex stays current
   function lerp(t, a, b, x, y) { return t <= a ? x : t >= b ? y : x + (y - x) * (t - a) / (b - a); }
   function fmt(sec) {
     if (sec >= 3600) { var h = Math.floor(sec / 3600); return h + "h " + Math.round((sec - h * 3600) / 60) + "m"; }
@@ -766,18 +772,18 @@ relay claude" aria-label="Copy all three commands">
 
   function model(t) {
     var m = {};
-    var pReset = t < 3000 ? null : t < 14200 ? lerp(t, 3000, 14200, 6300, 480) : lerp(t, 14200, 21000, 480, 0);
-    var bReset = t < 14200 ? null : 17880 - (t - 14200) * 0.5;
-    m.p = t < 3000 ? { s: "current", use: lerp(t, 1000, 3000, 96, 100), line: null }
-      : t < 5200 ? { s: "exhausted", fill: 100, line: "Resets in " + fmt(pReset) }
-      : t < 21000 ? { s: "reset", fill: pReset / 6300 * 100, line: "Resets in " + fmt(pReset) }
+    var pReset = t < K.exhaustP ? null : t < K.exhaustB ? lerp(t, K.exhaustP, K.exhaustB, 6300, 480) : lerp(t, K.exhaustB, K.readyP, 480, 0);
+    var bReset = t < K.exhaustB ? null : 17880 - (t - K.exhaustB) * 0.5;
+    m.p = t < K.exhaustP ? { s: "current", use: lerp(t, K.climbFrom, K.exhaustP, 96, 100), line: null }
+      : t < K.handoff1 ? { s: "exhausted", fill: 100, line: "Resets in " + fmt(pReset) }
+      : t < K.readyP ? { s: "reset", fill: pReset / 6300 * 100, line: "Resets in " + fmt(pReset) }
       : { s: "ready", fill: 0, line: "Reset complete" };
-    m.b = t < 5200 ? { s: "ready", use: 55 }
-      : t < 14200 ? { s: "current", use: lerp(t, 5200, 14200, 55, 100) }
-      : t < 16400 ? { s: "exhausted", fill: 100, line: "Resets in " + fmt(bReset) }
+    m.b = t < K.handoff1 ? { s: "ready", use: 55 }
+      : t < K.exhaustB ? { s: "current", use: lerp(t, K.handoff1, K.exhaustB, 55, 100) }
+      : t < K.handoff2 ? { s: "exhausted", fill: 100, line: "Resets in " + fmt(bReset) }
       : { s: "reset", fill: bReset / 17880 * 100, line: "Resets in " + fmt(bReset) };
-    m.c = { s: t < 16400 ? "ready" : "current" };
-    m.marker = t < 5200 ? 0 : t < 16400 ? 1 : 2;
+    m.c = { s: t < K.handoff2 ? "ready" : "current" };
+    m.marker = t < K.handoff1 ? 0 : t < K.handoff2 ? 1 : 2;
     return m;
   }
 
@@ -806,25 +812,25 @@ relay claude" aria-label="Copy all three commands">
 
   function ticker(t) {
     var head = "", lines = ["", "", ""], chipText = null, accent = false;
-    if (t < 3000) head = "Claude Primary is writing.";
-    else if (t < 3400) head = "Claude Primary hit its limit.";
-    else if (t < 5800) {
+    if (t < K.exhaustP) head = "Claude Primary is writing.";
+    else if (t < K.checkP) head = "Claude Primary hit its limit.";
+    else if (t < K.handoff1 + 700) {
       head = "Checking priority…";
-      if (t >= 3800) lines[0] = "1  Claude Primary — exhausted";
-      if (t >= 4300) lines[1] = "2  Claude Backup — available";
-      if (t >= 4700) chipText = ["SESSION CONTINUATION", "Claude → Claude"];
+      if (t >= K.p1) lines[0] = "1  Claude Primary — exhausted";
+      if (t >= K.p2) lines[1] = "2  Claude Backup — available";
     }
-    else if (t < 14200) head = "Claude Backup continues the work.";
-    else if (t < 14600) head = "Claude Backup hit its limit. Claude Primary has not reset yet.";
-    else if (t < 17800) {
+    else if (t < K.exhaustB) head = "Claude Backup continues the work.";
+    else if (t < K.checkB) head = "Claude Backup hit its limit. Claude Primary has not reset yet.";
+    else if (t < K.handoff2 + 700) {
       head = "Checking priority…";
-      if (t >= 14900) lines[0] = "1  Claude Primary — reset pending, unavailable";
-      if (t >= 15300) lines[1] = "2  Claude Backup — exhausted, unavailable";
-      if (t >= 15700) lines[2] = "3  Codex Backup — available";
-      if (t >= 16050) chipText = ["STATE CONTINUATION", "Claude → Codex · Not the same native conversation"];
+      if (t >= K.q1) lines[0] = "1  Claude Primary — reset pending, unavailable";
+      if (t >= K.q2) lines[1] = "2  Claude Backup — exhausted, unavailable";
+      if (t >= K.q3) lines[2] = "3  Codex Backup — available";
     }
-    else if (t < 21000) head = "Codex Backup continues from a state summary.";
+    else if (t < K.readyMsg) head = "Codex Backup continues from a state summary.";
     else { head = "Ready again, but Relay does not interrupt a healthy writer."; accent = true; }
+    if (t >= K.chip1 && t < K.chip1End) chipText = ["SESSION CONTINUATION", "Claude → Claude"];
+    if (t >= K.chip2 && t < K.chip2End) chipText = ["STATE CONTINUATION", "Claude → Codex · Not the same native conversation"];
     t0.textContent = head;
     t0.className = "t0" + (accent ? " accent" : "");
     for (var i = 0; i < 3; i++) { tl[i].textContent = lines[i]; tl[i].className = "tl" + (lines[i] ? " show" : ""); }
@@ -839,35 +845,38 @@ relay claude" aria-label="Copy all three commands">
     paintRow(2, m.c, true);
     place(m.marker);
     ticker(t);
-    endNote.classList.toggle("show", t >= 22000);
+    endNote.classList.toggle("show", t >= K.endNote);
   }
 
   var demoEl = document.getElementById("handoff-demo");
   var elapsed = 0, last = 0, raf = 0, running = false;
+  var inView = false, hovered = false;
   function loop(now) {
     if (!running) return;
-    elapsed = (elapsed + (now - last)) % TOTAL;
+    elapsed = (elapsed + Math.min(now - last, 100)) % TOTAL;
     last = now;
     frame(elapsed);
     raf = requestAnimationFrame(loop);
   }
-  function start() {
-    if (running) return;
-    running = true;
-    last = performance.now();
-    raf = requestAnimationFrame(loop);
+  // Runs only while visible on screen, the tab is visible, and the pointer is not over the card.
+  function sync() {
+    var want = inView && !hovered && !document.hidden;
+    if (want && !running) { running = true; last = performance.now(); raf = requestAnimationFrame(loop); }
+    else if (!want && running) { running = false; cancelAnimationFrame(raf); }
   }
-  function stop() { running = false; cancelAnimationFrame(raf); }
 
   window.addEventListener("resize", function () { lastMarker = -1; frame(elapsed); });
   frame(0);
 
   if (!reduceMotion) {
+    document.addEventListener("visibilitychange", sync);
+    demoEl.addEventListener("pointerenter", function (e) { if (e.pointerType === "mouse") { hovered = true; sync(); } });
+    demoEl.addEventListener("pointerleave", function () { hovered = false; sync(); });
     if ("IntersectionObserver" in window) {
       new IntersectionObserver(function (entries) {
-        entries.forEach(function (entry) { if (entry.isIntersecting) { start(); } else { stop(); } });
+        entries.forEach(function (entry) { inView = entry.isIntersecting; sync(); });
       }, { threshold: 0.25 }).observe(demoEl);
-    } else { start(); }
+    } else { inView = true; sync(); }
   } else {
     endNote.classList.add("show");
   }
