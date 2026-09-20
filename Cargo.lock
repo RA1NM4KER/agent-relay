@@ -341,6 +341,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "relay-provider-codex"
+version = "0.2.0"
+dependencies = [
+ "relay-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "relay-testkit"
 version = "0.2.0"
 dependencies = [

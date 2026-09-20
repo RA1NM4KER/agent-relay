@@ -4,6 +4,7 @@ members = [
     "crates/relay-core",
     "crates/relay-herdr",
     "crates/relay-provider-claude",
+    "crates/relay-provider-codex",
     "crates/relay-testkit",
 ]
 resolver = "2"
