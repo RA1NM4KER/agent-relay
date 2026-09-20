@@ -4,12 +4,12 @@ use std::{
 };
 
 use relay_core::{
-    Error, ProfileName, RelayPaths,
+    Error, ProfileName, ProviderKind, RelayPaths,
     handoff::{
-        FailedPhase, HandoffCoordinator, HandoffRequest, HandoffState, JournalStore, LeaseStore,
-        LivenessVerdict, OrchestrationLock, ProcessIdentity, ProjectId, SessionStager,
-        SessionStopper, SourceLiveness, TargetLauncher, TargetVerification, TransactionId,
-        TransferOutcome, TransferredArtifact, WriterLease,
+        ContinuityType, FailedPhase, HandoffCoordinator, HandoffRequest, HandoffState,
+        JournalStore, LaunchDirective, LeaseStore, LivenessVerdict, OrchestrationLock,
+        ProcessIdentity, ProjectId, SessionStager, SessionStopper, SourceLiveness, TargetLauncher,
+        TargetVerification, TransactionId, TransferOutcome, TransferredArtifact, WriterLease,
     },
 };
 use tempfile::tempdir;
@@ -37,6 +37,13 @@ fn init_git_repo(dir: &Path) {
 
 fn relay_paths(root: &Path) -> RelayPaths {
     RelayPaths::new(root.join("config"), root.join("state")).expect("relay paths")
+}
+
+fn resume_session_id<'a>(directive: &'a LaunchDirective<'_>) -> &'a str {
+    match directive {
+        LaunchDirective::ResumeSession { session_id } => session_id,
+        LaunchDirective::Bootstrap { .. } => panic!("test only exercises ResumeSession"),
+    }
 }
 
 struct FixedLiveness(bool);
@@ -141,12 +148,12 @@ impl TargetLauncher for OkLauncher {
         &self,
         _target_config_dir: &Path,
         _project_dir: &Path,
-        session_id: &str,
+        directive: &LaunchDirective<'_>,
         on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
     ) -> relay_core::Result<TargetVerification> {
         on_started(Some(ProcessIdentity::current()))?;
         Ok(TargetVerification {
-            target_session_id: session_id.to_owned(),
+            target_session_id: resume_session_id(directive).to_owned(),
             started_successfully: true,
         })
     }
@@ -158,7 +165,7 @@ impl TargetLauncher for FailingLauncher {
         &self,
         _target_config_dir: &Path,
         _project_dir: &Path,
-        _session_id: &str,
+        _directive: &LaunchDirective<'_>,
         _on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
     ) -> relay_core::Result<TargetVerification> {
         Err(Error::ProviderCommandFailed)
@@ -171,7 +178,7 @@ impl TargetLauncher for WrongSessionLauncher {
         &self,
         _target_config_dir: &Path,
         _project_dir: &Path,
-        _session_id: &str,
+        _directive: &LaunchDirective<'_>,
         on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
     ) -> relay_core::Result<TargetVerification> {
         on_started(Some(ProcessIdentity::current()))?;
@@ -193,7 +200,7 @@ impl TargetLauncher for OrphaningLauncher {
         &self,
         _target_config_dir: &Path,
         _project_dir: &Path,
-        _session_id: &str,
+        _directive: &LaunchDirective<'_>,
         on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
     ) -> relay_core::Result<TargetVerification> {
         on_started(Some(ProcessIdentity {
@@ -208,10 +215,13 @@ fn request(project_dir: &Path, from: &str, to: &str) -> HandoffRequest {
     HandoffRequest {
         project_dir: project_dir.to_path_buf(),
         source_profile: ProfileName::new(from).expect("name"),
+        source_provider: ProviderKind::Claude,
         source_config_dir: project_dir.join(format!("{from}-config")),
         target_profile: ProfileName::new(to).expect("name"),
+        target_provider: ProviderKind::Claude,
         target_config_dir: project_dir.join(format!("{to}-config")),
         session_id: SESSION_ID.to_owned(),
+        continuity_type: ContinuityType::SessionContinuation,
     }
 }
 
@@ -226,7 +236,8 @@ fn successful_handoff_reaches_complete_and_updates_the_lease() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
 
@@ -238,6 +249,7 @@ fn successful_handoff_reaches_complete_and_updates_the_lease() {
     assert_eq!(journal.transferred_artifacts.len(), 1);
     assert!(journal.verification.is_some());
     assert!(journal.checkpoint.is_some());
+    assert_eq!(journal.continuity_type, ContinuityType::SessionContinuation);
 
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
     let lease_store = LeaseStore::at_path(paths.project_state_dir(&project_id).join("lease.json"));
@@ -260,7 +272,8 @@ fn a_wrong_source_profile_is_rejected_once_a_lease_is_owned_by_someone_else() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     coordinator
@@ -286,7 +299,8 @@ fn reverse_handoff_from_the_new_owner_succeeds() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     coordinator
@@ -312,7 +326,8 @@ fn stop_verification_failure_fails_the_stop_phase_and_stages_nothing() {
         paths: &paths,
         liveness: &FixedLiveness(true),
         stopper: &FailingStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
 
@@ -333,7 +348,8 @@ fn an_active_source_is_stopped_rather_than_immediately_refused() {
         paths: &paths,
         liveness: &FixedLiveness(true),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
 
@@ -354,7 +370,8 @@ fn journal_records_failed_phase_when_stop_cannot_be_verified() {
         paths: &paths,
         liveness: &FixedLiveness(true),
         stopper: &FailingStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     let _ = coordinator.run(request(&project_dir, "erika", "megan"));
@@ -386,7 +403,8 @@ fn divergent_transcript_fails_the_transfer_phase() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &FailingStager,
+        stager: Some(&FailingStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
 
@@ -407,7 +425,8 @@ fn target_startup_failure_fails_the_target_start_phase() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &FailingLauncher,
     };
 
@@ -428,7 +447,8 @@ fn target_identity_mismatch_fails_verification_and_does_not_move_the_lease() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &WrongSessionLauncher,
     };
 
@@ -465,7 +485,8 @@ fn concurrent_handoff_attempts_are_serialized_and_exactly_one_transaction_per_sl
                 paths: &paths,
                 liveness: &liveness,
                 stopper: &OkStopper,
-                stager: &OkStager,
+                stager: Some(&OkStager),
+                context_capturer: None,
                 launcher: &OkLauncher,
             };
             barrier.wait();
@@ -507,7 +528,8 @@ fn a_live_orchestration_lock_blocks_recovery() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     coordinator
@@ -560,7 +582,8 @@ fn recovery_at_every_interrupted_stage_produces_the_documented_safe_outcome() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
@@ -588,6 +611,7 @@ fn recovery_at_every_interrupted_stage_produces_the_documented_safe_outcome() {
             ProfileName::new("megan").expect("name"),
             project_dir.join("megan-config"),
             format!("{SESSION_ID}-{index}"),
+            ContinuityType::SessionContinuation,
         );
         // Walk the journal forward to the crash point using only legal transitions.
         let sequence = [
@@ -675,6 +699,22 @@ fn seed_journal_with_target_launch(
     crash_state: HandoffState,
     pid: u32,
 ) -> TransactionId {
+    seed_journal_with_target_launch_and_continuity(
+        project_state_dir,
+        project_dir,
+        crash_state,
+        pid,
+        ContinuityType::SessionContinuation,
+    )
+}
+
+fn seed_journal_with_target_launch_and_continuity(
+    project_state_dir: &Path,
+    project_dir: &Path,
+    crash_state: HandoffState,
+    pid: u32,
+    continuity_type: ContinuityType,
+) -> TransactionId {
     let project_id = ProjectId::for_canonical_path(project_dir).expect("id");
     let target_config_dir = project_dir.join("megan-config");
     let transaction_id = TransactionId::generate();
@@ -686,6 +726,7 @@ fn seed_journal_with_target_launch(
         ProfileName::new("megan").expect("name"),
         target_config_dir,
         SESSION_ID.to_owned(),
+        continuity_type,
     );
     let sequence = [
         HandoffState::Checkpointed,
@@ -730,13 +771,13 @@ impl TargetLauncher for CountingLauncher {
         &self,
         _target_config_dir: &Path,
         _project_dir: &Path,
-        session_id: &str,
+        directive: &LaunchDirective<'_>,
         on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
     ) -> relay_core::Result<TargetVerification> {
         *self.launches.lock().expect("launch count") += 1;
         on_started(Some(ProcessIdentity::current()))?;
         Ok(TargetVerification {
-            target_session_id: session_id.to_owned(),
+            target_session_id: resume_session_id(directive).to_owned(),
             started_successfully: true,
         })
     }
@@ -760,7 +801,8 @@ fn recovery_stops_a_recorded_orphan_target_then_reverifies_and_completes_without
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &stopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &launcher,
     };
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
@@ -828,7 +870,8 @@ fn recovery_never_launches_a_second_target_when_the_orphan_cannot_be_confirmed_s
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &stopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &launcher,
     };
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
@@ -882,7 +925,8 @@ fn a_failed_reverification_after_stopping_the_orphan_fails_closed_without_moving
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &stopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &WrongSessionLauncher,
     };
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
@@ -943,7 +987,8 @@ fn a_transient_orphan_stop_failure_can_be_retried_by_recovering_again() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &stopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &launcher,
     };
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
@@ -1008,7 +1053,8 @@ fn a_target_that_may_have_spawned_before_its_identity_was_recorded_is_still_supe
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &stopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &launcher,
     };
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
@@ -1046,7 +1092,8 @@ fn an_unrecorded_target_that_cannot_be_ruled_out_blocks_recovery_and_launches_no
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &stopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &launcher,
     };
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
@@ -1078,7 +1125,8 @@ fn a_recovery_required_transaction_can_be_acknowledged_to_unblock_the_project() 
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &stopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
@@ -1123,7 +1171,8 @@ fn a_pending_recovery_required_transaction_blocks_a_fresh_handoff_for_the_same_p
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &stopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
@@ -1163,7 +1212,8 @@ fn a_terminal_prior_transaction_never_blocks_a_fresh_handoff() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     coordinator
@@ -1187,7 +1237,8 @@ fn a_target_process_spawn_is_recorded_even_when_the_launch_ultimately_fails() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OrphaningLauncher { pid: 123_456 },
     };
 
@@ -1224,7 +1275,8 @@ fn recovering_an_already_terminal_transaction_twice_is_idempotent() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     let journal = coordinator
@@ -1258,7 +1310,8 @@ fn recovering_an_unknown_transaction_id_reports_not_found_rather_than_guessing()
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
@@ -1282,7 +1335,8 @@ fn a_corrupted_journal_fails_closed_during_recovery() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
@@ -1338,7 +1392,8 @@ fn wrong_project_never_collides_with_a_different_projects_state() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
 
@@ -1385,7 +1440,8 @@ fn an_untracked_session_for_the_source_profile_blocks_the_handoff() {
         paths: &paths,
         liveness: &UntrackedLiveness,
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
 
@@ -1430,11 +1486,273 @@ fn a_confirmed_dead_recorded_owner_is_not_treated_as_active() {
         paths: &paths,
         liveness: &FixedLiveness(false),
         stopper: &OkStopper,
-        stager: &OkStager,
+        stager: Some(&OkStager),
+        context_capturer: None,
         launcher: &OkLauncher,
     };
     let journal = coordinator
         .run(request(&project_dir, "erika", "megan"))
         .expect("handoff must succeed when the fake liveness check reports not-active");
     assert_eq!(journal.state, HandoffState::Complete);
+}
+
+// --- M6: STATE_CONTINUATION (cross-provider) transaction tests ---
+
+struct FixedBundleCapturer;
+impl relay_core::handoff::ContextCapturer for FixedBundleCapturer {
+    fn capture(
+        &self,
+        _source_config_dir: &Path,
+        project_dir: &Path,
+        source_session_id: &str,
+        source_profile: &ProfileName,
+        source_provider: ProviderKind,
+        target_provider: ProviderKind,
+    ) -> relay_core::Result<relay_core::handoff::ContinuationBundle> {
+        Ok(relay_core::handoff::ContinuationBundle {
+            version: relay_core::handoff::ContinuationBundle::CURRENT_VERSION,
+            source_provider,
+            source_profile: source_profile.clone(),
+            source_session_id: Some(source_session_id.to_owned()),
+            target_provider,
+            canonical_project_path: project_dir.to_path_buf(),
+            generated_unix_ms: 0,
+            last_user_request: Some("add a health check endpoint".to_owned()),
+            repo: relay_core::handoff::RepoFacts {
+                branch: "main".to_owned(),
+                head: "abc123".to_owned(),
+                staged_files: Vec::new(),
+                unstaged_files: Vec::new(),
+                untracked_files: Vec::new(),
+            },
+            recent_context: Vec::new(),
+        })
+    }
+}
+
+struct BootstrapEchoLauncher;
+impl TargetLauncher for BootstrapEchoLauncher {
+    fn launch_and_verify(
+        &self,
+        _target_config_dir: &Path,
+        _project_dir: &Path,
+        directive: &LaunchDirective<'_>,
+        on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
+    ) -> relay_core::Result<TargetVerification> {
+        on_started(Some(ProcessIdentity::current()))?;
+        match directive {
+            LaunchDirective::Bootstrap { .. } => Ok(TargetVerification {
+                target_session_id: "codex-thread-0000".to_owned(),
+                started_successfully: true,
+            }),
+            LaunchDirective::ResumeSession { .. } => {
+                panic!("state-continuation must not request ResumeSession")
+            }
+        }
+    }
+}
+
+fn cross_provider_request(project_dir: &Path) -> HandoffRequest {
+    HandoffRequest {
+        project_dir: project_dir.to_path_buf(),
+        source_profile: ProfileName::new("claude-main").expect("name"),
+        source_provider: ProviderKind::Claude,
+        source_config_dir: project_dir.join("claude-main-config"),
+        target_profile: ProfileName::new("codex-main").expect("name"),
+        target_provider: ProviderKind::Codex,
+        target_config_dir: project_dir.join("codex-main-config"),
+        session_id: SESSION_ID.to_owned(),
+        continuity_type: ContinuityType::StateContinuation,
+    }
+}
+
+#[test]
+fn a_state_continuation_handoff_completes_with_a_new_target_session_id() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
+        stager: None,
+        context_capturer: Some(&FixedBundleCapturer),
+        launcher: &BootstrapEchoLauncher,
+    };
+
+    let journal = coordinator
+        .run(cross_provider_request(&project_dir))
+        .expect("cross-provider handoff must succeed");
+
+    assert_eq!(journal.state, HandoffState::Complete);
+    assert_eq!(journal.continuity_type, ContinuityType::StateContinuation);
+    assert!(journal.transferred_artifacts.is_empty());
+    let summary = journal
+        .bundle_summary
+        .expect("a bundle summary must be recorded");
+    assert!(summary.size_bytes > 0);
+    assert_eq!(summary.sha256.len(), 64, "sha256 hex digest");
+    let verification = journal.verification.expect("verification recorded");
+    assert_eq!(verification.target_session_id, "codex-thread-0000");
+
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let lease = LeaseStore::at_path(paths.project_state_dir(&project_id).join("lease.json"))
+        .load()
+        .expect("load lease")
+        .expect("lease exists");
+    assert_eq!(lease.owner_profile.as_str(), "codex-main");
+    assert_eq!(
+        lease.session_id, "codex-thread-0000",
+        "the lease must record the TARGET's real new session id, never the source's"
+    );
+}
+
+#[test]
+fn a_state_continuation_without_a_context_capturer_fails_closed() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
+        stager: None,
+        context_capturer: None,
+        launcher: &BootstrapEchoLauncher,
+    };
+
+    let error = coordinator
+        .run(cross_provider_request(&project_dir))
+        .expect_err("must fail closed without a context capturer");
+    assert_eq!(error.code(), "missing_handoff_port");
+}
+
+#[test]
+fn a_session_continuation_without_a_stager_fails_closed() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
+        stager: None,
+        context_capturer: None,
+        launcher: &OkLauncher,
+    };
+
+    let error = coordinator
+        .run(request(&project_dir, "erika", "megan"))
+        .expect_err("must fail closed without a stager");
+    assert_eq!(error.code(), "missing_handoff_port");
+}
+
+#[test]
+fn an_empty_target_session_id_fails_state_continuation_verification() {
+    struct EmptySessionLauncher;
+    impl TargetLauncher for EmptySessionLauncher {
+        fn launch_and_verify(
+            &self,
+            _target_config_dir: &Path,
+            _project_dir: &Path,
+            _directive: &LaunchDirective<'_>,
+            on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
+        ) -> relay_core::Result<TargetVerification> {
+            on_started(Some(ProcessIdentity::current()))?;
+            Ok(TargetVerification {
+                target_session_id: String::new(),
+                started_successfully: true,
+            })
+        }
+    }
+
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &OkStopper,
+        stager: None,
+        context_capturer: Some(&FixedBundleCapturer),
+        launcher: &EmptySessionLauncher,
+    };
+
+    let error = coordinator
+        .run(cross_provider_request(&project_dir))
+        .expect_err("an empty target session id must never verify");
+    assert_eq!(error.code(), "target_verification_mismatch");
+}
+
+#[test]
+fn a_crash_during_state_continuation_target_launch_requires_explicit_recovery() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let stopper = RecordingStopper {
+        calls: Mutex::new(Vec::new()),
+        fail: false,
+    };
+    let launcher = CountingLauncher {
+        launches: Mutex::new(0),
+    };
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        stopper: &stopper,
+        stager: None,
+        context_capturer: Some(&FixedBundleCapturer),
+        launcher: &launcher,
+    };
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let transaction_id = seed_journal_with_target_launch_and_continuity(
+        &project_state_dir,
+        &project_dir,
+        HandoffState::TargetStarting,
+        999_994,
+        ContinuityType::StateContinuation,
+    );
+
+    let recovered = coordinator
+        .recover(&project_state_dir, &transaction_id)
+        .expect("recover must decide, not error");
+
+    match &recovered.state {
+        HandoffState::RecoveryRequired { reason } => {
+            assert!(
+                reason.contains("cannot be durably reconstructed"),
+                "reason must explain why no automatic relaunch happened: {reason}"
+            );
+        }
+        other => panic!("expected RecoveryRequired, got {other:?}"),
+    }
+    assert_eq!(
+        stopper.calls.lock().expect("calls").len(),
+        1,
+        "the orphan target must still be stopped even though it is not relaunched"
+    );
+    assert_eq!(
+        *launcher.launches.lock().expect("launch count"),
+        0,
+        "a state-continuation target must never be relaunched from recovery with a \
+         reconstructed bundle"
+    );
+    assert!(
+        LeaseStore::at_path(project_state_dir.join("lease.json"))
+            .load()
+            .expect("lease load")
+            .is_none(),
+        "the writer lease must not move"
+    );
 }

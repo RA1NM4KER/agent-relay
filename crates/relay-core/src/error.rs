@@ -113,6 +113,13 @@ pub enum Error {
     RecoveryRequired(String),
     #[error("serialization failed")]
     SerializationFailed,
+    #[error("required handoff port is not configured for this continuity type: {0}")]
+    MissingHandoffPort(String),
+    #[error(
+        "recovery cannot durably reconstruct a state-continuation bundle; the source's own \
+         state may have changed since capture, so the target was not relaunched automatically: {0}"
+    )]
+    ContinuationBundleNotRecoverable(String),
     #[error("required environment path is unavailable: {0}")]
     MissingEnvironment(&'static str),
     #[error("I/O operation failed for {path}")]
@@ -181,6 +188,8 @@ impl Error {
             Self::IntegrationRefused(_) => "integration_refused",
             Self::RecoveryRequired(_) => "recovery_required",
             Self::SerializationFailed => "serialization_failed",
+            Self::MissingHandoffPort(_) => "missing_handoff_port",
+            Self::ContinuationBundleNotRecoverable(_) => "continuation_bundle_not_recoverable",
             Self::MissingEnvironment(_) => "missing_environment",
             Self::Io { .. } => "io_error",
         }

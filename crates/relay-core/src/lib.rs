@@ -18,6 +18,8 @@ pub use model::{
     IdentityMetadata, Profile, ProfileName, ProfileOrigin, ProfileStatus, ProviderKind,
 };
 pub use paths::{ProfileDirectory, RelayPaths};
-pub use provider::{ProfileSetupMode, ProfileSetupRequest, Provider, ProviderObservation};
+pub use provider::{
+    ProfileSetupMode, ProfileSetupRequest, Provider, ProviderCapabilities, ProviderObservation,
+};
 pub use service::{AddProfileRequest, ProfileService};
 pub use store::{ProfileState, ProfileStore};

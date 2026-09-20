@@ -7,16 +7,16 @@ use std::{
 };
 
 use relay_core::{
-    ProfileName, RelayPaths,
+    ProfileName, ProviderKind, RelayPaths,
     automation::{
         AutomationPolicy, LedgerStore, ProfileCandidate, WatchCoordinator, WatchOutcome,
         WatchRequest,
     },
     handoff::{
-        HandoffCoordinator, HandoffJournal, HandoffState, JournalStore, LeaseStore,
-        LivenessVerdict, OrchestrationLock, ProcessIdentity, ProjectId, SessionStager,
-        SessionStopper, SourceLiveness, TargetLauncher, TargetVerification, TransactionId,
-        TransferOutcome, TransferredArtifact,
+        ContinuityType, HandoffCoordinator, HandoffJournal, HandoffState, JournalStore,
+        LaunchDirective, LeaseStore, LivenessVerdict, OrchestrationLock, ProcessIdentity,
+        ProjectId, SessionStager, SessionStopper, SourceLiveness, TargetLauncher,
+        TargetVerification, TransactionId, TransferOutcome, TransferredArtifact,
     },
     usage::{UsageEvidence, UsageObservation, UsageState},
 };
@@ -83,7 +83,7 @@ impl TargetLauncher for Ports {
         &self,
         _target: &Path,
         _project: &Path,
-        session_id: &str,
+        directive: &LaunchDirective<'_>,
         on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
     ) -> relay_core::Result<TargetVerification> {
         self.0.launches.fetch_add(1, Ordering::SeqCst);
@@ -91,8 +91,12 @@ impl TargetLauncher for Ports {
             return Err(relay_core::Error::ProviderCommandFailed);
         }
         on_started(Some(ProcessIdentity::current()))?;
+        let session_id = match directive {
+            LaunchDirective::ResumeSession { session_id } => (*session_id).to_owned(),
+            LaunchDirective::Bootstrap { .. } => "bootstrap-session".to_owned(),
+        };
         Ok(TargetVerification {
-            target_session_id: session_id.to_owned(),
+            target_session_id: session_id,
             started_successfully: true,
         })
     }
@@ -134,6 +138,7 @@ fn observation(state: UsageState, reset: Option<u64>) -> UsageObservation {
 fn candidate(profile: &str, state: UsageState, reset: Option<u64>) -> ProfileCandidate {
     ProfileCandidate {
         name: name(profile),
+        provider: ProviderKind::Claude,
         config_dir: PathBuf::from(format!("/tmp/relay-watch-test/{profile}")),
         identity_stable_id: Some(format!("identity-{profile}")),
         enabled: true,
@@ -184,18 +189,21 @@ impl Fixture {
             paths: &self.paths,
             liveness: &ports,
             stopper: &ports,
-            stager: &ports,
+            stager: Some(&ports),
+            context_capturer: None,
             launcher: &ports,
         };
+        let handoff_for = |_: &ProfileName, _: &ProfileName| &handoff;
         let watch = WatchCoordinator {
             paths: &self.paths,
-            handoff: &handoff,
+            handoff_for: &handoff_for,
             policy,
         };
         watch.evaluate(
             WatchRequest {
                 project_dir: self.project.clone(),
                 source_profile: name(source),
+                source_provider: ProviderKind::Claude,
                 source_config_dir: PathBuf::from(format!("/tmp/relay-watch-test/{source}")),
                 source_identity_stable_id: Some(format!("identity-{source}")),
                 session_id: SESSION_ID.to_owned(),
@@ -588,6 +596,7 @@ impl Fixture {
             name("megan"),
             PathBuf::from("/tmp/relay-watch-test/megan"),
             SESSION_ID.to_owned(),
+            ContinuityType::SessionContinuation,
         );
         for step in [
             HandoffState::Checkpointed,

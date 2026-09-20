@@ -4,12 +4,16 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::{Error, ProfileName, RelayPaths, Result};
+use sha2::{Digest, Sha256};
+
+use crate::{Error, ProfileName, ProviderKind, RelayPaths, Result};
 
 use super::{
-    FailedPhase, HandoffJournal, HandoffState, JournalStore, LeaseStore, OrchestrationLock,
-    ProcessIdentity, ProjectId, TransactionId, WriterLease,
-    journal::{ArtifactRecord, TargetLaunchRecord, VerificationRecord, checkpoint_project},
+    ContinuationBundle, ContinuityType, FailedPhase, HandoffJournal, HandoffState, JournalStore,
+    LeaseStore, OrchestrationLock, ProcessIdentity, ProjectId, TransactionId, WriterLease,
+    journal::{
+        ArtifactRecord, BundleSummary, TargetLaunchRecord, VerificationRecord, checkpoint_project,
+    },
 };
 
 /// The result of checking whether a profile's writer is still alive. `active` is the primary
@@ -106,6 +110,9 @@ pub struct TransferOutcome {
 /// Stages the session's artifacts from source to target. `relay-provider-claude` implements this
 /// over the M2A `stage_transfer` function, so a project-level handoff and a bare
 /// `relay session stage-transfer` share one hash-verified, divergence-checked implementation.
+///
+/// Only used for [`ContinuityType::SessionContinuation`] — `STATE_CONTINUATION` never copies
+/// provider-native session artifacts between providers (see [`ContextCapturer`] instead).
 pub trait SessionStager: Send + Sync {
     fn stage(
         &self,
@@ -116,14 +123,43 @@ pub trait SessionStager: Send + Sync {
     ) -> Result<TransferOutcome>;
 }
 
+/// M6: builds a provider-neutral [`ContinuationBundle`] from the SOURCE's own local state, for a
+/// [`ContinuityType::StateContinuation`] transaction. Implemented per source provider
+/// (`relay-provider-claude`/`relay-provider-codex`) — `relay-core` never reads provider-native
+/// transcript formats itself. Runs while the source profile is still the confirmed writer (during
+/// `Checkpointed`, before `SourceStopping`), so the source's own local state is read while it is
+/// still known-quiescent-or-owned rather than raced against a stop.
+pub trait ContextCapturer: Send + Sync {
+    fn capture(
+        &self,
+        source_config_dir: &Path,
+        project_dir: &Path,
+        source_session_id: &str,
+        source_profile: &ProfileName,
+        source_provider: ProviderKind,
+        target_provider: ProviderKind,
+    ) -> Result<ContinuationBundle>;
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TargetVerification {
     pub target_session_id: String,
     pub started_successfully: bool,
 }
 
-/// Launches the target under its own profile and verifies it actually resumed the expected
-/// session. `relay-core` never launches processes itself.
+/// What the target should do on its first turn. `relay-core` decides which variant applies (from
+/// the transaction's [`ContinuityType`]); it never inspects provider identity itself.
+pub enum LaunchDirective<'a> {
+    /// `SESSION_CONTINUATION`: resume this exact session id, the same way a same-profile resume
+    /// would.
+    ResumeSession { session_id: &'a str },
+    /// `STATE_CONTINUATION`: start a genuinely new session/thread, bootstrapped from this bundle.
+    Bootstrap { bundle: &'a ContinuationBundle },
+}
+
+/// Launches the target under its own profile and verifies it actually started the expected
+/// session (an exact resume for [`LaunchDirective::ResumeSession`], any valid new session/thread
+/// id for [`LaunchDirective::Bootstrap`]). `relay-core` never launches processes itself.
 ///
 /// `on_started` must be invoked exactly once, immediately after the target process is spawned
 /// and before any long blocking wait for it to finish — the coordinator uses it to persist a
@@ -138,7 +174,7 @@ pub trait TargetLauncher: Send + Sync {
         &self,
         target_config_dir: &Path,
         project_dir: &Path,
-        session_id: &str,
+        directive: &LaunchDirective<'_>,
         on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> Result<()>,
     ) -> Result<TargetVerification>;
 }
@@ -151,17 +187,26 @@ pub struct LaunchOutcome {
 pub struct HandoffRequest {
     pub project_dir: PathBuf,
     pub source_profile: ProfileName,
+    pub source_provider: ProviderKind,
     pub source_config_dir: PathBuf,
     pub target_profile: ProfileName,
+    pub target_provider: ProviderKind,
     pub target_config_dir: PathBuf,
     pub session_id: String,
+    pub continuity_type: ContinuityType,
 }
 
 pub struct HandoffCoordinator<'a> {
     pub paths: &'a RelayPaths,
     pub liveness: &'a dyn SourceLiveness,
     pub stopper: &'a dyn SessionStopper,
-    pub stager: &'a dyn SessionStager,
+    /// Required when `continuity_type` is [`ContinuityType::SessionContinuation`]; unused
+    /// otherwise. `run` fails closed with [`Error::MissingHandoffPort`] if the wrong one is
+    /// absent for the requested continuity type.
+    pub stager: Option<&'a dyn SessionStager>,
+    /// Required when `continuity_type` is [`ContinuityType::StateContinuation`]; unused
+    /// otherwise.
+    pub context_capturer: Option<&'a dyn ContextCapturer>,
     pub launcher: &'a dyn TargetLauncher,
 }
 
@@ -273,6 +318,7 @@ impl HandoffCoordinator<'_> {
             request.target_profile.clone(),
             request.target_config_dir.clone(),
             request.session_id.clone(),
+            request.continuity_type,
         );
         journal_store.save(&journal)?;
         write_current_pointer(current_pointer, journal.transaction_id.as_str())?;
@@ -305,6 +351,56 @@ impl HandoffCoordinator<'_> {
         journal.checkpoint = Some(checkpoint);
         journal.advance(HandoffState::Checkpointed, "captured git checkpoint")?;
         journal_store.save(&journal)?;
+
+        // M6: for STATE_CONTINUATION, the provider-neutral bundle is captured now — while the
+        // source is still the confirmed writer, before it is stopped — never after, so the
+        // source's own local state is read at a known-owned moment rather than raced against
+        // the stop below. Only a hash/size summary is persisted to the journal; the bundle
+        // itself lives only in this process's memory until the target is launched.
+        let captured_bundle = match request.continuity_type {
+            ContinuityType::SessionContinuation | ContinuityType::NativeResume => None,
+            ContinuityType::StateContinuation => {
+                let Some(capturer) = self.context_capturer else {
+                    fail_and_return!(
+                        FailedPhase::Prepare,
+                        "no context capturer configured for a state-continuation transaction"
+                            .to_owned(),
+                        Error::MissingHandoffPort("context_capturer".to_owned())
+                    );
+                };
+                let bundle = match capturer.capture(
+                    &request.source_config_dir,
+                    project_dir,
+                    &request.session_id,
+                    &request.source_profile,
+                    request.source_provider,
+                    request.target_provider,
+                ) {
+                    Ok(bundle) => bundle,
+                    Err(error) => fail_and_return!(
+                        FailedPhase::Prepare,
+                        format!("context capture failed: {error}"),
+                        error
+                    ),
+                };
+                let serialized = match serde_json::to_vec(&bundle) {
+                    Ok(bytes) => bytes,
+                    Err(_) => fail_and_return!(
+                        FailedPhase::Prepare,
+                        "context bundle could not be serialized".to_owned(),
+                        Error::SerializationFailed
+                    ),
+                };
+                let mut hasher = Sha256::new();
+                hasher.update(&serialized);
+                journal.bundle_summary = Some(BundleSummary {
+                    sha256: format!("{:x}", hasher.finalize()),
+                    size_bytes: serialized.len() as u64,
+                });
+                journal_store.save(&journal)?;
+                Some(bundle)
+            }
+        };
 
         journal.advance(
             HandoffState::SourceStopping,
@@ -357,34 +453,53 @@ impl HandoffCoordinator<'_> {
 
         journal.advance(
             HandoffState::SessionTransferring,
-            "staging session artifacts",
+            match request.continuity_type {
+                ContinuityType::StateContinuation => "context bundle already captured",
+                _ => "staging session artifacts",
+            },
         )?;
         journal_store.save(&journal)?;
-        let transfer = match self.stager.stage(
-            &request.source_config_dir,
-            &request.target_config_dir,
-            project_dir,
-            &request.session_id,
-        ) {
-            Ok(transfer) => transfer,
-            Err(error) => fail_and_return!(
-                FailedPhase::Transfer,
-                format!("transfer failed: {error}"),
-                error
-            ),
-        };
-        journal.transferred_artifacts = transfer
-            .artifacts
-            .iter()
-            .map(|artifact| ArtifactRecord {
-                relative_path: artifact.relative_path.clone(),
-                sha256: artifact.sha256.clone(),
-                size_bytes: artifact.size_bytes,
-            })
-            .collect();
+        match request.continuity_type {
+            ContinuityType::SessionContinuation => {
+                let Some(stager) = self.stager else {
+                    fail_and_return!(
+                        FailedPhase::Transfer,
+                        "no session stager configured for a session-continuation transaction"
+                            .to_owned(),
+                        Error::MissingHandoffPort("stager".to_owned())
+                    );
+                };
+                let transfer = match stager.stage(
+                    &request.source_config_dir,
+                    &request.target_config_dir,
+                    project_dir,
+                    &request.session_id,
+                ) {
+                    Ok(transfer) => transfer,
+                    Err(error) => fail_and_return!(
+                        FailedPhase::Transfer,
+                        format!("transfer failed: {error}"),
+                        error
+                    ),
+                };
+                journal.transferred_artifacts = transfer
+                    .artifacts
+                    .iter()
+                    .map(|artifact| ArtifactRecord {
+                        relative_path: artifact.relative_path.clone(),
+                        sha256: artifact.sha256.clone(),
+                        size_bytes: artifact.size_bytes,
+                    })
+                    .collect();
+            }
+            ContinuityType::StateContinuation | ContinuityType::NativeResume => {}
+        }
         journal.advance(
             HandoffState::SessionTransferred,
-            "artifacts staged and hash-verified",
+            match request.continuity_type {
+                ContinuityType::StateContinuation => "context bundle ready for the target",
+                _ => "artifacts staged and hash-verified",
+            },
         )?;
         journal_store.save(&journal)?;
 
@@ -400,10 +515,18 @@ impl HandoffCoordinator<'_> {
             }
             Ok(())
         };
+        let directive = match (&request.continuity_type, &captured_bundle) {
+            (ContinuityType::StateContinuation, Some(bundle)) => {
+                LaunchDirective::Bootstrap { bundle }
+            }
+            _ => LaunchDirective::ResumeSession {
+                session_id: &request.session_id,
+            },
+        };
         let verification = match self.launcher.launch_and_verify(
             &request.target_config_dir,
             project_dir,
-            &request.session_id,
+            &directive,
             &mut on_started,
         ) {
             Ok(verification) => verification,
@@ -414,9 +537,16 @@ impl HandoffCoordinator<'_> {
             ),
         };
 
-        if !verification.started_successfully
-            || verification.target_session_id != request.session_id
-        {
+        let verification_ok = match request.continuity_type {
+            ContinuityType::StateContinuation => {
+                verification.started_successfully && !verification.target_session_id.is_empty()
+            }
+            ContinuityType::SessionContinuation | ContinuityType::NativeResume => {
+                verification.started_successfully
+                    && verification.target_session_id == request.session_id
+            }
+        };
+        if !verification_ok {
             fail_and_return!(
                 FailedPhase::Verify,
                 format!(
@@ -435,11 +565,15 @@ impl HandoffCoordinator<'_> {
         journal.advance(HandoffState::TargetVerified, "target verified")?;
         journal_store.save(&journal)?;
 
+        // The lease always records the TARGET's actual session/thread id — for
+        // `SESSION_CONTINUATION` that is provably equal to `request.session_id` (checked above);
+        // for `STATE_CONTINUATION` it is the new id the target itself reported, never the
+        // source's.
         let lease = WriterLease::new(
             project_id,
             request.target_profile.clone(),
             ProcessIdentity::current(),
-            request.session_id.clone(),
+            verification.target_session_id.clone(),
             journal.transaction_id.clone(),
             now_unix_ms(),
         );
@@ -536,11 +670,19 @@ impl HandoffCoordinator<'_> {
                         .load()?
                         .is_some_and(|lease| lease.owner_profile == journal.target_profile);
                     if !already_reflects_target {
+                        // `verification` is always `Some` once `TargetVerified` is reached (set
+                        // immediately before that transition) and carries the TARGET's actual
+                        // session/thread id, which for STATE_CONTINUATION differs from
+                        // `journal.session_id` (the source's).
+                        let target_session_id = journal.verification.as_ref().map_or_else(
+                            || journal.session_id.clone(),
+                            |v| v.target_session_id.clone(),
+                        );
                         let lease = WriterLease::new(
                             journal.project_id.clone(),
                             journal.target_profile.clone(),
                             ProcessIdentity::current(),
-                            journal.session_id.clone(),
+                            target_session_id,
                             journal.transaction_id.clone(),
                             now_unix_ms(),
                         );
@@ -610,6 +752,31 @@ impl HandoffCoordinator<'_> {
         journal.notes.push(
             "recovery: no target process remains (stopped and confirmed quiescent)".to_owned(),
         );
+
+        // M6: a STATE_CONTINUATION's ContinuationBundle is deliberately never persisted (see
+        // docs/security.md) — it lived only in the memory of the process that crashed. This
+        // recovery process cannot reconstruct it (the source may since have changed, or may
+        // already be stopped/gone), so it must not fabricate a fresh capture and must not guess.
+        // The orphan is already confirmed stopped above, so nothing unsafe is left running; the
+        // operator resolves this explicitly (confirm, then retry `relay switch` as a new
+        // transaction) rather than Relay silently retrying with different content than what was
+        // verified never happened.
+        if journal.continuity_type == ContinuityType::StateContinuation {
+            journal.advance(
+                HandoffState::RecoveryRequired {
+                    reason: "interrupted during a state-continuation target launch; the orphan \
+                             target was stopped and confirmed gone, but the continuation bundle \
+                             cannot be durably reconstructed, so the target was not relaunched \
+                             automatically — run `relay recover --acknowledge` after confirming \
+                             the target is not running, then retry `relay switch`"
+                        .to_owned(),
+                },
+                "recovery: state-continuation bundle not durably recoverable",
+            )?;
+            journal_store.save(&journal)?;
+            return Ok(journal);
+        }
+
         if journal.state == HandoffState::SessionTransferred {
             journal.advance(
                 HandoffState::TargetStarting,
@@ -630,10 +797,13 @@ impl HandoffCoordinator<'_> {
             }
             Ok(())
         };
+        let directive = LaunchDirective::ResumeSession {
+            session_id: &session_id,
+        };
         let verification = self.launcher.launch_and_verify(
             &target_config_dir,
             &project_dir,
-            &session_id,
+            &directive,
             &mut on_started,
         );
         match verification {
@@ -643,7 +813,7 @@ impl HandoffCoordinator<'_> {
             {
                 journal.verification = Some(VerificationRecord {
                     target_profile: journal.target_profile.clone(),
-                    target_session_id: verification.target_session_id,
+                    target_session_id: verification.target_session_id.clone(),
                     target_config_dir: journal.target_config_dir.clone(),
                     started_successfully: true,
                 });
@@ -656,7 +826,7 @@ impl HandoffCoordinator<'_> {
                     journal.project_id.clone(),
                     journal.target_profile.clone(),
                     ProcessIdentity::current(),
-                    journal.session_id.clone(),
+                    verification.target_session_id,
                     journal.transaction_id.clone(),
                     now_unix_ms(),
                 );

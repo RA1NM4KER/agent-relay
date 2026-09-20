@@ -5,6 +5,7 @@
 //! transaction through injected [`SourceLiveness`], [`SessionStager`], and [`TargetLauncher`]
 //! ports; `relay-provider-claude` supplies the real Claude-aware implementations.
 
+mod continuity;
 mod coordinator;
 mod journal;
 mod lease;
@@ -12,10 +13,14 @@ mod lock;
 mod project;
 mod state;
 
+pub use continuity::{
+    ContinuationBundle, ContinuityType, ConversationExcerpt, EXCERPT_BYTE_CAP, ExcerptRole,
+    RECENT_CONTEXT_BYTE_BUDGET, RepoFacts, bound_recent_context, render_bootstrap_prompt,
+};
 pub use coordinator::{
-    HandoffCoordinator, HandoffRequest, LaunchOutcome, LivenessVerdict, SessionStager,
-    SessionStopper, SourceLiveness, TargetLauncher, TargetVerification, TransferOutcome,
-    TransferredArtifact,
+    ContextCapturer, HandoffCoordinator, HandoffRequest, LaunchDirective, LaunchOutcome,
+    LivenessVerdict, SessionStager, SessionStopper, SourceLiveness, TargetLauncher,
+    TargetVerification, TransferOutcome, TransferredArtifact,
 };
 pub use journal::{
     ArtifactRecord, Checkpoint, HandoffJournal, JournalStore, TargetLaunchRecord,
