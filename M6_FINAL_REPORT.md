@@ -370,6 +370,12 @@ throughout this fix — not stopped, restarted, or replaced — per explicit ins
 could validate `relay resume` against it manually afterward. All verification here used the
 fake-provider test suite only.
 
+**Post-fix live validation, by the user, against the real session:** `./target/debug/relay resume`
+run for real against `854a2a57-1c41-47d2-b20b-85fa0118fcdd` — Relay attached back into the exact
+same live Claude conversation, no error. The `--resume`-against-a-live-job failure this section
+documents is confirmed gone. This is the first real (non-fake-provider) confirmation of the fix,
+on top of the 29/29 `m4.rs` fake-provider coverage above.
+
 ### fmt/clippy/tests (this fix)
 
 `cargo fmt --all -- --check`: clean. `cargo clippy --workspace --all-targets -- -D warnings`:
