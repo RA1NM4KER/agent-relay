@@ -95,12 +95,9 @@ pub fn plan(
         return None;
     }
 
-    let fallbacks: Vec<&ProfileName> = preferences
-        .fallback_profiles
-        .iter()
-        .filter(|name| **name != profile.name)
-        .filter(|name| registered.iter().any(|candidate| &candidate.name == *name))
-        .collect();
+    let fallbacks = hierarchy_without(preferences, &profile.name, |name| {
+        registered.iter().any(|candidate| &candidate.name == name)
+    });
     if fallbacks.is_empty() {
         return None;
     }
@@ -115,7 +112,7 @@ pub fn plan(
         "--profile".into(),
         profile.name.as_str().into(),
     ];
-    for fallback in fallbacks {
+    for fallback in &fallbacks {
         args.push("--fallback".into());
         args.push(fallback.as_str().into());
     }
@@ -137,6 +134,29 @@ pub fn plan(
         args,
         log_path: project_state_dir.join(LOG_FILE_NAME),
     })
+}
+
+/// One global ordered hierarchy (`primary > fallbacks…`), reconsidered in full at every
+/// exhaustion: the current writer is sticky but is the only thing skipped, so after
+/// `erika -> megan` a later limit on `megan` still considers `erika` (once her window has reset)
+/// ahead of the rest. Exhausted, unhealthy and same-identity candidates are filtered by
+/// `WatchCoordinator`, not here.
+pub fn hierarchy_without<'a>(
+    preferences: &'a Preferences,
+    current: &ProfileName,
+    is_registered: impl Fn(&ProfileName) -> bool,
+) -> Vec<&'a ProfileName> {
+    let mut ordered: Vec<&ProfileName> = Vec::new();
+    for name in preferences
+        .primary_profile
+        .iter()
+        .chain(preferences.fallback_profiles.iter())
+    {
+        if name != current && is_registered(name) && !ordered.contains(&name) {
+            ordered.push(name);
+        }
+    }
+    ordered
 }
 
 fn env_number(name: &str, default: u64) -> u64 {
@@ -200,4 +220,47 @@ fn open_log(path: &Path) -> Option<std::fs::File> {
     let mut file = options.open(path).ok()?;
     let _ignored = writeln!(file, "--- automatic handoff evaluation triggered ---");
     Some(file)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn name(value: &str) -> ProfileName {
+        ProfileName::new(value).expect("profile name")
+    }
+
+    fn preferences() -> Preferences {
+        Preferences {
+            primary_profile: Some(name("erika")),
+            fallback_profiles: vec![name("megan"), name("codex")],
+            ..Preferences::default()
+        }
+    }
+
+    fn order(current: &str) -> Vec<String> {
+        hierarchy_without(&preferences(), &name(current), |_| true)
+            .into_iter()
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn the_primary_is_reconsidered_first_after_a_handoff_away_from_it() {
+        assert_eq!(order("megan"), ["erika", "codex"]);
+    }
+
+    #[test]
+    fn the_primary_as_current_writer_falls_back_in_order() {
+        assert_eq!(order("erika"), ["megan", "codex"]);
+    }
+
+    #[test]
+    fn only_the_current_writer_is_skipped_and_unregistered_names_are_dropped() {
+        let preferences = preferences();
+        let listed = hierarchy_without(&preferences, &name("codex"), |candidate| {
+            candidate.as_str() != "megan"
+        });
+        assert_eq!(listed, [&name("erika")]);
+    }
 }

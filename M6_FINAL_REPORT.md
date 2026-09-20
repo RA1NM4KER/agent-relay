@@ -552,3 +552,23 @@ Gate: `cargo fmt --all -- --check` clean, `cargo clippy --workspace --all-target
 - The Herdr event remains best-effort and is now a redundant trigger, not the only one.
 - Codex usage detection is unsupported, so Codex cannot be an automatic *source*.
 - The end-to-end continuation after the new trigger has been exercised with fake providers only; the next real exhaustion is the live confirmation.
+
+## Focused pre-merge check: global priority routing and hook freshness
+
+### 1. Routing after a handoff: a real routing bug (plus the misleading status)
+
+Intended model: one ordered hierarchy `primary > fallbacks`, sticky current writer, no eager fail-back; at each exhaustion everything except the current writer is reconsidered (exhausted/reset-pending, unhealthy/disabled and same-identity candidates are excluded).
+
+- **Already correct:** `relay-core::automation::decide` and `WatchCoordinator` (ordered list, known-exhausted honoured only until its reset, elapsed usage windows ignored, source and same-identity excluded). Herdr just forwards whatever ordered list its `relay_profile_fallback` metadata holds; `decide` skips the source by name, so listing the primary there works.
+- **Real bug:** the hook-triggered `watch auto` (`auto_handoff::plan`) built its candidate list from `preferences.fallback_profiles` only, minus the current writer. The primary was never in it. With `primary=erika, fallback=[megan]` and current writer `megan` (after erika -> megan), the list was empty, so a limit on megan started no evaluation at all: erika was never reconsidered, and nothing after megan (e.g. codex) was reachable either. It was not sticky-writer behaviour; it was a missing candidate.
+- **Status display bug (same root):** `relay status` printed `Fallback:` as the raw preference list, so with megan as writer it showed `Current profile: megan / Fallback: megan`.
+
+Fix (smallest): one helper, `auto_handoff::hierarchy_without(preferences, current, is_registered)`, returns `primary` then `fallback_profiles`, de-duplicated, minus only the current writer. The trigger uses it, and `relay status` uses the same helper for its `Fallback:` line and `fallback_profiles` JSON field (so the current owner is never its own fallback, and the primary appears once it is not the writer; `none` when empty). No fail-back logic was added.
+
+Regression tests: `relay-core` `after_erika_to_megan_a_megan_limit_skips_still_blocked_erika_for_codex` and `once_erikas_reset_has_passed_she_is_first_eligible_again_ahead_of_codex`; `relay-cli` `auto_handoff` unit tests for the candidate order (primary reconsidered first after a handoff away from it; primary-as-writer falls back in order; only the current writer is skipped and unregistered names dropped).
+
+Configuration note: the current `preferences.toml` is `primary=erika, fallback=[megan]`. `codex` is not in the hierarchy, so `erika > megan > codex` needs it added (`relay setup --non-interactive --primary erika --fallback megan --fallback <codex-profile>`). Codex can only be a target, never an automatic source.
+
+### 2. Hook freshness
+
+Hooks call the path `/Users/kefasmanda/repos/agent-relay/target/debug/relay` (not a copy), so they pick up any rebuild at that path; no reinstall is required as long as the binary is rebuilt from HEAD. See the final verification in the commit for the binary's build state.

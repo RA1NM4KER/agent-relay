@@ -802,6 +802,66 @@ mod tests {
         ));
     }
 
+    fn exhausted_until(name: &str, reset_unix_ms: u64) -> (ProfileName, UsageObservation) {
+        (
+            ProfileName::new(name).expect("name"),
+            UsageObservation {
+                reset_unix_ms: Some(reset_unix_ms),
+                ..observation(UsageState::Exhausted)
+            },
+        )
+    }
+
+    /// erika -> megan happened; megan now exhausts while erika's window has not reset: the full
+    /// ordered hierarchy is reconsidered and erika is skipped, so the next healthy one (codex) wins.
+    #[test]
+    fn after_erika_to_megan_a_megan_limit_skips_still_blocked_erika_for_codex() {
+        let source = candidate("megan", UsageState::Exhausted);
+        let erika = candidate("erika", UsageState::Unknown);
+        let codex = candidate("codex", UsageState::Available);
+        let mut ledger = AutomationLedger::default();
+        let (name, usage) = exhausted_until("erika", 50_000);
+        ledger.mark_exhausted(name, &usage);
+        let decision = decide(
+            10_000,
+            &source,
+            &[erika, codex],
+            &ledger,
+            &AutomationPolicy::default(),
+        );
+        assert_eq!(
+            decision,
+            AutomationDecision::Handoff {
+                target: ProfileName::new("codex").expect("name")
+            }
+        );
+    }
+
+    /// Same situation once erika's reset has passed: she is first in the hierarchy and eligible
+    /// again, so she is chosen ahead of codex (sticky writer, but no permanent demotion).
+    #[test]
+    fn once_erikas_reset_has_passed_she_is_first_eligible_again_ahead_of_codex() {
+        let source = candidate("megan", UsageState::Exhausted);
+        let erika = candidate("erika", UsageState::Available);
+        let codex = candidate("codex", UsageState::Available);
+        let mut ledger = AutomationLedger::default();
+        let (name, usage) = exhausted_until("erika", 5_000);
+        ledger.mark_exhausted(name, &usage);
+        let decision = decide(
+            10_000,
+            &source,
+            &[erika, codex],
+            &ledger,
+            &AutomationPolicy::default(),
+        );
+        assert_eq!(
+            decision,
+            AutomationDecision::Handoff {
+                target: ProfileName::new("erika").expect("name")
+            }
+        );
+    }
+
     #[test]
     fn cooldown_blocks_a_second_handoff_immediately_after_the_first() {
         let source = candidate("erika", UsageState::Exhausted);

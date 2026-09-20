@@ -3342,20 +3342,29 @@ fn run_status(
     let herdr_connected =
         std::env::var_os("HERDR_ENV").as_deref() == Some(std::ffi::OsStr::new("1"));
 
+    // The one global priority order, minus whoever is writing right now: the current writer is
+    // never shown as its own fallback, and the primary is a fallback candidate once it is not the
+    // writer (routing considers it first again after its window resets).
+    let current_owner = lease
+        .as_ref()
+        .map_or_else(|| primary.clone(), |lease| lease.owner_profile.clone());
+    let fallback_order: Vec<String> =
+        auto_handoff::hierarchy_without(&preferences, &current_owner, |_| true)
+            .into_iter()
+            .map(ToString::to_string)
+            .collect();
+    let fallback_display = if fallback_order.is_empty() {
+        "none".to_owned()
+    } else {
+        fallback_order.join(", ")
+    };
+
     let human = format!(
         "Project: {}\nClaude session: {}\nCurrent profile: {}\nFallback: {}\nPrimary profile auth: {}\nAutomatic handoff: {}\nHerdr: {}",
         canonical.display(),
         session_state,
-        lease.as_ref().map_or_else(
-            || primary.to_string(),
-            |lease| lease.owner_profile.to_string()
-        ),
-        preferences
-            .fallback_profiles
-            .iter()
-            .map(ProfileName::to_string)
-            .collect::<Vec<_>>()
-            .join(", "),
+        current_owner,
+        fallback_display,
         primary_auth,
         if preferences.usage_integration_enabled == Some(true) {
             "enabled"
@@ -3377,7 +3386,7 @@ fn run_status(
             "session_state": session_state,
             "primary_profile": primary.as_str(),
             "primary_authenticated": primary_auth,
-            "fallback_profiles": preferences.fallback_profiles.iter().map(ProfileName::to_string).collect::<Vec<_>>(),
+            "fallback_profiles": fallback_order,
             "lease_owner": lease.as_ref().map(|lease| lease.owner_profile.to_string()),
             "current_transaction": current_transaction,
             "usage_integration_enabled": preferences.usage_integration_enabled.unwrap_or(false),
