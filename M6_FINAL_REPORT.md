@@ -273,3 +273,106 @@ Out of scope, deliberately: no change to `relay switch`, `relay watch run`, the 
 Herdr integration, or any provider adapter — confirmed both by code inspection (none of those call
 `run_claude`/`run_resume`/`perform_launch`) and by the full workspace test suite remaining green,
 including `crates/relay-cli/tests/m6.rs`'s switch/resume/mixed-provider tests, unchanged.
+
+## Dogfood-found bug #2: `relay resume` unconditionally ran `claude --resume`, which real Claude rejects for a still-live background job
+
+Found live, immediately after validating the fix above on the real dogfooding session: once
+`relay claude` correctly refused (per the UX contract change) and pointed at `relay resume`,
+`./target/debug/relay resume` itself then failed:
+
+```
+Session 854a2a57-1c41-47d2-b20b-85fa0118fcdd is running as a background session (854a2a57).
+Run `claude attach 854a2a57` to open it...
+```
+
+### Root cause
+
+`run_resume`'s Claude branch unconditionally called `exec_claude_resume`, i.e. `claude --resume
+<session_id>`, regardless of whether the lease's recorded `claude --bg` background job was still
+live. Real Claude Code refuses `--resume` outright for a session with a live background job — its
+own message says exactly what the fix now does: attach to it instead. `--resume` is only the right
+command once that background job is confirmed gone. The previous implementation never checked.
+
+### Fix
+
+`run_resume`'s Claude path now resolves which native command is actually safe via a new
+`resolve_claude_resume_action` (`crates/relay-cli/src/main.rs`), computed *before* anything is
+printed or exec'd so a failure never claims to be "resuming" something it then can't safely
+continue:
+
+1. **No `provider_handle` on the lease** (the shape a cross-profile handoff's target lease has —
+   its launch is a foreground verification turn that has already exited by the time anyone resumes
+   later, never a persistent `--bg` job; see `WriterLease::provider_handle`'s own doc comment) →
+   unconditionally `NativeResume` (`claude --resume <session_id>`). Nothing to check liveness
+   against.
+2. **`provider_handle` present, and `claude agents --json` (queried under the lease *owner's*
+   config dir — the `142668f` invariant, preserved and re-verified below) lists it** → `Attach`
+   (`claude attach <provider_handle>`) — the exact fix for the bug above.
+3. **`provider_handle` present but not listed** → fall back to the recorded owner process's own
+   pid+start-time fingerprint, the same authoritative signal `ClaudeSourceLiveness`/`SessionStopper`
+   already use elsewhere (`ProcessIdentity::is_still_the_same_process`):
+   - Confirmed gone (`Some(false)`) → `NativeResume`.
+   - Anything else — genuinely indeterminate (`None`), or the recorded process improbably still
+     matching yet the listing disagreeing with it (`Some(true)`) — is treated as an inconsistent
+     state that must never be guessed through: `Error::AmbiguousSessionLiveness`, fails closed,
+     execs nothing.
+
+Codex's `exec_codex_resume` is untouched — inspected separately (`relay-provider-codex/src/lib.rs`):
+Codex has no `--bg`/background-job/attach concept at all (`codex resume <thread-id>` is its only
+resume mechanism, always interactive), so the live/dead distinction this fix adds for Claude simply
+doesn't apply there. `crates/relay-cli/tests/m6.rs`'s existing Codex resume test is unchanged and
+still green.
+
+### Preserving the `142668f` invariant, again
+
+Every branch above resolves against `profile.config_dir` — the profile the *lease* names as owner
+(`resolved_profile = lease.owner_profile`, computed once, before any provider dispatch), never the
+configured primary. `resume_after_a_handoff_uses_the_new_owners_config_dir_not_the_primarys` was
+updated (not weakened) to assert this through the *new* correct command: with `bob` owning a live
+writer lease, `relay resume` now execs `claude attach <bob's handle>` under `bob`'s
+`CLAUDE_CONFIG_DIR`, never `alice`'s (`alice` remains the configured primary throughout) — directly
+proving "after erika → megan handoff, resume must use Megan's handle/config if Megan owns the
+lease."
+
+### Tests (all in `crates/relay-cli/tests/m4.rs`, invocation-log-based)
+
+Two pre-existing tests were updated because their fixtures represent a *live* background job
+(nothing ever stopped it), which is exactly the case that now correctly chooses `attach` over
+`--resume` — their assertions were the bug this fix closes, so they now assert the fixed behavior:
+
+- `resume_bare_attaches_to_the_active_managed_session` →
+  **`resume_bare_attaches_to_a_live_background_job_not_resume`**: proves `relay resume` execs
+  `claude attach aaaa1111` for a live job, and — explicitly — that `--resume` is never invoked at
+  all.
+- `resume_after_a_handoff_uses_the_new_owners_config_dir_not_the_primarys`: same rewrite (attach,
+  not resume), described above.
+
+New tests:
+
+- `resume_uses_native_resume_when_the_background_job_is_confirmed_dead` — a real, previously-alive
+  process (spawned in-test, matching the `--new`/stale-lease tests' technique for the same reason:
+  a synthetic pid can never produce a genuine "confirmed gone" fingerprint) is killed and reaped,
+  and the fake's `agents --json` listing is dropped to match; `relay resume` then execs
+  `claude --resume <session_id>` and never `attach`.
+- `resume_fails_closed_when_liveness_is_ambiguous` — the listing is dropped but the recorded pid is
+  synthetic (never a real, establishable fingerprint — genuinely indeterminate, not confirmed
+  gone); `relay resume` fails with `ambiguous_session_liveness`, execs neither `attach` nor
+  `--resume`, and launches no second writer (`--bg` invocation count stays at 1, from the original
+  launch only).
+
+Requirement 6 ("existing `relay claude`/`--new`/`switch`/automatic handoff/Codex behavior remains
+green") is covered by the full workspace suite below, including all 22 previously-passing
+`m4.rs` tests untouched by this fix and `m6.rs`'s switch/Codex-resume tests unchanged.
+
+**LIVE VERIFIED** for the attach direction specifically: the real dogfooding session
+(`854a2a57-1c41-47d2-b20b-85fa0118fcdd`) that surfaced this bug was left completely untouched
+throughout this fix — not stopped, restarted, or replaced — per explicit instruction, so the user
+could validate `relay resume` against it manually afterward. All verification here used the
+fake-provider test suite only.
+
+### fmt/clippy/tests (this fix)
+
+`cargo fmt --all -- --check`: clean. `cargo clippy --workspace --all-targets -- -D warnings`:
+clean. `cargo test --workspace`: **362/362, 0 failed** (360 before this fix, +2 net new: 2 wholly
+new test functions added, plus 2 existing ones rewritten in place — not counted as new — whose
+fixtures happened to represent exactly the buggy case).

@@ -28,7 +28,7 @@ use relay_provider_claude::{
     ClaudeSourceLiveness, ClaudeTargetLauncher, EnvironmentOverrideStatus, SimulatedUsageSignal,
     SystemProcessLister, apply_install, apply_uninstall, assess_installed, handle_statusline,
     handle_stop_failure, inspect_environment, integration_status, plan_install, plan_uninstall,
-    read_stdin_bounded, stage_transfer,
+    query_active_sessions, read_stdin_bounded, stage_transfer,
 };
 use relay_testkit::FakeProvider;
 use serde::Serialize;
@@ -2658,9 +2658,11 @@ fn run_switch(
 /// resolves the project's writer lease and reattaches under the *actual lease owner* — never
 /// assumed to be the configured primary, since a completed handoff can leave a fallback profile
 /// as the owner (the same invariant the M6 dogfood fix in `run_claude`/`exec_claude_attach`
-/// established; see commit `142668f`). `NATIVE_RESUME` for Codex (`codex resume <thread-id>`), an
-/// interactive `claude --resume <id>` for Claude, each execed under the owner's own isolated
-/// config directory.
+/// established; see commit `142668f`). `NATIVE_RESUME` for Codex (`codex resume <thread-id>`) —
+/// Codex has no background-job/attach concept at all, so this is unconditional. For Claude, see
+/// [`resolve_claude_resume_action`]: dogfood-found (M6, second finding) that `claude --resume
+/// <id>` unconditionally fails when the recorded background job is still live — Claude's own
+/// `attach` is required in that case instead.
 ///
 /// The advanced explicit form (`relay resume <profile>`) is preserved unchanged: it refuses
 /// unless `profile` is already the project's current writer (`relay switch` moves ownership;
@@ -2703,6 +2705,17 @@ fn run_resume(
         .find(|profile| profile.name == resolved_profile)
         .ok_or_else(|| Error::ProfileNotFound(resolved_profile.to_string()))?;
 
+    // Resolved before printing anything: on `AmbiguousSessionLiveness` this must fail closed
+    // without ever claiming to be "resuming" a session it then can't safely continue.
+    let claude_action = match profile.provider {
+        ProviderKind::Codex => None,
+        ProviderKind::Claude | ProviderKind::Fake => Some(resolve_claude_resume_action(
+            &profile.config_dir,
+            args.claude_executable.as_deref(),
+            &lease,
+        )?),
+    };
+
     if !json_mode {
         let provider_label = match profile.provider {
             ProviderKind::Codex => "Codex",
@@ -2724,13 +2737,74 @@ fn run_resume(
             &canonical_project,
             &lease.session_id,
         ),
-        ProviderKind::Claude | ProviderKind::Fake => exec_claude_resume(
-            args.claude_executable.as_deref(),
-            &profile.config_dir,
-            &canonical_project,
-            &lease.session_id,
-        ),
+        ProviderKind::Claude | ProviderKind::Fake => {
+            match claude_action.expect("computed above for this provider arm") {
+                ClaudeResumeAction::Attach(short_id) => {
+                    let inspector = ClaudeInspector::discover(args.claude_executable.as_deref())?;
+                    exec_claude_attach(inspector.executable(), &profile.config_dir, &short_id)
+                }
+                ClaudeResumeAction::NativeResume => exec_claude_resume(
+                    args.claude_executable.as_deref(),
+                    &profile.config_dir,
+                    &canonical_project,
+                    &lease.session_id,
+                ),
+            }
+        }
     }
+}
+
+/// Which real Claude command safely continues this lease. Dogfood-found (M6): `relay resume`
+/// used to always run `claude --resume <session_id>` — but a session with a still-live
+/// `claude --bg` background job rejects `--resume` outright ("running as a background session
+/// ... run `claude attach <id>`"); only Claude's own `attach` works for a live job. Conversely,
+/// once the background job is confirmed gone, `attach` would find nothing — `--resume` (native
+/// session/thread resumption) is what's actually safe there.
+///
+/// - The lease's `provider_handle` (present for a direct launch, absent for a lease a cross-
+///   profile handoff produced — see `WriterLease::provider_handle`'s own doc comment) is checked
+///   against `claude agents --json`'s live listing: found → definitely live → `Attach`.
+/// - Not found, but present: fall back to the recorded owner process's own pid+start-time
+///   fingerprint (the same authoritative signal `ClaudeSourceLiveness`/`SessionStopper` already
+///   use elsewhere). Confirmed gone (`Some(false)`) → `NativeResume`. Anything else — genuinely
+///   indeterminate (`None`), *or* the recorded process improbably still matches yet Claude's own
+///   listing disagrees with it (`Some(true)`) — is an inconsistent state this must never guess
+///   through, so it fails closed with `AmbiguousSessionLiveness` rather than risking either a
+///   failed attach or, worse, racing a background job that is in fact still there.
+/// - No `provider_handle` at all: no background job was ever recorded for this lease (a
+///   handoff's target launch is a foreground verification turn that has already exited by the
+///   time anyone resumes later, never a persistent `--bg` job) — nothing to check liveness
+///   against, so this is unconditionally `NativeResume`, not ambiguous.
+fn resolve_claude_resume_action(
+    config_dir: &Path,
+    claude_executable: Option<&Path>,
+    lease: &relay_core::handoff::WriterLease,
+) -> Result<ClaudeResumeAction, Error> {
+    let Some(handle) = &lease.provider_handle else {
+        return Ok(ClaudeResumeAction::NativeResume);
+    };
+    let sessions = query_active_sessions(config_dir, claude_executable)?;
+    let listed = sessions
+        .iter()
+        .any(|record| record.id.as_deref() == Some(handle.as_str()));
+    if listed {
+        return Ok(ClaudeResumeAction::Attach(handle.clone()));
+    }
+    match lease.owner_process.is_still_the_same_process() {
+        Some(false) => Ok(ClaudeResumeAction::NativeResume),
+        Some(true) | None => Err(Error::AmbiguousSessionLiveness(
+            lease.owner_profile.to_string(),
+        )),
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum ClaudeResumeAction {
+    /// `claude attach <id>` — the recorded background job is confirmed live.
+    Attach(String),
+    /// `claude --resume <session_id>` — no live background job; the native session itself is
+    /// what gets resumed.
+    NativeResume,
 }
 
 #[cfg(unix)]

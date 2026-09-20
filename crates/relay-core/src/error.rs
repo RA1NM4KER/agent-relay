@@ -100,6 +100,13 @@ pub enum Error {
     )]
     ManagedSessionAlreadyActive(String),
     #[error(
+        "cannot safely determine whether profile '{0}''s managed session is still live; refusing \
+         to guess between attaching to it and replaying it natively. Investigate manually (e.g. \
+         `claude agents --json` under that profile), or use `relay claude --new` to safely \
+         replace it."
+    )]
+    AmbiguousSessionLiveness(String),
+    #[error(
         "a prior handoff transaction for this project requires explicit recovery before a new one can start: {0}"
     )]
     PendingRecoveryRequired(String),
@@ -192,6 +199,7 @@ impl Error {
             Self::UntrackedWriterDetected(_) => "untracked_writer_detected",
             Self::WriterAlreadyActive(_) => "writer_already_active",
             Self::ManagedSessionAlreadyActive(_) => "managed_session_active",
+            Self::AmbiguousSessionLiveness(_) => "ambiguous_session_liveness",
             Self::PendingRecoveryRequired(_) => "pending_recovery_required",
             Self::StopNotVerified(_) => "stop_not_verified",
             Self::ConflictRequiresResolution(_) => "conflict_requires_resolution",
