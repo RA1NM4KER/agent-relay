@@ -148,10 +148,13 @@ enum Command {
     /// Uses SESSION_CONTINUATION when the current writer and the target are both Claude (the
     /// only pairing with proven cross-profile session transfer), STATE_CONTINUATION otherwise.
     Switch(SwitchArgs),
-    /// M6: reattaches interactively to the session/thread the current writer lease already
-    /// records, under that profile's own isolated config — Codex's NATIVE_RESUME, or (for a
-    /// Claude profile) an interactive `claude --resume`. Refuses if `profile` does not already
-    /// own this project's writer lease (use `relay switch` to move ownership first).
+    /// The normal way to continue an already-active Relay-managed session: reattaches
+    /// interactively to the session/thread the current writer lease already records, under the
+    /// *lease owner's* own isolated config — Codex's NATIVE_RESUME, or (for a Claude profile) an
+    /// interactive `claude --resume`. `relay resume` (no profile) resolves the owner
+    /// automatically; an explicit `relay resume <profile>` still works but refuses if that
+    /// profile does not already own this project's writer lease (use `relay switch` to move
+    /// ownership first).
     Resume(ResumeArgs),
 }
 
@@ -172,7 +175,9 @@ struct SwitchArgs {
 
 #[derive(Debug, Args)]
 struct ResumeArgs {
-    profile: ProfileName,
+    /// Advanced form: resume only if this exact profile already owns the project's writer lease.
+    /// Normally omitted — the owning profile is resolved automatically from the lease.
+    profile: Option<ProfileName>,
     #[arg(long = "project-dir", value_name = "PATH")]
     project_dir: Option<PathBuf>,
     #[arg(long, value_name = "PATH")]
@@ -214,8 +219,8 @@ struct SetupArgs {
 
 #[derive(Debug, Args)]
 struct ClaudeArgs {
-    /// The first message to send if a new session needs to be started. Not required when
-    /// attaching to an already-active session for this project.
+    /// The first message for the new session. `relay claude` always starts a fresh Relay-managed
+    /// conversation — see `relay resume` to continue an existing one instead.
     message: Vec<String>,
     /// Override the configured primary profile for this run only.
     #[arg(long)]
@@ -230,6 +235,14 @@ struct ClaudeArgs {
     /// environments with no real TTY to attach to.
     #[arg(long)]
     no_attach: bool,
+    /// Explicitly replace an already-active Relay-managed session for this project: safely stop
+    /// it (the same authoritative stop-and-verify machinery `relay switch`/recovery use), confirm
+    /// it is gone, then start a fresh managed conversation. Without this flag, `relay claude`
+    /// never silently replaces or reattaches to an active session — it fails closed instead (use
+    /// `relay resume` to continue it). Has no effect if there is no active session; behaves like
+    /// a plain `relay claude` in that case.
+    #[arg(long)]
+    new: bool,
     #[arg(long, value_name = "PATH")]
     claude_executable: Option<PathBuf>,
 }
@@ -1881,7 +1894,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             },
         ),
         Command::Switch(args) => run_switch(&service, &paths, args, cli.json),
-        Command::Resume(args) => run_resume(&service, &paths, args),
+        Command::Resume(args) => run_resume(&service, &paths, args, cli.json),
     }
 }
 
@@ -2110,6 +2123,16 @@ fn watch_run_output(outcome: WatchOutcome) -> Result<CommandOutput, Error> {
         ),
     };
     success("watch.run", human, data)
+}
+
+/// A short, human-friendly project name for the terminal banner (`relay claude`/`relay resume`) —
+/// never the full path, and never a native session UUID (per the M6 UX contract: normal output
+/// shows people and projects, not internal identifiers).
+fn project_display_name(canonical_project: &Path) -> String {
+    canonical_project
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| canonical_project.to_string_lossy().into_owned())
 }
 
 fn current_unix_ms() -> u64 {
@@ -2631,15 +2654,22 @@ fn run_switch(
     }
 }
 
-/// M6: `relay resume <profile>` — reattaches interactively to the session/thread the writer
-/// lease already records, under that exact profile. This is `NATIVE_RESUME` for Codex
-/// (`codex resume <thread-id>`) and an interactive `claude --resume <id>` for Claude. Refuses
+/// The normal way to continue an existing Relay-managed session: `relay resume` (no profile)
+/// resolves the project's writer lease and reattaches under the *actual lease owner* — never
+/// assumed to be the configured primary, since a completed handoff can leave a fallback profile
+/// as the owner (the same invariant the M6 dogfood fix in `run_claude`/`exec_claude_attach`
+/// established; see commit `142668f`). `NATIVE_RESUME` for Codex (`codex resume <thread-id>`), an
+/// interactive `claude --resume <id>` for Claude, each execed under the owner's own isolated
+/// config directory.
+///
+/// The advanced explicit form (`relay resume <profile>`) is preserved unchanged: it refuses
 /// unless `profile` is already the project's current writer (`relay switch` moves ownership;
 /// this command only ever reattaches to it).
 fn run_resume(
     service: &ProfileService,
     paths: &RelayPaths,
     args: &ResumeArgs,
+    json_mode: bool,
 ) -> Result<CommandOutput, Error> {
     let project_dir = match &args.project_dir {
         Some(path) => path.clone(),
@@ -2657,16 +2687,36 @@ fn run_resume(
     let lease = LeaseStore::at_path(project_state_dir.join("lease.json"))
         .load()?
         .ok_or(Error::NoActiveWriterForProject)?;
-    if lease.owner_profile != args.profile {
-        return Err(Error::WriterLeaseOwnedByAnotherProfile(
-            lease.owner_profile.to_string(),
-        ));
+    if let Some(requested) = &args.profile {
+        if &lease.owner_profile != requested {
+            return Err(Error::WriterLeaseOwnedByAnotherProfile(
+                lease.owner_profile.to_string(),
+            ));
+        }
     }
+    // Bare `relay resume`: the resolved profile is whoever the lease says owns it right now,
+    // never the configured primary.
+    let resolved_profile = lease.owner_profile.clone();
     let registered = service.list()?;
     let profile = registered
         .iter()
-        .find(|profile| profile.name == args.profile)
-        .ok_or_else(|| Error::ProfileNotFound(args.profile.to_string()))?;
+        .find(|profile| profile.name == resolved_profile)
+        .ok_or_else(|| Error::ProfileNotFound(resolved_profile.to_string()))?;
+
+    if !json_mode {
+        let provider_label = match profile.provider {
+            ProviderKind::Codex => "Codex",
+            ProviderKind::Claude | ProviderKind::Fake => "Claude",
+        };
+        println!(
+            "Agent Relay\nProject: {}\nProfile: {}\nResuming managed {provider_label} session...",
+            project_display_name(&canonical_project),
+            resolved_profile
+        );
+        use std::io::Write as _;
+        let _ = std::io::stdout().flush();
+    }
+
     match profile.provider {
         ProviderKind::Codex => exec_codex_resume(
             args.codex_executable.as_deref(),
@@ -3070,12 +3120,21 @@ fn exec_claude_attach(
     std::process::exit(status.code().unwrap_or(1));
 }
 
-/// M4.2/M4.3/M4.4/M4.5: `relay claude` — the normal daily entry point. Resolves project/profile/
-/// fallback from preferences (or explicit overrides), reuses an already-active writer if one
-/// exists for this project, otherwise launches a fresh one through the unchanged `perform_launch`
-/// (M2B.5) machinery, auto-writes Herdr pane/workspace metadata when running inside a Herdr pane,
-/// then hands the user a live interactive terminal via `claude attach` (M4.4) — never printing a
-/// session UUID for the user to copy anywhere.
+/// M4.2/M4.3/M4.4/M4.5, revised post-M6: `relay claude` — the normal daily entry point for
+/// *starting* a new Relay-managed conversation. `relay claude = claude + Relay supervision`: it
+/// always launches a fresh session under the configured primary profile via `perform_launch`
+/// (M2B.5), auto-writes Herdr pane/workspace metadata when running inside a Herdr pane, then hands
+/// the user a live interactive terminal via `claude attach` (M4.4) — never printing a session UUID
+/// for the user to copy anywhere.
+///
+/// It never silently reattaches to an already-active session for this project — that changed the
+/// product contract (M4 originally chose silent reattach so a daily `cd && relay claude` worked
+/// regardless of state; the UX cost was that "start fresh" and "resume" were indistinguishable to
+/// the user). A live existing session now fails closed with `Error::ManagedSessionAlreadyActive`,
+/// pointing at `relay resume` (continue it) or `relay claude --new` (the explicit escape hatch:
+/// safely stop it via the same stop-and-verify machinery `relay switch`/recovery use, confirm it
+/// is gone, then start fresh — see the `--new` handling below). A *stale* lease (owner process
+/// confirmed dead) never blocks anything; `perform_launch` already recovers that case on its own.
 fn run_claude(
     service: &ProfileService,
     paths: &RelayPaths,
@@ -3176,23 +3235,63 @@ fn run_claude(
         None => false,
     };
 
-    let (lease, is_new_session) = if still_active_existing {
-        (
-            existing_lease.expect("still_active_existing implies Some"),
-            false,
-        )
-    } else {
-        let message = resolve_initial_message(&args.message)?;
-        let lease = perform_launch(
-            service,
-            paths,
-            &primary,
-            &canonical_project,
-            &message,
-            args.claude_executable.as_deref(),
-        )?;
-        (lease, true)
-    };
+    // Product contract (post-M4): `relay claude` ALWAYS starts a new Relay-managed conversation —
+    // it never silently reattaches to a live one (that's `relay resume`'s job now). A genuinely
+    // live existing session blocks a plain `relay claude` outright; `--new` is the explicit,
+    // opt-in escape hatch that safely stops it first. A *stale* lease (owner process confirmed
+    // dead) never blocks anything, with or without `--new` — `perform_launch` below already
+    // handles that case by overwriting it once its own liveness recheck agrees.
+    if still_active_existing {
+        let existing = existing_lease
+            .as_ref()
+            .expect("still_active_existing implies Some");
+        if args.new {
+            // The explicit escape hatch: authoritatively stop the *current owner's* writer (which
+            // may not be `primary` — a prior handoff can leave a fallback profile holding it) via
+            // the same stop-and-verify machinery `relay switch`/recovery already use, and never
+            // return `Ok` until quiescence is confirmed. A failure here propagates and stops
+            // right here — no launch is attempted, so a failed stop can never leave two writers.
+            let owner_profile = registered
+                .iter()
+                .find(|profile| profile.name == existing.owner_profile)
+                .ok_or_else(|| Error::ProfileNotFound(existing.owner_profile.to_string()))?;
+            let owner_ports = providers::ports_for(owner_profile.provider, &executables);
+            owner_ports.stopper.stop_and_verify(
+                &owner_profile.config_dir,
+                &canonical_project,
+                &existing.session_id,
+                Some(&existing.owner_process),
+            )?;
+        } else {
+            return Err(Error::ManagedSessionAlreadyActive(
+                existing.owner_profile.to_string(),
+            ));
+        }
+    }
+
+    if !json_mode {
+        println!(
+            "Agent Relay\nProject: {}\nProfile: {}\nStarting new managed Claude session...",
+            project_display_name(&canonical_project),
+            primary
+        );
+        use std::io::Write as _;
+        let _ = std::io::stdout().flush();
+    }
+
+    // By this point either there was never a live existing writer, or `--new` just safely
+    // stopped it — `perform_launch`'s own liveness recheck (inside its orchestration lock) is the
+    // final authority and fails closed if anything raced in the meantime, so this can never
+    // create a second writer.
+    let message = resolve_initial_message(&args.message)?;
+    let lease = perform_launch(
+        service,
+        paths,
+        &primary,
+        &canonical_project,
+        &message,
+        args.claude_executable.as_deref(),
+    )?;
 
     // M4.3/M4.5: automatic Herdr metadata, only when actually running inside a Herdr pane.
     let herdr_env = std::env::var_os("HERDR_ENV").as_deref() == Some(std::ffi::OsStr::new("1"));
@@ -3223,13 +3322,8 @@ fn run_claude(
 
     if args.no_attach {
         let human = format!(
-            "Profile: {}\n{}\nHerdr metadata: {}\n\nAttach with:\n    claude attach {}",
+            "Profile: {}\nNew session started.\nHerdr metadata: {}\n\nAttach with:\n    relay resume",
             primary,
-            if is_new_session {
-                "New session started."
-            } else {
-                "Attached to existing session."
-            },
             if herdr_bound {
                 "written"
             } else if herdr_env {
@@ -3237,7 +3331,6 @@ fn run_claude(
             } else {
                 "not connected"
             },
-            lease.provider_handle.clone().unwrap_or_default(),
         );
         return success(
             "claude",
@@ -3248,7 +3341,10 @@ fn run_claude(
                 "session_id": lease.session_id,
                 "background_job": lease.provider_handle,
                 "herdr_bound": herdr_bound,
-                "new_session": is_new_session,
+                // Always true: `relay claude` never silently reattaches to an existing session
+                // any more (see `Error::ManagedSessionAlreadyActive`/`--new`) — kept as a stable
+                // field for existing JSON consumers rather than removed.
+                "new_session": true,
             }),
         );
     }

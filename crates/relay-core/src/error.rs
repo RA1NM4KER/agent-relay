@@ -96,6 +96,10 @@ pub enum Error {
     #[error("a writer is already active for this project, owned by: {0}")]
     WriterAlreadyActive(String),
     #[error(
+        "A Relay-managed session is already active for this project.\n\nCurrent profile: {0}\n\nRun:\n  relay resume\nto continue it.\n\nOr:\n  relay claude --new\nto stop the existing managed session and start a fresh one."
+    )]
+    ManagedSessionAlreadyActive(String),
+    #[error(
         "a prior handoff transaction for this project requires explicit recovery before a new one can start: {0}"
     )]
     PendingRecoveryRequired(String),
@@ -187,6 +191,7 @@ impl Error {
             Self::TargetVerificationMismatch => "target_verification_mismatch",
             Self::UntrackedWriterDetected(_) => "untracked_writer_detected",
             Self::WriterAlreadyActive(_) => "writer_already_active",
+            Self::ManagedSessionAlreadyActive(_) => "managed_session_active",
             Self::PendingRecoveryRequired(_) => "pending_recovery_required",
             Self::StopNotVerified(_) => "stop_not_verified",
             Self::ConflictRequiresResolution(_) => "conflict_requires_resolution",

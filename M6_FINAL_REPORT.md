@@ -83,15 +83,14 @@ Two new tests in `crates/relay-cli/tests/m4.rs`:
   launch-then-attach (`relay claude`, no `--no-attach`) proves the fake `claude`'s logged `attach`
   invocation received `CLAUDE_CONFIG_DIR` equal to the profile's own registered config dir, not
   nothing.
-- `claude_attach_after_a_handoff_uses_the_new_owners_config_dir_not_the_primarys` — sets primary =
-  `alice`, fallback = `bob`, and makes `bob` (not the primary) the project's writer lease owner —
-  the exact on-disk shape a completed Claude A → Claude B handoff leaves behind (`run_claude`'s
-  existing-lease branch reads `lease.json` identically regardless of how it reached that state, so
-  constructing it directly via `relay launch --profile bob` exercises the same code path a real
-  `relay switch` would leave behind, without needing a full session-transfer transcript fixture).
-  A plain `relay claude` (no `--profile` override) is then proven to (a) reuse the active lease
-  rather than relaunch under the primary, and (b) attach under `bob`'s `CLAUDE_CONFIG_DIR`, never
-  `alice`'s.
+- `resume_after_a_handoff_uses_the_new_owners_config_dir_not_the_primarys` (renamed from
+  `claude_attach_after_a_handoff_uses_the_new_owners_config_dir_not_the_primarys` by the UX-contract
+  change in the next section, which retired `relay claude`'s silent-reattach behavior this test
+  originally exercised — its core assertion, resolving the lease owner rather than the primary, now
+  runs against `relay resume` instead) — sets primary = `alice`, fallback = `bob`, and makes `bob`
+  (not the primary) the project's writer lease owner: the exact on-disk shape a completed Claude A
+  → Claude B handoff leaves behind. A bare `relay resume` (no profile argument) is then proven to
+  attach under `bob`'s `CLAUDE_CONFIG_DIR`, never `alice`'s.
 
 **LIVE VERIFIED**, both directions: both tests were run against a temporary revert of the fix
 (`git stash` on `main.rs` alone) and confirmed to fail with the exact real-world symptom
@@ -110,3 +109,167 @@ correctness of the eight M6 feature commits listed above, which were built and t
 sessions — their own test coverage (`crates/relay-cli/tests/m6.rs`, unit tests in `relay-core` and
 `relay-provider-codex`) is unchanged by this fix and remains green as part of the same
 `cargo test --workspace` run.
+
+## UX contract revision: `relay claude` no longer silently reattaches
+
+Requested directly (not dogfood-found): the pre-existing `relay claude` contract — "reuse an
+already-active writer if one exists for this project, otherwise launch a fresh one" — was flagged
+as technically safe (`perform_launch` never created two writers) but unintuitive: running `relay
+claude` twice could either start a new conversation or silently resume an old one, and the user had
+no way to tell which was about to happen from the command alone.
+
+### The mental model, before and after
+
+**Before (M4's original design):** `relay claude` was the single daily entry point for both
+starting and continuing — `cd` into a project and run it, and it did whichever of the two was
+correct given the project's current state. This was a deliberate M4 choice (see
+`M4_FINAL_REPORT.md` §6 / `run_claude`'s pre-existing doc comment): the goal was a single command
+that "just works" regardless of state, so a user never had to think about whether a session already
+existed.
+
+**After (this change):** starting and continuing are two different, explicit actions:
+
+```
+relay claude          -> starts a NEW Relay-managed Claude conversation
+relay resume          -> continues the EXISTING Relay-managed conversation for this project
+relay claude --new    -> explicitly replaces the existing one with a fresh one
+```
+
+`relay claude` never silently creates a second writer and never silently reattaches — if a
+Relay-managed session is already active for the project, it fails closed with a message pointing
+at the other two commands. This is the same "never trigger a destructive or ambiguous transition
+from inferred state alone" principle the M2B.75 stop-and-verify machinery already applies to
+process liveness, now applied to the *command's own meaning*.
+
+### Distinguishing the four related concepts
+
+This change is about how a managed session **starts** and how you **continue** it — it does not
+touch handoff mechanics at all:
+
+- **STARTING a new managed conversation** (`relay claude`, `relay claude --new`): a brand-new
+  Claude session under the configured primary profile, tracked by Relay from its first message.
+  Always what "start" means now — never "maybe resume."
+- **RESUMING an existing managed conversation** (`relay resume`): reattaching interactively to the
+  session/thread the project's writer lease already records, under that lease's *actual current
+  owner* profile — resolved automatically, never assumed to be the primary. No new session is
+  created; nothing is stopped.
+- **SWITCHING/handoff of the current conversation** (`relay switch <profile>`): moving the
+  *current* writer's conversation to a different profile/provider, with continuity (session
+  transfer or state-continuation bundle, per `ContinuityType`) — unrelated to, and untouched by,
+  this change. `relay switch` still refuses when the target is already the current writer
+  (`switching_to_the_current_writer_fails_closed`, unchanged) and still requires the *current*
+  writer to actually be the one making the request, exactly as before.
+- **Automatic provider/profile fallback after exhaustion** (`relay watch run`, Herdr's automatic
+  handoff event): entirely separate code (`WatchCoordinator`, `automation` module) that never calls
+  `run_claude`/`perform_launch`/`run_resume` at all — it drives `HandoffCoordinator` directly. This
+  change touches none of it; continuity semantics (Claude A → Claude B → Codex → ... per configured
+  fallback order) are exactly as they were.
+
+### Why M4 chose auto-reattach, and why the smallest change here is a UX layer, not new machinery
+
+Investigated before writing any code: M4's `perform_launch` (shared by `relay launch` and `relay
+claude`) already refuses to launch over a *confirmed-live* existing writer
+(`Error::WriterAlreadyActive`) — the safety property this task requires was never missing. The gap
+was purely in `run_claude`'s own wrapper around it: on a confirmed-live existing lease, `run_claude`
+chose to treat that as success (reuse) rather than surfacing it to the user as a choice. The fix is
+therefore a UX-layer change only:
+
+- The existing-lease liveness check (`confirm_not_active`, unchanged) still runs first.
+- If live and `--new` was **not** passed: return the new `Error::ManagedSessionAlreadyActive`
+  (relay-core, carries the full multi-line guidance message) instead of proceeding — no side
+  effects, no lease touched, no call to `perform_launch`.
+- If live and `--new` **was** passed: resolve the lease owner's *own* provider ports
+  (`providers::ports_for`, the same provider-neutral dispatch `relay switch` already uses — Claude
+  or Codex, whichever the owner actually is) and call `SessionStopper::stop_and_verify` on it — the
+  exact authoritative stop-and-verify primitive the M2B.75 handoff/recovery machinery already
+  proved (issues the provider's real stop, polls for multiple *consecutive* quiescent readings,
+  never trusts a single observation). Its `Result` is propagated with `?`: a failed/unverifiable
+  stop aborts right there, before any launch is attempted.
+- Either way, execution then falls through to the **same, unmodified** `perform_launch` call every
+  other path already used — which re-checks liveness itself, under its own orchestration lock, as
+  the final authority. This is the second, independent safety net: even if something raced between
+  the stop and the launch, `perform_launch` refuses rather than overwriting a live lease. No new
+  lifecycle, no parallel state machine, no lease file deleted directly anywhere in this change.
+- `relay resume`'s only change is that its profile argument became optional
+  (`Option<ProfileName>`): when omitted, the resolved profile is `lease.owner_profile` — read from
+  the same `LeaseStore` every other command already uses, so it inherits the M6 dogfood fix
+  (commit `142668f`) automatically rather than needing it re-implemented. The explicit
+  `relay resume <profile>` form is untouched (still refuses unless that exact profile is the
+  current writer).
+
+### Preserving the M6 dogfood invariant (commit `142668f`)
+
+Explicit requirement: any resume/attach path must resolve `CLAUDE_CONFIG_DIR` from the *actual*
+lease owner, never blindly from the configured primary, and this must keep working after a
+Claude-profile-to-Claude-profile handoff (e.g. `erika` configured primary, `megan` owns the lease
+after a handoff). This was not just preserved but exercised directly:
+`resume_after_a_handoff_uses_the_new_owners_config_dir_not_the_primarys` sets primary = `alice`,
+fallback = `bob`, makes `bob` the writer lease owner (the shape a completed handoff leaves behind),
+and proves a bare `relay resume` execs `claude --resume` under `bob`'s `CLAUDE_CONFIG_DIR`, never
+`alice`'s — the exact regression class the dogfood fix closed, now proven for the resume path too.
+
+### Tests (all in `crates/relay-cli/tests/m4.rs`, 27/27 passing)
+
+Two pre-existing tests were retired because their entire premise was the silent-reattach behavior
+this change removes, and rewritten to prove the *new* contract instead:
+
+- `claude_entrypoint_reuses_an_active_lease_without_relaunching` →
+  **`claude_refuses_when_a_live_managed_session_already_exists`**: a second `relay claude` against
+  a live session now fails closed (`managed_session_active`), names the owning profile, points at
+  both `relay resume` and `relay claude --new` in its own message, and launches no second writer.
+- `claude_attach_after_a_handoff_uses_the_new_owners_config_dir_not_the_primarys` →
+  **`resume_after_a_handoff_uses_the_new_owners_config_dir_not_the_primarys`** (described above).
+
+New tests added:
+
+- `resume_bare_attaches_to_the_active_managed_session` — `relay resume` with no profile argument
+  attaches to the project's active session (proven via the fake's logged `--resume <session-id>`
+  invocation).
+- `resume_with_no_active_session_says_so_clearly` — `relay resume` with nothing running fails with
+  the existing, already-descriptive `no_active_writer_for_project` error rather than a generic one.
+- `claude_new_stops_the_existing_writer_and_starts_a_fresh_one` — the core `--new` path: proves,
+  from the raw invocation log's exact ordering (not internal state), that exactly one `stop` happens
+  strictly between exactly two `--bg` launches — never a window with two writers.
+- `claude_new_behaves_like_claude_when_no_existing_session` — `--new` with nothing to replace
+  behaves exactly like a plain `relay claude`, and critically never issues a stop it doesn't need.
+- `claude_new_fails_closed_when_stop_cannot_be_verified_and_never_launches_a_second_writer` — a
+  stop that can never be verified quiescent (`StopNotVerified`) aborts `--new` before any relaunch
+  is attempted, and leaves the original lease byte-for-byte as it was.
+- `claude_recovers_a_stale_lease_without_the_new_flag` — a lease whose recorded owner process is
+  genuinely gone (a crash, not a stop) is recovered automatically by a *plain* `relay claude`, no
+  `--new` required, and no stop is issued for a process that was never actually there to stop.
+
+**Test-fixture note, since it was a real source of friction worth recording:** several of these
+tests needed to prove a session had gone from "live" to "confirmed gone," which `relay`'s own
+liveness code (`ClaudeSourceLiveness::check`) deliberately resolves via a fail-closed pid+start-time
+fingerprint comparison whenever a session drops out of `agents --json`'s listing — by design, an
+*indeterminate* identity (e.g. a synthetic/fake pid that was never a real process) is treated as
+still active, never as evidence of absence. A fake pid can therefore prove "still active" (the
+common case, already covered) but can never prove "confirmed gone." The tests that need a genuine
+"gone" signal (`claude_new_stops_the_existing_writer_and_starts_a_fresh_one`,
+`claude_recovers_a_stale_lease_without_the_new_flag`) spawn a real, short-lived OS process and use
+its real pid, killing/reaping it at the right moment (tied to the actual `stop` event via a marker
+file for the first, or explicitly before the second call for the crash-recovery case) rather than
+guessing at wall-clock timing — this machine's own per-`relay`-invocation subprocess overhead
+(~1–1.5s observed) made a fixed `sleep N` unreliable. Also fixed along the way: the shared
+`FakeClaude` test fixture's `agents --json` output included a `"cwd"` field derived from `$PWD`,
+which is meaningless (`query_active_sessions` never sets the spawned command's working directory,
+so it reflected `relay`'s own cwd, never the project under test) and silently defeated every
+cwd-scoped filter in the real liveness/stop code; omitting it (Relay's own code already treats an
+absent `cwd` as "matches any project") was the correct fix, not a fixture-only workaround.
+
+**LIVE VERIFIED**: full 27-test `crates/relay-cli/tests/m4.rs` suite passing.
+
+### fmt/clippy/tests (this change)
+
+`cargo fmt --all -- --check`: clean. `cargo clippy --workspace --all-targets -- -D warnings`:
+clean. `cargo test --workspace`: **360/360, 0 failed** (354 from the prior fix, +6 net new: this
+change adds 6 wholly new test functions and renames/repurposes 2 existing ones — see the list
+above — rather than adding 8).
+
+### Scope note (this change)
+
+Out of scope, deliberately: no change to `relay switch`, `relay watch run`, the handoff coordinator,
+Herdr integration, or any provider adapter — confirmed both by code inspection (none of those call
+`run_claude`/`run_resume`/`perform_launch`) and by the full workspace test suite remaining green,
+including `crates/relay-cli/tests/m6.rs`'s switch/resume/mixed-provider tests, unchanged.
