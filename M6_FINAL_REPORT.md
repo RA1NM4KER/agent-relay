@@ -382,3 +382,127 @@ on top of the 29/29 `m4.rs` fake-provider coverage above.
 clean. `cargo test --workspace`: **362/362, 0 failed** (360 before this fix, +2 net new: 2 wholly
 new test functions added, plus 2 existing ones rewritten in place — not counted as new — whose
 fixtures happened to represent exactly the buggy case).
+
+## Dogfood-found bug #3: real Claude `--bg` output is ANSI-colored, breaking every real `--bg` launch
+
+Found live, mid-way through setting up the isolated, disposable-project validation this section
+requested for itself: attempting a genuine `relay claude` launch under `erika`, scoped to a brand
+new disposable workspace, failed:
+
+```json
+{"ok": false, "error": {"code": "malformed_provider_output", "message": "provider output was malformed"}}
+```
+
+Manually reproducing the underlying `claude --bg` call showed it succeeded and created a real
+background job — Relay had simply lost track of it. This is more severe than the two findings
+above: it is not a UX nicety, it is `relay claude`'s fresh-launch path failing outright on this
+real Claude Code install, invisibly, because no fake-provider fixture in the test suite has ever
+emitted what real Claude actually prints.
+
+### Root cause
+
+`parse_background_job_id` (`crates/relay-provider-claude/src/handoff_adapters.rs`) expects the
+line `backgrounded · <id>` with nothing but the bare hex id after the bullet, then validates every
+byte is an ASCII hex digit — a deliberate, security-motivated strictness (`rejects_a_suspicious_id_
+that_is_not_plain_hex`, pre-existing) so this can never become a path/argument-injection vector.
+Real Claude Code 2.1.278 wraps the printed id in an ANSI SGR color escape sequence **even when
+stdout is piped to a non-terminal**, observed byte-for-byte:
+
+```
+backgrounded · \x1b[36m771cb101\x1b[39m
+```
+
+The un-stripped escape bytes (`\x1b`, `[`, `3`, `6`, `m`, …) are not hex digits, so validation
+failed on every single real invocation, unconditionally — while the background job it was trying
+to describe had already been created successfully underneath. Confirmed via an isolated,
+instrumented timing probe (a real `--bg` call plus a tight `agents --json` polling loop) that the
+job appears in the listing, pid populated, on the very first poll after `--bg` returns — this was
+never a timing race, purely the parser rejecting well-formed real output. Every fake-provider
+`FakeClaude` fixture across `m4.rs`/`m6.rs` prints plain, uncolored text for `--bg`, so this path
+had zero real-Claude coverage anywhere in the suite until this live session hit it directly.
+
+### Fix
+
+A new `strip_ansi_sgr` helper removes only a well-formed ANSI SGR sequence (`ESC '[' <digits/`;`>*
+'m'`) from the extracted id before the existing hex-digit check runs. Anything that isn't a
+complete, well-formed sequence — an incomplete escape, an unexpected terminator, a stray `ESC` — is
+left byte-for-byte as literal text, so the check's original injection-defense property is fully
+preserved: a malicious payload wrapped in real-looking color codes (`rejects_a_suspicious_id_even_
+when_wrapped_in_ansi_color_codes`, new) is still rejected, because only the color wrapping is ever
+removed, never the payload itself.
+
+Two clean-up notes from reproducing this live: each failed real attempt still creates a genuine,
+Relay-untracked background Claude session (the `--bg` call itself doesn't know or care whether its
+own output gets parsed successfully afterward) — every one encountered while diagnosing this was
+found via `claude agents --json` and stopped with the real `claude stop <id>`, under `erika`'s
+isolated config, never left running.
+
+### Tests
+
+`crates/relay-provider-claude/src/handoff_adapters.rs`, `parse_background_job_id`'s unit test
+group (110/110 passing for the crate; 4 new here):
+
+- `parses_a_backgrounded_line_with_real_ansi_color_codes` — the exact live byte sequence above.
+- `rejects_a_suspicious_id_even_when_wrapped_in_ansi_color_codes` — the injection defense above,
+  re-verified with the fix in place.
+- `strip_ansi_sgr_removes_only_well_formed_sequences` — direct unit coverage of the helper,
+  including that an incomplete/malformed escape is left untouched rather than silently dropped.
+
+Confirmed Codex's own output parsing (`relay-provider-codex/src/handoff_adapters.rs`) is not
+similarly exposed: every Codex text path Relay parses is either `--json`/NDJSON structured output
+(`codex exec --json`, `codex doctor`) or `ps` output — never colorized human text like Claude's
+`--bg` line — so no equivalent fix was needed there.
+
+### Live validation: isolated Codex + Claude → Codex `STATE_CONTINUATION`, end to end, for real
+
+With the ANSI fix in place, the disposable-workspace validation this whole finding grew out of was
+completed in full, against a dedicated throwaway workspace (`~/agent-relay-m6-validation`, its own
+git repo, nothing SchoolScape-related), using `erika` (explicitly authorized by the user for this
+one disposable workspace only) and a freshly-registered, isolated Codex profile
+(`codex-m6-validation`, its own `CODEX_HOME` under Relay's managed profile root — never the user's
+default `~/.codex`/personal ChatGPT login, which was never touched). The live dogfooding session
+(`854a2a57-1c41-47d2-b20b-85fa0118fcdd`, `erika`, project `agent-relay`) was re-verified byte-for-
+byte unchanged (`lease_owner: erika`, same `current_transaction`, `session_state: active`, still
+`busy`/`working` in a real `claude agents --json` listing) before, during, and after every step
+below — it was never the target of any command in this validation.
+
+1. **Isolated Codex live validation.** `relay login codex-m6-validation --provider codex` (real,
+   interactive, run by the user) registered a new profile with its own isolated `CODEX_HOME`.
+   `relay profile status codex-m6-validation` then confirmed, for real: `authentication:
+   "authenticated"`, a real identity (`codex doctor --json: checks.auth.credentials` → `AVAILABLE`),
+   and a `config_dir` correctly isolated under Relay's managed profile root, distinct from the
+   default `~/.codex`.
+2. **`relay claude --profile erika --project-dir ~/agent-relay-m6-validation` (real, live).**
+   Succeeded post-fix: `new_session: true`, a real background job, real `agents --json` listing —
+   this is the same ANSI-parsing path fixed above, now proven working end to end for real, not just
+   in the fake-provider suite.
+3. **`relay switch codex-m6-validation --project-dir ~/agent-relay-m6-validation --no-attach`
+   (real, live) — the `STATE_CONTINUATION` handoff.** Completed: `state: COMPLETE`,
+   `continuity_type: STATE_CONTINUATION`. The journal's own `notes` show every real step in order:
+   captured a real git checkpoint (branch `main`, clean, `head` recorded) → detected and
+   authoritatively stopped the source's real background job (`claude stop`, quiescence-verified,
+   confirmed via `agents --json` no longer listing it afterward) → context bundle captured and
+   hashed (`sha256`, 740 bytes) → real Codex target launched (`codex exec`, real pid + start-time
+   fingerprint recorded) → target verified (`started_successfully: true`, a real new Codex thread
+   id) → ownership moved to `codex-m6-validation` in the lease.
+4. **Post-handoff verification.** `relay status --project ~/agent-relay-m6-validation` shows
+   `lease_owner: "codex-m6-validation"`. The verified Codex thread id is backed by a real,
+   persisted rollout file on disk under the isolated `CODEX_HOME`
+   (`sessions/2026/09/20/rollout-…-<thread-id>.jsonl`) — not just a successful API response.
+
+Interactive `relay resume` against the resulting Codex thread (`NATIVE_RESUME`,
+`codex resume <thread-id>`) was deliberately not exercised live in this pass — attaching would
+have required a real interactive terminal this session doesn't have, and the mechanism itself is
+already covered live-shaped by `m6.rs`'s `resume_execs_codex_resume_under_the_profiles_own_codex_
+home`. Everything upstream of that exec (thread creation, verification, lease ownership) is now
+LIVE VERIFIED per steps 1–4.
+
+The disposable workspace (`~/agent-relay-m6-validation`) and the `codex-m6-validation` profile were
+left in place after validation, for the user to inspect or remove at their own discretion — nothing
+was deleted or torn down automatically.
+
+### fmt/clippy/tests (this fix, including live validation)
+
+`cargo fmt --all -- --check`: clean. `cargo clippy --workspace --all-targets -- -D warnings`:
+clean. `cargo test --workspace`: **365/365, 0 failed** (362 before this fix, +3 net new: the 3
+`handoff_adapters` unit tests in `relay-provider-claude` listed above).

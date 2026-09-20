@@ -657,11 +657,23 @@ pub fn launch_background(
 /// Parses Claude's own `backgrounded · <id>` line. Strict: only ASCII lowercase-hex ids of a
 /// bounded length are accepted, so this can never become a path/argument-injection vector even
 /// though it is Relay's own child's output.
+///
+/// Dogfood-found live (M6, third finding): real Claude Code colors the printed id with an ANSI
+/// SGR escape sequence even when stdout is piped rather than a real terminal — observed as
+/// `backgrounded · \x1b[36m771cb101\x1b[39m`. The un-stripped bytes never pass the hex-digit
+/// check below, so every real `--bg` launch failed here with `MalformedProviderOutput` despite
+/// the background job having been created successfully underneath — an orphaned, Relay-untracked
+/// real session on every attempt. `strip_ansi_sgr` removes only a well-formed color sequence
+/// from the extracted id before validation; anything else, including a malformed or unexpected
+/// escape, is left in place for the unchanged strict check to reject exactly as it always has
+/// (see `rejects_a_suspicious_id_that_is_not_plain_hex` below).
 fn parse_background_job_id(text: &str) -> Result<String> {
     for line in text.lines() {
         let trimmed = line.trim();
         if let Some(id) = trimmed.strip_prefix("backgrounded").map(str::trim) {
             let id = id.trim_start_matches('·').trim();
+            let id = strip_ansi_sgr(id);
+            let id = id.trim();
             let valid =
                 !id.is_empty() && id.len() <= 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit());
             if valid {
@@ -670,6 +682,42 @@ fn parse_background_job_id(text: &str) -> Result<String> {
         }
     }
     Err(Error::MalformedProviderOutput)
+}
+
+/// Removes only well-formed ANSI SGR ("color") escape sequences (`ESC '[' <digits/`;`>* 'm'`)
+/// from `input`. Anything that isn't a complete, well-formed sequence — an incomplete escape, an
+/// unexpected terminator, a stray `ESC` — is left byte-for-byte as literal text rather than
+/// silently dropped, so a caller validating the result afterward (e.g. the strict hex-digit check
+/// in [`parse_background_job_id`]) still rejects anything that isn't genuinely just color
+/// formatting around otherwise-valid content.
+fn strip_ansi_sgr(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\u{1b}' || chars.peek() != Some(&'[') {
+            output.push(ch);
+            continue;
+        }
+        let mut consumed = String::from(ch);
+        consumed.push(chars.next().expect("peeked '['"));
+        let mut well_formed = false;
+        while let Some(&next) = chars.peek() {
+            if next.is_ascii_digit() || next == ';' {
+                consumed.push(next);
+                chars.next();
+            } else if next == 'm' {
+                chars.next();
+                well_formed = true;
+                break;
+            } else {
+                break;
+            }
+        }
+        if !well_formed {
+            output.push_str(&consumed);
+        }
+    }
+    output
 }
 
 fn parse_verification(stdout: &[u8]) -> Result<TargetVerification> {
@@ -695,7 +743,7 @@ fn parse_verification(stdout: &[u8]) -> Result<TargetVerification> {
 mod tests {
     use super::{
         REQUIRED_CONSECUTIVE_QUIET, matching_target_pids, parse_background_job_id,
-        parse_verification, quiescence_step, terminate_verified_process,
+        parse_verification, quiescence_step, strip_ansi_sgr, terminate_verified_process,
     };
     use relay_core::handoff::ProcessIdentity;
     use std::time::Duration;
@@ -841,6 +889,19 @@ mod tests {
         assert_eq!(parse_background_job_id(text).expect("parse"), "ce92abd4");
     }
 
+    /// M6 dogfood finding (live, third): real Claude Code colors the printed id with an ANSI SGR
+    /// escape sequence even when stdout is piped (not a real terminal) — the exact bytes observed
+    /// live: `backgrounded · \x1b[36m771cb101\x1b[39m`. Before the `strip_ansi_sgr` fix, this made
+    /// every real `--bg` launch fail here with `MalformedProviderOutput`, despite the real
+    /// background job having already been created underneath (an orphaned, Relay-untracked
+    /// session on every attempt) — never caught by the fake-provider test suite because
+    /// `FakeClaude`'s own `--bg` output is always plain, uncolored text.
+    #[test]
+    fn parses_a_backgrounded_line_with_real_ansi_color_codes() {
+        let text = "backgrounded · \u{1b}[36m771cb101\u{1b}[39m\n  claude agents             list sessions\n";
+        assert_eq!(parse_background_job_id(text).expect("parse"), "771cb101");
+    }
+
     #[test]
     fn rejects_output_without_a_backgrounded_line() {
         let error = parse_background_job_id("some unrelated output\n")
@@ -853,6 +914,29 @@ mod tests {
         let error = parse_background_job_id("backgrounded · ../../etc/passwd\n")
             .expect_err("must reject a non-hex id");
         assert_eq!(error.code(), "malformed_provider_output");
+    }
+
+    /// The ANSI-stripping fix must never weaken the injection defense above: a malicious payload
+    /// wrapped in real-looking color codes is still rejected, because `strip_ansi_sgr` only ever
+    /// removes a well-formed `ESC '[' digits/`;` 'm'` sequence — the payload itself is untouched
+    /// and still fails the strict hex-digit check.
+    #[test]
+    fn rejects_a_suspicious_id_even_when_wrapped_in_ansi_color_codes() {
+        let error =
+            parse_background_job_id("backgrounded · \u{1b}[36m../../etc/passwd\u{1b}[39m\n")
+                .expect_err("must reject a non-hex id even inside color codes");
+        assert_eq!(error.code(), "malformed_provider_output");
+    }
+
+    #[test]
+    fn strip_ansi_sgr_removes_only_well_formed_sequences() {
+        assert_eq!(strip_ansi_sgr("\u{1b}[36m771cb101\u{1b}[39m"), "771cb101");
+        assert_eq!(strip_ansi_sgr("plain text"), "plain text");
+        // An incomplete/malformed escape is left exactly as-is, never silently dropped.
+        assert_eq!(
+            strip_ansi_sgr("\u{1b}[not-a-color-code"),
+            "\u{1b}[not-a-color-code"
+        );
     }
 
     #[test]
