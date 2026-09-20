@@ -235,86 +235,36 @@
   .demo-dots { display: flex; gap: 6px; }
   .demo-dots span { width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
 
-  .scenes {
-    display: flex;
-    gap: 0;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg);
-  }
-  .scene-tab {
-    flex: 1;
-    appearance: none;
-    background: none;
-    border: 0;
-    border-right: 1px solid var(--border);
-    color: var(--muted);
-    font: 0.74rem/1.35 var(--mono);
-    text-align: left;
-    padding: 11px 16px;
-    cursor: pointer;
-  }
-  .scene-tab:last-child { border-right: 0; }
-  .scene-tab .n { color: var(--accent-2); margin-right: 8px; }
-  .scene-tab[aria-selected="true"] { color: var(--text); background: var(--surface-2); box-shadow: inset 0 -2px 0 var(--accent); }
-  .scene-tab[aria-selected="true"] .n { color: var(--accent); }
-  @media (max-width: 760px) {
-    .scenes { flex-direction: column; }
-    .scene-tab { border-right: 0; border-bottom: 1px solid var(--border); }
-    .scene-tab:last-child { border-bottom: 0; }
-  }
-
-  .hier-body {
-    display: grid;
-    grid-template-columns: 1fr 300px;
-    align-items: stretch;
-  }
-  @media (max-width: 860px) { .hier-body { grid-template-columns: 1fr; } }
-
-  .rail { padding: 22px 24px 20px; }
-  .rail-title {
+  .stack { position: relative; padding: 24px 24px 8px; }
+  .stack-title {
     font-family: var(--mono);
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--muted);
     margin-bottom: 12px;
-    display: flex;
-    justify-content: space-between;
   }
+  .stack-rows { position: relative; }
   .hrow {
-    position: relative;
     display: grid;
     grid-template-columns: 34px 1fr auto;
-    gap: 6px 14px;
+    gap: 8px 14px;
     align-items: center;
     padding: 14px 14px 14px 0;
     margin-bottom: 8px;
     border: 1px solid var(--border);
-    border-left: 3px solid var(--border);
     border-radius: 6px;
     background: var(--surface);
-    transition: border-color 300ms ease, background-color 300ms ease, opacity 300ms ease;
+    transition: border-color 300ms ease, background-color 300ms ease;
   }
-  .hrow .rank {
-    font-family: var(--mono);
-    font-size: 0.8rem;
-    color: var(--muted);
-    text-align: center;
-  }
+  .hrow .rank { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); text-align: center; }
   .hrow .who { display: flex; flex-direction: column; min-width: 0; }
   .hrow .nm { font-family: var(--mono); font-weight: 600; font-size: 0.95rem; }
   .hrow .pv { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
-  .hrow .verdict {
-    grid-column: 2 / 4;
-    font-family: var(--mono);
-    font-size: 0.72rem;
-    color: var(--muted);
-    min-height: 1.1em;
-    opacity: 0;
-    transition: opacity 250ms ease;
-  }
-  .hrow .verdict.show { opacity: 1; }
-  .hrow .verdict.pick { color: var(--accent); }
+  .hrow .use { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
+  .hrow .right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .hrow .meter { grid-column: 2 / 4; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .hrow .meter i { display: block; height: 100%; width: 0; background: var(--muted); transition: width 700ms ease, background-color 300ms ease; }
   .badge-state {
     font-family: var(--mono);
     font-size: 0.66rem;
@@ -326,95 +276,64 @@
     color: var(--muted);
     white-space: nowrap;
   }
-  .hrow.s-available .badge-state { color: var(--success); border-color: #3B5A3B; }
-  .hrow.s-exhausted .badge-state { color: var(--danger); border-color: #6B3535; }
+  .hrow.s-ready .badge-state { color: var(--success); border-color: #3B5A3B; }
+  .hrow.s-limit .badge-state { color: var(--danger); border-color: #6B3535; }
+  .hrow.s-limit .meter i { background: var(--danger); }
   .hrow.s-reset .badge-state { color: var(--accent); border-color: var(--accent-2); }
-  .hrow.s-writer { border-left-color: var(--accent); background: var(--surface-2); }
-  .hrow.s-writer .badge-state { background: var(--accent); border-color: var(--accent); color: #0D0F12; font-weight: 700; }
-  .hrow.s-writer.s-exhausted .badge-state { background: none; color: var(--danger); border-color: #6B3535; }
-  .hrow.scan { border-color: var(--accent-2); border-left-color: var(--accent); }
-  .hrow.dim { opacity: 0.5; }
-  .hrow .meter {
-    grid-column: 2 / 4;
-    height: 3px;
-    background: var(--border);
-    border-radius: 2px;
-    overflow: hidden;
+  .hrow.s-reset .meter i { background: var(--danger); }
+  .hrow.s-current { background: var(--surface-2); }
+  .hrow.s-current .badge-state { background: var(--accent); border-color: var(--accent); color: #0D0F12; font-weight: 700; }
+  .hrow.s-current .meter i { background: var(--accent); }
+  .hrow.s-current.s-limit .badge-state { background: none; color: var(--danger); border-color: #6B3535; }
+  .hrow.s-current.s-limit .meter i { background: var(--danger); }
+  .hrow.check { border-color: var(--accent-2); }
+  /* the single amber bar that marks the writer and slides to the next one */
+  .marker {
+    position: absolute;
+    left: 0;
+    width: 3px;
+    background: var(--accent);
+    border-radius: 3px 0 0 3px;
+    transition: top 600ms ease, height 600ms ease;
+    pointer-events: none;
   }
-  .hrow .meter i {
-    display: block;
-    height: 100%;
-    width: 0;
-    background: var(--muted);
-    transition: width 700ms ease, background-color 300ms ease;
-  }
-  .hrow.s-exhausted .meter i, .hrow.s-reset .meter i { background: var(--danger); }
-  .hrow.s-writer .meter i { background: var(--accent); }
-  .hrow.s-writer.s-exhausted .meter i { background: var(--danger); }
 
-  .relay-panel {
-    background: var(--surface-2);
-    border-left: 1px solid var(--border);
-    padding: 22px 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-  @media (max-width: 860px) { .relay-panel { border-left: 0; border-top: 1px solid var(--border); } }
-  .relay-panel .rp-label {
-    font-family: var(--mono);
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--accent);
-  }
-  .rp-note {
-    font-size: 0.86rem;
-    line-height: 1.45;
-    color: var(--text);
-    min-height: 3.9em;
-  }
-  .rp-log {
-    font-family: var(--mono);
-    font-size: 0.74rem;
-    color: var(--muted);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 92px;
-  }
-  .rp-log .line {
-    display: flex;
-    gap: 7px;
-    opacity: 0;
-    transform: translateY(3px);
-    transition: opacity 300ms ease, transform 300ms ease;
-  }
-  .rp-log .line.show { opacity: 1; transform: none; }
-  .rp-log .line.done { color: var(--success); }
-  .rp-log .mark { width: 1em; flex-shrink: 0; text-align: center; }
-
-  .continuity {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    border-top: 1px solid var(--border);
-    background: var(--bg);
-  }
-  @media (max-width: 860px) { .continuity { grid-template-columns: 1fr; } }
-  .cont {
-    padding: 14px 18px;
+  .phases { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--border); background: var(--bg); }
+  .phase {
+    padding: 12px 18px;
     border-right: 1px solid var(--border);
-    transition: background-color 300ms ease;
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--muted);
+    transition: color 300ms ease, background-color 300ms ease, box-shadow 300ms ease;
   }
-  .cont:last-child { border-right: 0; }
-  @media (max-width: 860px) { .cont { border-right: 0; border-bottom: 1px solid var(--border); } .cont:last-child { border-bottom: 0; } }
-  .cont .route { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
-  .cont .kind { font-family: var(--mono); font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; margin: 2px 0 4px; color: var(--muted); }
-  .cont .what { font-size: 0.78rem; line-height: 1.4; color: var(--muted); }
-  .cont.on { background: var(--surface-2); box-shadow: inset 0 2px 0 var(--accent); }
-  .cont.on .kind { color: var(--accent); }
-  .cont.on .what, .cont.on .route { color: var(--text); }
-  .demo-foot { padding: 12px 18px; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 0.72rem; color: var(--muted); background: var(--surface-2); }
+  .phase:last-child { border-right: 0; }
+  .phase .n { color: var(--accent-2); margin-right: 8px; }
+  .phase.on { color: var(--text); background: var(--surface-2); box-shadow: inset 0 2px 0 var(--accent); }
+  .phase.on .n { color: var(--accent); }
+  @media (max-width: 640px) {
+    .phases { grid-template-columns: 1fr; }
+    .phase { border-right: 0; border-bottom: 1px solid var(--border); }
+    .phase:last-child { border-bottom: 0; }
+  }
+  .result {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+    min-height: 3.2em;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    align-items: center;
+  }
+  .result .kind { color: var(--accent); font-weight: 600; letter-spacing: 0.04em; opacity: 0; transition: opacity 300ms ease; }
+  .result .kind.show { opacity: 1; }
+  .demo-notes { max-width: 640px; margin: 24px auto 0; text-align: center; }
+  .demo-notes .primary-note { color: var(--text); font-size: 0.95rem; }
+  .demo-notes .secondary-note { color: var(--muted); font-size: 0.82rem; margin-top: 10px; }
 
   /* ---------- Proof points ---------- */
   .proof-grid {
@@ -597,74 +516,50 @@
     <div class="wrap">
       <div class="section-head">
         <span class="eyebrow">Live handoff</span>
-        <h2>One priority order. One writer at a time.</h2>
-        <p>Profiles are ranked once. The current writer stays active until it blocks; then Relay re-checks the whole order and hands off to the first eligible profile.</p>
+        <h2>One writer. An ordered fallback list.</h2>
+        <p>When the current profile hits its limit, Relay checks the priority order and the next eligible profile takes over.</p>
       </div>
 
       <div class="demo" id="handoff-demo">
         <div class="demo-titlebar">
           <div class="demo-dots"><span></span><span></span><span></span></div>
-          <span class="name">relay watch auto</span>
+          <span class="name">priority order</span>
         </div>
-        <div class="scenes" role="tablist" aria-label="Handoff scenarios">
-          <button class="scene-tab" role="tab" type="button" data-scene="0"><span class="n">01</span>Erika exhausts</button>
-          <button class="scene-tab" role="tab" type="button" data-scene="1"><span class="n">02</span>Megan exhausts, Erika still reset-pending</button>
-          <button class="scene-tab" role="tab" type="button" data-scene="2"><span class="n">03</span>Megan exhausts, Erika has reset</button>
-        </div>
-        <div class="hier-body">
-          <div class="rail" id="rail">
-            <div class="rail-title"><span>Priority hierarchy</span><span>first eligible wins</span></div>
+        <div class="stack">
+          <div class="stack-title">Priority order</div>
+          <div class="stack-rows" id="stack-rows">
+            <div class="marker" id="marker"></div>
             <div class="hrow" data-row="0">
               <span class="rank">1</span>
-              <span class="who"><span class="nm">Erika</span><span class="pv">Claude</span></span>
-              <span class="badge-state"></span>
+              <span class="who"><span class="nm">Claude Primary</span><span class="pv">Claude</span></span>
+              <span class="right"><span class="badge-state"></span><span class="use"></span></span>
               <span class="meter"><i></i></span>
-              <span class="verdict"></span>
             </div>
             <div class="hrow" data-row="1">
               <span class="rank">2</span>
-              <span class="who"><span class="nm">Megan</span><span class="pv">Claude</span></span>
-              <span class="badge-state"></span>
+              <span class="who"><span class="nm">Claude Backup</span><span class="pv">Claude</span></span>
+              <span class="right"><span class="badge-state"></span><span class="use"></span></span>
               <span class="meter"><i></i></span>
-              <span class="verdict"></span>
             </div>
             <div class="hrow" data-row="2">
               <span class="rank">3</span>
-              <span class="who"><span class="nm">Codex</span><span class="pv">Codex</span></span>
-              <span class="badge-state"></span>
+              <span class="who"><span class="nm">Codex Backup</span><span class="pv">Codex</span></span>
+              <span class="right"><span class="badge-state"></span><span class="use"></span></span>
               <span class="meter"><i></i></span>
-              <span class="verdict"></span>
-            </div>
-          </div>
-          <div class="relay-panel" aria-live="polite">
-            <span class="rp-label">Agent Relay</span>
-            <p class="rp-note" id="rp-note"></p>
-            <div class="rp-log" id="rp-log">
-              <div class="line"><span class="mark"></span><span class="txt"></span></div>
-              <div class="line"><span class="mark"></span><span class="txt"></span></div>
-              <div class="line"><span class="mark"></span><span class="txt"></span></div>
-              <div class="line"><span class="mark"></span><span class="txt"></span></div>
             </div>
           </div>
         </div>
-        <div class="continuity" id="continuity">
-          <div class="cont" data-kind="session">
-            <div class="route">Claude → Claude</div>
-            <div class="kind">SESSION CONTINUATION</div>
-            <div class="what">The same Claude session, resumed on the next Claude profile.</div>
-          </div>
-          <div class="cont" data-kind="state">
-            <div class="route">Claude → Codex</div>
-            <div class="kind">STATE CONTINUATION</div>
-            <div class="what">A new Codex session seeded from a bounded state bundle. Not the same native conversation.</div>
-          </div>
-          <div class="cont" data-kind="native">
-            <div class="route">Codex → same Codex profile</div>
-            <div class="kind">NATIVE RESUME</div>
-            <div class="what">Codex's own resume, on the profile that already owns the thread.</div>
-          </div>
+        <div class="phases" id="phases" aria-live="polite">
+          <div class="phase"><span class="n">1</span>Limit reached</div>
+          <div class="phase"><span class="n">2</span>Relay checks priority</div>
+          <div class="phase"><span class="n">3</span>Next eligible takes over</div>
         </div>
-        <div class="demo-foot">Codex is an automatic target today, not an automatic trigger: reliable Codex usage detection is not supported yet.</div>
+        <div class="result"><span id="result-text">Claude Primary is writing.</span><span class="kind" id="result-kind">SESSION CONTINUATION · Claude → Claude</span></div>
+      </div>
+
+      <div class="demo-notes">
+        <p class="primary-note">If the current writer later blocks, Relay checks the priority order again. Reset profiles become eligible again, but Relay never interrupts a working session just to move back.</p>
+        <p class="secondary-note">Claude → Codex uses state continuation rather than the same native conversation.</p>
       </div>
     </div>
   </section>
@@ -837,160 +732,85 @@ relay claude" aria-label="Copy all three commands">
   // ---------- Handoff demo ----------
   var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  var rows = Array.prototype.slice.call(document.querySelectorAll("#rail .hrow"));
-  var logLines = Array.prototype.slice.call(document.querySelectorAll("#rp-log .line"));
-  var noteEl = document.getElementById("rp-note");
-  var conts = Array.prototype.slice.call(document.querySelectorAll("#continuity .cont"));
-  var tabs = Array.prototype.slice.call(document.querySelectorAll(".scene-tab"));
-  var NAMES = ["Erika", "Megan", "Codex"];
+  var stackEl = document.getElementById("stack-rows");
+  var rows = Array.prototype.slice.call(stackEl.querySelectorAll(".hrow"));
+  var marker = document.getElementById("marker");
+  var phases = Array.prototype.slice.call(document.querySelectorAll("#phases .phase"));
+  var resultText = document.getElementById("result-text");
+  var resultKind = document.getElementById("result-kind");
+  var LABEL = { current: "Current", ready: "Ready", limit: "Limit reached", reset: "Reset pending" };
 
-  // state: writer | available | exhausted | reset ; `use` is the usage meter width.
-  var SCENES = [
-    {
-      note: "Erika is the current writer. Everyone below her is on standby.",
-      start: [["writer", 78], ["available", 12], ["available", 0]],
-      from: 0, to: 1, kind: "session",
-      verdicts: ["current writer · exhausted", "first eligible", "not needed"],
-      after: [["reset", 100], ["writer", 12], ["available", 0]],
-      done: "Erika is reset-pending. Megan is the writer."
-    },
-    {
-      note: "Erika is still reset-pending. Megan is the current writer.",
-      start: [["reset", 100], ["writer", 81], ["available", 0]],
-      from: 1, to: 2, kind: "state",
-      verdicts: ["reset pending · skip", "current writer · exhausted", "first eligible"],
-      after: [["reset", 100], ["reset", 100], ["writer", 0]],
-      done: "Codex is the writer, continuing from a state bundle."
-    },
-    {
-      note: "Erika has reset, but Megan stays the writer. No eager fail-back.",
-      start: [["available", 0], ["writer", 84], ["available", 0]],
-      from: 1, to: 0, kind: "session",
-      verdicts: ["reset passed · first eligible", "current writer · exhausted", "not needed"],
-      after: [["writer", 0], ["reset", 100], ["available", 0]],
-      done: "Erika is the writer again, and only because Megan blocked."
-    }
-  ];
-  var LABEL = { writer: "Current writer", available: "Available", exhausted: "Exhausted", reset: "Reset pending" };
-
-  var current = 0;
   var timers = [];
   function clearTimers() { timers.forEach(clearTimeout); timers = []; }
   function at(ms, fn) { timers.push(setTimeout(fn, ms)); }
 
-  function paint(i, st, use) {
+  function paint(i, states, use) {
     var r = rows[i];
-    r.className = "hrow s-" + st;
-    r.querySelector(".badge-state").textContent = LABEL[st];
+    r.className = "hrow " + states.map(function (s) { return "s-" + s; }).join(" ");
+    r.querySelector(".badge-state").textContent = LABEL[states[states.length - 1] === "limit" ? "limit" : states[0]];
+    r.querySelector(".use").textContent = use + "%";
     r.querySelector(".meter i").style.width = use + "%";
   }
-  function paintAll(states) { states.forEach(function (s, i) { paint(i, s[0], s[1]); }); }
-  function clearVerdicts() {
-    rows.forEach(function (r) {
-      r.classList.remove("scan", "dim");
-      var v = r.querySelector(".verdict");
-      v.className = "verdict";
-      v.textContent = "";
-    });
+  function place(i) {
+    marker.style.top = rows[i].offsetTop + "px";
+    marker.style.height = rows[i].offsetHeight + "px";
   }
-  function setLog(i, text, state) {
-    var l = logLines[i];
-    l.classList.toggle("show", !!text);
-    l.classList.toggle("done", state === "done");
-    l.querySelector(".mark").textContent = state === "done" ? "✓" : (text ? "·" : "");
-    l.querySelector(".txt").textContent = text || "";
-  }
-  function setCont(kind) {
-    conts.forEach(function (c) { c.classList.toggle("on", c.getAttribute("data-kind") === kind); });
-  }
-  function selectTab(n) {
-    tabs.forEach(function (t, i) { t.setAttribute("aria-selected", i === n ? "true" : "false"); });
+  function setPhase(n) {
+    phases.forEach(function (p, i) { p.classList.toggle("on", i === n); });
   }
 
-  function resetScene(n) {
-    var sc = SCENES[n];
-    current = n;
-    selectTab(n);
-    clearVerdicts();
-    paintAll(sc.start);
-    noteEl.textContent = sc.note;
-    for (var i = 0; i < 4; i++) setLog(i, "", "");
-    setCont(null);
+  function initial() {
+    paint(0, ["current"], 82);
+    paint(1, ["ready"], 40);
+    paint(2, ["ready"], 20);
+    place(0);
+    setPhase(-1);
+    resultText.textContent = "Claude Primary is writing.";
+    resultKind.classList.remove("show");
+  }
+  function final() {
+    paint(0, ["reset"], 100);
+    paint(1, ["current"], 40);
+    paint(2, ["ready"], 20);
+    place(1);
+    setPhase(2);
+    resultText.textContent = "Claude Backup continues the work.";
+    resultKind.classList.add("show");
   }
 
-  function runScene(n) {
+  function run() {
     clearTimers();
-    resetScene(n);
-    var sc = SCENES[n];
-    var t = 1400;
-    at(t, function () {
-      paint(sc.from, "exhausted", 100);
-      rows[sc.from].classList.add("s-writer");
-      setLog(0, NAMES[sc.from] + " hit its limit", "");
+    initial();
+    at(1200, function () {
+      paint(0, ["current", "limit"], 100);
+      setPhase(0);
+      resultText.textContent = "Claude Primary reached its limit.";
     });
-    t += 900;
-    at(t, function () {
-      setLog(0, NAMES[sc.from] + " hit its limit", "done");
-      setLog(1, "re-checking the whole hierarchy…", "");
+    at(2600, function () {
+      setPhase(1);
+      resultText.textContent = "Checking the list from the top…";
+      rows[0].classList.add("check");
     });
-    // scan from the top every time: this is a re-evaluation, not a step downward
-    for (var i = 0; i < 3; i++) {
-      (function (i) {
-        t += 700;
-        at(t, function () {
-          rows.forEach(function (r) { r.classList.remove("scan"); });
-          var r = rows[i];
-          var v = r.querySelector(".verdict");
-          if (i > sc.to) { r.classList.add("dim"); v.textContent = sc.verdicts[i]; v.className = "verdict show"; return; }
-          r.classList.add("scan");
-          v.textContent = sc.verdicts[i];
-          v.className = "verdict show" + (i === sc.to ? " pick" : "");
-        });
-      })(i);
-    }
-    t += 800;
-    at(t, function () {
-      setLog(1, "re-checking the whole hierarchy…", "done");
-      setLog(2, NAMES[sc.from] + " → " + NAMES[sc.to] + " · stop old writer, verify new", "");
-      setCont(sc.kind);
+    at(3300, function () {
+      rows[0].classList.remove("check");
+      rows[1].classList.add("check");
     });
-    t += 1100;
-    at(t, function () {
-      setLog(2, NAMES[sc.from] + " → " + NAMES[sc.to] + " · stop old writer, verify new", "done");
-      rows.forEach(function (r) { r.classList.remove("scan", "dim"); });
-      paintAll(sc.after);
-      rows[sc.from].querySelector(".verdict").textContent = "was writer · limit hit";
-      setLog(3, sc.done, "done");
-      noteEl.textContent = "One writer at a time. It stays put until it blocks.";
+    at(4200, function () {
+      rows[1].classList.remove("check");
+      setPhase(2);
+      paint(0, ["reset"], 100);
+      paint(1, ["current"], 40);
+      place(1);
+      resultText.textContent = "Claude Backup continues the work.";
+      resultKind.classList.add("show");
     });
-    t += 3400;
-    at(t, function () { runScene((n + 1) % SCENES.length); });
+    at(10500, run);
   }
 
-  function showFinalStateOnly(n) {
-    var sc = SCENES[n];
-    resetScene(n);
-    clearVerdicts();
-    paintAll(sc.after);
-    sc.verdicts.forEach(function (text, i) {
-      var v = rows[i].querySelector(".verdict");
-      v.textContent = text;
-      v.className = "verdict show" + (i === sc.to ? " pick" : "");
-    });
-    rows[sc.from].querySelector(".verdict").textContent = "was writer · limit hit";
-    setLog(0, NAMES[sc.from] + " hit its limit", "done");
-    setLog(1, "re-checking the whole hierarchy…", "done");
-    setLog(2, NAMES[sc.from] + " → " + NAMES[sc.to] + " · stop old writer, verify new", "done");
-    setLog(3, sc.done, "done");
-    setCont(sc.kind);
-    noteEl.textContent = "One writer at a time. It stays put until it blocks.";
-  }
-
-  tabs.forEach(function (tab) {
-    tab.addEventListener("click", function () {
-      var n = parseInt(tab.getAttribute("data-scene"), 10);
-      if (reduceMotion) { showFinalStateOnly(n); } else { runScene(n); }
-    });
+  window.addEventListener("resize", function () {
+    var cur = 0;
+    rows.forEach(function (r, i) { if (r.classList.contains("s-current")) cur = i; });
+    place(cur);
   });
 
   var demoEl = document.getElementById("handoff-demo");
@@ -998,9 +818,9 @@ relay claude" aria-label="Copy all three commands">
   function maybeStart() {
     if (started) return;
     started = true;
-    if (reduceMotion) { showFinalStateOnly(0); } else { runScene(0); }
+    if (reduceMotion) { final(); } else { run(); }
   }
-  resetScene(0);
+  initial();
 
   if ("IntersectionObserver" in window) {
     var io = new IntersectionObserver(function (entries) {
