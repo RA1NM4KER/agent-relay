@@ -632,7 +632,7 @@
         </div>
       </div>
 
-      <p class="loop-note">Claude exhaustion is event-driven through Relay's Claude integration. Codex usage is checked periodically while Relay supervises the Codex session.</p>
+      <p class="loop-note">Claude exhaustion is event-driven through Relay's Claude integration. Codex usage is checked immediately before Relay enters a Codex-managed terminal, then periodically while that session is supervised.</p>
     </div>
   </section>
 
@@ -676,12 +676,12 @@
         <div class="step">
           <span class="step-num">02</span>
           <h3>Start managed work</h3>
-          <p>Use <code class="mono">relay claude</code> or <code class="mono">relay codex</code> to start a new conversation on your highest-priority profile for that provider. Relay supervises it and follows ownership when a handoff occurs. <code class="mono">relay resume</code> continues it.</p>
+          <p>Use <code class="mono">relay claude</code> or <code class="mono">relay codex</code> to start a new conversation on your highest-priority profile for that provider. Relay supervises it and follows ownership when a handoff occurs. If the selected Codex profile is already exhausted, Relay skips the launch and starts on the next eligible profile instead. <code class="mono">relay resume</code> continues it.</p>
         </div>
         <div class="step">
           <span class="step-num">03</span>
           <h3>Automatic handoff</h3>
-          <p>When the current writer is exhausted, Relay re-checks the whole priority order and hands off to the first eligible profile, Claude or Codex. Claude limits arrive as events; Codex quota is checked while Relay supervises its terminal.</p>
+          <p>When the current writer is exhausted, Relay re-checks the whole priority order and hands off to the first eligible profile, Claude or Codex. Claude limits arrive as events; Codex quota is checked before its terminal opens and while Relay supervises it.</p>
         </div>
       </div>
 
