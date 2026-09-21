@@ -123,7 +123,7 @@ guessing what you meant:
 ```
 A Relay-managed session is already active for this project.
 
-Current profile: erika
+Current profile: claude-primary
 
 Run:
   relay resume
