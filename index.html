@@ -235,91 +235,121 @@
   .demo-dots { display: flex; gap: 6px; }
   .demo-dots span { width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
 
-  .stack { position: relative; padding: 24px 24px 8px; }
-  .stack-title {
-    font-family: var(--mono);
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-    margin-bottom: 12px;
+  .sim-tag { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); letter-spacing: 0.06em; text-transform: uppercase; }
+  .paused-tag { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; margin-right: 14px; opacity: 0; transition: opacity 200ms ease; }
+  .paused-tag.show { opacity: 1; }
+  .titlebar-right { display: flex; align-items: center; }
+
+  .loop-wrap { padding: 28px 20px 26px; cursor: default; outline-offset: -3px; }
+  .loop {
+    position: relative;
+    max-width: 720px;
+    margin: 0 auto;
+        display: grid;
+    grid-template-columns: repeat(2, minmax(0, 280px));
+    justify-content: center;
+    grid-template-rows: auto 190px auto;
+    column-gap: 120px;
+    padding-bottom: 56px;
   }
-  .stack-rows { position: relative; }
-  .hrow {
-    display: grid;
-    grid-template-columns: 34px 1fr auto;
-    gap: 6px 14px;
-    align-items: center;
-    padding: 13px 14px 13px 0;
-    margin-bottom: 8px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
+  .loop svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  .edge { fill: none; stroke: var(--border); stroke-width: 1.5; transition: stroke 350ms ease, stroke-width 350ms ease; }
+  .edge.lit { stroke: var(--accent-2); stroke-width: 2.5; }
+  .edge.go { stroke: var(--accent); stroke-width: 3; }
+  .pulse { fill: var(--accent); opacity: 0; }
+  .pulse.on { opacity: 1; }
+  .arrow-muted { fill: var(--border); }
+  .arrow-lit { fill: var(--accent); }
+
+  .node {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
     background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    min-width: 0;
+    transition: border-color 300ms ease, background-color 300ms ease;
   }
-  .hrow .rank { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); text-align: center; }
-  .hrow .who { display: flex; flex-direction: column; min-width: 0; }
-  .hrow .nm { font-family: var(--mono); font-weight: 600; font-size: 0.95rem; }
-  .hrow .pv { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
-  .hrow .right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-  .hrow .use { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .hrow .meter { grid-column: 2 / 4; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
-  .hrow .meter i { display: block; height: 100%; width: 0; background: var(--muted); }
+  .node[data-n="0"] { grid-column: 1 / 3; grid-row: 1; justify-self: center; width: min(280px, 100%); }
+  .node[data-n="1"] { grid-column: 1; grid-row: 3; }
+  .node[data-n="2"] { grid-column: 2; grid-row: 3; }
+  .node .top { display: flex; align-items: baseline; gap: 8px; }
+  .node .pri { font-family: var(--mono); font-size: 0.7rem; color: var(--accent); }
+  .node .nm { font-family: var(--mono); font-weight: 600; font-size: 0.86rem; }
+  .node .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .node .val { font-family: var(--mono); font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .node .tag { font-family: var(--mono); font-size: 0.68rem; color: var(--accent); min-height: 1em; letter-spacing: 0.04em; text-transform: uppercase; }
+  .node .meter { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .node .meter i { display: block; height: 100%; width: 0; background: var(--muted); }
   .badge-state {
     font-family: var(--mono);
-    font-size: 0.66rem;
+    font-size: 0.64rem;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    padding: 3px 8px;
+    padding: 2px 7px;
     border-radius: 4px;
     border: 1px solid var(--border);
     color: var(--muted);
     white-space: nowrap;
   }
-  .hrow.s-ready .badge-state { color: var(--success); border-color: #3B5A3B; }
-  .hrow.s-exhausted .badge-state { color: var(--danger); border-color: #6B3535; }
-  .hrow.s-exhausted .meter i { background: var(--danger); }
-  .hrow.s-reset .badge-state { color: var(--accent); border-color: var(--accent-2); }
-  .hrow.s-reset .use { color: var(--text); }
-  .hrow.s-reset .meter i { background: var(--accent-2); }
-  .hrow.s-current { background: var(--surface-2); }
-  .hrow.s-current .badge-state { background: var(--accent); border-color: var(--accent); color: #0D0F12; font-weight: 700; }
-  .hrow.s-current .meter i { background: var(--accent); }
-  .hrow.s-ready .meter i { background: var(--success); }
-  .marker {
-    position: absolute;
-    left: 0;
-    width: 3px;
-    background: var(--accent);
-    border-radius: 3px 0 0 3px;
-    transition: top 600ms ease, height 600ms ease;
-    pointer-events: none;
-  }
+  .node.s-ready .badge-state { color: var(--success); border-color: #3B5A3B; }
+  .node.s-ready .meter i { background: var(--success); }
+  .node.s-exhausted .badge-state { color: var(--danger); border-color: #6B3535; }
+  .node.s-exhausted .meter i { background: var(--danger); }
+  .node.s-exhausted .val { color: var(--text); }
+  .node.s-reset .badge-state { color: var(--accent); border-color: var(--accent-2); }
+  .node.s-reset .meter i { background: var(--accent-2); }
+  .node.s-reset .val { color: var(--text); }
+  .node.s-current { border-color: var(--accent); background: var(--surface-2); }
+  .node.s-current .badge-state { background: var(--accent); border-color: var(--accent); color: #0D0F12; font-weight: 700; }
+  .node.s-current .meter i { background: var(--accent); }
+  .node.s-current .val { color: var(--text); }
+  .node.eval { border-color: var(--accent-2); border-style: dashed; }
 
-  .ticker {
-    border-top: 1px solid var(--border);
-    background: var(--surface-2);
-    padding: 14px 18px;
-    font-family: var(--mono);
-    font-size: 0.78rem;
-    color: var(--muted);
-    min-height: 132px;
+  .engine {
+    grid-column: 1 / 3;
+    grid-row: 2;
+    align-self: center;
+    justify-self: center;
+    z-index: 1;
+    width: 170px;
+    height: 170px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--bg);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 18px;
+    transition: border-color 300ms ease;
   }
-  .ticker .t0 { color: var(--text); }
-  .ticker .t0.accent { color: var(--accent); }
-  .ticker .tl { display: none; }
-  .ticker .tl.show { display: block; }
-  .ticker .chip { display: none; margin-top: 4px; color: var(--accent); font-weight: 600; letter-spacing: 0.04em; }
-  .ticker .chip.show { display: block; }
-  .ticker .chip small { display: block; color: var(--muted); font-weight: 400; letter-spacing: 0; margin-top: 2px; }
-  .sim-tag { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); letter-spacing: 0.06em; text-transform: uppercase; }
-  .demo-notes { max-width: 640px; margin: 20px auto 0; text-align: center; min-height: 3.2em; }
-  .demo-notes .end-note { color: var(--muted); font-size: 0.82rem; opacity: 0; transition: opacity 600ms ease; }
-  .demo-notes .end-note.show { opacity: 1; }
+  .engine.active { border-color: var(--accent-2); }
+  .engine .e1 { font-family: var(--mono); font-size: 0.8rem; line-height: 1.35; color: var(--text); transition: opacity 400ms ease; }
+  .engine .e2 { font-family: var(--mono); font-size: 0.7rem; line-height: 1.35; color: var(--muted); margin-top: 4px; transition: opacity 400ms ease; }
+  .engine .e1.label { color: var(--accent); font-weight: 600; letter-spacing: 0.04em; }
+  .engine .fade { opacity: 0; }
+  .engine-label { position: absolute; left: 0; right: 0; top: calc(50% - 116px); text-align: center; font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); z-index: 0; }
 
-  /* reduced motion: a static sequence replaces the animated timeline */
+  .loop-note { text-align: center; color: var(--muted); font-size: 0.82rem; max-width: 640px; margin: 22px auto 0; }
+
+  @media (max-width: 520px) {
+    .loop-wrap { padding: 22px 12px 20px; }
+    .loop { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto 176px auto; column-gap: 26px; padding-bottom: 50px; }
+    .node[data-n="0"] { width: min(280px, 70%); }
+    .node { padding: 10px 10px; }
+    .node .nm { font-size: 0.78rem; }
+    .node .val { font-size: 0.7rem; }
+    .engine { width: 160px; height: 160px; }
+    .engine .e1 { font-size: 0.74rem; }
+  }
+
+  /* reduced motion: a static sequence replaces the animated loop */
   .static-seq { display: none; }
   @media (prefers-reduced-motion: reduce) {
     .demo-anim { display: none; }
@@ -516,46 +546,51 @@
       <div class="section-head">
         <span class="eyebrow">Live handoff</span>
         <h2>One writer. An ordered fallback list.</h2>
-        <p>Watch usage climb, limits hit and resets tick down. The writer only changes when it has to.</p>
+        <p>Relay re-checks the priority order only when the current writer blocks. Until then, it stays put.</p>
       </div>
 
       <div class="demo" id="handoff-demo">
         <div class="demo-titlebar">
           <div class="demo-dots"><span></span><span></span><span></span></div>
-          <span class="sim-tag">Simulated timeline</span>
+          <div class="titlebar-right"><span class="paused-tag" id="paused-tag">Paused</span><span class="sim-tag">Simulated timeline</span></div>
         </div>
 
         <div class="demo-anim">
-          <div class="stack">
-            <div class="stack-title">Priority order</div>
-            <div class="stack-rows" id="stack-rows">
-              <div class="marker" id="marker"></div>
-            <div class="hrow" data-row="0">
-              <span class="rank">1</span>
-              <span class="who"><span class="nm">Claude Primary</span><span class="pv">Claude</span></span>
-              <span class="right"><span class="badge-state"></span><span class="use"></span></span>
-              <span class="meter"><i></i></span>
+          <div class="loop-wrap" id="loop-wrap" tabindex="0" role="group" aria-label="Simulated handoff loop between three profiles in priority order. Claude Primary exhausts and hands off to Claude Backup, which exhausts and hands off to Codex Backup. Claude Primary becomes ready again but Codex stays current until it exhausts, then work returns to Claude Primary.">
+            <div class="loop" id="loop">
+              <svg id="loop-svg" aria-hidden="true">
+                <defs>
+                  <marker id="ah-m" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 Z" class="arrow-muted"/></marker>
+                  <marker id="ah-l" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 Z" class="arrow-lit"/></marker>
+                </defs>
+                <path class="edge" id="edge0" marker-end="url(#ah-m)"/>
+                <path class="edge" id="edge1" marker-end="url(#ah-m)"/>
+                <path class="edge" id="edge2" marker-end="url(#ah-m)"/>
+                <circle class="pulse" id="pulse" r="6"/>
+              </svg>
+            <div class="node" data-n="0">
+              <div class="top"><span class="pri">#1</span><span class="nm">Claude Primary</span></div>
+              <div class="row"><span class="badge-state"></span><span class="val"></span></div>
+              <div class="meter"><i></i></div>
+              <div class="tag"></div>
             </div>
-            <div class="hrow" data-row="1">
-              <span class="rank">2</span>
-              <span class="who"><span class="nm">Claude Backup</span><span class="pv">Claude</span></span>
-              <span class="right"><span class="badge-state"></span><span class="use"></span></span>
-              <span class="meter"><i></i></span>
+              <div class="engine" id="engine" aria-live="off">
+                <div class="e1" id="e1"></div>
+                <div class="e2" id="e2"></div>
+              </div>
+            <div class="node" data-n="1">
+              <div class="top"><span class="pri">#2</span><span class="nm">Claude Backup</span></div>
+              <div class="row"><span class="badge-state"></span><span class="val"></span></div>
+              <div class="meter"><i></i></div>
+              <div class="tag"></div>
             </div>
-            <div class="hrow" data-row="2">
-              <span class="rank">3</span>
-              <span class="who"><span class="nm">Codex Backup</span><span class="pv">Codex</span></span>
-              <span class="right"><span class="badge-state"></span><span class="use"></span></span>
-              <span class="meter"><i></i></span>
+            <div class="node" data-n="2">
+              <div class="top"><span class="pri">#3</span><span class="nm">Codex Backup</span></div>
+              <div class="row"><span class="badge-state"></span><span class="val"></span></div>
+              <div class="meter"><i></i></div>
+              <div class="tag"></div>
             </div>
             </div>
-          </div>
-          <div class="ticker" id="ticker" aria-live="polite">
-            <span class="t0" id="t0"></span>
-            <span class="tl" id="tl1"></span>
-            <span class="tl" id="tl2"></span>
-            <span class="tl" id="tl3"></span>
-            <span class="chip" id="chip"></span>
           </div>
         </div>
 
@@ -563,15 +598,14 @@
           <ol>
             <li><b>Claude Primary</b> is <span class="st">Current</span> and reaches 100%. It is <span class="st ex">Exhausted</span> and resets in 1h 45m.</li>
             <li>Relay checks the priority order. <b>Claude Backup</b> becomes <span class="st">Current</span> (session continuation, Claude → Claude). Claude Primary is <span class="st">Reset pending</span>.</li>
-            <li>Claude Backup is exhausted before Claude Primary resets. Relay checks again: <b>Codex Backup</b> becomes <span class="st">Current</span> (state continuation, Claude → Codex; not the same native conversation).</li>
-            <li>Claude Primary's reset completes and it is <span class="st rd">Ready</span>. Codex Backup stays <span class="st">Current</span>. Ready again, but Relay does not interrupt a healthy writer.</li>
+            <li>Claude Backup exhausts before Claude Primary resets. Relay checks again: Primary is unavailable, so <b>Codex Backup</b> becomes <span class="st">Current</span> (state continuation, Claude → Codex).</li>
+            <li>Claude Primary's reset completes and it is <span class="st rd">Ready</span>, but Codex Backup stays <span class="st">Current</span>: the current writer stays put.</li>
+            <li>Codex Backup exhausts. Relay checks again and Claude Primary is <span class="st">Current</span> once more (state continuation, Codex → Claude).</li>
           </ol>
         </div>
       </div>
 
-      <div class="demo-notes">
-        <p class="end-note" id="end-note">Codex can currently be an automatic target. Automatic handoff away from Codex requires reliable Codex usage detection.</p>
-      </div>
+      <p class="loop-note">Codex quota is checked periodically while Relay supervises the session.</p>
     </div>
   </section>
 
@@ -740,117 +774,183 @@ relay claude" aria-label="Copy all three commands">
     });
   });
 
-  // ---------- Handoff demo: one continuous simulated timeline ----------
+  // ---------- Handoff demo: one continuous simulated loop ----------
   var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  var rows = Array.prototype.slice.call(document.querySelectorAll("#stack-rows .hrow"));
-  var marker = document.getElementById("marker");
-  var t0 = document.getElementById("t0");
-  var tl = [document.getElementById("tl1"), document.getElementById("tl2"), document.getElementById("tl3")];
-  var chip = document.getElementById("chip");
-  var endNote = document.getElementById("end-note");
+  var loopEl = document.getElementById("loop");
+  var wrap = document.getElementById("loop-wrap");
+  var svg = document.getElementById("loop-svg");
+  var nodes = Array.prototype.slice.call(loopEl.querySelectorAll(".node"));
+  var edges = [document.getElementById("edge0"), document.getElementById("edge1"), document.getElementById("edge2")];
+  var pulse = document.getElementById("pulse");
+  var engine = document.getElementById("engine");
+  var e1 = document.getElementById("e1");
+  var e2 = document.getElementById("e2");
+  var pausedTag = document.getElementById("paused-tag");
   var LABEL = { current: "Current", ready: "Ready", exhausted: "Exhausted", reset: "Reset pending" };
-  // Paced for reading: every message holds >= 3s, every scan result >= 2.5s, and changes are
-  // sequenced (state change -> pause -> label) rather than simultaneous. Demo time in ms.
-  var K = {
-    climbFrom: 800, exhaustP: 3000,             // Primary 96 -> 100, then exhausted
-    checkP: 5500, p1: 6800, p2: 8000,           // "Checking priority…" then the result lines
-    handoff1: 10500, chip1: 11200, chip1End: 14000,
-    exhaustB: 17000,                             // Backup reaches 100 before Primary resets
-    checkB: 19700, q1: 21000, q2: 22300, q3: 23600,
-    handoff2: 26100, chip2: 26800, chip2End: 29800,
-    readyP: 33000,                               // Primary's reset completes; Codex stays current
-    readyMsg: 35500, endNote: 37000
-  };
-  var TOTAL = 40500;
+
+  // Schedule (ms). Each segment holds one idea; changes are sequenced, never simultaneous.
+  var T = {}, cur = 0;
+  function seg(name, dur) { T[name] = cur; cur += dur; }
+  seg("intro", 2000);   // Primary writing, climbs to 100%
+  seg("exh1", 3000);    // Primary EXHAUSTED, reset shown
+  seg("chk1", 2800);    // "Checking priority…" (edge to Backup lights in the last 1.5s)
+  seg("dot1", 1200);    // handoff travels the edge
+  seg("cont1", 3000);   // Backup CURRENT; SESSION CONTINUATION
+  seg("ph2", 5500);     // Backup usage climbs while Primary's reset falls
+  seg("exh2", 3000);    // Backup EXHAUSTED (Primary still reset pending)
+  seg("chk2", 2800);    // "Checking priority…"
+  seg("evP", 2800);     // Primary unavailable
+  seg("evB", 2800);     // Backup exhausted
+  seg("edge2", 2800);   // edge to Codex lights
+  seg("dot2", 1200);
+  seg("cont2", 3000);   // Codex CURRENT; STATE CONTINUATION
+  seg("ph4", 4500);     // Codex climbs; Primary's reset reaches zero
+  seg("ready", 4500);   // Primary READY; current writer stays put
+  seg("exh3", 3000);    // Codex EXHAUSTED
+  seg("chk3", 2800);    // "Checking priority…" (edge back to Primary lights in the last 1.5s)
+  seg("dot3", 1200);
+  seg("cont3", 3000);   // Primary CURRENT again; STATE CONTINUATION
+  seg("tail", 1500);
+  var TOTAL = cur;
 
   function lerp(t, a, b, x, y) { return t <= a ? x : t >= b ? y : x + (y - x) * (t - a) / (b - a); }
+  function through(t, a, b, pts) {
+    var f = Math.min(1, Math.max(0, (t - a) / (b - a))) * (pts.length - 1);
+    var i = Math.min(pts.length - 2, Math.floor(f));
+    return pts[i] + (pts[i + 1] - pts[i]) * (f - i);
+  }
   function fmt(sec) {
     if (sec >= 3600) { var h = Math.floor(sec / 3600); return h + "h " + Math.round((sec - h * 3600) / 60) + "m"; }
     return Math.max(1, Math.ceil(sec / 60)) + "m";
   }
+  function stateAt(t, list) { var s = list[0][1]; list.forEach(function (e) { if (t >= e[0]) s = e[1]; }); return s; }
+
+  var P_STATES = [[0, "current"], [T.exh1, "exhausted"], [T.cont1 + 800, "reset"], [T.ready, "ready"], [T.cont3, "current"]];
+  var B_STATES = [[0, "ready"], [T.cont1, "current"], [T.exh2, "exhausted"], [T.cont2 + 800, "reset"]];
+  var C_STATES = [[0, "ready"], [T.cont2, "current"], [T.exh3, "exhausted"], [T.cont3 + 800, "reset"]];
+  var PH2_END = T.ph2 + 5500, PH4_END = T.ph4 + 4500;
 
   function model(t) {
-    var m = {};
-    var pReset = t < K.exhaustP ? null : t < K.exhaustB ? lerp(t, K.exhaustP, K.exhaustB, 6300, 480) : lerp(t, K.exhaustB, K.readyP, 480, 0);
-    var bReset = t < K.exhaustB ? null : 17880 - (t - K.exhaustB) * 0.5;
-    m.p = t < K.exhaustP ? { s: "current", use: lerp(t, K.climbFrom, K.exhaustP, 96, 100), line: null }
-      : t < K.handoff1 ? { s: "exhausted", fill: 100, line: "Resets in " + fmt(pReset) }
-      : t < K.readyP ? { s: "reset", fill: pReset / 6300 * 100, line: "Resets in " + fmt(pReset) }
-      : { s: "ready", fill: 0, line: "Reset complete" };
-    m.b = t < K.handoff1 ? { s: "ready", use: 55 }
-      : t < K.exhaustB ? { s: "current", use: lerp(t, K.handoff1, K.exhaustB, 55, 100) }
-      : t < K.handoff2 ? { s: "exhausted", fill: 100, line: "Resets in " + fmt(bReset) }
-      : { s: "reset", fill: bReset / 17880 * 100, line: "Resets in " + fmt(bReset) };
-    m.c = { s: t < K.handoff2 ? "ready" : "current" };
-    m.marker = t < K.handoff1 ? 0 : t < K.handoff2 ? 1 : 2;
-    return m;
+    var p = stateAt(t, P_STATES), b = stateAt(t, B_STATES), c = stateAt(t, C_STATES);
+    var pReset = t < T.ph2 ? 6300 : t < PH2_END ? through(t, T.ph2, PH2_END, [6300, 4320, 2520, 1080, 480]) : t < T.ph4 ? 480 : through(t, T.ph4, PH4_END, [480, 180, 60, 0]);
+    var P = { s: p }, B = { s: b }, C = { s: c };
+    if (p === "current") { P.use = t < T.exh1 ? lerp(t, 800, T.exh1, 96, 100) : 3; P.line = "Usage " + Math.round(P.use) + "%"; P.fill = P.use; }
+    else if (p === "exhausted") { P.line = "Resets in 1h 45m"; P.fill = 100; }
+    else if (p === "reset") { P.line = "Resets in " + fmt(pReset); P.fill = pReset / 6300 * 100; }
+    else { P.line = "Reset complete"; P.fill = 0; }
+    var bUse = t < T.ph2 ? 55 : through(t, T.ph2, PH2_END, [55, 72, 88, 96, 100]);
+    if (b === "ready" || b === "current") { B.line = "Usage " + Math.round(bUse) + "%"; B.fill = bUse; }
+    else { var bReset = 17880 - (t - T.exh2) * 0.06; B.line = "Resets in " + fmt(bReset); B.fill = b === "exhausted" ? 100 : bReset / 17880 * 100; }
+    var cUse = t < T.ph4 ? 95 : lerp(t, T.ph4, PH4_END, 95, 99);
+    if (c === "ready" || c === "current") { C.line = "Usage " + Math.round(cUse) + "%"; C.fill = cUse; }
+    else { var cReset = 12000 - (t - T.exh3) * 0.06; C.line = "Resets in " + fmt(cReset); C.fill = c === "exhausted" ? 100 : cReset / 12000 * 100; }
+    return [P, B, C];
   }
 
-  function paintRow(i, r, isCodex) {
-    var el = rows[i];
-    var cls = "hrow s-" + r.s;
-    if (el.getAttribute("data-cls") !== cls) { el.className = cls; el.setAttribute("data-cls", cls); el.querySelector(".badge-state").textContent = LABEL[r.s]; }
-    var use = el.querySelector(".use");
-    var fill = el.querySelector(".meter i");
-    if (isCodex) {
-      use.textContent = "Usage: not tracked";
-      fill.style.width = r.s === "current" ? "100%" : "0%";
-      return;
+  // Center engine text: [from, line1, line2, isLabel]. A label is shown for its whole segment.
+  var CENTER = [
+    [0, "Claude Primary", "is writing", false],
+    [T.chk1, "Checking priority…", "", false],
+    [T.cont1, "SESSION CONTINUATION", "Claude → Claude", true],
+    [T.ph2, "Claude Backup", "is writing", false],
+    [T.chk2, "Checking priority…", "", false],
+    [T.evP, "Primary unavailable", "", false],
+    [T.evB, "Backup exhausted", "", false],
+    [T.edge2, "Codex Backup available", "", false],
+    [T.cont2, "STATE CONTINUATION", "Claude → Codex", true],
+    [T.ph4, "Codex Backup", "is writing", false],
+    [T.ready, "Ready again.", "Current writer stays put.", false],
+    [T.exh3, "Codex Backup", "is writing", false],
+    [T.chk3, "Checking priority…", "", false],
+    [T.cont3, "STATE CONTINUATION", "Codex → Claude", true],
+    [T.tail, "Claude Primary", "is writing", false]
+  ];
+  // Which node is being evaluated (dashed outline + small tag): [from, to, index, text].
+  var EVAL = [[T.evP, T.evB, 0, "Unavailable"], [T.evB, T.edge2, 1, "Source exhausted"]];
+  // Edges: [from, to, edgeIndex, class]; the travelling dot rides the "go" ones.
+  var EDGE_LIT = [[T.chk1 + 1000, T.dot1, 0, "lit"], [T.dot1, T.cont1, 0, "go"], [T.edge2, T.dot2, 1, "lit"], [T.dot2, T.cont2, 1, "go"], [T.chk3 + 1000, T.dot3, 2, "lit"], [T.dot3, T.cont3, 2, "go"]];
+  var TRAVEL = [[T.dot1, 0], [T.dot2, 1], [T.dot3, 2]];
+  var ENGINE_ACTIVE = [[T.chk1, T.cont1], [T.chk2, T.cont2], [T.chk3, T.cont3]];
+
+  var lastKey = { center: "" };
+  function paintNode(i, m) {
+    var el = nodes[i];
+    var cls = "node s-" + m.s;
+    var evalNow = EVAL.some(function (e) { return e[2] === i && frameT >= e[0] && frameT < e[1]; });
+    if (evalNow) cls += " eval";
+    if (el.className !== cls) {
+      el.className = cls;
+      el.querySelector(".badge-state").textContent = LABEL[m.s];
     }
-    if (r.line) { use.textContent = r.line; fill.style.width = r.fill + "%"; }
-    else { use.textContent = "Usage: " + Math.round(r.use) + "%"; fill.style.width = r.use + "%"; }
+    el.querySelector(".val").textContent = m.line;
+    el.querySelector(".meter i").style.width = m.fill + "%";
+    var tagText = "";
+    EVAL.forEach(function (e) { if (e[2] === i && frameT >= e[0] && frameT < e[1]) tagText = e[3]; });
+    var tag = el.querySelector(".tag");
+    if (tag.textContent !== tagText) tag.textContent = tagText;
   }
 
-  var lastMarker = -1;
-  function place(i) {
-    if (i === lastMarker && marker.style.height) return;
-    lastMarker = i;
-    marker.style.top = rows[i].offsetTop + "px";
-    marker.style.height = rows[i].offsetHeight + "px";
-  }
-
-  function ticker(t) {
-    var head = "", lines = ["", "", ""], chipText = null, accent = false;
-    if (t < K.exhaustP) head = "Claude Primary is writing.";
-    else if (t < K.checkP) head = "Claude Primary hit its limit.";
-    else if (t < K.handoff1 + 700) {
-      head = "Checking priority…";
-      if (t >= K.p1) lines[0] = "1  Claude Primary — exhausted";
-      if (t >= K.p2) lines[1] = "2  Claude Backup — available";
-    }
-    else if (t < K.exhaustB) head = "Claude Backup continues the work.";
-    else if (t < K.checkB) head = "Claude Backup hit its limit. Claude Primary has not reset yet.";
-    else if (t < K.handoff2 + 700) {
-      head = "Checking priority…";
-      if (t >= K.q1) lines[0] = "1  Claude Primary — reset pending, unavailable";
-      if (t >= K.q2) lines[1] = "2  Claude Backup — exhausted, unavailable";
-      if (t >= K.q3) lines[2] = "3  Codex Backup — available";
-    }
-    else if (t < K.readyMsg) head = "Codex Backup continues from a state summary.";
-    else { head = "Ready again, but Relay does not interrupt a healthy writer."; accent = true; }
-    if (t >= K.chip1 && t < K.chip1End) chipText = ["SESSION CONTINUATION", "Claude → Claude"];
-    if (t >= K.chip2 && t < K.chip2End) chipText = ["STATE CONTINUATION", "Claude → Codex · Not the same native conversation"];
-    t0.textContent = head;
-    t0.className = "t0" + (accent ? " accent" : "");
-    for (var i = 0; i < 3; i++) { tl[i].textContent = lines[i]; tl[i].className = "tl" + (lines[i] ? " show" : ""); }
-    if (chipText) { chip.innerHTML = chipText[0] + "<small></small>"; chip.querySelector("small").textContent = chipText[1]; chip.className = "chip show"; }
-    else { chip.className = "chip"; }
-  }
-
+  var frameT = 0;
   function frame(t) {
+    frameT = t;
     var m = model(t);
-    paintRow(0, m.p, false);
-    paintRow(1, m.b, false);
-    paintRow(2, m.c, true);
-    place(m.marker);
-    ticker(t);
-    endNote.classList.toggle("show", t >= K.endNote);
+    for (var i = 0; i < 3; i++) paintNode(i, m[i]);
+    var c = CENTER[0];
+    CENTER.forEach(function (entry) { if (t >= entry[0]) c = entry; });
+    var key = c[1] + "|" + c[2];
+    if (key !== lastKey.center) {
+      lastKey.center = key;
+      e1.textContent = c[1];
+      e2.textContent = c[2];
+      e1.className = "e1" + (c[3] ? " label" : "");
+    }
+    // the label fades out over the last 600ms of its segment
+    var fading = false;
+    if (c[3]) { var end = t < T.ph2 ? T.ph2 : t < T.ph4 ? T.ph4 : T.tail; fading = t > end - 600; }
+    e1.classList.toggle("fade", fading);
+    e2.classList.toggle("fade", fading);
+    engine.classList.toggle("active", ENGINE_ACTIVE.some(function (r) { return t >= r[0] && t < r[1]; }));
+
+    edges.forEach(function (edge) { edge.setAttribute("class", "edge"); edge.setAttribute("marker-end", "url(#ah-m)"); });
+    EDGE_LIT.forEach(function (r) {
+      if (t >= r[0] && t < r[1]) { edges[r[2]].setAttribute("class", "edge " + r[3]); edges[r[2]].setAttribute("marker-end", "url(#ah-l)"); }
+    });
+    var moving = false;
+    TRAVEL.forEach(function (r) {
+      if (t >= r[0] && t < r[0] + 1200 && edges[r[1]].getTotalLength) {
+        var path = edges[r[1]];
+        var pt = path.getPointAtLength(path.getTotalLength() * ((t - r[0]) / 1200));
+        pulse.setAttribute("cx", pt.x);
+        pulse.setAttribute("cy", pt.y);
+        moving = true;
+      }
+    });
+    pulse.setAttribute("class", "pulse" + (moving ? " on" : ""));
   }
 
-  var demoEl = document.getElementById("handoff-demo");
+  // Curved outer edges, measured from the real card positions so they stay attached at any width.
+  function rect(el) {
+    var r = el.getBoundingClientRect(), o = loopEl.getBoundingClientRect();
+    return { l: r.left - o.left, r: r.right - o.left, t: r.top - o.top, b: r.bottom - o.top, cx: (r.left + r.right) / 2 - o.left, cy: (r.top + r.bottom) / 2 - o.top };
+  }
+  function layout() {
+    var o = loopEl.getBoundingClientRect();
+    svg.setAttribute("viewBox", "0 0 " + o.width + " " + o.height);
+    var P = rect(nodes[0]), B = rect(nodes[1]), C = rect(nodes[2]);
+    var k = Math.min(o.width * 0.22, 110);
+    // Primary -> Backup: out the left of Primary, round the outside, into the top of Backup
+    edges[0].setAttribute("d", "M " + (P.l - 3) + " " + P.cy + " C " + (P.l - k) + " " + P.cy + ", " + B.cx + " " + (B.t - k) + ", " + B.cx + " " + (B.t - 4));
+    // Backup -> Codex: a shallow arc under the bottom row, bottom of Backup to bottom of Codex
+    var dip = 44;
+    edges[1].setAttribute("d", "M " + B.cx + " " + (B.b + 3) + " C " + B.cx + " " + (B.b + dip) + ", " + C.cx + " " + (C.b + dip) + ", " + C.cx + " " + (C.b + 6));
+    // Codex -> Primary: up the right side, into the right of Primary
+    edges[2].setAttribute("d", "M " + C.cx + " " + (C.t - 3) + " C " + C.cx + " " + (C.t - k) + ", " + (P.r + k) + " " + P.cy + ", " + (P.r + 4) + " " + P.cy);
+  }
+
+  // ---- run control: on screen, tab visible, not hovered/focused (desktop), not tapped-paused ----
   var elapsed = 0, last = 0, raf = 0, running = false;
-  var inView = false;
+  var inView = false, hoverPaused = false, focusPaused = false, tapPaused = false;
   function loop(now) {
     if (!running) return;
     elapsed = (elapsed + Math.min(now - last, 100)) % TOTAL;
@@ -858,25 +958,36 @@ relay claude" aria-label="Copy all three commands">
     frame(elapsed);
     raf = requestAnimationFrame(loop);
   }
-  // Runs only while the card is on screen and the tab is visible.
   function sync() {
-    var want = inView && !document.hidden;
+    var want = inView && !document.hidden && !hoverPaused && !focusPaused && !tapPaused;
     if (want && !running) { running = true; last = performance.now(); raf = requestAnimationFrame(loop); }
     else if (!want && running) { running = false; cancelAnimationFrame(raf); }
+    pausedTag.classList.toggle("show", inView && (hoverPaused || focusPaused || tapPaused));
   }
 
-  window.addEventListener("resize", function () { lastMarker = -1; frame(elapsed); });
+  layout();
   frame(0);
+  if ("ResizeObserver" in window) {
+    new ResizeObserver(function () { layout(); frame(elapsed); }).observe(loopEl);
+  } else {
+    window.addEventListener("resize", function () { layout(); frame(elapsed); });
+  }
 
   if (!reduceMotion) {
+    var demoEl = document.getElementById("handoff-demo");
     document.addEventListener("visibilitychange", sync);
+    wrap.addEventListener("pointerenter", function (e) { if (e.pointerType === "mouse") { hoverPaused = true; sync(); } });
+    wrap.addEventListener("pointerleave", function (e) { if (e.pointerType === "mouse") { hoverPaused = false; sync(); } });
+    wrap.addEventListener("focusin", function () { try { if (wrap.matches(":focus-visible")) { focusPaused = true; sync(); } } catch (err) { /* older browsers: no focus pause */ } });
+    wrap.addEventListener("focusout", function () { focusPaused = false; sync(); });
+    wrap.addEventListener("click", function (e) {
+      if (e.pointerType === "touch" || e.pointerType === "pen" || (window.matchMedia && window.matchMedia("(hover: none)").matches)) { tapPaused = !tapPaused; sync(); }
+    });
     if ("IntersectionObserver" in window) {
       new IntersectionObserver(function (entries) {
         entries.forEach(function (entry) { inView = entry.isIntersecting; sync(); });
       }, { threshold: 0.25 }).observe(demoEl);
     } else { inView = true; sync(); }
-  } else {
-    endNote.classList.add("show");
   }
 })();
 </script>
