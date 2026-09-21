@@ -21,7 +21,6 @@ use relay_core::{
     },
     handoff::{
         HandoffCoordinator, HandoffRequest, JournalStore, LeaseStore, OrchestrationLock, ProjectId,
-        SourceLiveness as _,
     },
     usage::{UsageSignal, UsageState},
 };
@@ -2866,7 +2865,7 @@ fn run_switch(
         }
         ProviderKind::Claude | ProviderKind::Fake => success(
             "switch",
-            format!("{human}\n\nRun `relay claude` to attach."),
+            format!("{human}\n\nContinue it with:\n    relay resume"),
             journal,
         ),
     }
@@ -3565,31 +3564,37 @@ fn run_status(
     // A lease *record* existing does not mean the process behind it is still running; confirm
     // with the same liveness check `relay launch`/`watch run` use before calling it "active"
     // rather than naively trusting the file.
+    let owner_profile = lease.as_ref().and_then(|lease| {
+        registered
+            .iter()
+            .find(|profile| profile.name == lease.owner_profile)
+    });
     let session_state = if locked {
         "handoff in progress"
     } else if let Some(lease) = &lease {
-        let owner_config_dir = registered
-            .iter()
-            .find(|profile| profile.name == lease.owner_profile)
-            .map(|profile| profile.config_dir.clone());
-        let live = owner_config_dir.is_some_and(|config_dir| {
-            ClaudeSourceLiveness::new(None)
-                .check(
-                    &config_dir,
-                    &canonical,
-                    &lease.session_id,
-                    Some(&lease.owner_process),
-                )
-                .map(|verdict| verdict.active)
-                .unwrap_or(false)
-        });
-        if live {
-            "active"
-        } else {
-            "idle (last session ended)"
+        match owner_profile {
+            // The lease owner's OWN provider decides liveness — never inferred from the
+            // session/thread shape, never assumed to be Claude.
+            Some(owner) => match owner_is_live(
+                owner,
+                &canonical,
+                &lease.session_id,
+                Some(&lease.owner_process),
+                &providers::ExecutableOverrides::default(),
+            ) {
+                Ok(true) => "active",
+                Ok(false) => "idle (last session ended)",
+                Err(_) => "unknown (could not verify the session)",
+            },
+            None => "unknown (the owning profile is not registered)",
         }
     } else {
         "not started"
+    };
+    let session_label = match owner_profile.map(|profile| profile.provider) {
+        Some(ProviderKind::Codex) => "Codex session",
+        Some(ProviderKind::Claude | ProviderKind::Fake) => "Claude session",
+        None => "Session",
     };
 
     let herdr_connected =
@@ -3613,8 +3618,9 @@ fn run_status(
     };
 
     let human = format!(
-        "Project: {}\nClaude session: {}\nCurrent profile: {}\nFallback: {}\nPrimary profile auth: {}\nAutomatic handoff: {}\nHerdr: {}",
+        "Project: {}\n{}: {}\nCurrent profile: {}\nFallback: {}\nPrimary profile auth: {}\nAutomatic handoff: {}\nHerdr: {}",
         canonical.display(),
+        session_label,
         session_state,
         current_owner,
         fallback_display,
@@ -3637,6 +3643,7 @@ fn run_status(
             "configured": true,
             "project": canonical,
             "session_state": session_state,
+            "session_provider": owner_profile.map(|profile| profile.provider.to_string()),
             "primary_profile": primary.as_str(),
             "primary_authenticated": primary_auth,
             "fallback_profiles": fallback_order,
@@ -4836,9 +4843,27 @@ fn run_setup_non_interactive(
     )
 }
 
-/// Checks whether a session is currently active for `target` using the same M2B.5 liveness
-/// mechanism the handoff coordinator uses (pid + fingerprint, corroborated by `claude agents
-/// --json`), so `session conflict` commands never touch a genuinely in-use target.
+/// Whether `owner`'s session is live, judged by **that profile's own provider** (Claude: session
+/// registry + pid fingerprint; Codex: recorded pid + processes under its `CODEX_HOME`). The one
+/// place status/session-conflict paths dispatch on provider, so none of them can quietly ask
+/// Claude about a Codex lease (or the reverse).
+fn owner_is_live(
+    owner: &Profile,
+    project_dir: &Path,
+    session_id: &str,
+    recorded_owner: Option<&relay_core::handoff::ProcessIdentity>,
+    executables: &providers::ExecutableOverrides,
+) -> Result<bool, Error> {
+    let ports = providers::ports_for(owner.provider, executables);
+    Ok(ports
+        .liveness
+        .check(&owner.config_dir, project_dir, session_id, recorded_owner)?
+        .active)
+}
+
+/// Checks whether a session is currently active for `target` using the same liveness mechanism the
+/// handoff coordinator uses for that profile's provider, so `session conflict` commands never touch
+/// a genuinely in-use target.
 fn target_is_active(
     paths: &RelayPaths,
     target: &Profile,
@@ -4856,14 +4881,16 @@ fn target_is_active(
     let recorded_owner = lease
         .filter(|lease| lease.owner_profile == target.name)
         .map(|lease| lease.owner_process);
-    let liveness = ClaudeSourceLiveness::new(claude_executable.map(Path::to_path_buf));
-    let verdict = liveness.check(
-        &target.config_dir,
+    owner_is_live(
+        target,
         &canonical_project,
         session_id,
         recorded_owner.as_ref(),
-    )?;
-    Ok(verdict.active)
+        &providers::ExecutableOverrides {
+            claude: claude_executable.map(Path::to_path_buf),
+            codex: None,
+        },
+    )
 }
 
 /// `status`/`doctor` must inspect through the profile's own provider, not always the fake one:

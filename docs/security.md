@@ -13,9 +13,9 @@ Status: initial M0 threat model. It must be reviewed at every milestone that add
 
 ## Assets
 
-- Claude credentials held by provider config directories and OS Keychain.
+- Claude and Codex credentials held by the provider's config directories (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) and, for Claude, the OS Keychain.
 - Source code, uncommitted work, and repository metadata.
-- Claude transcripts, which may contain source, prompts, tool output, and secrets.
+- Claude transcripts and Codex thread history, which may contain source, prompts, tool output, and secrets.
 - Profile identity and usage metadata.
 - Handoff journal integrity and writer ownership.
 - Local process-control authority.

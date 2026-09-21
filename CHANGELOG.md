@@ -4,7 +4,20 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
-Nothing yet.
+Everything on `main` since v0.2.0 (not yet released; Homebrew still installs v0.2.0):
+
+- **Codex support:** isolated Codex profiles, `relay codex`, Claude ⇄ Codex handoff as state
+  continuation, same-profile Codex resume with thread verification, Codex exhaustion detection from
+  Codex's structured app-server rate limits (immediate preflight before a Codex terminal plus
+  periodic checks while supervised), pre-launch fallback from an exhausted Codex profile.
+- **Automatic handoff trigger:** the Claude `StopFailure` hook now starts the evaluation itself, and a
+  supervised terminal follows the conversation to the new owner.
+- **Provider options after `--`** (`relay claude -- …`, `relay codex -- …`), stored per project and
+  kept provider-scoped; flags that would replace something Relay owns or disable its hooks are
+  rejected.
+- **Status-line badge** `[Relay · <profile>]` for managed Claude sessions.
+- **Fixes:** provider-aware liveness (launch, handoff and `relay status`), Claude `--bg` id parsing
+  with coloured output, `relay resume` attach-vs-resume, isolated `CLAUDE_CONFIG_DIR` on attach.
 
 ## v0.2.0
 

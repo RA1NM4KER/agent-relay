@@ -2448,3 +2448,108 @@ fn an_explicit_switch_to_an_exhausted_or_unverifiable_codex_profile_is_refused_b
         "no bootstrap against a refused target"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// `relay status` asks the lease OWNER's provider whether the session is live.
+// ---------------------------------------------------------------------------------------------
+
+fn status_data(world: &World) -> Value {
+    let mut command = relay_command(
+        world.root.path(),
+        &[
+            "status",
+            "--project",
+            &world.project.path().to_string_lossy(),
+        ],
+    );
+    command.env("PATH", path_with_fixtures(world.root.path()));
+    let output = command.output().expect("relay status");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    json_stdout(&output)["data"].clone()
+}
+
+fn edit_lease(world: &World, edit: impl FnOnce(&mut Value)) {
+    let path = project_state_dir(world.root.path()).join("lease.json");
+    let mut lease: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    edit(&mut lease);
+    std::fs::write(&path, serde_json::to_vec_pretty(&lease).unwrap()).unwrap();
+}
+
+/// A genuinely running process and the exact identity Relay would record for it.
+fn live_process() -> (std::process::Child, Value) {
+    let child = Command::new("sleep").arg("60").spawn().expect("sleep");
+    let lstart = Command::new("ps")
+        .args(["-o", "lstart=", "-p", &child.id().to_string()])
+        .output()
+        .expect("ps");
+    let identity = serde_json::json!({
+        "pid": child.id(),
+        "start_time_fingerprint": String::from_utf8_lossy(&lstart.stdout).trim(),
+    });
+    (child, identity)
+}
+
+#[test]
+fn status_reports_a_live_and_a_dead_claude_owner_through_claudes_own_liveness() {
+    let world = world(false);
+    assert_eq!(status_data(&world)["session_state"], "active");
+    assert_eq!(status_data(&world)["session_provider"], "claude");
+    // Claude's session registry no longer lists the job, and the recorded pid is long gone.
+    std::fs::write(world.root.path().join("claude.stopped"), "").expect("stop marker");
+    edit_lease(&world, |lease| {
+        lease["owner_process"] = serde_json::json!({"pid": 999_999, "start_time_fingerprint": "Sat Jan  1 00:00:00 2000"});
+    });
+    let data = status_data(&world);
+    assert_eq!(data["session_state"], "idle (last session ended)");
+}
+
+#[test]
+fn status_reports_a_live_and_a_dead_codex_owner_through_codexs_own_liveness() {
+    let world = codex_writer_world();
+    // The recorded process (the short-lived `codex exec` that created the thread) is gone and no
+    // Codex process runs under the profile's home: idle — even though the fake Claude registry
+    // would happily list a session.
+    let dead = status_data(&world);
+    assert_eq!(dead["session_state"], "idle (last session ended)");
+    assert_eq!(dead["session_provider"], "codex");
+    let (mut child, identity) = live_process();
+    edit_lease(&world, |lease| lease["owner_process"] = identity);
+    assert_eq!(status_data(&world)["session_state"], "active");
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(
+        status_data(&world)["session_state"],
+        "idle (last session ended)"
+    );
+}
+
+#[test]
+fn status_never_claims_active_on_a_provider_mismatch_or_an_unresolvable_owner() {
+    let world = codex_writer_world();
+    // A Codex-owned lease whose session id happens to be one Claude's registry lists: the old
+    // Claude-only check would have called this active; the Codex owner's own check says idle.
+    edit_lease(&world, |lease| {
+        lease["session_id"] = Value::String(SESSION_ID.to_owned())
+    });
+    assert_eq!(
+        status_data(&world)["session_state"],
+        "idle (last session ended)"
+    );
+    // An owner that is not a registered profile cannot be judged at all: unknown, never active.
+    edit_lease(&world, |lease| {
+        lease["owner_profile"] = Value::String("ghost-profile".to_owned())
+    });
+    let data = status_data(&world);
+    assert!(
+        data["session_state"]
+            .as_str()
+            .unwrap()
+            .starts_with("unknown"),
+        "{data}"
+    );
+    assert_eq!(data["session_provider"], Value::Null);
+}

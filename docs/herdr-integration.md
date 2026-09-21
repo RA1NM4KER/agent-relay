@@ -5,7 +5,7 @@ installed Herdr binary and the current `herdr.dev` documentation, rather than tr
 Herdr-related notes in `docs/research.md` (written during M0). Where the two agree that is called
 out explicitly; where they disagree, this document is authoritative for M3 design decisions.
 
-All examples below use synthetic data (`alice`/`bob` profile names, `/home/alice/project` paths).
+All examples below use synthetic data (`claude-primary`/`claude-backup` profile names, `/home/user/project` paths).
 No real pane titles, real project paths, or real session data seen while inspecting the local live
 Herdr server were copied into this file or anywhere else in the repository.
 

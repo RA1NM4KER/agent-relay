@@ -1,17 +1,28 @@
 # Agent Relay
 
-Keep your Claude Code session moving when one account hits its usage limit — same conversation,
-same context, moved to a backup account automatically.
+Keep your coding agent moving when one account hits its usage limit. Agent Relay supervises
+isolated Claude and Codex profiles, keeps a single writer, and moves the work to the next eligible
+profile in one priority order. Claude → Claude continues the same native Claude session; anything
+involving Codex continues from a Relay state bundle in a new session — never the same native
+conversation across the two CLIs.
 
-Status: **v0.2.0, standalone, macOS-first.** The handoff, recovery, usage-detection, and Herdr
-integration paths are validated live on macOS with Claude Code 2.1.276–2.1.278. Linux builds and
-passes the tests in CI but has not been validated live (some process-scan code is macOS-specific).
+Status: **`main` — the unreleased next version after v0.2.0, macOS-first.** The handoff, recovery,
+usage-detection, and Herdr integration paths are validated live on macOS with Claude Code
+2.1.276–2.1.278; Codex support was checked live against Codex CLI 0.155.0 (structured usage reads,
+thread verification, Codex → Claude handoff by hand, pre-launch fallback from an exhausted Codex
+profile) — automatic handoff *from a real Codex exhaustion mid-session* is covered by fake-provider
+tests and has not yet been observed live. Linux builds and passes the tests in CI but is not yet
+live-supported or validated (some process-scan code is macOS-specific).
 
 ## Install
 
 ```sh
 brew install RA1NM4KER/tap/agent-relay
 ```
+
+Homebrew installs the latest **released** version (v0.2.0). `main` — and this README — describe newer,
+unreleased work (Codex profiles, `relay codex`, provider options after `--`, the status-line badge);
+to try it now, build from source (see [below](#advanced--manual-setup--building-from-source)).
 
 ## Use
 
@@ -23,15 +34,22 @@ relay codex           # start a new Relay-managed Codex conversation
 relay resume          # continue whichever provider currently owns it, in the same project
 ```
 
-`relay setup` is a one-time wizard: it detects Claude Code and (optionally) [Herdr](https://herdr.dev),
-walks you through logging in to one or more **isolated** Claude accounts (Relay opens Claude's own
-official login — it never sees your password or token), and asks which is primary and which are
-fallbacks.
+`relay setup` is a one-time wizard: it detects Claude Code, the Codex CLI and (optionally)
+[Herdr](https://herdr.dev), walks you through logging in to one or more **isolated** Claude and Codex
+profiles (Relay opens each provider's own official login — it never sees your password or token),
+and asks for **one global priority order**: which profile is primary and which are fallbacks.
 
-The mental model is simple: **`relay claude` = `claude` + Relay supervision.**
+The mental model is simple:
 
-- `relay claude` always starts a **new** conversation under your primary account, tracked by Relay
-  from the first message. If a Relay-managed session is already active for the project, it refuses
+```
+relay claude = Claude + Relay supervision     (new managed conversation)
+relay codex  = Codex  + Relay supervision     (new managed conversation)
+relay resume = continue whoever currently owns the conversation
+relay switch <profile> = explicitly move ownership
+```
+
+- `relay claude` always starts a **new** conversation under your highest-priority Claude profile,
+  tracked by Relay from the first message. If a Relay-managed session is already active for the project, it refuses
   rather than silently reattaching or replacing it — run `relay resume` to continue that one, or
   `relay claude --new` to explicitly stop it and start fresh.
 - `relay codex` is the same thing for Codex: a new Relay-managed Codex conversation under your
@@ -41,38 +59,54 @@ The mental model is simple: **`relay claude` = `claude` + Relay supervision.**
 - `relay resume` continues the project's existing Relay-managed session, under whichever profile
   actually owns it right now (you never need to know or type a profile name for the normal case).
 - Once a session is running, Relay still does the thing this project exists for: if the account
-  genuinely runs out of quota, it hands the exact same conversation off to your next fallback
-  account automatically — Claude profile A → Claude profile B → Codex → however your fallback
-  order is configured. You never see a config path, a pane id, or a session UUID; `relay status`
+  genuinely runs out of quota, it hands the work to the next eligible profile in your priority order
+  automatically — Claude profile A → Claude profile B → Codex → back to Claude A once it has reset,
+  however your order is configured. Claude → Claude keeps the same session; any move to or from
+  Codex continues from a Relay state bundle in a new session. You never see a config path, a pane id, or a session UUID; `relay status`
   tells you what's going on if you're curious.
 
 Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**.
 
 ## What happens when quota runs out?
 
-If your primary account genuinely, verifiably runs out of quota (not a transient rate-limit blip),
-Agent Relay safely stops your current session, moves it to your next fallback account, and resumes
-it there — same conversation, same context, just under a different account. This is automatic:
-the usage integration `relay setup` installs runs a hook the instant Claude reports a rate limit,
-and when that hook fires for the session Relay manages it starts one short-lived evaluation for
-that project (not a background daemon, not polling — it exists only because a real limit event just
-happened). If you are attached in a terminal via `relay claude` / `relay resume`, that terminal
-carries you onto the fallback by itself: you see "continuing this conversation on '<profile>'" and
-keep working, with no command to discover. Herdr's own status event is a second, best-effort
-trigger, and `relay watch run` remains available to run an evaluation by hand.
+If the current writer genuinely, verifiably runs out of quota (not a transient rate-limit blip),
+Agent Relay safely stops the session, re-checks your whole priority order, and continues on the
+first eligible profile. **Claude → Claude** resumes the same native Claude session under the new
+account. **Any move involving Codex** starts a new session on the other provider seeded from a Relay
+state bundle (project state, git checkpoint, recent context) — it is a continuation, not the same
+native conversation. The writer is sticky: a profile that has reset does not take work back until
+the current writer blocks. There is no daemon, and an unknown or ambiguous reading never moves
+anything.
+
+- **Claude** is event-driven: the usage integration `relay setup` installs runs a hook the instant
+  Claude reports a rate limit, and for the session Relay manages it starts one short-lived
+  evaluation for that project.
+- **Codex** has no such event, so Relay reads Codex's own structured rate-limit state
+  (`ordinaryUsageAllowed`) immediately before it enters a Codex terminal, and then periodically
+  while that terminal is supervised — an already-exhausted Codex profile is skipped or handed off at
+  once instead of after a failed launch.
+- If you are attached through `relay claude` / `relay codex` / `relay resume`, the terminal carries
+  you onto the new owner by itself ("continuing this conversation on '<profile>'"). Herdr's status
+  event is a second, best-effort trigger, and `relay watch run` runs an evaluation by hand.
 
 ## Security
 
-Credentials stay entirely Claude-owned: Relay only launches Claude's official login/logout, and
-never reads, copies, or stores an OAuth token, cookie, or API key. Everything runs locally — no
-Relay-operated server, no data leaves your machine except what Claude's own CLI already sends.
+Authentication remains provider-owned: Relay only launches each provider's official login/logout
+inside an isolated config home per profile (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`), and never reads,
+copies, or stores an OAuth token, cookie, API key, or password. Everything runs locally — no
+Relay-operated server, no data leaves your machine except what the Claude and Codex CLIs already send.
 Details: [docs/security.md](docs/security.md).
 
 ## Requires
 
-[Claude Code](https://docs.claude.com/en/docs/claude-code) 2.1.x (2.1.276–2.1.278 validated; a
-newer 2.1.x patch works, `relay setup` explains if it isn't verified yet) and `git` (Relay
-checkpoints a project's git state before a handoff). [Herdr](https://herdr.dev) is optional.
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) 2.1.x for Claude profiles (2.1.276–2.1.278
+  validated; a newer 2.1.x patch works, `relay setup` explains if it isn't verified yet).
+- The [Codex CLI](https://developers.openai.com/codex) for Codex profiles (0.155.0 validated; other
+  versions are treated as unverified).
+- `git` — Relay checkpoints a project's git state before a handoff.
+- [Herdr](https://herdr.dev) is optional.
+- macOS is the live-validated platform. Linux currently builds and passes the tests in CI but is not
+  yet live-supported or validated.
 
 ## Updating
 
@@ -81,6 +115,19 @@ brew update && brew upgrade agent-relay
 ```
 
 ## Everyday commands
+
+| Command | What it does |
+|---|---|
+| `relay setup` | First-run wizard; safe to re-run any time (detects and reuses what's already there). |
+| `relay claude [message]` | Start a **new** Relay-managed Claude conversation in the current project. Refuses if one is already active. |
+| `relay codex [message]` | Start a **new** Relay-managed Codex conversation (same rules as `relay claude`: single writer, `--new`, `--no-attach`, `--profile`, supervised terminal). |
+| `relay claude --new [message]` | Explicitly stop the active managed session (safely, with the same authoritative stop-and-verify machinery `relay switch`/recovery use) and start a fresh one. |
+| `relay resume [profile]` | Continue the project's active Relay-managed session — resolves the current owner automatically; the profile argument is only needed for the advanced explicit form. |
+| `relay switch <profile>` | Explicitly hand the *current* conversation to a different profile/provider (state continuation across providers). Refuses an exhausted or unverifiable Codex target rather than rerouting your choice. |
+| `relay claude -- …` / `relay codex -- …` | Arguments after `--` go straight to that provider's CLI and stay provider-scoped (see below). |
+| `relay status` | Plain-language summary: project, whether the current owner's session is live (judged by that owner's own provider), current profile, fallback order, automatic-handoff status, Herdr. |
+| `relay profiles` | List registered profiles and which is primary/fallback. |
+| `relay login <name>` / `relay logout <name>` | Friendly wrappers around the provider's own official login/logout (Claude or Codex) for one isolated profile. |
 
 ### Status-line badge
 
@@ -127,19 +174,6 @@ off the hooks Relay's automatic handoff depends on are refused too — `--bare`,
 `--restricted`, and `--setting-sources` without `user` — with a message saying so; Relay never
 silently strips a flag or quietly downgrades a session to "not automatic". Everything else is yours.
 
-
-| Command | What it does |
-|---|---|
-| `relay setup` | First-run wizard; safe to re-run any time (detects and reuses what's already there). |
-| `relay claude [message]` | Start a **new** Relay-managed Claude conversation in the current project. Refuses if one is already active. |
-| `relay codex [message]` | Start a **new** Relay-managed Codex conversation (same rules as `relay claude`: single writer, `--new`, `--no-attach`, `--profile`, supervised terminal). |
-| `relay claude --new [message]` | Explicitly stop the active managed session (safely, with the same authoritative stop-and-verify machinery `relay switch`/recovery use) and start a fresh one. |
-| `relay resume [profile]` | Continue the project's active Relay-managed session — resolves the current owner automatically; the profile argument is only needed for the advanced explicit form. |
-| `relay switch <profile>` | Hand the *current* conversation off to a different profile/provider — not the same as starting or resuming. |
-| `relay status` | Plain-language summary: project, session, current profile, fallback, usage, Herdr. |
-| `relay profiles` | List registered profiles and which is primary/fallback. |
-| `relay login <name>` / `relay logout <name>` | Friendly wrappers around Claude's own official login/logout for one isolated profile. |
-
 ## Is Herdr required?
 
 **No.** Herdr is optional. `relay claude` works as a standalone Relay-managed session either way;
@@ -149,12 +183,20 @@ Herdr's own `status`/`doctor`/`watch`/`handoff` actions work without you typing 
 
 ## Is the usage integration required?
 
-**No**, but it's what makes automatic handoff possible without spending a real API call to check.
-`relay setup` offers to install it (`relay integration claude install` under the hood) for every
-profile you choose. Without it, `relay watch run` (which `relay claude` doesn't need you to run
-directly) reports `UNKNOWN` unless you pass `--probe`, an explicit diagnostic that **spends a real
-API request**. See [docs/automatic-handoff.md](docs/automatic-handoff.md) for exactly what it
-installs, the detection policy, reset windows, and uninstall.
+**For Claude, effectively yes** — it is what makes automatic Claude handoff possible without
+spending a real API call to check. `relay setup` offers to install it
+(`relay integration claude install` under the hood) for every Claude profile you choose: a
+`StopFailure` hook records a real rate limit and a status-line snapshot corroborates it (the same
+status line also carries the `[Relay · <profile>]` badge). Without it, `relay watch run` reports
+`UNKNOWN` for Claude unless you pass `--probe`, an explicit diagnostic that **spends a real API
+request**.
+
+**Codex needs no installed integration.** Relay asks Codex's own app-server for structured rate-limit
+state, read-only, under the profile's isolated `CODEX_HOME`, immediately before it enters a Codex
+terminal and periodically while that terminal is supervised — no hooks, no config edits, no daemon.
+In both cases an unknown or ambiguous state never moves anything. See
+[docs/automatic-handoff.md](docs/automatic-handoff.md) for exactly what it installs, the detection
+policy, reset windows, and uninstall.
 
 ## Advanced / manual setup / building from source
 
@@ -176,34 +218,34 @@ builds `relay` alone, without `relay-herdr-plugin`.)
 
 ```sh
 # Create two isolated Claude profiles and log in to each yourself (Relay never touches credentials):
-mkdir -p -m 700 ~/.config/agent-relay/profiles/alice/claude ~/.config/agent-relay/profiles/bob/claude
-CLAUDE_CONFIG_DIR=~/.config/agent-relay/profiles/alice/claude claude   # then /login
-CLAUDE_CONFIG_DIR=~/.config/agent-relay/profiles/bob/claude   claude   # then /login
+mkdir -p -m 700 ~/.config/agent-relay/profiles/claude-primary/claude ~/.config/agent-relay/profiles/claude-backup/claude
+CLAUDE_CONFIG_DIR=~/.config/agent-relay/profiles/claude-primary/claude claude   # then /login
+CLAUDE_CONFIG_DIR=~/.config/agent-relay/profiles/claude-backup/claude   claude   # then /login
 
 # Adopt them (reference-only; preview first with --dry-run). Two profiles with the same account
 # identity are rejected.
-relay profile adopt alice --provider claude --config-dir ~/.config/agent-relay/profiles/alice/claude --dry-run
-relay profile adopt alice --provider claude --config-dir ~/.config/agent-relay/profiles/alice/claude
-relay profile adopt bob   --provider claude --config-dir ~/.config/agent-relay/profiles/bob/claude
-relay profile doctor alice
+relay profile adopt claude-primary --provider claude --config-dir ~/.config/agent-relay/profiles/claude-primary/claude --dry-run
+relay profile adopt claude-primary --provider claude --config-dir ~/.config/agent-relay/profiles/claude-primary/claude
+relay profile adopt claude-backup --provider claude --config-dir ~/.config/agent-relay/profiles/claude-backup/claude
+relay profile doctor claude-primary
 
 # (Optional but recommended) usage integration, so Relay can detect a real limit for free:
-relay integration claude install --profile alice --dry-run
-relay integration claude install --profile alice
-relay integration claude install --profile bob
+relay integration claude install --profile claude-primary --dry-run
+relay integration claude install --profile claude-primary
+relay integration claude install --profile claude-backup
 
 # Start work as a Relay-managed writer, then let Relay watch it:
-relay launch --profile alice --project-dir ~/repos/foo "your prompt"      # prints the session id
-relay watch run --profile alice --fallback bob --project ~/repos/foo --session <session-id>
+relay launch --profile claude-primary --project-dir ~/repos/foo "your prompt"      # prints the session id
+relay watch run --profile claude-primary --fallback claude-backup --project ~/repos/foo --session <session-id>
 ```
 
-`watch run` is one evaluation, not a daemon; run it from cron or a shell loop. When alice is truly
-exhausted it performs the transactional handoff to bob; otherwise it does nothing.
+`watch run` is one evaluation, not a daemon; run it from cron or a shell loop. When claude-primary is truly
+exhausted it performs the transactional handoff to claude-backup; otherwise it does nothing.
 
 Manual handoff, no usage detection needed:
 
 ```sh
-relay handoff run --from alice --to bob --project ~/repos/foo --session <session-id>
+relay handoff run --from claude-primary --to claude-backup --project ~/repos/foo --session <session-id>
 ```
 
 ## Recovery and conflicts
@@ -230,7 +272,7 @@ relay handoff run --from alice --to bob --project ~/repos/foo --session <session
 - One writer per project; Relay never silently creates a second one — `relay claude` refuses
   outright while a managed session is already active (`relay resume` to continue it, `relay claude
   --new` to explicitly replace it), and a handoff is refused while the source profile has any live
-  Claude process.
+  session process of its provider.
 - The statusline usage snapshot only refreshes in interactive sessions; headless sessions leave it
   stale, and stale means `UNKNOWN` (no handoff).
 - No automatic fail-back or quota pooling.

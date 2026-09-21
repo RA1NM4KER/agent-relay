@@ -16,9 +16,11 @@ Here, you only need three ideas:
 brew install RA1NM4KER/tap/agent-relay
 ```
 
-No Rust, no `git clone`, no repository checkout. You also need
-[Claude Code](https://docs.claude.com/en/docs/claude-code) itself installed (`claude --version`
-should print something in the `2.1.x` range) and `git`. [Herdr](https://herdr.dev) is optional —
+No Rust, no `git clone`, no repository checkout. Homebrew installs the latest
+*released* version; the current `main` branch (and these docs) may describe newer, unreleased
+work — build from source if you want it. You also need
+[Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude --version` should print something
+in the `2.1.x` range) for Claude profiles, the Codex CLI for Codex profiles, and `git`. [Herdr](https://herdr.dev) is optional —
 everything below works without it.
 
 Not on macOS, or don't want Homebrew? See the README's
@@ -36,13 +38,13 @@ relay setup
 
 This is a one-time interactive wizard. It walks through six things:
 
-1. **Environment check.** It looks for Claude Code, Herdr (if you have it), and Agent Relay's own
+1. **Environment check.** It looks for Claude Code, the Codex CLI, Herdr (if you have it), and Agent Relay's own
    config directory, and shows a simple checklist — no raw JSON unless you pass `--verbose`.
-2. **Claude accounts.** For each account you want Relay to manage, you can either:
+2. **Accounts.** For each Claude or Codex account you want Relay to manage, you can either:
    - **Authenticate a new one.** You give it a short name (e.g. `work`); Relay creates a private,
-     isolated directory for it and opens Claude's own official login (a browser window, or
-     whatever Claude's login flow normally shows you). **Relay never sees your password or your
-     Claude token** — it only waits for the login to finish and then asks Claude "are you
+     isolated directory for it and opens that provider's own official login (a browser window, or
+     whatever its login flow normally shows you). **Relay never sees your password or your
+     token** — it only waits for the login to finish and then asks Claude "are you
      authenticated now?" the same way `relay profile doctor` already does.
    - **Reuse one that's already logged in.** If you've already set up an isolated Claude profile
      by hand, point Relay at its config directory once and it adopts it.
@@ -152,18 +154,24 @@ this when you actually want a clean slate, not a continuation.
 
 ## 4. What happens when quota runs out
 
-If your primary account genuinely, verifiably runs out of quota (not a transient rate-limit blip —
+If the current writer genuinely, verifiably runs out of quota (not a transient rate-limit blip —
 Relay is deliberately conservative about that distinction), Agent Relay:
 
-1. safely stops your current session (the conversation itself is preserved, not discarded),
-2. moves it to your next fallback account,
-3. resumes it there — same conversation, same context, same session, just under a different
-   account,
-4. and you keep working. The moment Claude reports a rate limit, the usage integration's hook
-   starts one short-lived evaluation for that project — Relay is not a background daemon and never
-   polls. If you're attached through `relay claude` or `relay resume`, your terminal continues on
-   the fallback account on its own ("continuing this conversation on '<profile>'"); Herdr's
-   status event and a manual `relay watch run` are additional triggers.
+1. safely stops the current session (the conversation itself is preserved, not discarded),
+2. re-checks your one priority order and picks the first eligible profile (profiles still waiting
+   for a reset are skipped; the writer is sticky, so a profile that has reset does not take work
+   back until the current writer blocks),
+3. continues there — **Claude → Claude** resumes the same native Claude session under the new
+   account; **anything involving Codex** starts a new session on the other provider seeded from a
+   Relay state bundle (a continuation, not the same native conversation),
+4. and you keep working. For Claude, the moment Claude reports a rate limit the usage integration's
+   hook starts one short-lived evaluation for that project. For Codex, Relay reads Codex's own
+   structured rate-limit state right before it enters a Codex terminal and then periodically while
+   that terminal is supervised — so an already-exhausted Codex profile is handled immediately. Relay
+   is not a background daemon, and an unknown reading never moves anything. If you're attached
+   through `relay claude`, `relay codex` or `relay resume`, your terminal continues on the new owner
+   on its own ("continuing this conversation on '<profile>'"); Herdr's status event and a manual
+   `relay watch run` are additional triggers.
 
 You are never asked to copy a session id, look up a pane id, or run a lower-level handoff command
 for this to work.
@@ -206,7 +214,8 @@ below) rather than guessing.
 
 ## 7. Reauthenticating
 
-If Claude logs you out of an account (it happens), `relay claude` notices automatically:
+If Claude logs you out of an account (it happens), `relay claude` notices automatically (a logged-out
+Codex profile is reported by `relay profiles`; log in again with `relay login <name>`):
 
 ```
 Profile "work" needs Claude authentication.
