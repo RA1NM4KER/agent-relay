@@ -2591,3 +2591,355 @@ fn status_never_claims_active_on_a_provider_mismatch_or_an_unresolvable_owner() 
     );
     assert_eq!(data["session_provider"], Value::Null);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Ordering and feedback: cheap local invariants before slow provider work; honest progress.
+// ---------------------------------------------------------------------------------------------
+
+/// `relay <args>` in human (non --json) mode with the fixtures on PATH.
+fn human_relay(root: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(args)
+        .env("PATH", path_with_fixtures(root));
+    scrub(&mut command);
+    command
+}
+
+fn count_starting(root: &Path, provider: &str, first: &str) -> usize {
+    argv_starting(root, provider, first).len()
+}
+
+#[test]
+fn a_plain_relay_codex_with_a_live_writer_fails_at_once_without_touching_codex() {
+    let world = world(true); // alice is a live managed writer; the Codex profile is exhausted
+    let root = world.root.path();
+    set_limits_for(&world, "codex-main", "false", 100);
+    let project = world.project.path().to_string_lossy().into_owned();
+    let output = human_relay(
+        root,
+        &[
+            "codex",
+            "--project-dir",
+            &project,
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+            "--codex-executable",
+            &codex_exe(&world),
+        ],
+    )
+    .output()
+    .expect("relay codex");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stderr.contains("managed_session_active"), "{stderr}");
+    assert!(stderr.contains("Current profile: alice"), "{stderr}");
+    assert!(stderr.contains("relay resume"), "{stderr}");
+    assert!(
+        stderr.contains("relay codex --new"),
+        "the suggestion names the command that was run: {stderr}"
+    );
+    assert!(!stderr.contains("relay claude --new"), "{stderr}");
+    // nothing slow or misleading happened first
+    assert!(
+        argv_starting(root, "codex", "app-server").is_empty(),
+        "no Codex usage preflight"
+    );
+    assert!(
+        argv_starting(root, "codex", "exec").is_empty(),
+        "no bootstrap"
+    );
+    for text in [&stdout, &stderr] {
+        assert!(
+            !text.contains("exhausted")
+                && !text.contains("Starting")
+                && !text.contains("Using next"),
+            "{text}"
+        );
+    }
+    assert_eq!(lease_owner(root), "alice");
+}
+
+#[test]
+fn a_plain_relay_claude_with_a_live_writer_fails_before_any_auth_work_and_suggests_its_own_new() {
+    let world = world(false);
+    let root = world.root.path();
+    let auth_before = count_starting(root, "claude", "auth");
+    let project = world.project.path().to_string_lossy().into_owned();
+    let output = human_relay(
+        root,
+        &[
+            "claude",
+            "--project-dir",
+            &project,
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+            "hello",
+        ],
+    )
+    .output()
+    .expect("relay claude");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("managed_session_active") && stderr.contains("relay claude --new"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("relay resume"), "{stderr}");
+    assert_eq!(
+        count_starting(root, "claude", "auth"),
+        auth_before,
+        "no auth inspection before the fast fail"
+    );
+    assert_eq!(
+        count_starting(root, "claude", "--bg"),
+        1,
+        "only the original launch"
+    );
+}
+
+/// A running process that is *not* our child (so it is reaped by the system when killed, and
+/// `kill -0` tells the truth), plus the identity Relay would record for it.
+fn orphan_process() -> (u32, Value) {
+    let output = Command::new("sh")
+        .args(["-c", "sleep 120 >/dev/null 2>&1 & echo $!"])
+        .output()
+        .expect("spawn orphan");
+    let pid: u32 = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .expect("pid");
+    std::thread::sleep(Duration::from_millis(200));
+    let lstart = Command::new("ps")
+        .args(["-o", "lstart=", "-p", &pid.to_string()])
+        .output()
+        .expect("ps");
+    let identity = serde_json::json!({
+        "pid": pid,
+        "start_time_fingerprint": String::from_utf8_lossy(&lstart.stdout).trim(),
+    });
+    (pid, identity)
+}
+
+fn is_alive(pid: u32) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn kill_quietly(pid: u32) {
+    let _ = Command::new("kill")
+        .args(["-KILL", &pid.to_string()])
+        .stderr(Stdio::null())
+        .status();
+}
+
+/// A live Codex writer whose recorded process is a real, killable process.
+fn codex_writer_with_live_process() -> (World, u32) {
+    let world = codex_writer_world();
+    let (pid, identity) = orphan_process();
+    edit_lease(&world, |lease| lease["owner_process"] = identity);
+    (world, pid)
+}
+
+fn relay_codex_new(world: &World, extra: &[&str]) -> std::process::Output {
+    let mut args = vec!["--new"];
+    args.extend_from_slice(extra);
+    relay_codex_no_attach(world, &args)
+}
+
+#[test]
+fn codex_new_keeps_the_existing_writer_alive_until_a_new_conversation_can_actually_start() {
+    skip_without_process_env_scan!();
+    // 1. UNKNOWN usage: the old writer is untouched.
+    let (world, pid) = codex_writer_with_live_process();
+    let root = world.root.path();
+    break_app_server(&world, "codex-main");
+    let unknown = relay_codex_new(&world, &[]);
+    assert!(!unknown.status.success());
+    assert_eq!(error_code(&unknown), "codex_usage_unverified");
+    assert!(is_alive(pid), "the live writer was NOT stopped");
+    assert_eq!(lease_owner(root), "codex-main");
+    std::fs::remove_file(profile_dir(root, "codex-main", "codex").join("app_server_fail")).unwrap();
+
+    // 2. Exhausted and nothing else eligible: still untouched.
+    let setup = relay(
+        root,
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "codex-main",
+            "--claude-executable",
+            &claude_exe(&world),
+        ],
+    );
+    assert!(setup.status.success());
+    set_limits_for(&world, "codex-main", "false", 100);
+    let none = relay_codex_new(&world, &[]);
+    assert!(!none.status.success());
+    assert_eq!(error_code(&none), "no_eligible_profile");
+    assert!(is_alive(pid), "no destination, so no stop");
+    assert_eq!(lease_owner(root), "codex-main");
+    kill_quietly(pid);
+}
+
+#[test]
+fn codex_new_stops_the_old_writer_exactly_when_the_destination_is_known_and_leaves_one_writer() {
+    skip_without_process_env_scan!();
+    // Available: the replacement starts and the old process is gone.
+    let (world, pid) = codex_writer_with_live_process();
+    let root = world.root.path();
+    let execs_before = count_starting(root, "codex", "exec");
+    let output = relay_codex_new(&world, &[]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!is_alive(pid), "the old writer was stopped and verified");
+    assert_eq!(count_starting(root, "codex", "exec"), execs_before + 1);
+    assert_eq!(lease_owner(root), "codex-main");
+    kill_quietly(pid);
+
+    // Exhausted selected profile + an eligible other Codex profile: pre-launch fallback replaces it.
+    let (world, pid) = codex_writer_with_live_process();
+    let root = world.root.path();
+    login(
+        root,
+        "codex-backup",
+        "codex",
+        "--codex-executable",
+        &root.join("bin").join("codex"),
+    );
+    let setup = relay(
+        root,
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "codex-main",
+            "--fallback",
+            "codex-backup",
+            "--claude-executable",
+            &claude_exe(&world),
+        ],
+    );
+    assert!(setup.status.success());
+    set_limits_for(&world, "codex-main", "false", 100);
+    let routed = relay_codex_new(&world, &[]);
+    assert!(
+        routed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&routed.stderr)
+    );
+    assert!(!is_alive(pid));
+    assert_eq!(
+        lease_owner(root),
+        "codex-backup",
+        "exactly one writer, the routed profile"
+    );
+    assert_eq!(
+        json_stdout(&routed)["data"]["prelaunch_fallback"]["handoff"],
+        false
+    );
+    kill_quietly(pid);
+}
+
+#[cfg(target_os = "macos")]
+mod pty {
+    use super::*;
+
+    /// Runs `command` inside a real pseudo-terminal (so stderr *is* a TTY) and returns everything
+    /// it wrote, escape sequences included.
+    fn under_tty(command: Command) -> String {
+        let program = command.get_program().to_owned();
+        let args: Vec<_> = command.get_args().map(ToOwned::to_owned).collect();
+        let envs: Vec<_> = command
+            .get_envs()
+            .filter_map(|(key, value)| value.map(|value| (key.to_owned(), value.to_owned())))
+            .collect();
+        let mut wrapped = Command::new("script");
+        wrapped.args(["-q", "/dev/null"]).arg(program).args(args);
+        for (key, value) in envs {
+            wrapped.env(key, value);
+        }
+        scrub(&mut wrapped);
+        wrapped.env("TERM", "xterm-256color");
+        let output = wrapped.stdin(Stdio::null()).output().expect("script");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    fn command(world: &World, json: bool, extra: &[&str]) -> Command {
+        let project = world.project.path().to_string_lossy().into_owned();
+        let mut args: Vec<&str> = if json { vec!["--json"] } else { vec![] };
+        args.extend(["codex", "--project-dir", &project, "--no-attach"]);
+        let claude = claude_exe(world);
+        let codex = codex_exe(world);
+        args.extend(["--claude-executable", &claude, "--codex-executable", &codex]);
+        args.extend_from_slice(extra);
+        human_relay(world.root.path(), &args)
+    }
+
+    #[test]
+    fn an_interactive_terminal_sees_progress_at_once_and_it_is_cleared_on_success() {
+        let world = world_opts(true, &[], false);
+        let out = under_tty(command(&world, false, &[]));
+        assert!(out.contains("Checking Codex availability"), "{out:?}");
+        let clear = out
+            .rfind("\u{1b}[2K")
+            .expect("the progress line was cleared");
+        let done = out
+            .find("New Codex session started")
+            .expect("normal success output");
+        assert!(
+            clear < done,
+            "cleared before the result is printed: {out:?}"
+        );
+    }
+
+    #[test]
+    fn the_progress_line_is_cleared_before_an_error_is_printed() {
+        let world = world_opts(true, &[], false);
+        break_app_server(&world, "codex-main");
+        let out = under_tty(command(&world, false, &[]));
+        let clear = out.rfind("\u{1b}[2K").expect("cleared");
+        let error = out.find("codex_usage_unverified").expect("the error");
+        assert!(
+            out.contains("Checking Codex availability") && clear < error,
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn json_mode_and_non_terminals_never_get_progress_text_or_escape_sequences() {
+        let world = world_opts(true, &[], false);
+        // --json on a real terminal: still nothing human-facing from the progress layer
+        let json_tty = under_tty(command(&world, true, &[]));
+        assert!(
+            !json_tty.contains("Checking Codex availability"),
+            "{json_tty:?}"
+        );
+        // redirected (piped) human output: no message, no control characters
+        let world = world_opts(true, &[], false);
+        let output = command(&world, false, &[]).output().expect("piped run");
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !text.contains("Checking") && !text.contains('\u{1b}') && !text.contains('\r'),
+            "{text:?}"
+        );
+    }
+}

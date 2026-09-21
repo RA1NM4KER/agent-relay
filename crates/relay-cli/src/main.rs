@@ -1,6 +1,7 @@
 mod auto_handoff;
 mod badge;
 mod preferences;
+mod progress;
 mod provider_args;
 mod providers;
 mod terminal;
@@ -2764,7 +2765,7 @@ fn run_switch(
     // An explicit switch to Codex is preflighted before anything is committed: an exhausted (or
     // unverifiable) target is refused outright — manual intent is never silently rerouted.
     if target.provider == ProviderKind::Codex {
-        let usage = codex_preflight(target, &executables, &canonical_project);
+        let usage = codex_preflight(target, &executables, &canonical_project, json_mode);
         if usage.state.is_blocking() {
             return Err(Error::TargetProfileExhausted(target.name.to_string()));
         }
@@ -2931,7 +2932,7 @@ fn run_resume(
             claude: args.claude_executable.clone(),
             codex: args.codex_executable.clone(),
         };
-        let usage = codex_preflight(profile, &executables, &canonical_project);
+        let usage = codex_preflight(profile, &executables, &canonical_project, json_mode);
         if usage.state.is_blocking() {
             let preferences =
                 preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
@@ -3808,6 +3809,43 @@ fn run_claude(
         claude: args.claude_executable.clone(),
         codex: None,
     };
+    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
+    let project_state_dir = paths.project_state_dir(&project_id);
+    let existing_lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
+
+    let still_active_existing = match &existing_lease {
+        Some(existing) => {
+            let owner = registered
+                .iter()
+                .find(|profile| profile.name == existing.owner_profile);
+            match owner {
+                Some(owner) => confirm_not_active(
+                    owner,
+                    &canonical_project,
+                    &existing.session_id,
+                    &existing.owner_process,
+                    &executables,
+                )
+                .map(|confirmed_inactive| !confirmed_inactive)?,
+                None => false,
+            }
+        }
+        None => false,
+    };
+
+    // Cheap, authoritative fast-fail: a live managed writer makes a plain `relay claude` impossible,
+    // so say so before any slow provider work (auth inspection, login prompts). The lock-guarded
+    // recheck inside `perform_launch` stays the final authority for races.
+    if still_active_existing && !args.new {
+        let existing = existing_lease
+            .as_ref()
+            .expect("still_active_existing implies Some");
+        return Err(Error::ManagedSessionAlreadyActive {
+            owner: existing.owner_profile.to_string(),
+            entrypoint: "claude",
+        });
+    }
+
     // M4.7: safe reauthentication for the primary; fallback unauthenticated is a warning only.
     let (primary_auth, _) = friendly_auth_state(primary_profile, &executables);
     if primary_auth != "authenticated" {
@@ -3843,30 +3881,6 @@ fn run_claude(
         }
     }
 
-    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
-    let project_state_dir = paths.project_state_dir(&project_id);
-    let existing_lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
-
-    let still_active_existing = match &existing_lease {
-        Some(existing) => {
-            let owner = registered
-                .iter()
-                .find(|profile| profile.name == existing.owner_profile);
-            match owner {
-                Some(owner) => confirm_not_active(
-                    owner,
-                    &canonical_project,
-                    &existing.session_id,
-                    &existing.owner_process,
-                    &executables,
-                )
-                .map(|confirmed_inactive| !confirmed_inactive)?,
-                None => false,
-            }
-        }
-        None => false,
-    };
-
     // Product contract (post-M4): `relay claude` ALWAYS starts a new Relay-managed conversation —
     // it never silently reattaches to a live one (that's `relay resume`'s job now). A genuinely
     // live existing session blocks a plain `relay claude` outright; `--new` is the explicit,
@@ -3895,9 +3909,10 @@ fn run_claude(
                 Some(&existing.owner_process),
             )?;
         } else {
-            return Err(Error::ManagedSessionAlreadyActive(
-                existing.owner_profile.to_string(),
-            ));
+            return Err(Error::ManagedSessionAlreadyActive {
+                owner: existing.owner_profile.to_string(),
+                entrypoint: "claude",
+            });
         }
     }
 
@@ -4019,6 +4034,20 @@ fn codex_preflight(
     profile: &Profile,
     executables: &providers::ExecutableOverrides,
     project_dir: &Path,
+    json_mode: bool,
+) -> relay_core::usage::UsageObservation {
+    // Starting `codex app-server` takes a moment: show an interactive human that Relay is working
+    // (nothing at all in --json mode or when output is not a terminal).
+    let progress = progress::Progress::start("Checking Codex availability…", json_mode);
+    let observation = codex_usage_now(profile, executables, project_dir);
+    progress.finish();
+    observation
+}
+
+fn codex_usage_now(
+    profile: &Profile,
+    executables: &providers::ExecutableOverrides,
+    project_dir: &Path,
 ) -> relay_core::usage::UsageObservation {
     providers::usage_signal_for(ProviderKind::Codex, executables, false, None)
         .detect(&profile.config_dir, project_dir, "")
@@ -4100,6 +4129,10 @@ fn route_exhausted_codex_start(
         healthy: true,
         usage,
     };
+    if !json_mode {
+        println!("Codex profile '{}' is exhausted.", exhausted.name);
+    }
+    let progress = progress::Progress::start("Finding the next eligible profile…", json_mode);
     let mut candidates = Vec::new();
     for name in auto_handoff::hierarchy_without(preferences, &exhausted.name, |_| true) {
         let Some(candidate) = registered.iter().find(|profile| &profile.name == name) else {
@@ -4131,6 +4164,7 @@ fn route_exhausted_codex_start(
     // Reset-pending / known-exhausted profiles stay skipped; past handoffs (cooldown, loop guard)
     // are about real transactions and do not apply to starting a fresh conversation.
     ledger.recent_handoffs.clear();
+    progress.finish();
     let AutomationDecision::Handoff { target } = decide(
         current_unix_ms(),
         &source,
@@ -4145,12 +4179,10 @@ fn route_exhausted_codex_start(
         .find(|profile| profile.name == target)
         .ok_or_else(|| Error::ProfileNotFound(target.to_string()))?;
 
-    let notice = format!(
-        "Codex profile '{}' is exhausted.\nStarting managed work on '{}' instead.",
-        exhausted.name, target_profile.name
-    );
+    // Announced as a *decision* only: the launch itself prints its own "Starting…" line once it
+    // has passed every check that could still stop it.
     if !json_mode {
-        println!("{notice}\n");
+        println!("Using next eligible profile: '{}'.\n", target_profile.name);
     }
     let mut output = match target_profile.provider {
         ProviderKind::Codex => run_codex_inner(
@@ -4304,33 +4336,11 @@ fn run_codex_inner(
         claude: args.claude_executable.clone(),
         codex: args.codex_executable.clone(),
     };
-    let (auth, _) = friendly_auth_state(profile, &executables);
-    if auth != "authenticated" {
-        return Err(Error::AuthenticationRequired);
-    }
-
-    // Immediate structured preflight — before anything is stopped, created or spent. An exhausted
-    // profile never gets the quota-consuming bootstrap turn; an unverifiable one fails closed.
-    let usage = codex_preflight(profile, &executables, &canonical_project);
-    if usage.state.is_blocking() {
-        return route_exhausted_codex_start(
-            service,
-            paths,
-            args,
-            profile,
-            usage,
-            &registered,
-            &preferences,
-            &executables,
-            &canonical_project,
-            json_mode,
-            allow_reroute,
-        );
-    }
-    if usage.state == UsageState::Unknown {
-        return Err(Error::CodexUsageUnverified(profile.name.to_string()));
-    }
-
+    // 1. Cheap, authoritative local invariant first: is a managed writer live for this project?
+    //    (Read from Relay's lease and judged by the OWNER's own provider.) A live writer makes a
+    //    plain `relay codex` impossible, so fail at once — before auth inspection, before any Codex
+    //    app-server round trip, before any routing message. The lock-guarded recheck inside
+    //    `perform_codex_launch` stays the final authority for races.
     let project_id = ProjectId::for_canonical_path(&canonical_project)?;
     let project_state_dir = paths.project_state_dir(&project_id);
     let existing_lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
@@ -4351,17 +4361,50 @@ fn run_codex_inner(
         },
         None => false,
     };
+    if still_active_existing && !args.new {
+        let existing = existing_lease
+            .as_ref()
+            .expect("still_active_existing implies Some");
+        return Err(Error::ManagedSessionAlreadyActive {
+            owner: existing.owner_profile.to_string(),
+            entrypoint: "codex",
+        });
+    }
+
+    let (auth, _) = friendly_auth_state(profile, &executables);
+    if auth != "authenticated" {
+        return Err(Error::AuthenticationRequired);
+    }
+
+    // 2. Immediate structured preflight — before anything is stopped, created or spent. With
+    //    `--new` the existing writer is still untouched here: if the route turns out not to be
+    //    viable (unknown usage, exhausted with no eligible profile) it stays exactly as it was.
+    let usage = codex_preflight(profile, &executables, &canonical_project, json_mode);
+    if usage.state.is_blocking() {
+        return route_exhausted_codex_start(
+            service,
+            paths,
+            args,
+            profile,
+            usage,
+            &registered,
+            &preferences,
+            &executables,
+            &canonical_project,
+            json_mode,
+            allow_reroute,
+        );
+    }
+    if usage.state == UsageState::Unknown {
+        return Err(Error::CodexUsageUnverified(profile.name.to_string()));
+    }
+
+    // 3. Only now that a new conversation can actually start is the old writer (if `--new`)
+    //    stopped, authoritatively and verified, before the replacement is created.
     if still_active_existing {
         let existing = existing_lease
             .as_ref()
             .expect("still_active_existing implies Some");
-        if !args.new {
-            return Err(Error::ManagedSessionAlreadyActive(
-                existing.owner_profile.to_string(),
-            ));
-        }
-        // Same explicit escape hatch as `relay claude --new`: authoritatively stop the CURRENT
-        // owner (whatever its provider) and never continue unless quiescence is confirmed.
         let owner_profile = registered
             .iter()
             .find(|candidate| candidate.name == existing.owner_profile)

@@ -96,9 +96,14 @@ pub enum Error {
     #[error("a writer is already active for this project, owned by: {0}")]
     WriterAlreadyActive(String),
     #[error(
-        "A Relay-managed session is already active for this project.\n\nCurrent profile: {0}\n\nRun:\n  relay resume\nto continue it.\n\nOr:\n  relay claude --new\nto stop the existing managed session and start a fresh one."
+        "A Relay-managed session is already active for this project.\n\nCurrent profile: {owner}\n\nRun:\n  relay resume\nto continue it.\n\nOr:\n  relay {entrypoint} --new\nto stop the existing managed session and start a fresh one."
     )]
-    ManagedSessionAlreadyActive(String),
+    ManagedSessionAlreadyActive {
+        owner: String,
+        /// The provider entrypoint that was invoked (`claude` / `codex`), so the suggested
+        /// replacement command is the one the user actually ran.
+        entrypoint: &'static str,
+    },
     #[error(
         "cannot safely determine whether profile '{0}''s managed session is still live; refusing \
          to guess between attaching to it and replaying it natively. Investigate manually (e.g. \
@@ -234,7 +239,7 @@ impl Error {
             Self::TargetVerificationMismatch => "target_verification_mismatch",
             Self::UntrackedWriterDetected(_) => "untracked_writer_detected",
             Self::WriterAlreadyActive(_) => "writer_already_active",
-            Self::ManagedSessionAlreadyActive(_) => "managed_session_active",
+            Self::ManagedSessionAlreadyActive { .. } => "managed_session_active",
             Self::AmbiguousSessionLiveness(_) => "ambiguous_session_liveness",
             Self::CodexThreadNotVerified(_) => "codex_thread_not_verified",
             Self::ProviderArgumentRejected(..) => "provider_argument_rejected",
