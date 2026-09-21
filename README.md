@@ -18,8 +18,9 @@ brew install RA1NM4KER/tap/agent-relay
 ```sh
 relay setup
 cd ~/repos/my-project
-relay claude          # start a new Relay-managed conversation
-relay resume          # continue it later, in the same project
+relay claude          # start a new Relay-managed Claude conversation
+relay codex           # start a new Relay-managed Codex conversation
+relay resume          # continue whichever provider currently owns it, in the same project
 ```
 
 `relay setup` is a one-time wizard: it detects Claude Code and (optionally) [Herdr](https://herdr.dev),
@@ -33,6 +34,10 @@ The mental model is simple: **`relay claude` = `claude` + Relay supervision.**
   from the first message. If a Relay-managed session is already active for the project, it refuses
   rather than silently reattaching or replacing it — run `relay resume` to continue that one, or
   `relay claude --new` to explicitly stop it and start fresh.
+- `relay codex` is the same thing for Codex: a new Relay-managed Codex conversation under your
+  highest-priority configured *Codex* profile (`relay claude` likewise picks the highest-priority
+  Claude profile; neither ever prompts). `--profile <name>` overrides the choice and must name a
+  profile of that provider; `--new` and `--no-attach` behave exactly as they do for `relay claude`.
 - `relay resume` continues the project's existing Relay-managed session, under whichever profile
   actually owns it right now (you never need to know or type a profile name for the normal case).
 - Once a session is running, Relay still does the thing this project exists for: if the account
@@ -77,10 +82,40 @@ brew update && brew upgrade agent-relay
 
 ## Everyday commands
 
+### Provider options: `--` separates Relay's options from the provider's
+
+Everything **before** `--` is Relay's; everything **after** it is forwarded, verbatim and as exact
+arguments, to the provider CLI. Relay does not mirror either CLI's flags, so new provider flags
+just work:
+
+```sh
+relay claude -- --dangerously-skip-permissions
+relay claude --profile claude-backup -- --model opus --add-dir ../shared
+relay codex -- --sandbox workspace-write
+relay codex --profile codex-work "fix the failing test" -- --model o3
+```
+
+Provider options stay **provider-scoped**. Relay remembers them per project (structured, no shell
+strings, no credentials) and reuses them only where they mean the same thing: the Claude ones for
+Claude launches and resumes, the Codex ones for Codex — including after an automatic handoff to
+another profile of the same provider. A Claude → Codex (or Codex → Claude) handoff never translates
+flags between the two CLIs: the new provider is continued with *its own* stored options, if any.
+`relay resume -- …` and `relay switch <profile> -- …` replace the stored options for the provider
+they continue. Relay's own internal turns (the headless verification/bootstrap turns) never carry
+user options, and `claude attach` re-enters a background job that already has them.
+
+A handful of flags are refused, because they would replace something Relay must own for a managed
+session — the working directory (`-C`/`--cd`, `--worktree`), session/thread identity
+(`--resume`, `--continue`, `--session-id`, `--fork-session`, `--last`, …), headless or
+machine-readable output (`-p`, `--output-format`, `--json`, …), detaching (`--bg`, `--tmux`) and
+non-resumable sessions (`--ephemeral`, `--no-session-persistence`). Everything else is yours.
+
+
 | Command | What it does |
 |---|---|
 | `relay setup` | First-run wizard; safe to re-run any time (detects and reuses what's already there). |
 | `relay claude [message]` | Start a **new** Relay-managed Claude conversation in the current project. Refuses if one is already active. |
+| `relay codex [message]` | Start a **new** Relay-managed Codex conversation (same rules as `relay claude`: single writer, `--new`, `--no-attach`, `--profile`, supervised terminal). |
 | `relay claude --new [message]` | Explicitly stop the active managed session (safely, with the same authoritative stop-and-verify machinery `relay switch`/recovery use) and start a fresh one. |
 | `relay resume [profile]` | Continue the project's active Relay-managed session — resolves the current owner automatically; the profile argument is only needed for the advanced explicit form. |
 | `relay switch <profile>` | Hand the *current* conversation off to a different profile/provider — not the same as starting or resuming. |

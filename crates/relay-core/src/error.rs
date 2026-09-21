@@ -114,6 +114,21 @@ pub enum Error {
     )]
     CodexThreadNotVerified(String),
     #[error(
+        "the provider argument '{0}' conflicts with something Agent Relay itself must own for a \
+         managed session ({1}); Relay did not start anything"
+    )]
+    ProviderArgumentRejected(String, &'static str),
+    #[error("no {0} profile is configured (checked the primary and fallbacks in priority order)")]
+    NoProfileForProvider(&'static str),
+    #[error(
+        "profile '{profile}' is a {actual} profile, but this command starts a {expected} session"
+    )]
+    ProfileProviderMismatch {
+        profile: String,
+        expected: &'static str,
+        actual: String,
+    },
+    #[error(
         "a prior handoff transaction for this project requires explicit recovery before a new one can start: {0}"
     )]
     PendingRecoveryRequired(String),
@@ -208,6 +223,9 @@ impl Error {
             Self::ManagedSessionAlreadyActive(_) => "managed_session_active",
             Self::AmbiguousSessionLiveness(_) => "ambiguous_session_liveness",
             Self::CodexThreadNotVerified(_) => "codex_thread_not_verified",
+            Self::ProviderArgumentRejected(..) => "provider_argument_rejected",
+            Self::NoProfileForProvider(_) => "no_profile_for_provider",
+            Self::ProfileProviderMismatch { .. } => "profile_provider_mismatch",
             Self::PendingRecoveryRequired(_) => "pending_recovery_required",
             Self::StopNotVerified(_) => "stop_not_verified",
             Self::ConflictRequiresResolution(_) => "conflict_requires_resolution",

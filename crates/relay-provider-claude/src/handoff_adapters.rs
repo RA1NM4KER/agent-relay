@@ -573,6 +573,7 @@ pub fn launch_background(
     project_dir: &Path,
     prompt: &str,
     claude_executable: Option<&Path>,
+    extra_args: &[String],
 ) -> Result<LaunchedWriter> {
     let inspector = ClaudeInspector::discover(claude_executable)?;
     let executable = inspector.executable().to_path_buf();
@@ -584,6 +585,10 @@ pub fn launch_background(
         .arg("--permission-mode")
         .arg("acceptEdits")
         .arg(prompt)
+        // The user's own provider arguments follow the prompt verbatim: a variadic option such
+        // as `--add-dir` can then never swallow the prompt, and Relay's required arguments and
+        // environment stay first (and the environment authoritative).
+        .args(extra_args)
         .env("CLAUDE_CONFIG_DIR", config_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

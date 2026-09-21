@@ -69,7 +69,7 @@ You can re-run `relay setup` any time — to add another account, change the pri
 integration. It's safe: it never re-authenticates something that's already logged in, and it never
 throws away an existing profile.
 
-## 3. `relay claude` and `relay resume`
+## 3. `relay claude`, `relay codex` and `relay resume`
 
 The mental model: **`relay claude` = `claude` + Relay supervision.** It always starts something
 new; it never silently reattaches you to something old. Continuing is a separate, explicit command.
@@ -90,6 +90,30 @@ This is the command you use to **start** a conversation. It:
 
 It needs an opening message — either give it on the command line
 (`relay claude "let's refactor the auth module"`) or it asks you once.
+
+`relay codex` is the same command for Codex: it starts a **new** Relay-managed Codex conversation
+under your highest-priority configured Codex profile (`relay claude` picks the highest-priority
+Claude profile). Neither command prompts for a profile; `--profile <name>` overrides the choice and
+must name a profile of the right provider. Both support `--new` and `--no-attach`, refuse to create
+a second writer, and open the supervised terminal, so automatic handoff stays active. `relay resume`
+continues whichever provider currently owns the conversation.
+
+### Passing options to Claude or Codex
+
+Options for the provider CLI go after `--`; everything before it is Relay's:
+
+```sh
+relay claude -- --dangerously-skip-permissions
+relay claude --profile claude-backup -- --model opus
+relay codex -- --sandbox workspace-write
+```
+
+They are forwarded verbatim (no shell re-parsing), remembered for this project, and reused only for
+the same provider — including after a handoff to another profile of that provider. Options are
+never translated between CLIs: after a Claude → Codex handoff the Codex session gets Codex's own
+stored options (if any), never `--dangerously-skip-permissions`. Flags that would replace something
+Relay owns — the working directory, the session/thread being resumed, headless/machine-readable
+output, backgrounding — are rejected with a clear error.
 
 If a Relay-managed session is *already* active for this project, `relay claude` refuses rather than
 guessing what you meant:

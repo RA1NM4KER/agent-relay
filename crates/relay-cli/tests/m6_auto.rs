@@ -102,6 +102,7 @@ fn install_fake_claude(root: &Path) -> PathBuf {
     let script = format!(
         r#"#!/bin/sh
 printf '%s|%s\n' "$*" "$CLAUDE_CONFIG_DIR" >> "{log}"
+{{ printf 'ARGV'; for a in "$@"; do printf '\037%s' "$a"; done; printf '|%s\n' "$CLAUDE_CONFIG_DIR"; }} >> "{argv_log}"
 NAME=unknown
 case "$CLAUDE_CONFIG_DIR" in */alice/*) NAME=alice ;; */bob/*) NAME=bob ;; esac
 case "$1" in
@@ -129,12 +130,39 @@ case "$1" in
 esac
 "#,
         log = log.display(),
+        argv_log = root.join("claude.argv").display(),
         stopped = stopped.display(),
     );
     std::fs::write(&executable, script).expect("fake claude");
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
         .expect("permissions");
     executable
+}
+
+/// Every recorded invocation of a fake provider as its exact argv (one element per real argument,
+/// never re-split), with the isolated home it ran under.
+fn argv_log(root: &Path, provider: &str) -> Vec<(Vec<String>, String)> {
+    std::fs::read_to_string(root.join(format!("{provider}.argv")))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| {
+            let (argv, home) = line.rsplit_once('|')?;
+            let argv = argv.strip_prefix("ARGV")?;
+            Some((
+                argv.split('\u{1f}').skip(1).map(str::to_owned).collect(),
+                home.to_owned(),
+            ))
+        })
+        .collect()
+}
+
+/// Provider invocations whose first argument is `first` (for example `--bg`, `exec`, `resume`).
+fn argv_starting(root: &Path, provider: &str, first: &str) -> Vec<Vec<String>> {
+    argv_log(root, provider)
+        .into_iter()
+        .map(|(argv, _)| argv)
+        .filter(|argv| argv.first().map(String::as_str) == Some(first))
+        .collect()
 }
 
 fn claude_log(root: &Path) -> Vec<(String, String)> {
@@ -153,6 +181,7 @@ fn install_fake_codex(root: &Path) -> PathBuf {
     let exec_log = root.join("codex-exec.log");
     let script = format!(
         r#"#!/bin/sh
+{{ printf 'ARGV'; for a in "$@"; do printf '\037%s' "$a"; done; printf '|%s\n' "$CODEX_HOME"; }} >> "{argv_log}"
 case "$1" in
   --version) printf 'codex-cli 0.155.0\n' ;;
   doctor) printf '{{"checks":{{"auth.credentials":{{"status":"ok","summary":"logged in via fake"}}}}}}\n' ;;
@@ -195,6 +224,7 @@ case "$1" in
 esac
 "#,
         exec_log = exec_log.display(),
+        argv_log = root.join("codex.argv").display(),
     );
     std::fs::write(&executable, script).expect("fake codex");
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
@@ -334,6 +364,16 @@ struct World {
 /// alice (Claude, primary) holds a real managed writer lease for a project; `fallback` is either
 /// a Codex profile or a second Claude profile; alice's usage integration is installed.
 fn world(fallback_is_codex: bool) -> World {
+    world_with(fallback_is_codex, &[])
+}
+
+/// [`world`], but the initial `relay claude` launch also passes `passthrough` after `--`.
+fn world_with(fallback_is_codex: bool, passthrough: &[&str]) -> World {
+    world_opts(fallback_is_codex, passthrough, true)
+}
+
+/// The shared builder; with `launch = false` profiles and preferences exist but no session does.
+fn world_opts(fallback_is_codex: bool, passthrough: &[&str], launch: bool) -> World {
     let root = tempdir().expect("tempdir");
     let project = tempdir().expect("project");
     init_git_repo(project.path());
@@ -377,23 +417,29 @@ fn world(fallback_is_codex: bool) -> World {
         "{}",
         String::from_utf8_lossy(&setup.stderr)
     );
-    let launch = relay(
-        root.path(),
-        &[
+    if launch {
+        let project_text = project.path().to_string_lossy().into_owned();
+        let claude_text = claude.to_string_lossy().into_owned();
+        let mut launch_args = vec![
             "claude",
             "--project-dir",
-            &project.path().to_string_lossy(),
+            &project_text,
             "--no-attach",
             "--claude-executable",
-            &claude.to_string_lossy(),
+            &claude_text,
             "hello",
-        ],
-    );
-    assert!(
-        launch.status.success(),
-        "{}",
-        String::from_utf8_lossy(&launch.stderr)
-    );
+        ];
+        if !passthrough.is_empty() {
+            launch_args.push("--");
+            launch_args.extend_from_slice(passthrough);
+        }
+        let launch = relay(root.path(), &launch_args);
+        assert!(
+            launch.status.success(),
+            "{}",
+            String::from_utf8_lossy(&launch.stderr)
+        );
+    }
     let alice_dir = profile_dir(root.path(), "alice", "claude");
     let install = relay(
         root.path(),
@@ -1116,4 +1162,574 @@ fn an_exhausted_codex_writer_can_hand_off_to_a_second_codex_profile_with_state_c
         "STATE_CONTINUATION"
     );
     assert_eq!(lease_owner(root), "codex-backup");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Provider passthrough (`relay claude -- …`, `relay codex -- …`) and the symmetric entrypoints.
+// ---------------------------------------------------------------------------------------------
+
+fn s(values: &[&str]) -> Vec<String> {
+    values.iter().map(ToString::to_string).collect()
+}
+
+fn claude_exe(world: &World) -> String {
+    world
+        .root
+        .path()
+        .join("bin")
+        .join("claude")
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn codex_exe(world: &World) -> String {
+    world
+        .root
+        .path()
+        .join("bin")
+        .join("codex")
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn stored_args(world: &World) -> Value {
+    serde_json::from_str(
+        &std::fs::read_to_string(project_state_dir(world.root.path()).join("provider_args.json"))
+            .expect("provider_args.json"),
+    )
+    .expect("json")
+}
+
+/// A `relay resume` that runs the (instantly exiting) fake provider and reports success.
+fn relay_resume(world: &World, extra: &[&str]) -> std::process::Output {
+    let root = world.root.path();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(["resume", "--project-dir"])
+        .arg(world.project.path())
+        .arg("--claude-executable")
+        .arg(claude_exe(world))
+        .arg("--codex-executable")
+        .arg(codex_exe(world))
+        .args(extra)
+        .env("PATH", path_with_fixtures(root))
+        .env("RELAY_CODEX_POLL_SECS", "0");
+    scrub(&mut command);
+    command.output().expect("relay resume")
+}
+
+#[test]
+fn claude_passthrough_reaches_the_background_launch_verbatim_after_relays_own_arguments() {
+    let passthrough = [
+        "--model",
+        "opus",
+        "--append-system-prompt",
+        "two words; \"quoted\" & spaced",
+        "--add-dir=/a b",
+        "--add-dir",
+        "/c",
+        "--add-dir",
+        "-",
+        "--dangerously-skip-permissions",
+    ];
+    let world = world_with(false, &passthrough);
+    let launches = argv_starting(world.root.path(), "claude", "--bg");
+    assert_eq!(launches.len(), 1);
+    let mut expected = s(&["--bg", "--permission-mode", "acceptEdits", "hello"]);
+    expected.extend(s(&passthrough));
+    assert_eq!(
+        launches[0], expected,
+        "exact argv, no re-splitting or re-quoting"
+    );
+    let stored = stored_args(&world);
+    assert_eq!(stored["claude"], serde_json::json!(passthrough));
+    assert_eq!(stored["codex"], serde_json::json!([]));
+}
+
+#[test]
+fn no_passthrough_means_the_launch_argv_is_exactly_what_it_always_was() {
+    let world = world(false);
+    let launches = argv_starting(world.root.path(), "claude", "--bg");
+    assert_eq!(
+        launches[0],
+        s(&["--bg", "--permission-mode", "acceptEdits", "hello"])
+    );
+    assert_eq!(stored_args(&world)["claude"], serde_json::json!([]));
+}
+
+#[test]
+fn flags_that_would_replace_what_relay_owns_are_rejected_before_anything_starts() {
+    let world = world(false);
+    let root = world.root.path();
+    let project = world.project.path().to_string_lossy().into_owned();
+    let (claude, codex) = (claude_exe(&world), codex_exe(&world));
+    for (bad, provider) in [
+        ("--bg", "claude"),
+        ("--resume=abc", "claude"),
+        ("-C", "codex"),
+    ] {
+        let mut args = vec![provider, "--project-dir", &project, "--no-attach", "--new"];
+        args.extend(if provider == "claude" {
+            ["--claude-executable", claude.as_str()]
+        } else {
+            ["--codex-executable", codex.as_str()]
+        });
+        args.extend(["--", bad, "/elsewhere"]);
+        let output = relay(root, &args);
+        assert!(!output.status.success(), "{bad} must be rejected");
+        let error: Value = serde_json::from_slice(&output.stderr).expect("error json");
+        assert_eq!(
+            error["error"]["code"], "provider_argument_rejected",
+            "{bad}"
+        );
+    }
+    assert_eq!(
+        argv_starting(root, "claude", "--bg").len(),
+        1,
+        "only the initial launch ever ran"
+    );
+    assert!(argv_starting(root, "codex", "exec").is_empty());
+    assert_eq!(lease_owner(root), "alice");
+}
+
+#[test]
+fn relay_codex_starts_a_new_codex_session_and_keeps_user_arguments_off_the_bootstrap_turn() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    let output = relay(
+        root,
+        &[
+            "codex",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--codex-executable",
+            &codex_exe(&world),
+            "--",
+            "--sandbox",
+            "workspace-write",
+            "-c",
+            "model=\"o3\"",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(lease_owner(root), "codex-main");
+    // Relay's own bootstrap turn only: never the user's arguments.
+    assert_eq!(
+        argv_starting(root, "codex", "exec"),
+        vec![s(&["exec", "--json", "--skip-git-repo-check"])]
+    );
+    let stored = stored_args(&world);
+    assert_eq!(
+        stored["codex"],
+        serde_json::json!(["--sandbox", "workspace-write", "-c", "model=\"o3\""])
+    );
+    assert_eq!(stored["claude"], serde_json::json!([]));
+
+    // `relay resume` continues the Codex thread with those arguments, verified thread first.
+    let resumed = relay_resume(&world, &[]);
+    assert!(
+        resumed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resumed.stderr)
+    );
+    assert_eq!(
+        argv_starting(root, "codex", "resume"),
+        vec![s(&[
+            "resume",
+            "01a-auto-thread",
+            "--sandbox",
+            "workspace-write",
+            "-c",
+            "model=\"o3\""
+        ])]
+    );
+}
+
+#[test]
+fn relay_codex_with_a_first_message_opens_the_supervised_session_with_it_after_double_dash() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    let output = relay(
+        root,
+        &[
+            "codex",
+            "fix",
+            "the",
+            "bug",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--codex-executable",
+            &codex_exe(&world),
+            "--",
+            "--oss",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        argv_starting(root, "codex", "resume"),
+        vec![s(&[
+            "resume",
+            "01a-auto-thread",
+            "--oss",
+            "--",
+            "fix the bug"
+        ])]
+    );
+}
+
+#[test]
+fn without_new_relay_codex_refuses_to_replace_an_active_session() {
+    let world = world(true);
+    let output = relay(
+        world.root.path(),
+        &[
+            "codex",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+            "--codex-executable",
+            &codex_exe(&world),
+        ],
+    );
+    assert!(!output.status.success());
+    let error: Value = serde_json::from_slice(&output.stderr).expect("error json");
+    assert_eq!(error["error"]["code"], "managed_session_active");
+    assert_eq!(lease_owner(world.root.path()), "alice");
+    assert!(argv_starting(world.root.path(), "codex", "exec").is_empty());
+}
+
+#[test]
+fn each_entrypoint_picks_the_highest_priority_profile_of_its_own_provider() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    // Priority order: the Codex profile first, then the Claude profile.
+    let setup = relay(
+        root,
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "codex-main",
+            "--fallback",
+            "alice",
+            "--claude-executable",
+            &claude_exe(&world),
+        ],
+    );
+    assert!(setup.status.success());
+    let project = world.project.path().to_string_lossy().into_owned();
+    let codex = relay(
+        root,
+        &[
+            "codex",
+            "--project-dir",
+            &project,
+            "--no-attach",
+            "--codex-executable",
+            &codex_exe(&world),
+        ],
+    );
+    assert!(
+        codex.status.success(),
+        "{}",
+        String::from_utf8_lossy(&codex.stderr)
+    );
+    assert_eq!(json_stdout(&codex)["data"]["profile"], "codex-main");
+    assert_eq!(lease_owner(root), "codex-main");
+    // `relay claude`, though the primary is a Codex profile: the highest-priority CLAUDE one.
+    let claude = relay(
+        root,
+        &[
+            "claude",
+            "--project-dir",
+            &project,
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+            "hi",
+        ],
+    );
+    assert!(
+        claude.status.success(),
+        "{}",
+        String::from_utf8_lossy(&claude.stderr)
+    );
+    assert_eq!(json_stdout(&claude)["data"]["profile"], "alice");
+    assert_eq!(lease_owner(root), "alice", "still exactly one writer");
+}
+
+#[test]
+fn a_profile_of_the_wrong_provider_or_none_of_that_provider_fails_clearly() {
+    let world = world(true);
+    let root = world.root.path();
+    let project = world.project.path().to_string_lossy().into_owned();
+    let mismatch_codex = relay(
+        root,
+        &[
+            "codex",
+            "--profile",
+            "alice",
+            "--project-dir",
+            &project,
+            "--no-attach",
+            "--new",
+            "--claude-executable",
+            &claude_exe(&world),
+            "--codex-executable",
+            &codex_exe(&world),
+        ],
+    );
+    let mismatch_claude = relay(
+        root,
+        &[
+            "claude",
+            "--profile",
+            "codex-main",
+            "--project-dir",
+            &project,
+            "--no-attach",
+            "--new",
+            "--claude-executable",
+            &claude_exe(&world),
+            "hi",
+        ],
+    );
+    for output in [mismatch_codex, mismatch_claude] {
+        assert!(!output.status.success());
+        let error: Value = serde_json::from_slice(&output.stderr).expect("error json");
+        assert_eq!(error["error"]["code"], "profile_provider_mismatch");
+    }
+    assert_eq!(lease_owner(root), "alice", "nothing was stopped or started");
+
+    // Only Claude profiles configured: `relay codex` has nothing to start.
+    let claude_only = self::world(false);
+    let none = relay(
+        claude_only.root.path(),
+        &[
+            "codex",
+            "--project-dir",
+            &claude_only.project.path().to_string_lossy(),
+            "--no-attach",
+            "--new",
+            "--claude-executable",
+            &claude_exe(&claude_only),
+            "--codex-executable",
+            &codex_exe(&claude_only),
+        ],
+    );
+    assert!(!none.status.success());
+    let error: Value = serde_json::from_slice(&none.stderr).expect("error json");
+    assert_eq!(error["error"]["code"], "no_profile_for_provider");
+}
+
+#[test]
+fn claude_arguments_never_reach_codex_and_codex_arguments_never_reach_claude() {
+    let world = world_with(true, &["--dangerously-skip-permissions", "--model", "opus"]);
+    let root = world.root.path();
+    // Claude -> Codex: the Codex continuation gets ONLY Codex's own (here: none) arguments.
+    let to_codex = relay(
+        root,
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+            "--codex-executable",
+            &codex_exe(&world),
+        ],
+    );
+    assert!(
+        to_codex.status.success(),
+        "{}",
+        String::from_utf8_lossy(&to_codex.stderr)
+    );
+    let resumed = relay_resume(&world, &[]);
+    assert!(
+        resumed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resumed.stderr)
+    );
+    assert_eq!(
+        argv_starting(root, "codex", "resume"),
+        vec![s(&["resume", "01a-auto-thread"])],
+        "no Claude flag was translated to Codex"
+    );
+    assert!(
+        argv_log(root, "codex").iter().all(|(argv, _)| !argv
+            .iter()
+            .any(|a| a == "--dangerously-skip-permissions" || a == "--model")),
+        "no Codex invocation of any kind saw a Claude argument"
+    );
+
+    // Give Codex its own arguments, then hand back to Claude: they must not follow.
+    let with_codex_args = relay_resume(&world, &["--", "--sandbox", "workspace-write"]);
+    assert!(with_codex_args.status.success());
+    assert_eq!(
+        argv_starting(root, "codex", "resume")
+            .last()
+            .expect("resume"),
+        &s(&["resume", "01a-auto-thread", "--sandbox", "workspace-write"])
+    );
+    let to_claude = relay(
+        root,
+        &[
+            "switch",
+            "alice",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+            "--codex-executable",
+            &codex_exe(&world),
+        ],
+    );
+    assert!(
+        to_claude.status.success(),
+        "{}",
+        String::from_utf8_lossy(&to_claude.stderr)
+    );
+    assert_eq!(lease_owner(root), "alice");
+    let _ = relay_resume(&world, &[]);
+    // Codex -> Claude: the Claude continuation carries Claude's own stored arguments, and the
+    // headless verification turn Relay ran before it carries none of anyone's.
+    assert_eq!(
+        argv_starting(root, "claude", "--resume")
+            .last()
+            .expect("continuation"),
+        &s(&[
+            "--resume",
+            SESSION_ID,
+            "--dangerously-skip-permissions",
+            "--model",
+            "opus"
+        ])
+    );
+    assert!(
+        argv_starting(root, "claude", "-p").iter().all(|argv| argv
+            == &s(&[
+                "-p",
+                "--permission-mode",
+                "acceptEdits",
+                "--output-format",
+                "json"
+            ])),
+        "Relay's own headless turn never carries user arguments"
+    );
+    assert!(
+        argv_log(root, "claude").iter().all(|(argv, _)| !argv
+            .iter()
+            .any(|a| a == "--sandbox" || a == "workspace-write")),
+        "no Claude invocation ever saw a Codex argument"
+    );
+    // Claude's own stored arguments are still Claude's.
+    assert_eq!(
+        stored_args(&world)["claude"],
+        serde_json::json!(["--dangerously-skip-permissions", "--model", "opus"])
+    );
+}
+
+#[test]
+fn claude_to_claude_handoff_reuses_the_claude_arguments_on_the_continuation_only() {
+    let world = world_with(false, &["--model", "opus"]);
+    write_source_transcript(&world);
+    let root = world.root.path();
+    let switched = relay(
+        root,
+        &[
+            "switch",
+            "bob",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+        ],
+    );
+    assert!(
+        switched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&switched.stderr)
+    );
+    assert_eq!(lease_owner(root), "bob");
+    let resumed = relay_resume(&world, &[]);
+    assert!(
+        resumed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resumed.stderr)
+    );
+    let continuation: Vec<Vec<String>> = argv_starting(root, "claude", "--resume");
+    assert_eq!(
+        continuation.last().expect("continuation"),
+        &s(&["--resume", SESSION_ID, "--model", "opus"])
+    );
+    // Relay's own verification turn (a headless canary) is Relay's arguments only.
+    assert!(
+        argv_starting(root, "claude", "-p")
+            .iter()
+            .all(|argv| !argv.iter().any(|a| a == "--model")),
+        "the canary/bootstrap turn never carries user arguments"
+    );
+    // ...and the continuation ran under the NEW owner's isolated config.
+    let (_, home) = argv_log(root, "claude")
+        .into_iter()
+        .rev()
+        .find(|(argv, _)| argv.first().map(String::as_str) == Some("--resume") && argv.len() > 2)
+        .expect("continuation");
+    assert_eq!(
+        std::fs::canonicalize(home).expect("bob"),
+        std::fs::canonicalize(profile_dir(root, "bob", "claude")).expect("bob dir")
+    );
+}
+
+#[test]
+fn a_provider_argument_can_never_replace_the_session_relay_resumes() {
+    let world = world_with(false, &["--model", "opus"]);
+    write_source_transcript(&world);
+    let root = world.root.path();
+    let switched = relay(
+        root,
+        &[
+            "switch",
+            "bob",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+        ],
+    );
+    assert!(switched.status.success());
+    let hijack = relay_resume(&world, &["--", "--resume", "some-other-session"]);
+    assert!(!hijack.status.success());
+    assert!(String::from_utf8_lossy(&hijack.stderr).contains("provider_argument_rejected"));
+    assert!(
+        argv_starting(root, "claude", "--resume")
+            .iter()
+            .all(|argv| !argv.iter().any(|a| a == "some-other-session")),
+        "the hijacking session id never reached Claude"
+    );
+    // The stored arguments were not replaced by the rejected ones.
+    assert_eq!(
+        stored_args(&world)["claude"],
+        serde_json::json!(["--model", "opus"])
+    );
 }

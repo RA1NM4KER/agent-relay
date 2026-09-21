@@ -9,7 +9,10 @@ mod inspection;
 mod usage;
 
 pub use context_capture::CodexContextCapturer;
-pub use handoff_adapters::{CodexSessionStopper, CodexSourceLiveness, CodexTargetLauncher};
+pub use handoff_adapters::{
+    CodexSessionStopper, CodexSourceLiveness, CodexTargetLauncher, LaunchedThread,
+    launch_new_thread,
+};
 pub use inspection::{
     CodexAuthStatus, CodexInspector, VERIFIED_VERSIONS, VersionStatus, assess_version,
 };

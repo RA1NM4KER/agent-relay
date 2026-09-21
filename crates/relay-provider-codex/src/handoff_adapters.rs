@@ -49,18 +49,17 @@ impl SourceLiveness for CodexSourceLiveness {
         _expected_session_id: &str,
         recorded_owner: Option<&ProcessIdentity>,
     ) -> Result<LivenessVerdict> {
-        if let Some(owner) = recorded_owner
-            && let Some(definite) = owner.is_still_the_same_process()
-        {
-            return Ok(LivenessVerdict {
-                active: definite,
-                // Codex has no structured cross-check for OTHER untracked processes under this
-                // profile (see module doc); this is a known gap, not a claim of certainty.
-                untracked_session_ids: Vec::new(),
-            });
-        }
+        // Active if EITHER the recorded process is still the same live process OR any process
+        // runs under this profile's isolated CODEX_HOME. The recorded pid is only the short-lived
+        // `codex exec` that created the thread; the interactive `codex resume` a supervised
+        // terminal runs afterwards is a different process, visible only through its environment.
+        let recorded_alive = recorded_owner
+            .and_then(ProcessIdentity::is_still_the_same_process)
+            .unwrap_or(false);
         Ok(LivenessVerdict {
-            active: codex_process_running_for(source_config_dir)?,
+            active: recorded_alive || codex_process_running_for(source_config_dir)?,
+            // Codex has no structured cross-check for other untracked *sessions* under this
+            // profile (see module doc); this is a known gap, not a claim of certainty.
             untracked_session_ids: Vec::new(),
         })
     }
@@ -78,12 +77,13 @@ impl SessionStopper for CodexSessionStopper {
         recorded_owner: Option<&ProcessIdentity>,
     ) -> Result<()> {
         if let Some(owner) = recorded_owner {
-            return terminate_verified_process(owner, ORPHAN_TERM_GRACE);
+            terminate_verified_process(owner, ORPHAN_TERM_GRACE)?;
         }
-        // No recorded identity: the coarsest available fallback is stopping every process whose
-        // environment carries this exact profile's CODEX_HOME token. Acceptable because this
-        // CODEX_HOME is Relay-owned (see docs/security.md) — nothing else is expected to run
-        // under it.
+        // Also stop every process whose environment carries this exact profile's CODEX_HOME
+        // token: the recorded pid is only the `codex exec` that created the thread, while the
+        // interactive `codex resume` the user is typing into is a different process. Acceptable
+        // because this CODEX_HOME is Relay-owned (see docs/security.md) — nothing else is
+        // expected to run under it.
         for pid in codex_pids_for(source_config_dir)? {
             terminate_verified_process(&ProcessIdentity::query(pid), ORPHAN_TERM_GRACE)?;
         }
@@ -250,6 +250,61 @@ impl TargetLauncher for CodexTargetLauncher {
         )?;
         parse_exec_json_stream(&stdout)
     }
+}
+
+/// A fresh Codex thread created by Relay itself (`relay codex`).
+#[derive(Clone, Debug)]
+pub struct LaunchedThread {
+    pub thread_id: String,
+    pub process: Option<ProcessIdentity>,
+}
+
+/// Fixed, content-free bootstrap prompt: the thread has to exist before Relay can record a writer
+/// lease for it, and no user text or project state is needed for that. The user's own first message
+/// and provider arguments only ever reach the *interactive* session that continues this thread.
+const NEW_THREAD_PROMPT: &str = "Agent Relay is starting a managed session. Reply with the single word READY and do not use any tools.";
+
+/// Creates a new Codex thread under `config_dir` with `codex exec --json`, using only Relay's own
+/// arguments (never user passthrough arguments), and returns its thread id. Fails closed unless the
+/// turn completed cleanly and reported a thread id.
+pub fn launch_new_thread(
+    config_dir: &Path,
+    project_dir: &Path,
+    codex_executable: Option<&Path>,
+) -> Result<LaunchedThread> {
+    let inspector = CodexInspector::discover(codex_executable)?;
+    let mut command = Command::new(inspector.executable());
+    command
+        .current_dir(project_dir)
+        .arg("exec")
+        .arg("--json")
+        .arg("--skip-git-repo-check")
+        .env("CODEX_HOME", config_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    let mut process = None;
+    let stdout = run_with_timeout(
+        command,
+        LAUNCH_TIMEOUT,
+        LAUNCH_OUTPUT_LIMIT,
+        NEW_THREAD_PROMPT.as_bytes(),
+        &mut |identity| {
+            process = identity;
+            Ok(())
+        },
+    )?;
+    let verification = parse_exec_json_stream(&stdout)?;
+    if !verification.started_successfully {
+        return Err(Error::ProviderCommandFailed);
+    }
+    Ok(LaunchedThread {
+        thread_id: verification.target_session_id,
+        process,
+    })
 }
 
 fn run_with_timeout(
