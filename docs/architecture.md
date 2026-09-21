@@ -76,6 +76,13 @@ No Claude-specific file path enters `relay-core` except as an opaque, validated 
 
 Owns command routing, project discovery, interactive confirmation, rendering, and stable `--json` envelopes. Machine output has a schema version and sends diagnostics to stderr.
 
+Session adoption and in-agent control live here too: `live` (structural identification of a running Claude
+session and the adoption contract), `agent_cmd` (`/relay status|switch|adopt`, answered by the
+`UserPromptSubmit` hook), `control` (the per-project control directory between that hook and the
+supervising terminal), and `target` (the one switch-target model behind both the `relay switch` picker
+and the in-agent listing). None of them can move ownership by themselves: adoption writes the lease
+only after every proof holds, and every switch is the ordinary `HandoffCoordinator` transaction.
+
 ### relay-herdr
 
 Wraps documented Herdr CLI calls, validates JSON responses, and maps focused pane/session information into core requests. A plugin action invokes Relay; the core transaction remains usable with Herdr absent.

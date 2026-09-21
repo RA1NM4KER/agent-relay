@@ -118,6 +118,24 @@ pub enum Error {
          `relay codex --new` (or `relay claude --new`), or hand off explicitly with `relay switch`."
     )]
     CodexThreadNotVerified(String),
+    /// A live/selected conversation could not be brought under Relay: the reason says exactly
+    /// which proof was missing. Nothing was changed.
+    #[error("cannot adopt this conversation: {0}. Nothing was changed.")]
+    AdoptionRefused(String),
+    #[error("cannot use the requested switch target: {0}")]
+    SwitchTargetUnavailable(String),
+    #[error(
+        "no interactive terminal to choose a profile in; choose one explicitly with \
+         `relay switch <profile>` ({0})"
+    )]
+    SwitchPickerNeedsTerminal(String),
+    #[error("switch cancelled; nothing was changed")]
+    SwitchCancelled,
+    #[error(
+        "both Claude Code and Codex are installed, so Relay will not guess which one the new \
+         profile is for; pass `--provider claude` or `--provider codex`"
+    )]
+    ProviderChoiceRequired,
     #[error(
         "the provider argument '{0}' conflicts with something Agent Relay itself must own for a \
          managed session ({1}); Relay did not start anything"
@@ -242,6 +260,11 @@ impl Error {
             Self::ManagedSessionAlreadyActive { .. } => "managed_session_active",
             Self::AmbiguousSessionLiveness(_) => "ambiguous_session_liveness",
             Self::CodexThreadNotVerified(_) => "codex_thread_not_verified",
+            Self::AdoptionRefused(_) => "adoption_refused",
+            Self::SwitchTargetUnavailable(_) => "switch_target_unavailable",
+            Self::SwitchPickerNeedsTerminal(_) => "switch_needs_terminal",
+            Self::SwitchCancelled => "switch_cancelled",
+            Self::ProviderChoiceRequired => "provider_choice_required",
             Self::ProviderArgumentRejected(..) => "provider_argument_rejected",
             Self::NoProfileForProvider(_) => "no_profile_for_provider",
             Self::TargetProfileExhausted(_) => "target_profile_exhausted",

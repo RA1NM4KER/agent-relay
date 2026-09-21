@@ -26,6 +26,146 @@ const MANIFEST_FILE: &str = "manifest.json";
 const MANIFEST_VERSION: u32 = 1;
 const STOP_MARKER: &str = "hook claude stop-failure";
 const STATUSLINE_MARKER: &str = "hook claude statusline";
+/// The `UserPromptSubmit` hook that answers `/relay …` inside a Claude session without a model turn.
+const PROMPT_MARKER: &str = "hook claude prompt";
+/// First line of the `/relay` command file Relay installs; only files carrying it are ever touched.
+pub const COMMAND_FILE_MARKER: &str = "<!-- agent-relay:managed-command v1 -->";
+const COMMAND_DIR: &str = "commands";
+const COMMAND_FILE: &str = "relay.md";
+
+/// The `/relay` command. Claude's own hook (`relay hook claude prompt`) answers it before any
+/// model turn; this body is only what would reach the model if that hook were not running, and it
+/// deliberately gives the model nothing to act on.
+fn command_file_contents() -> String {
+    format!(
+        "{COMMAND_FILE_MARKER}\n---\ndescription: Agent Relay: status, switch, adopt (answered by Relay itself)\nargument-hint: status | switch [profile] | adopt\n---\nThe Agent Relay `/relay` command is answered by Relay's own hook before this reaches you. \
+It did not run in this session, so do nothing except tell the user: \"Agent Relay's hook did not answer; \
+run `relay status` in a terminal.\" Do not run commands or guess anything about sessions or profiles.\n"
+    )
+}
+
+fn command_file_path(config_dir: &Path) -> PathBuf {
+    config_dir.join(COMMAND_DIR).join(COMMAND_FILE)
+}
+
+/// What the install does with the `/relay` command file.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CommandFilePlan {
+    /// Write (or refresh) Relay's own file.
+    Write,
+    /// Already current.
+    Current,
+    /// A `relay.md` that is not Relay's exists: it is kept and `/relay` is not installed.
+    ForeignKept,
+}
+
+fn plan_command_file(config_dir: &Path) -> CommandFilePlan {
+    match fs::read_to_string(command_file_path(config_dir)) {
+        Ok(existing) if existing == command_file_contents() => CommandFilePlan::Current,
+        Ok(existing) if existing.starts_with(COMMAND_FILE_MARKER) => CommandFilePlan::Write,
+        Ok(_) => CommandFilePlan::ForeignKept,
+        Err(_) => CommandFilePlan::Write,
+    }
+}
+
+fn prompt_command(relay: &str, config_dir: &Path) -> String {
+    format!(
+        "{} {PROMPT_MARKER} --config-dir {}",
+        shell_quote(relay),
+        shell_quote(&config_dir.to_string_lossy())
+    )
+}
+
+fn hook_group_is_ours(group: &Value, marker: &str) -> bool {
+    group
+        .get("hooks")
+        .and_then(Value::as_array)
+        .is_some_and(|inner| {
+            inner.iter().any(|hook| {
+                hook.get("command")
+                    .and_then(Value::as_str)
+                    .is_some_and(|command| command_is_ours(command, marker))
+            })
+        })
+}
+
+/// Adds (or refreshes in place) Relay's `UserPromptSubmit` group. Existing groups are kept.
+fn ensure_prompt_hook(
+    hooks: &mut Map<String, Value>,
+    relay: &str,
+    config_dir: &Path,
+    changes: &mut Vec<String>,
+) -> Result<()> {
+    let groups = hooks
+        .entry("UserPromptSubmit")
+        .or_insert_with(|| Value::Array(Vec::new()));
+    let Some(groups) = groups.as_array_mut() else {
+        return Err(refuse(
+            "settings.json `hooks.UserPromptSubmit` is not an array",
+        ));
+    };
+    let wanted = prompt_command(relay, config_dir);
+    if groups
+        .iter()
+        .any(|group| hook_group_is_ours(group, PROMPT_MARKER))
+    {
+        for group in groups.iter_mut() {
+            if let Some(inner) = group.get_mut("hooks").and_then(Value::as_array_mut) {
+                for hook in inner {
+                    if let Some(command) = hook.get_mut("command")
+                        && command
+                            .as_str()
+                            .is_some_and(|text| command_is_ours(text, PROMPT_MARKER))
+                        && command.as_str() != Some(wanted.as_str())
+                    {
+                        *command = Value::String(wanted.clone());
+                        changes.push("update the Relay UserPromptSubmit hook command".to_owned());
+                    }
+                }
+            }
+        }
+    } else {
+        groups.push(json!({
+            "hooks": [{"type": "command", "command": wanted, "timeout": 30}]
+        }));
+        changes.push(format!(
+            "add hooks.UserPromptSubmit -> `{PROMPT_MARKER}` (answers `/relay …` locally; existing hooks kept)"
+        ));
+    }
+    Ok(())
+}
+
+/// Removes only Relay's `UserPromptSubmit` entries.
+fn remove_prompt_hook(hooks: &mut Map<String, Value>, changes: &mut Vec<String>) {
+    if let Some(groups) = hooks
+        .get_mut("UserPromptSubmit")
+        .and_then(Value::as_array_mut)
+    {
+        for group in groups.iter_mut() {
+            if let Some(inner) = group.get_mut("hooks").and_then(Value::as_array_mut) {
+                let before = inner.len();
+                inner.retain(|hook| {
+                    !hook
+                        .get("command")
+                        .and_then(Value::as_str)
+                        .is_some_and(|command| command_is_ours(command, PROMPT_MARKER))
+                });
+                if inner.len() != before {
+                    changes.push("remove the Relay UserPromptSubmit hook".to_owned());
+                }
+            }
+        }
+        groups.retain(|group| {
+            group
+                .get("hooks")
+                .and_then(Value::as_array)
+                .is_none_or(|inner| !inner.is_empty())
+        });
+        if groups.is_empty() {
+            hooks.remove("UserPromptSubmit");
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
@@ -60,6 +200,7 @@ pub struct InstallPlan {
     new_settings: Vec<u8>,
     relay_executable: String,
     statusline: StatusLineMode,
+    command_file: CommandFilePlan,
 }
 
 fn refuse(message: impl Into<String>) -> Error {
@@ -225,6 +366,26 @@ pub fn plan_install(config_dir: &Path, relay_executable: &Path) -> Result<Instal
         ));
     }
 
+    // `/relay` in-session control: a UserPromptSubmit hook plus the command file that makes the
+    // command known to Claude.
+    let hooks_map = settings
+        .get_mut("hooks")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| refuse("settings.json `hooks` is not an object"))?;
+    ensure_prompt_hook(hooks_map, &relay, config_dir, &mut changes)?;
+    let command_file = plan_command_file(config_dir);
+    match command_file {
+        CommandFilePlan::Write => changes.push(format!(
+            "add the `/relay` command ({}); it answers status/switch/adopt without a model turn",
+            command_file_path(config_dir).display()
+        )),
+        CommandFilePlan::Current => {}
+        CommandFilePlan::ForeignKept => changes.push(
+            "keep your existing commands/relay.md untouched (the in-session `/relay` command is not installed)"
+                .to_owned(),
+        ),
+    }
+
     // Status line.
     let mut mode = None;
     let existing = settings.get("statusLine").cloned();
@@ -307,6 +468,7 @@ pub fn plan_install(config_dir: &Path, relay_executable: &Path) -> Result<Instal
         new_settings,
         relay_executable: relay,
         statusline,
+        command_file,
     })
 }
 
@@ -362,7 +524,18 @@ pub fn apply_install(plan: &InstallPlan, now_unix_ms: u64) -> Result<()> {
     let manifest_bytes =
         serde_json::to_vec_pretty(&manifest).map_err(|_| Error::SerializationFailed)?;
     FsAtomicWriter.write_atomic(&directory.join(MANIFEST_FILE), &manifest_bytes)?;
-    FsAtomicWriter.write_atomic(&plan.settings_path, &plan.new_settings)
+    FsAtomicWriter.write_atomic(&plan.settings_path, &plan.new_settings)?;
+    if plan.command_file == CommandFilePlan::Write {
+        let path = command_file_path(&plan.config_dir);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|source| Error::Io {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+        FsAtomicWriter.write_atomic(&path, command_file_contents().as_bytes())?;
+    }
+    Ok(())
 }
 
 fn set_private(path: &Path) {
@@ -475,6 +648,7 @@ pub fn plan_uninstall(config_dir: &Path) -> Result<UninstallPlan> {
                 hooks.remove("StopFailure");
             }
         }
+        remove_prompt_hook(hooks, &mut changes);
         if hooks.is_empty() {
             settings.remove("hooks");
         }
@@ -538,6 +712,11 @@ pub fn apply_uninstall(plan: &UninstallPlan) -> Result<()> {
         UninstallAction::RemoveRelayEntries { new_settings } => {
             FsAtomicWriter.write_atomic(&settings_path, new_settings)?;
         }
+    }
+    // Only a `/relay` command file that carries Relay's marker is ever removed.
+    let command_path = command_file_path(&plan.config_dir);
+    if fs::read_to_string(&command_path).is_ok_and(|text| text.starts_with(COMMAND_FILE_MARKER)) {
+        let _ignored = fs::remove_file(&command_path);
     }
     // Retire the manifest and recorded signals; keep the settings backup so nothing is lost.
     let directory = integration_dir(&plan.config_dir);
@@ -776,6 +955,80 @@ mod tests {
         assert!(!integration_status(megan.path()).unwrap().installed);
         assert!(integration_status(erika.path()).unwrap().installed);
         assert!(!megan.path().join("settings.json").exists());
+    }
+
+    #[test]
+    fn install_adds_the_prompt_hook_and_the_relay_command_and_keeps_user_prompt_hooks() {
+        let dir = tempdir().unwrap();
+        write(
+            dir.path(),
+            &json!({"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "mine"}]}]}}),
+        );
+        install(dir.path());
+        let groups = settings(dir.path())["hooks"]["UserPromptSubmit"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            groups.len(),
+            2,
+            "the user's own hook is kept next to Relay's"
+        );
+        assert!(
+            groups
+                .iter()
+                .any(|group| group.to_string().contains("hook claude prompt"))
+        );
+        let command = fs::read_to_string(dir.path().join("commands/relay.md")).unwrap();
+        assert!(command.starts_with(super::COMMAND_FILE_MARKER));
+        // Re-installing changes nothing.
+        let plan = plan_install(dir.path(), Path::new(RELAY)).unwrap();
+        assert!(plan.already_installed);
+    }
+
+    #[test]
+    fn an_existing_foreign_relay_command_is_never_overwritten_or_removed() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("commands")).unwrap();
+        fs::write(
+            dir.path().join("commands/relay.md"),
+            "my own /relay command\n",
+        )
+        .unwrap();
+        install(dir.path());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("commands/relay.md")).unwrap(),
+            "my own /relay command\n"
+        );
+        let uninstall = plan_uninstall(dir.path()).unwrap();
+        apply_uninstall(&uninstall).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join("commands/relay.md")).unwrap(),
+            "my own /relay command\n"
+        );
+    }
+
+    #[test]
+    fn uninstall_removes_relays_command_and_prompt_hook_only() {
+        let dir = tempdir().unwrap();
+        write(
+            dir.path(),
+            &json!({"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "mine"}]}]}}),
+        );
+        install(dir.path());
+        assert!(dir.path().join("commands/relay.md").exists());
+        // The user edits settings after install, so uninstall must strip only Relay's entries.
+        let mut edited = settings(dir.path());
+        edited["model"] = json!("opus");
+        write(dir.path(), &edited);
+        apply_uninstall(&plan_uninstall(dir.path()).unwrap()).unwrap();
+        assert!(!dir.path().join("commands/relay.md").exists());
+        let after = settings(dir.path());
+        assert_eq!(after["model"], "opus");
+        let hooks = after["hooks"]["UserPromptSubmit"].as_array().unwrap();
+        assert_eq!(hooks.len(), 1);
+        assert!(hooks[0].to_string().contains("mine"));
+        assert!(!after.to_string().contains("hook claude prompt"));
     }
 
     #[test]

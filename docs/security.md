@@ -187,6 +187,24 @@ Mitigations:
 - send a minimal environment to managed panes;
 - feature-check Herdr versions and fail closed.
 
+### Adoption and the in-agent control channel
+
+Adopting a conversation (`relay claude --resume`, `/relay adopt`) creates a writer lease, so it is held
+to the same standard as starting one. Identity is never taken from model output, terminal text or "the
+most recent" heuristics: it is the hook payload Claude writes (`session_id`, `cwd`, `transcript_path`), the
+`CLAUDE_*` environment of the Claude process, and Claude's own live-session registry, which must agree and
+name a running process; the profile is the one registered profile whose config directory *is* the running
+Claude's, with its identity pin checked in a separate process with credential-override variables removed.
+Any disagreement refuses adoption and changes nothing; a live Relay writer refuses it too. The lease is
+written once, atomically, under the orchestration lock.
+
+`/relay switch` uses a control directory inside the project's own Relay state (mode 0700, same user
+only — no socket, daemon or network). The supervisor honours a request only if it names the current
+lease's session and owner and comes from the exact process it launched; stale (older than 60 seconds) or
+mismatched requests are refused, and the transaction itself is the ordinary `relay switch`. The hook
+runs with the user's own privileges, so the trust boundary is unchanged: anything that can write the
+project's Relay state can already write its lease.
+
 ### Dangerous automatic handoff
 
 An incorrect limit signal or target choice could stop useful work or appear to evade provider limits.

@@ -127,8 +127,14 @@ const CLAUDE_REJECTED: &[(&str, &str)] = &[
         "--input-format",
         "Relay needs its own machine-readable input",
     ),
-    ("-r", "Relay decides which session to resume"),
-    ("--resume", "Relay decides which session to resume"),
+    (
+        "-r",
+        "to adopt an existing Claude conversation use `relay claude --resume`; to continue the one Relay manages use `relay resume`",
+    ),
+    (
+        "--resume",
+        "to adopt an existing Claude conversation use `relay claude --resume`; to continue the one Relay manages use `relay resume`",
+    ),
     ("-c", "Relay decides which session to continue"),
     ("--continue", "Relay decides which session to continue"),
     (

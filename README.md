@@ -32,8 +32,10 @@ cd ~/repos/my-project
 relay claude                # start a new managed conversation with Claude ...
 relay codex                 # ... or with Codex (peer entry points — use whichever you want)
 
+relay claude --resume       # adopt an OLD Claude conversation (pick it in Claude's own picker)
 relay resume                # continue whoever currently owns the conversation
-relay switch <profile>      # explicitly move ownership to another profile
+relay switch                # choose a profile from a list ...
+relay switch <profile>      # ... or name it: move ownership to another profile
 
 relay status                # what is going on in this project
 relay profiles              # your profiles, their order and login state
@@ -51,9 +53,25 @@ The mental model is simple:
 ```
 relay claude = Claude + Relay supervision     (new managed conversation)
 relay codex  = Codex  + Relay supervision     (new managed conversation)
+relay claude --resume = bring an existing Claude conversation under Relay (same session, in place)
 relay resume = continue whoever currently owns the conversation
-relay switch <profile> = explicitly move ownership
+relay switch [<profile>] = explicitly move ownership (bare: pick from a list)
 ```
+
+**Start through Relay, or bring an existing conversation under Relay later.** Switch accounts and
+providers without leaving your coding workflow:
+
+- `relay claude` / `relay codex` start through Relay.
+- `relay claude --resume` adopts an **old** Claude conversation: Relay opens Claude's own resume
+  picker (or resumes the id you give it), then manages exactly the conversation you chose — no fork,
+  no second conversation. It is not the same as `relay resume`, which continues a conversation Relay
+  *already* manages.
+- Inside a running Claude session, `/relay status`, `/relay switch [profile]` and `/relay adopt`
+  are answered by Relay itself (no model turn, nothing typed into the conversation).
+  `/relay adopt` brings a **live** unmanaged Claude conversation under Relay without restarting it;
+  `/relay switch` moves the conversation and your terminal follows it. (Codex has no extension point
+  for a `/relay` command and Relay cannot yet verify a live Codex thread's identity, so live Codex
+  adoption is not offered — use `relay codex` to start through Relay.)
 
 - `relay claude` always starts a **new** conversation under your highest-priority Claude profile,
   tracked by Relay from the start; Relay drops you straight into Claude (you type the first message

@@ -4,6 +4,18 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+- **Session adoption and in-agent control.** `relay claude --resume [SESSION]` adopts an existing Claude
+  conversation through Claude's own resume flow (same session, no fork), proven from Claude's own
+  `SessionStart` report, its live-session registry and the profile identity pin before any lease is written.
+  `/relay status`, `/relay switch [profile]` and `/relay adopt` work inside Claude (a `UserPromptSubmit` hook
+  answers them without a model turn; installed with the usage integration, an existing `commands/relay.md`
+  is never touched); `/relay switch` is a request over a private per-project control directory to the
+  supervising `relay`, which runs the ordinary switch transaction and follows the conversation. Bare
+  `relay switch` opens a terminal picker (shared target model: current/exhausted/disabled/unverifiable
+  profiles shown but not selectable). `relay login <new-name>` no longer silently defaults to Claude. Live
+  Codex adoption and a Codex `/relay` command are not offered (no way to verify a live thread's identity or
+  register the command).
+
 - `relay setup` works with Claude Code and/or Codex (either alone is enough), asks which provider a new
   profile is for only when both are installed, installs the usage hook only for Claude profiles, and ends
   with the start commands for the providers you configured (`relay claude` / `relay codex` as peers +

@@ -108,6 +108,46 @@ and `--no-attach`, refuse to create a second writer, and open the supervised ter
 automatic handoff stays active. If the Codex profile you'd start on is already exhausted,
 `relay codex` skips it and starts on the next eligible profile in your priority order.
 
+### Bringing an existing conversation under Relay
+
+```sh
+relay claude --resume            # Claude's own picker; the conversation you choose is adopted
+relay claude --resume <session>  # resume that exact Claude session and adopt it
+```
+
+This is a Relay option, not a passthrough (`relay claude -- --resume` is refused, with this
+explanation). Relay starts Claude's normal resume flow, and Claude itself reports which conversation
+it resumed; Relay checks that it is a running Claude session in this project belonging to a
+registered profile whose account matches its recorded identity, that no other Relay-managed session
+holds the project, and only then records the lease — for that same session, in place. If anything
+cannot be proven, nothing is adopted and Relay says why. Afterwards `relay resume`, `relay switch`,
+the status-line badge and automatic handoff all work. (`relay resume` continues a conversation Relay
+*already* manages; `--resume` brings an old one under Relay.)
+
+### Inside Claude: `/relay status`, `/relay switch`, `/relay adopt`
+
+`relay integration claude install` (run by `relay setup`) adds a `/relay` command to each Claude
+profile and a hook that answers it locally — the prompt never reaches the model, so it costs no
+tokens and the model cannot influence which session, profile or project it acts on. An existing
+`commands/relay.md` of yours is left alone.
+
+| Command | What it does |
+|---|---|
+| `/relay status` | Project, provider, profile, whether automatic handoff is on, and who would receive the conversation next. Read-only. |
+| `/relay adopt` | Brings *this* running, unmanaged conversation under Relay, in place, without restarting it. |
+| `/relay switch [profile]` | Moves the conversation to another profile (without a name it lists them). Available in terminals started through `relay claude`/`relay resume`; your terminal reopens the conversation on the new owner. |
+
+`/relay switch` is a request to the Relay process supervising your terminal, which runs the same
+`relay switch` transaction; the agent never switches itself.
+
+### Choosing a switch target
+
+`relay switch` with no argument opens a small list (arrow keys or a number, Enter to switch, Esc to
+cancel) in priority order: the current profile is shown but not selectable, and profiles that are
+disabled, exhausted or (for Codex) unverifiable are shown as unavailable. It then runs exactly what
+`relay switch <profile>` runs. Without a terminal, or with `--json`, it prints the choices and
+exits instead of prompting.
+
 ### Passing options to Claude or Codex
 
 Options for the provider CLI go after `--`; everything before it is Relay's:
