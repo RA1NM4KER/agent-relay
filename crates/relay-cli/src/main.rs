@@ -2862,6 +2862,7 @@ fn run_switch(
                 )?,
                 command,
                 target.name.clone(),
+                None,
             )
         }
         ProviderKind::Claude | ProviderKind::Fake => success(
@@ -3025,6 +3026,7 @@ fn run_resume(
         )?,
         command,
         resolved_profile,
+        None,
     )
 }
 
@@ -3135,6 +3137,7 @@ fn run_managed_terminal(
     context: &ContinuationContext<'_>,
     first: terminal::TerminalCommand,
     first_owner: ProfileName,
+    on_first_spawn: Option<&dyn Fn(u32)>,
 ) -> Result<CommandOutput, Error> {
     use std::io::Write as _;
     let lease_store = LeaseStore::at_path(context.project_state_dir.join("lease.json"));
@@ -3186,11 +3189,18 @@ fn run_managed_terminal(
             every: std::time::Duration::from_secs(poll_secs),
             action: &mut poll_action,
         });
-        let end = terminal::run_watching_lease(&command, &lease_store, &owner, &timing, tick)
-            .map_err(|source| Error::Io {
-                path: command.program.clone(),
-                source,
-            })?;
+        let end = terminal::run_watching_lease(
+            &command,
+            &lease_store,
+            &owner,
+            &timing,
+            tick,
+            on_first_spawn.filter(|_| continuation == 0),
+        )
+        .map_err(|source| Error::Io {
+            path: command.program.clone(),
+            source,
+        })?;
         let code = match end {
             terminal::TerminalEnd::Exited(code) => code,
             terminal::TerminalEnd::OwnerMoved => 0,
@@ -3813,6 +3823,14 @@ fn run_claude(
     let project_state_dir = paths.project_state_dir(&project_id);
     let existing_lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
 
+    // Everything from here until the provider takes over the terminal can be slow (session
+    // liveness confirmation, `claude auth status`, stopping a previous session). One indicator
+    // covers all of it, so the terminal never looks frozen.
+    let mut progress = Some(progress::Progress::start(
+        "Preparing Claude profile…",
+        json_mode,
+    ));
+
     let still_active_existing = match &existing_lease {
         Some(existing) => {
             let owner = registered
@@ -3835,7 +3853,7 @@ fn run_claude(
 
     // Cheap, authoritative fast-fail: a live managed writer makes a plain `relay claude` impossible,
     // so say so before any slow provider work (auth inspection, login prompts). The lock-guarded
-    // recheck inside `perform_launch` stays the final authority for races.
+    // recheck inside the launch stays the final authority for races.
     if still_active_existing && !args.new {
         let existing = existing_lease
             .as_ref()
@@ -3849,6 +3867,8 @@ fn run_claude(
     // M4.7: safe reauthentication for the primary; fallback unauthenticated is a warning only.
     let (primary_auth, _) = friendly_auth_state(primary_profile, &executables);
     if primary_auth != "authenticated" {
+        // The login flow is interactive: the indicator must not be drawing over it.
+        drop(progress.take());
         if !json_mode {
             println!(
                 "Profile \"{primary}\" needs Claude authentication.\n\nOpening Claude login..."
@@ -3866,6 +3886,10 @@ fn run_claude(
         if !report.authenticated {
             return Err(Error::AuthenticationRequired);
         }
+        progress = Some(progress::Progress::start(
+            "Preparing Claude profile…",
+            json_mode,
+        ));
     }
     for fallback_name in &fallback {
         if let Some(fallback_profile) = registered
@@ -3874,9 +3898,13 @@ fn run_claude(
         {
             let (fallback_auth, _) = friendly_auth_state(fallback_profile, &executables);
             if fallback_auth != "authenticated" && !json_mode {
-                eprintln!(
+                let warning = format!(
                     "Warning: fallback profile '{fallback_name}' is not authenticated ({fallback_auth}); primary work may still proceed."
                 );
+                match &progress {
+                    Some(progress) => progress.say(&warning),
+                    None => eprintln!("{warning}"),
+                }
             }
         }
     }
@@ -3885,13 +3913,15 @@ fn run_claude(
     // it never silently reattaches to a live one (that's `relay resume`'s job now). A genuinely
     // live existing session blocks a plain `relay claude` outright; `--new` is the explicit,
     // opt-in escape hatch that safely stops it first. A *stale* lease (owner process confirmed
-    // dead) never blocks anything, with or without `--new` — `perform_launch` below already
-    // handles that case by overwriting it once its own liveness recheck agrees.
+    // dead) never blocks anything, with or without `--new`.
     if still_active_existing {
         let existing = existing_lease
             .as_ref()
             .expect("still_active_existing implies Some");
         if args.new {
+            if let Some(progress) = &progress {
+                progress.set_label("Stopping the previous session…");
+            }
             // The explicit escape hatch: authoritatively stop the *current owner's* writer (which
             // may not be `primary` — a prior handoff can leave a fallback profile holding it) via
             // the same stop-and-verify machinery `relay switch`/recovery already use, and never
@@ -3916,62 +3946,44 @@ fn run_claude(
         }
     }
 
-    if !json_mode {
-        println!(
-            "Agent Relay\nProject: {}\nProfile: {}\nStarting new managed Claude session...",
-            project_display_name(&canonical_project),
-            primary
-        );
-        use std::io::Write as _;
-        let _ = std::io::stdout().flush();
-    }
+    let header = format!(
+        "Agent Relay\nProject: {}\nProfile: {}\nStarting new managed Claude session...",
+        project_display_name(&canonical_project),
+        primary
+    );
 
-    // By this point either there was never a live existing writer, or `--new` just safely
-    // stopped it — `perform_launch`'s own liveness recheck (inside its orchestration lock) is the
-    // final authority and fails closed if anything raced in the meantime, so this can never
-    // create a second writer.
-    let message = resolve_initial_message(&args.message)?;
-    let lease = perform_launch(
-        service,
-        paths,
-        &primary,
-        &canonical_project,
-        &message,
-        args.claude_executable.as_deref(),
-        &args.provider_args,
-    )?;
-    // A brand-new managed conversation: only Claude's arguments carry over to it.
-    provider_args::ProviderArgs::fresh_for(ProviderKind::Claude, args.provider_args.clone())
-        .save(&project_state_dir)?;
-
-    // M4.3/M4.5: automatic Herdr metadata, only when actually running inside a Herdr pane.
-    let herdr_env = std::env::var_os("HERDR_ENV").as_deref() == Some(std::ffi::OsStr::new("1"));
-    let mut herdr_bound = false;
-    if herdr_env {
-        if let Ok(pane_id) = std::env::var("HERDR_PANE_ID") {
-            let herdr_bin = std::env::var_os("HERDR_BIN_PATH").map(PathBuf::from);
-            if let Ok(herdr_client) = HerdrCliClient::discover(herdr_bin.as_deref()) {
-                let fallback_value = fallback
-                    .iter()
-                    .map(ProfileName::to_string)
-                    .collect::<Vec<_>>()
-                    .join(",");
-                let mut pane_tokens: Vec<(&str, &str)> = vec![("relay_profile", primary.as_str())];
-                if !fallback_value.is_empty() {
-                    pane_tokens.push(("relay_profile_fallback", fallback_value.as_str()));
-                }
-                pane_tokens.push(("relay_session_id", lease.session_id.as_str()));
-                if herdr_client
-                    .set_pane_tokens(&pane_id, "agent-relay", &pane_tokens)
-                    .is_ok()
-                {
-                    herdr_bound = true;
-                }
-            }
-        }
-    }
-
+    // `--no-attach` is the scripting form: it creates a background session, which needs its first
+    // message up front. The interactive form below never asks Relay-side for one.
     if args.no_attach {
+        let message = if args.message.is_empty() {
+            // resolving may prompt: the indicator must not be drawing over it
+            drop(progress.take());
+            resolve_initial_message(&args.message)?
+        } else {
+            args.message.join(" ")
+        };
+        match &progress {
+            Some(progress) => {
+                progress.say(&header);
+                progress.set_label("Starting Claude session…");
+            }
+            None if !json_mode => println!("{header}"),
+            None => {}
+        }
+        let lease = perform_launch(
+            service,
+            paths,
+            &primary,
+            &canonical_project,
+            &message,
+            args.claude_executable.as_deref(),
+            &args.provider_args,
+        )?;
+        drop(progress.take());
+        provider_args::ProviderArgs::fresh_for(ProviderKind::Claude, args.provider_args.clone())
+            .save(&project_state_dir)?;
+        let herdr_bound = bind_herdr_pane(&primary, &fallback, &lease.session_id);
+        let herdr_env = std::env::var_os("HERDR_ENV").as_deref() == Some(std::ffi::OsStr::new("1"));
         let human = format!(
             "Profile: {}\nNew session started.\nHerdr metadata: {}\n\nAttach with:\n    relay resume",
             primary,
@@ -4000,20 +4012,55 @@ fn run_claude(
         );
     }
 
-    let short_id = lease
-        .provider_handle
-        .clone()
-        .ok_or(Error::MalformedProviderOutput)?;
-    // Bug found dogfooding M6: attach must use the *lease owner's* config_dir, not `primary`'s —
-    // after a handoff the owner may be a fallback profile.
-    let owner_config_dir = registered
-        .iter()
-        .find(|profile| profile.name == lease.owner_profile)
-        .map(|profile| profile.config_dir.clone())
-        .ok_or_else(|| Error::ProfileNotFound(lease.owner_profile.to_string()))?;
+    // Interactive fresh launch: Relay is a router/supervisor, so it gets the user INTO Claude and
+    // gets out of the way — the first message is typed inside Claude. Relay assigns the session id
+    // itself (`claude --session-id`, a supported flag) so it knows the native session before Claude
+    // starts, records the writer lease under the orchestration lock first (a placeholder process
+    // that liveness treats as "unverifiable = active", so no second writer can slip in), and fills
+    // in the real process id the moment the child exists.
+    match &progress {
+        Some(progress) => progress.say(&header),
+        None if !json_mode => println!("{header}"),
+        None => {}
+    }
+    let session_id = new_session_uuid()?;
+    let lease = begin_interactive_claude_lease(
+        paths,
+        &registered,
+        primary_profile,
+        &canonical_project,
+        &session_id,
+        &executables,
+    )?;
+    provider_args::ProviderArgs::fresh_for(ProviderKind::Claude, args.provider_args.clone())
+        .save(&project_state_dir)?;
+    bind_herdr_pane(&primary, &fallback, &lease.session_id);
+
     let inspector = ClaudeInspector::discover(args.claude_executable.as_deref())?;
-    let command = plan_claude_attach(inspector.executable(), &owner_config_dir, &short_id);
-    run_managed_terminal(
+    let message = args.message.join(" ");
+    let mut command_args: Vec<OsString> = Vec::new();
+    if !message.trim().is_empty() {
+        // The optional first message stays *before* the user's own arguments so a variadic
+        // option can never swallow it.
+        command_args.push(message.into());
+    }
+    command_args.extend(["--session-id".into(), session_id.clone().into()]);
+    command_args.extend(args.provider_args.iter().map(OsString::from));
+    let command = terminal::TerminalCommand {
+        program: inspector.executable().to_path_buf(),
+        args: command_args,
+        envs: vec![(
+            "CLAUDE_CONFIG_DIR".into(),
+            primary_profile.config_dir.clone().into(),
+        )],
+        current_dir: Some(canonical_project.clone()),
+    };
+
+    let lease_store = LeaseStore::at_path(project_state_dir.join("lease.json"));
+    let lock = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"));
+    let record_process = |pid: u32| record_writer_process(&lease_store, &lock, &session_id, pid);
+    drop(progress.take());
+    let result = run_managed_terminal(
         &ContinuationContext::new(
             service,
             paths,
@@ -4023,13 +4070,162 @@ fn run_claude(
             json_mode,
         )?,
         command,
-        lease.owner_profile.clone(),
-    )
+        primary.clone(),
+        Some(&record_process),
+    );
+    if result.is_err() {
+        discard_pending_lease(&lease_store, &session_id);
+    }
+    result
 }
 
-/// Immediate structured Codex usage for one profile (`codex app-server` →
-/// `account/rateLimits/read`, expected `CODEX_HOME` verified). Read-only: it never spends quota,
-/// and any failure is `Unknown`, which nothing acts on.
+/// Automatic Herdr metadata, only when actually running inside a Herdr pane. Returns whether the
+/// pane tokens were written.
+fn bind_herdr_pane(primary: &ProfileName, fallback: &[ProfileName], session_id: &str) -> bool {
+    let herdr_env = std::env::var_os("HERDR_ENV").as_deref() == Some(std::ffi::OsStr::new("1"));
+    if !herdr_env {
+        return false;
+    }
+    let Ok(pane_id) = std::env::var("HERDR_PANE_ID") else {
+        return false;
+    };
+    let herdr_bin = std::env::var_os("HERDR_BIN_PATH").map(PathBuf::from);
+    let Ok(herdr_client) = HerdrCliClient::discover(herdr_bin.as_deref()) else {
+        return false;
+    };
+    let fallback_value = fallback
+        .iter()
+        .map(ProfileName::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut pane_tokens: Vec<(&str, &str)> = vec![("relay_profile", primary.as_str())];
+    if !fallback_value.is_empty() {
+        pane_tokens.push(("relay_profile_fallback", fallback_value.as_str()));
+    }
+    pane_tokens.push(("relay_session_id", session_id));
+    herdr_client
+        .set_pane_tokens(&pane_id, "agent-relay", &pane_tokens)
+        .is_ok()
+}
+
+/// A random RFC 4122 version-4 UUID, as `claude --session-id` requires.
+fn new_session_uuid() -> Result<String, Error> {
+    use std::io::Read as _;
+    let mut bytes = [0_u8; 16];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .map_err(|source| Error::Io {
+            path: PathBuf::from("/dev/urandom"),
+            source,
+        })?;
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok(format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    ))
+}
+
+/// Under the orchestration lock: refuse a still-live writer (the owner provider's own liveness),
+/// then record the new writer lease for a session Relay is about to start interactively. The
+/// process is a placeholder (pid 0, which every liveness check treats as unverifiable, i.e.
+/// active) until [`record_writer_process`] fills in the real one.
+fn begin_interactive_claude_lease(
+    paths: &RelayPaths,
+    registered: &[Profile],
+    profile: &Profile,
+    canonical_project: &Path,
+    session_id: &str,
+    executables: &providers::ExecutableOverrides,
+) -> Result<relay_core::handoff::WriterLease, Error> {
+    let project_id = ProjectId::for_canonical_path(canonical_project)?;
+    let project_state_dir = paths.project_state_dir(&project_id);
+    std::fs::create_dir_all(&project_state_dir).map_err(|source| Error::Io {
+        path: project_state_dir.clone(),
+        source,
+    })?;
+    let lock = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"));
+    let lease_store = LeaseStore::at_path(project_state_dir.join("lease.json"));
+    lock.try_with(|| -> Result<relay_core::handoff::WriterLease, Error> {
+        if let Some(existing) = lease_store.load()? {
+            let still_active = match registered
+                .iter()
+                .find(|candidate| candidate.name == existing.owner_profile)
+            {
+                Some(owner) => confirm_not_active(
+                    owner,
+                    canonical_project,
+                    &existing.session_id,
+                    &existing.owner_process,
+                    executables,
+                )
+                .map(|confirmed_inactive| !confirmed_inactive)?,
+                None => true,
+            };
+            if still_active {
+                return Err(Error::WriterAlreadyActive(
+                    existing.owner_profile.to_string(),
+                ));
+            }
+        }
+        let lease = relay_core::handoff::WriterLease::new(
+            project_id.clone(),
+            profile.name.clone(),
+            relay_core::handoff::ProcessIdentity {
+                pid: 0,
+                start_time_fingerprint: None,
+            },
+            session_id.to_owned(),
+            relay_core::handoff::TransactionId::generate(),
+            current_unix_ms(),
+        );
+        lease_store.save(&lease)?;
+        Ok(lease)
+    })
+}
+
+/// Records the interactive provider's real process in the lease as soon as it exists (identity =
+/// pid + start time, exactly what liveness checks and the verified stop use). Best effort with a
+/// short retry: the lock may briefly be held by an evaluation.
+fn record_writer_process(
+    lease_store: &LeaseStore,
+    lock: &OrchestrationLock,
+    session_id: &str,
+    pid: u32,
+) {
+    for _ in 0..40 {
+        let attempt = lock.try_with(|| -> Result<(), Error> {
+            if let Some(mut lease) = lease_store.load()?
+                && lease.session_id == session_id
+            {
+                lease.owner_process = relay_core::handoff::ProcessIdentity::query(pid);
+                lease_store.save(&lease)?;
+            }
+            Ok(())
+        });
+        if attempt.is_ok() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// The interactive provider never started: drop the placeholder lease (only if it is still the
+/// untouched placeholder for this session) so it cannot block the project.
+fn discard_pending_lease(lease_store: &LeaseStore, session_id: &str) {
+    if let Ok(Some(lease)) = lease_store.load()
+        && lease.session_id == session_id
+        && lease.owner_process.pid == 0
+    {
+        let _ignored = lease_store.clear();
+    }
+}
+
 fn codex_preflight(
     profile: &Profile,
     executables: &providers::ExecutableOverrides,
@@ -4115,6 +4311,7 @@ fn route_exhausted_codex_start(
     canonical_project: &Path,
     json_mode: bool,
     allow_reroute: bool,
+    progress: progress::Progress,
 ) -> Result<CommandOutput, Error> {
     let no_eligible = || Error::NoEligibleProfile(exhausted.name.to_string());
     if !allow_reroute {
@@ -4129,10 +4326,8 @@ fn route_exhausted_codex_start(
         healthy: true,
         usage,
     };
-    if !json_mode {
-        println!("Codex profile '{}' is exhausted.", exhausted.name);
-    }
-    let progress = progress::Progress::start("Finding the next eligible profile…", json_mode);
+    progress.say(&format!("Codex profile '{}' is exhausted.", exhausted.name));
+    progress.set_label("Finding the next eligible profile…");
     let mut candidates = Vec::new();
     for name in auto_handoff::hierarchy_without(preferences, &exhausted.name, |_| true) {
         let Some(candidate) = registered.iter().find(|profile| &profile.name == name) else {
@@ -4164,7 +4359,6 @@ fn route_exhausted_codex_start(
     // Reset-pending / known-exhausted profiles stay skipped; past handoffs (cooldown, loop guard)
     // are about real transactions and do not apply to starting a fresh conversation.
     ledger.recent_handoffs.clear();
-    progress.finish();
     let AutomationDecision::Handoff { target } = decide(
         current_unix_ms(),
         &source,
@@ -4181,9 +4375,12 @@ fn route_exhausted_codex_start(
 
     // Announced as a *decision* only: the launch itself prints its own "Starting…" line once it
     // has passed every check that could still stop it.
-    if !json_mode {
-        println!("Using next eligible profile: '{}'.\n", target_profile.name);
-    }
+    progress.say(&format!(
+        "Using next eligible profile: '{}'.\n",
+        target_profile.name
+    ));
+    // The chosen entrypoint starts its own indicator immediately, so nothing is ever blank.
+    progress.finish();
     let mut output = match target_profile.provider {
         ProviderKind::Codex => run_codex_inner(
             service,
@@ -4336,14 +4533,27 @@ fn run_codex_inner(
         claude: args.claude_executable.clone(),
         codex: args.codex_executable.clone(),
     };
-    // 1. Cheap, authoritative local invariant first: is a managed writer live for this project?
-    //    (Read from Relay's lease and judged by the OWNER's own provider.) A live writer makes a
-    //    plain `relay codex` impossible, so fail at once — before auth inspection, before any Codex
-    //    app-server round trip, before any routing message. The lock-guarded recheck inside
-    //    `perform_codex_launch` stays the final authority for races.
     let project_id = ProjectId::for_canonical_path(&canonical_project)?;
     let project_state_dir = paths.project_state_dir(&project_id);
     let existing_lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
+
+    // From here on every step can be slow (session-liveness confirmation, starting
+    // `codex app-server`, scanning fallbacks, creating the thread). ONE indicator lives across all
+    // of it — label changes, result lines print above it — so there is never an unexplained gap.
+    let progress = progress::Progress::start(
+        if existing_lease.is_some() {
+            "Checking for an active session…"
+        } else {
+            "Checking Codex availability…"
+        },
+        json_mode,
+    );
+
+    // 1. Cheap, authoritative local invariant first: is a managed writer live for this project?
+    //    (Read from Relay's lease and judged by the OWNER's own provider.) A live writer makes a
+    //    plain `relay codex` impossible, so fail at once — before any Codex app-server round trip,
+    //    before any routing message. The lock-guarded recheck inside `perform_codex_launch` stays
+    //    the final authority for races.
     let still_active_existing = match &existing_lease {
         Some(existing) => match registered
             .iter()
@@ -4371,15 +4581,13 @@ fn run_codex_inner(
         });
     }
 
-    let (auth, _) = friendly_auth_state(profile, &executables);
-    if auth != "authenticated" {
-        return Err(Error::AuthenticationRequired);
-    }
-
-    // 2. Immediate structured preflight — before anything is stopped, created or spent. With
-    //    `--new` the existing writer is still untouched here: if the route turns out not to be
-    //    viable (unknown usage, exhausted with no eligible profile) it stays exactly as it was.
-    let usage = codex_preflight(profile, &executables, &canonical_project, json_mode);
+    // 2. Immediate structured preflight — before anything is stopped, created or spent. Its
+    //    authenticated rate-limit read also proves the profile is logged in, so the slow
+    //    `codex doctor` inspection is only run afterwards, to explain a failure. With `--new` the
+    //    existing writer is still untouched here: if the route turns out not to be viable it stays
+    //    exactly as it was.
+    progress.set_label("Checking Codex availability…");
+    let usage = codex_usage_now(profile, &executables, &canonical_project);
     if usage.state.is_blocking() {
         return route_exhausted_codex_start(
             service,
@@ -4393,15 +4601,23 @@ fn run_codex_inner(
             &canonical_project,
             json_mode,
             allow_reroute,
+            progress,
         );
     }
     if usage.state == UsageState::Unknown {
-        return Err(Error::CodexUsageUnverified(profile.name.to_string()));
+        progress.set_label("Checking Codex login…");
+        let (auth, _) = friendly_auth_state(profile, &executables);
+        return Err(if auth == "authenticated" {
+            Error::CodexUsageUnverified(profile.name.to_string())
+        } else {
+            Error::AuthenticationRequired
+        });
     }
 
     // 3. Only now that a new conversation can actually start is the old writer (if `--new`)
     //    stopped, authoritatively and verified, before the replacement is created.
     if still_active_existing {
+        progress.set_label("Stopping the previous session…");
         let existing = existing_lease
             .as_ref()
             .expect("still_active_existing implies Some");
@@ -4419,16 +4635,14 @@ fn run_codex_inner(
             )?;
     }
 
-    if !json_mode {
-        println!(
-            "Agent Relay\nProject: {}\nProfile: {}\nStarting new managed Codex session...",
-            project_display_name(&canonical_project),
-            profile.name
-        );
-        use std::io::Write as _;
-        let _ = std::io::stdout().flush();
-    }
+    progress.say(&format!(
+        "Agent Relay\nProject: {}\nProfile: {}\nStarting new managed Codex session...",
+        project_display_name(&canonical_project),
+        profile.name
+    ));
+    progress.set_label("Creating the Codex session…");
     let lease = perform_codex_launch(service, paths, profile, &canonical_project, &executables)?;
+    progress.finish();
     // A brand-new managed conversation: only Codex's arguments carry over to it.
     provider_args::ProviderArgs::fresh_for(ProviderKind::Codex, args.provider_args.clone())
         .save(&project_state_dir)?;
@@ -4475,6 +4689,7 @@ fn run_codex_inner(
         )?,
         command,
         profile.name.clone(),
+        None,
     )
 }
 

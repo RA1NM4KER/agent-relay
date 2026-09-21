@@ -176,6 +176,9 @@ impl FakeClaude {
 LOG="{log}"
 printf '{{"args":"%s","config_dir":"%s"}}\n' "$*" "$CLAUDE_CONFIG_DIR" >> "$LOG"
 STOPPED="{marker}"
+# A fresh interactive session (`claude [prompt] --session-id <uuid> ...`): the user's terminal
+# session; it simply ends.
+case " $* " in *" --session-id "*) exit 0 ;; esac
 case "$1" in
   --version) printf '%s\n' "2.1.276 (Claude Code)" ;;
   auth)
@@ -964,7 +967,9 @@ fn claude_attach_execs_under_the_lease_owners_isolated_config_dir() {
         &["setup", "--non-interactive", "--primary", "alice"],
     );
 
-    // No `--no-attach`: this exercises the real launch-then-attach path end to end.
+    // No `--no-attach`: the real interactive fresh launch. Relay assigns the session id
+    // (`claude --session-id`) and the user types their first message INSIDE Claude, so none is
+    // passed here.
     let output = relay(
         root.path(),
         &[
@@ -973,7 +978,6 @@ fn claude_attach_execs_under_the_lease_owners_isolated_config_dir() {
             &project.path().to_string_lossy(),
             "--claude-executable",
             &claude.path_text(),
-            "hello there",
         ],
     );
     assert!(
@@ -982,22 +986,52 @@ fn claude_attach_execs_under_the_lease_owners_isolated_config_dir() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let attach_invocation = claude
+    let launch = claude
         .invocations()
         .into_iter()
         .find(|invocation| {
             invocation["args"]
                 .as_str()
-                .is_some_and(|args| args.starts_with("attach "))
+                .is_some_and(|args| args.contains("--session-id"))
         })
-        .expect("an `attach` invocation was logged");
+        .expect("an interactive `claude --session-id` invocation was logged");
     // Canonicalize: on macOS `tempdir()` paths live under a `/var/...` symlink that resolves to
     // `/private/var/...`, and profile registration stores the canonical form.
     let expected_config_dir = std::fs::canonicalize(&alice_config_dir).expect("alice config dir");
     assert_eq!(
-        attach_invocation["config_dir"],
+        launch["config_dir"],
         expected_config_dir.to_string_lossy().to_string(),
-        "attach must run under alice's own CLAUDE_CONFIG_DIR, not whatever this process inherited"
+        "the interactive launch must run under alice's own CLAUDE_CONFIG_DIR, not whatever this process inherited"
+    );
+    // Relay chose the session id, and it is exactly what the writer lease records.
+    let session_id = launch["args"]
+        .as_str()
+        .and_then(|args| args.split("--session-id ").nth(1))
+        .map(|rest| {
+            rest.split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .expect("session id argument");
+    let lease_path = std::fs::read_dir(root.path().join("state").join("projects"))
+        .expect("projects dir")
+        .next()
+        .expect("one project")
+        .expect("entry")
+        .path()
+        .join("lease.json");
+    let lease: Value =
+        serde_json::from_str(&std::fs::read_to_string(lease_path).expect("lease")).expect("json");
+    assert_eq!(lease["session_id"], session_id.as_str());
+    assert_eq!(lease["owner_profile"], "alice");
+    assert_ne!(
+        lease["owner_process"]["pid"], 0,
+        "the real process was recorded"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("What would you like"),
+        "Relay never asks for a first message"
     );
 }
 

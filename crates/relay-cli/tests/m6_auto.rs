@@ -130,6 +130,13 @@ printf '%s|%s\n' "$*" "$CLAUDE_CONFIG_DIR" >> "{log}"
 {{ printf 'ARGV'; for a in "$@"; do printf '\037%s' "$a"; done; printf '|%s\n' "$CLAUDE_CONFIG_DIR"; }} >> "{argv_log}"
 NAME=unknown
 case "$CLAUDE_CONFIG_DIR" in */alice/*) NAME=alice ;; */bob/*) NAME=bob ;; esac
+# A fresh interactive session (`claude [prompt] --session-id <uuid> ...`): the user's terminal
+# session, which may end with a handoff having moved the lease (see attach below).
+case " $* " in *" --session-id "*)
+  if [ -n "$RELAY_TEST_SWAP" ] && [ -f "$RELAY_TEST_SWAP" ]; then mv "$RELAY_TEST_SWAP" "$RELAY_TEST_LEASE"; fi
+  [ -n "$RELAY_TEST_INTERACTIVE_SLEEP" ] && sleep "$RELAY_TEST_INTERACTIVE_SLEEP"
+  exit "${{RELAY_TEST_ATTACH_EXIT:-0}}" ;;
+esac
 case "$1" in
   --version) printf '%s\n' "2.1.277 (Claude Code)" ;;
   --help) printf '%s\n' '--output-format <format> (choices: text, json, stream-json)' '--verbose' ;;
@@ -223,6 +230,7 @@ case "$1" in
     exit 0 ;;
   app-server)
     [ -f "$CODEX_HOME/app_server_fail" ] && exit 1
+    [ -f "$CODEX_HOME/slow" ] && sleep 2
     while IFS= read -r line; do
       id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
       [ -z "$id" ] && continue
@@ -863,7 +871,6 @@ fn claude_follows_the_conversation_onto_the_new_owner_after_a_handoff() {
         .arg(project.path())
         .arg("--claude-executable")
         .arg(&claude)
-        .arg("go")
         .env("RELAY_TEST_SWAP", &swap)
         .env("RELAY_TEST_LEASE", &real_lease);
     scrub(&mut command);
@@ -875,8 +882,8 @@ fn claude_follows_the_conversation_onto_the_new_owner_after_a_handoff() {
     );
     let log = claude_log(root.path());
     assert!(
-        log.iter()
-            .any(|(args, _)| args == &format!("attach {BG_ID}"))
+        log.iter().any(|(args, _)| args.contains("--session-id")),
+        "a fresh interactive launch straight into Claude (no Relay-side first-message prompt)"
     );
     let last = log
         .iter()
@@ -2958,4 +2965,326 @@ fn the_version_names_the_exact_build() {
         && version.split('.').all(|part| part.parse::<u64>().is_ok());
     let dev = version.contains("-dev.") && version.contains('+');
     assert!(clean || dev, "{version}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Fresh launches go straight into the provider: Relay never asks for a first message.
+// ---------------------------------------------------------------------------------------------
+
+fn relay_interactive(world: &World, args: &[&str], sleep: &str) -> std::process::Output {
+    let project = world.project.path().to_string_lossy().into_owned();
+    let (claude, codex) = (claude_exe(world), codex_exe(world));
+    // `--project-dir` goes right after the subcommand, before any `--` provider arguments.
+    let mut all: Vec<&str> = vec![args[0], "--project-dir", &project];
+    all.extend_from_slice(&args[1..]);
+    let mut command = human_relay(world.root.path(), &all);
+    let _ = (&claude, &codex);
+    command
+        .env("RELAY_TEST_INTERACTIVE_SLEEP", sleep)
+        .env("RELAY_CODEX_POLL_SECS", "0")
+        .stdin(Stdio::null());
+    command.output().expect("relay")
+}
+
+#[test]
+fn a_fresh_relay_claude_lands_directly_in_claude_with_a_relay_assigned_session() {
+    let world = world_opts(false, &[], false);
+    let root = world.root.path();
+    let claude = claude_exe(&world);
+    let output = relay_interactive(&world, &["claude", "--claude-executable", &claude], "1");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !text.contains("What would you like"),
+        "Relay never asks for a first message: {text}"
+    );
+    assert!(
+        text.contains("Starting new managed Claude session"),
+        "{text}"
+    );
+    // Exactly the interactive launch: `--session-id <uuid>`, no background job, no first message
+    let launches: Vec<Vec<String>> = argv_log(root, "claude")
+        .into_iter()
+        .map(|(argv, _)| argv)
+        .filter(|argv| argv.iter().any(|a| a == "--session-id"))
+        .collect();
+    assert_eq!(launches.len(), 1);
+    assert_eq!(
+        launches[0].first().map(String::as_str),
+        Some("--session-id"),
+        "no prompt: {launches:?}"
+    );
+    assert!(argv_starting(root, "claude", "--bg").is_empty());
+    // the lease records the native session Relay assigned, this profile and the real process
+    let session = launches[0][1].clone();
+    assert_eq!(session.len(), 36, "a UUID: {session}");
+    assert_eq!(lease_session(root), session);
+    assert_eq!(lease_owner(root), "alice");
+    let lease: Value = serde_json::from_str(
+        &std::fs::read_to_string(project_state_dir(root).join("lease.json")).unwrap(),
+    )
+    .unwrap();
+    assert_ne!(lease["owner_process"]["pid"], 0);
+    // and `relay resume` continues exactly that session natively
+    let resumed = relay_resume(&world, &[]);
+    assert!(
+        resumed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resumed.stderr)
+    );
+    assert_eq!(
+        argv_starting(root, "claude", "--resume")
+            .last()
+            .expect("resume"),
+        &s(&["--resume", &session])
+    );
+}
+
+#[test]
+fn an_optional_first_message_and_provider_arguments_are_passed_through_not_prompted_for() {
+    let world = world_opts(false, &[], false);
+    let claude = claude_exe(&world);
+    let output = relay_interactive(
+        &world,
+        &[
+            "claude",
+            "fix",
+            "the",
+            "bug",
+            "--claude-executable",
+            &claude,
+            "--",
+            "--model",
+            "opus",
+        ],
+        "0",
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let launch = argv_log(world.root.path(), "claude")
+        .into_iter()
+        .map(|(argv, _)| argv)
+        .find(|argv| argv.iter().any(|a| a == "--session-id"))
+        .expect("launch");
+    assert_eq!(launch[0], "fix the bug");
+    assert_eq!(launch[1], "--session-id");
+    assert_eq!(&launch[3..], s(&["--model", "opus"]).as_slice());
+}
+
+#[test]
+fn a_fresh_relay_codex_lands_directly_in_codex_without_a_relay_prompt() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    let codex = codex_exe(&world);
+    let output = relay_interactive(&world, &["codex", "--codex-executable", &codex], "0");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!text.contains("What would you like"), "{text}");
+    assert_eq!(lease_owner(root), "codex-main");
+    assert_eq!(lease_session(root), "01a-auto-thread");
+    assert_eq!(
+        argv_starting(root, "codex", "resume"),
+        vec![s(&["resume", "01a-auto-thread"])]
+    );
+}
+
+#[test]
+fn an_exhausted_codex_routes_a_fresh_conversation_straight_into_claude_without_prompting() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    set_limits_for(&world, "codex-main", "false", 100);
+    let codex = codex_exe(&world);
+    let output = relay_interactive(&world, &["codex", "--codex-executable", &codex], "0");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!text.contains("What would you like"), "{text}");
+    assert!(
+        text.contains("Codex profile 'codex-main' is exhausted."),
+        "{text}"
+    );
+    assert!(
+        text.contains("Using next eligible profile: 'alice'."),
+        "{text}"
+    );
+    assert!(
+        text.contains("Starting new managed Claude session"),
+        "{text}"
+    );
+    assert!(
+        argv_starting(root, "codex", "exec").is_empty(),
+        "no Codex bootstrap"
+    );
+    assert_eq!(
+        lease_owner(root),
+        "alice",
+        "the routed profile owns the lease"
+    );
+    assert!(
+        argv_log(root, "claude")
+            .iter()
+            .any(|(argv, _)| argv.iter().any(|a| a == "--session-id")),
+        "Claude's interactive UI was launched"
+    );
+    assert!(
+        ledger(&world)["recent_handoffs"]
+            .as_array()
+            .is_none_or(Vec::is_empty),
+        "pre-launch fallback, not a handoff"
+    );
+}
+
+#[cfg(target_os = "macos")]
+mod timeline {
+    use super::*;
+    use std::io::Read as _;
+    use std::time::Instant;
+
+    /// Runs the command under a pseudo-terminal and returns `(seconds since start, bytes)` for
+    /// every chunk the terminal received.
+    fn chunks(command: Command) -> Vec<(f64, Vec<u8>)> {
+        let program = command.get_program().to_owned();
+        let args: Vec<_> = command.get_args().map(ToOwned::to_owned).collect();
+        let envs: Vec<_> = command
+            .get_envs()
+            .filter_map(|(key, value)| value.map(|value| (key.to_owned(), value.to_owned())))
+            .collect();
+        let mut wrapped = Command::new("script");
+        wrapped.args(["-q", "/dev/null"]).arg(program).args(args);
+        for (key, value) in envs {
+            wrapped.env(key, value);
+        }
+        scrub(&mut wrapped);
+        wrapped.env("TERM", "xterm-256color");
+        let start = Instant::now();
+        let mut child = wrapped
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("script");
+        let mut stdout = child.stdout.take().expect("stdout");
+        let mut out = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        loop {
+            match stdout.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => out.push((start.elapsed().as_secs_f64(), buffer[..n].to_vec())),
+            }
+        }
+        let _ = child.wait();
+        out
+    }
+
+    #[test]
+    fn progress_is_visible_at_once_and_never_leaves_a_blank_gap_during_slow_provider_work() {
+        let world = world_opts(true, &[], false);
+        set_limits_for(&world, "codex-main", "false", 100);
+        std::fs::write(
+            profile_dir(world.root.path(), "codex-main", "codex").join("slow"),
+            "",
+        )
+        .unwrap();
+        let project = world.project.path().to_string_lossy().into_owned();
+        let codex = codex_exe(&world);
+        let command = human_relay(
+            world.root.path(),
+            &[
+                "codex",
+                "--project-dir",
+                &project,
+                "--codex-executable",
+                &codex,
+            ],
+        );
+        let chunks = chunks(command);
+        assert!(!chunks.is_empty());
+        let first = chunks[0].0;
+        assert!(
+            first < 1.0,
+            "first visible output at {first:.2}s while the Codex check takes 2s+"
+        );
+        let text: String = chunks
+            .iter()
+            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+            .collect();
+        assert!(text.contains("Checking Codex availability"), "{text:?}");
+        // While the app-server is slow the spinner keeps redrawing: no silence longer than ~0.6s
+        // anywhere between the first output and the end.
+        let mut worst = 0.0_f64;
+        for pair in chunks.windows(2) {
+            worst = worst.max(pair[1].0 - pair[0].0);
+        }
+        assert!(
+            worst < 0.6,
+            "longest gap between visible updates: {worst:.2}s"
+        );
+    }
+}
+
+/// An interactive Claude writer (the user's own terminal session, no background job) is stopped
+/// during a handoff by the recorded pid + start-time identity — verified, never guessed.
+#[test]
+fn a_handoff_stops_an_interactive_claude_writer_by_its_verified_process() {
+    skip_without_process_env_scan!();
+    let world = world(false);
+    write_source_transcript(&world);
+    let root = world.root.path();
+    // Claude's registry lists no background job for it (an interactive session has none)...
+    std::fs::write(root.join("claude.stopped"), "").expect("marker");
+    // ...and the lease records the real, still-running interactive process.
+    let (pid, identity) = orphan_process();
+    edit_lease(&world, |lease| {
+        lease["owner_process"] = identity;
+        lease["provider_handle"] = Value::Null;
+    });
+    let switched = relay(
+        root,
+        &[
+            "switch",
+            "bob",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+        ],
+    );
+    assert!(
+        switched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&switched.stderr)
+    );
+    assert!(
+        !is_alive(pid),
+        "the interactive writer was stopped through its verified identity"
+    );
+    assert_eq!(lease_owner(root), "bob");
+    kill_quietly(pid);
 }

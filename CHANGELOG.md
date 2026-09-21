@@ -4,7 +4,10 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
-Nothing yet.
+- `relay claude` no longer asks for a first message: it starts `claude --session-id <uuid>` directly in
+  your terminal (Relay assigns and records the session) and a handoff can stop that interactive session by
+  its verified process. One progress indicator now covers every slow provider phase of `relay claude` /
+  `relay codex` (no blank gaps); `relay codex` no longer runs the slow `codex doctor` before its usage check.
 
 ## v0.3.0 — 2026-09-21
 

@@ -117,8 +117,12 @@ pub fn run_watching_lease(
     expected: &LeaseOwner,
     timing: &Timing,
     mut tick: Option<Tick<'_>>,
+    on_spawn: Option<&dyn Fn(u32)>,
 ) -> std::io::Result<TerminalEnd> {
     let mut child = command.to_command().spawn()?;
+    if let Some(on_spawn) = on_spawn {
+        on_spawn(child.id());
+    }
     let mut last_lease_check = Instant::now();
     let mut last_tick = Instant::now();
     loop {
@@ -233,6 +237,7 @@ mod tests {
             &LeaseOwner(ProfileName::new("erika").unwrap()),
             &fast(),
             None,
+            None,
         )
         .expect("run");
         assert_eq!(end, TerminalEnd::Exited(7));
@@ -259,6 +264,7 @@ mod tests {
             &LeaseOwner(ProfileName::new("erika").unwrap()),
             &fast(),
             None,
+            None,
         )
         .expect("run");
         flipper.join().expect("flipper");
@@ -284,6 +290,7 @@ mod tests {
                 every: Duration::from_millis(100),
                 action: &mut action,
             }),
+            None,
         )
         .expect("run");
         assert_eq!(end, TerminalEnd::Exited(0));

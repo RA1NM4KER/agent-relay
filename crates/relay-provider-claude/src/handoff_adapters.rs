@@ -176,14 +176,21 @@ impl SessionStopper for ClaudeSessionStopper {
             source_config_dir,
             self.claude_executable.as_deref(),
         )?;
-        // An interactive session has no background id and cannot be stopped this way; it simply
-        // stays listed, so quiescence below is never reached and the stop fails closed.
+        // A background session has a job id and is stopped through Claude itself. An interactive
+        // session (`relay claude`/`relay resume` running `claude` in the user's terminal) has no
+        // job id: it is the recorded writer *process*, stopped by the same pid + start-time-
+        // verified termination used for orphans (never a reused pid, never an unverifiable one).
         if let Some(handle) = sessions
             .iter()
             .find(|record| matches_this_session(record))
             .and_then(|record| record.id.as_deref())
         {
             issue_stop(source_config_dir, handle, self.claude_executable.as_deref())?;
+        } else if let Some(owner) = recorded_owner
+            && owner.pid != 0
+            && owner.is_still_the_same_process() == Some(true)
+        {
+            terminate_verified_process(owner, ORPHAN_TERM_GRACE)?;
         }
 
         let mut consecutive_quiet = 0u32;

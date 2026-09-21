@@ -48,7 +48,8 @@ relay switch <profile> = explicitly move ownership
 ```
 
 - `relay claude` always starts a **new** conversation under your highest-priority Claude profile,
-  tracked by Relay from the first message. If a Relay-managed session is already active for the project, it refuses
+  tracked by Relay from the start; Relay drops you straight into Claude (you type the first message
+  there — Relay never prompts for it). If a Relay-managed session is already active for the project, it refuses
   rather than silently reattaching or replacing it — run `relay resume` to continue that one, or
   `relay claude --new` to explicitly stop it and start fresh.
 - `relay codex` is the same thing for Codex: a new Relay-managed Codex conversation under your

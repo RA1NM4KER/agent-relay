@@ -85,13 +85,16 @@ This is the command you use to **start** a conversation. It:
 
 - figures out the project from your current directory,
 - figures out which account to use from what `relay setup` saved (no `--profile` needed),
-- starts a **new** Claude conversation under that account, tracked from the first message,
+- starts a **new** Claude conversation under that account, tracked from the start (Relay assigns
+  the session id itself, so it knows the native session before Claude opens),
 - if you're inside a Herdr pane, tells Herdr which account/session this pane belongs to
   automatically (you never type a pane id or copy a session UUID anywhere),
 - and hands you a normal, interactive Claude terminal.
 
-It needs an opening message — either give it on the command line
-(`relay claude "let's refactor the auth module"`) or it asks you once.
+Relay does not ask for a first message: it drops you straight into Claude and you type it there.
+(You may still give one on the command line — `relay claude "let's refactor the auth module"` — and
+it is passed to Claude as the opening prompt. `relay claude --no-attach`, the scripting form, does need
+a message because it starts a background session without a terminal.)
 
 `relay codex` is the same command for Codex: it starts a **new** Relay-managed Codex conversation
 under your highest-priority configured Codex profile (`relay claude` picks the highest-priority
