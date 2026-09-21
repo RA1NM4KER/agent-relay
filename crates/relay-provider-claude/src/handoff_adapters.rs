@@ -20,7 +20,7 @@ use serde_json::Value;
 
 use crate::{
     AUTHENTICATION_OVERRIDE_VARIABLES, ClaudeInspector, ProcessLister, SystemProcessLister,
-    session_registry, session_transfer,
+    WriterScope, session_registry, session_transfer,
 };
 
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(180);
@@ -74,11 +74,23 @@ impl SourceLiveness for ClaudeSourceLiveness {
                 // `claude agents --json` itself unavailable (older Claude build, or the
                 // command failed): fall back to the M2A ps-scan alone as a diagnostic-only
                 // signal, rather than failing the whole check outright.
-                let ps_active =
-                    SystemProcessLister.claude_process_running_for(source_config_dir)?;
+                // Scoped to this project and session: an expected source that is still the
+                // recorded process, or anything that could be another writer here, is active.
+                let blocking = SystemProcessLister.blocking_claude_processes(&WriterScope {
+                    config_dir: source_config_dir,
+                    project_dir,
+                    session_id: Some(expected_session_id),
+                    expected: recorded_owner,
+                })?;
+                let source_alive = recorded_owner.is_some_and(|owner| {
+                    owner.pid != 0 && owner.is_still_the_same_process() != Some(false)
+                });
                 return Ok(LivenessVerdict {
-                    active: ps_active,
-                    untracked_session_ids: Vec::new(),
+                    active: source_alive || !blocking.is_empty(),
+                    untracked_session_ids: blocking
+                        .iter()
+                        .map(|process| format!("pid {}", process.pid))
+                        .collect(),
                 });
             }
         };
@@ -372,6 +384,22 @@ fn issue_stop(
 pub struct ClaudeSessionStager;
 
 impl SessionStager for ClaudeSessionStager {
+    fn preflight(
+        &self,
+        source_config_dir: &Path,
+        project_dir: &Path,
+        session_id: &str,
+        recorded_owner: Option<&ProcessIdentity>,
+    ) -> Result<()> {
+        session_transfer::stage_preflight(
+            &SystemProcessLister,
+            source_config_dir,
+            project_dir,
+            session_id,
+            recorded_owner,
+        )
+    }
+
     fn stage(
         &self,
         source_config_dir: &Path,

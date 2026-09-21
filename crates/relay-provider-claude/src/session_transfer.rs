@@ -16,33 +16,159 @@ use relay_core::{AtomicWrite, Error, FsAtomicWriter, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::inspection::is_supported_version;
+use relay_core::handoff::ProcessIdentity;
 
-/// A Relay-launched writer for a config dir is never simultaneously live with a transfer:
-/// this is a best-effort process-table check, not a lock. It has the same known race
-/// limitations as any process-table inspection (see docs/security.md).
+use crate::{
+    inspection::is_supported_version,
+    process_scope::{
+        ClassifiedProcess, RawProcess, RegistryEntry, WriterScope, blockers, classify,
+        is_claude_process,
+    },
+};
+
+/// Finds the Claude processes that could be a conflicting writer for one project (see
+/// [`crate::process_scope`]): a best-effort process-table check, not a lock, with the known race
+/// limits of any process-table inspection (see docs/security.md).
 pub trait ProcessLister: Send + Sync {
-    fn claude_process_running_for(&self, config_dir: &Path) -> Result<bool>;
+    /// Only the processes that must block the operation.
+    fn blocking_claude_processes(&self, scope: &WriterScope<'_>) -> Result<Vec<ClassifiedProcess>>;
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SystemProcessLister;
 
+/// `pid ppid <lstart: 5 tokens> command… ENV=…` from `ps -Eww`.
+fn parse_ps_line(line: &str) -> Option<RawProcess> {
+    let mut tokens = line.split_whitespace();
+    let pid: u32 = tokens.next()?.parse().ok()?;
+    let ppid: u32 = tokens.next()?.parse().ok()?;
+    for _ in 0..5 {
+        tokens.next()?;
+    }
+    let rest: Vec<&str> = tokens.collect();
+    let is_env = |token: &str| {
+        token.split_once('=').is_some_and(|(key, _)| {
+            !key.is_empty()
+                && key.starts_with(|c: char| c.is_ascii_uppercase() || c == '_')
+                && key
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        })
+    };
+    let split = rest
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, token)| is_env(token))
+        .map_or(rest.len(), |(index, _)| index);
+    let value = |key: &str| {
+        rest[split..]
+            .iter()
+            .find_map(|token| token.strip_prefix(&format!("{key}=")))
+            .map(str::to_owned)
+    };
+    Some(RawProcess {
+        pid,
+        ppid,
+        argv: rest[..split]
+            .iter()
+            .map(|token| (*token).to_owned())
+            .collect(),
+        config_dir: value("CLAUDE_CONFIG_DIR"),
+        pwd: value("PWD").map(PathBuf::from),
+        cwd: None,
+    })
+}
+
+fn probe_cwd(pid: u32) -> Option<PathBuf> {
+    if let Ok(path) = fs::read_link(format!("/proc/{pid}/cwd")) {
+        return Some(path);
+    }
+    let output = Command::new("lsof")
+        .args(["-a", "-p", &pid.to_string(), "-d", "cwd", "-Fn"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix('n'))
+        .map(PathBuf::from)
+}
+
+fn canonical_or_same(path: PathBuf) -> PathBuf {
+    fs::canonicalize(&path).unwrap_or(path)
+}
+
 impl ProcessLister for SystemProcessLister {
-    fn claude_process_running_for(&self, config_dir: &Path) -> Result<bool> {
+    fn blocking_claude_processes(&self, scope: &WriterScope<'_>) -> Result<Vec<ClassifiedProcess>> {
         let output = Command::new("ps")
-            .args(["-Eww", "-o", "command="])
+            .args(["-Eww", "-axo", "pid=,ppid=,lstart=,command="])
             .output()
             .map_err(|_| Error::ProviderCommandFailed)?;
         if !output.status.success() {
             return Err(Error::ProviderCommandFailed);
         }
-        let text = String::from_utf8_lossy(&output.stdout);
-        let needle = format!("CLAUDE_CONFIG_DIR={}", config_dir.display());
-        Ok(text
+        let config_text = scope.config_dir.to_string_lossy().into_owned();
+        let canonical_config = canonical_or_same(scope.config_dir.to_path_buf());
+        let mut processes: Vec<RawProcess> = String::from_utf8_lossy(&output.stdout)
             .lines()
-            .any(|line| line.split_whitespace().any(|token| token == needle)))
+            .filter_map(parse_ps_line)
+            .collect();
+        let canonical_config_text = canonical_config.to_string_lossy().into_owned();
+        for process in &mut processes {
+            // Normalise the profile directory so a symlinked spelling still matches.
+            if process.config_dir.as_deref() == Some(canonical_config_text.as_str()) {
+                process.config_dir = Some(config_text.clone());
+            }
+            if process.config_dir.as_deref() == Some(config_text.as_str())
+                && is_claude_process(&process.argv)
+            {
+                process.cwd = probe_cwd(process.pid).map(canonical_or_same);
+                process.pwd = process.pwd.take().map(canonical_or_same);
+            }
+        }
+        let registry: Vec<RegistryEntry> = read_registry(scope.config_dir)
+            .into_iter()
+            .filter(|entry| processes.iter().any(|process| process.pid == entry.pid))
+            .collect();
+        let expected = scope.expected;
+        let fingerprint = |pid: u32| {
+            expected
+                .filter(|owner| owner.pid == pid)
+                .and_then(ProcessIdentity::is_still_the_same_process)
+        };
+        Ok(blockers(classify(
+            &processes,
+            &registry,
+            scope,
+            &fingerprint,
+        )))
     }
+}
+
+fn read_registry(config_dir: &Path) -> Vec<RegistryEntry> {
+    let Ok(entries) = fs::read_dir(config_dir.join("sessions")) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .filter_map(|entry| {
+            let value: serde_json::Value =
+                serde_json::from_slice(&fs::read(entry.path()).ok()?).ok()?;
+            Some(RegistryEntry {
+                pid: u32::try_from(value.get("pid")?.as_u64()?).ok()?,
+                session_id: value
+                    .get("sessionId")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned),
+                cwd: value
+                    .get("cwd")
+                    .and_then(|v| v.as_str())
+                    .map(|cwd| canonical_or_same(PathBuf::from(cwd))),
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -157,6 +283,43 @@ pub fn discover_session(
     Ok(artifacts)
 }
 
+/// Refuses when anything other than the exact `expected` source process could write to this
+/// project. Shared by the pre-stop preflight and the authoritative post-stop staging check.
+pub fn require_no_conflicting_writer(
+    lister: &dyn ProcessLister,
+    source_config_dir: &Path,
+    project_dir: &Path,
+    session_id: &str,
+    expected: Option<&ProcessIdentity>,
+) -> Result<()> {
+    let blocking = lister.blocking_claude_processes(&WriterScope {
+        config_dir: source_config_dir,
+        project_dir,
+        session_id: Some(session_id),
+        expected,
+    })?;
+    if blocking.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::SourceProfileActive)
+    }
+}
+
+/// Everything staging will need, checked without writing: no conflicting writer (the source
+/// process itself excepted) and a discoverable source session. Run before the source is stopped
+/// so a predictable refusal never costs the user their live session.
+pub fn stage_preflight(
+    lister: &dyn ProcessLister,
+    source_config_dir: &Path,
+    project_dir: &Path,
+    session_id: &str,
+    expected: Option<&ProcessIdentity>,
+) -> Result<()> {
+    let project_dir = require_absolute(project_dir)?;
+    require_no_conflicting_writer(lister, source_config_dir, project_dir, session_id, expected)?;
+    discover_session(source_config_dir, project_dir, session_id).map(|_| ())
+}
+
 /// Stages every discovered artifact from `source_config_dir` into the identical relative path
 /// under `target_config_dir`. Refuses if the source profile still has a live Claude process, if
 /// no matching session exists, or if the target already holds a divergent artifact. Every write
@@ -170,10 +333,8 @@ pub fn stage_transfer(
     project_dir: &Path,
     session_id: &str,
 ) -> Result<SessionTransferReport> {
-    if lister.claude_process_running_for(source_config_dir)? {
-        return Err(Error::SourceProfileActive);
-    }
     let project_dir = require_absolute(project_dir)?;
+    require_no_conflicting_writer(lister, source_config_dir, project_dir, session_id, None)?;
     let key = escape_project_path(project_dir);
     let artifacts = discover_session(source_config_dir, project_dir, session_id)?;
 
@@ -255,14 +416,22 @@ mod tests {
 
     const SESSION_ID: &str = "11111111-2222-3333-4444-555555555555";
 
+    fn blocker() -> crate::process_scope::ClassifiedProcess {
+        crate::process_scope::ClassifiedProcess {
+            pid: 1,
+            role: crate::process_scope::ProcessRole::ConflictingWriter,
+            evidence: "test".to_owned(),
+        }
+    }
+
     struct FixedLister(bool);
 
     impl super::ProcessLister for FixedLister {
-        fn claude_process_running_for(
+        fn blocking_claude_processes(
             &self,
-            _config_dir: &std::path::Path,
-        ) -> relay_core::Result<bool> {
-            Ok(self.0)
+            _scope: &crate::process_scope::WriterScope<'_>,
+        ) -> relay_core::Result<Vec<crate::process_scope::ClassifiedProcess>> {
+            Ok(if self.0 { vec![blocker()] } else { Vec::new() })
         }
     }
 
@@ -272,15 +441,19 @@ mod tests {
     }
 
     impl super::ProcessLister for RecordingLister {
-        fn claude_process_running_for(
+        fn blocking_claude_processes(
             &self,
-            config_dir: &std::path::Path,
-        ) -> relay_core::Result<bool> {
+            scope: &crate::process_scope::WriterScope<'_>,
+        ) -> relay_core::Result<Vec<crate::process_scope::ClassifiedProcess>> {
             self.seen
                 .lock()
                 .expect("seen lock")
-                .push(config_dir.to_path_buf());
-            Ok(self.active)
+                .push(scope.config_dir.to_path_buf());
+            Ok(if self.active {
+                vec![blocker()]
+            } else {
+                Vec::new()
+            })
         }
     }
 
@@ -473,9 +646,14 @@ mod tests {
             return;
         }
         let root = tempdir().expect("temp dir");
-        let result = SystemProcessLister.claude_process_running_for(&root.path().join("nobody"));
-        assert!(result.is_ok());
-        assert!(!result.expect("ok"));
+        let nobody = root.path().join("nobody");
+        let result = SystemProcessLister.blocking_claude_processes(&super::WriterScope {
+            config_dir: &nobody,
+            project_dir: root.path(),
+            session_id: None,
+            expected: None,
+        });
+        assert!(result.expect("ok").is_empty());
     }
 
     #[test]

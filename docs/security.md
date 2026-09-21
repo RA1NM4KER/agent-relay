@@ -205,6 +205,21 @@ mismatched requests are refused, and the transaction itself is the ordinary `rel
 runs with the user's own privileges, so the trust boundary is unchanged: anything that can write the
 project's Relay state can already write its lease.
 
+### What counts as a conflicting writer
+
+A handoff must not proceed while anything other than the exact source process could write to the
+project. Relay therefore classifies each Claude process under the source profile instead of treating
+"any Claude process under this profile" as a conflict: the recorded source (pid **and** start time), its
+descendants and processes serving the session being moved are expected; a registered Claude session in a
+*different* project, and unregistered provider infrastructure (daemon, pty host, spare worker) that is
+provably working outside this project, do not block. A registered session in this project (or one
+started above it), an unregistered Claude process inside it, and anything whose project, working
+directory or identity cannot be established **do** block — ambiguity fails closed, and a stale recorded
+pid never shields a live conflicting writer. The same classification serves `relay switch`, `/relay
+switch`, automatic handoff, `relay handoff run`, `relay session stage` and recovery checks. Everything
+foreseeable (this check, the target's login/identity/usage, the source session existing) is verified
+*before* the source is stopped; the authoritative checks run again after the stop.
+
 ### Dangerous automatic handoff
 
 An incorrect limit signal or target choice could stop useful work or appear to evade provider limits.

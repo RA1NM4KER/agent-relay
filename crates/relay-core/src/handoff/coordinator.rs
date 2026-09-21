@@ -121,6 +121,21 @@ pub trait SessionStager: Send + Sync {
         project_dir: &Path,
         session_id: &str,
     ) -> Result<TransferOutcome>;
+
+    /// Everything [`stage`](Self::stage) will require that can be known without writing anything,
+    /// checked while the source is still running so a predictable refusal (a conflicting writer, a
+    /// missing session) never costs the user their live session. `recorded_owner` is the exact
+    /// source process the transaction is about to stop; it is allowed. The authoritative checks in
+    /// `stage` still run after the stop.
+    fn preflight(
+        &self,
+        _source_config_dir: &Path,
+        _project_dir: &Path,
+        _session_id: &str,
+        _recorded_owner: Option<&ProcessIdentity>,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// M6: builds a provider-neutral [`ContinuationBundle`] from the SOURCE's own local state, for a
@@ -438,6 +453,24 @@ impl HandoffCoordinator<'_> {
                 format!("liveness check failed: {error}"),
                 error
             ),
+        }
+        // Everything staging will demand is checked NOW, while the source still runs: a
+        // predictable refusal must not cost the user their live session. (`stage` re-checks after
+        // the stop; this only avoids a destructive failure that could have been foreseen.)
+        if let (ContinuityType::SessionContinuation, Some(stager)) =
+            (&request.continuity_type, self.stager)
+            && let Err(error) = stager.preflight(
+                &request.source_config_dir,
+                project_dir,
+                &request.session_id,
+                recorded_owner.as_ref(),
+            )
+        {
+            fail_and_return!(
+                FailedPhase::Stop,
+                format!("preflight refused before the source was stopped: {error}"),
+                error
+            );
         }
         // M2B.75: authoritative stop of our own session, verified quiescent across multiple
         // consecutive observations — not a single check, and not a raw kill.

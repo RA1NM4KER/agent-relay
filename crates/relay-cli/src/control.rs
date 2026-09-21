@@ -79,6 +79,12 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Whether a recorded action is recent enough to still be worth reporting (15 minutes).
+#[must_use]
+pub fn is_recent(unix_ms: u64) -> bool {
+    now_ms().saturating_sub(unix_ms) < 15 * 60 * 1000
+}
+
 pub struct ControlDir {
     dir: PathBuf,
 }

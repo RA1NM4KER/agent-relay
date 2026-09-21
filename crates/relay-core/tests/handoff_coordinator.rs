@@ -1801,3 +1801,97 @@ fn a_crash_during_state_continuation_target_launch_requires_explicit_recovery() 
         "the writer lease must not move"
     );
 }
+
+/// A stager whose preflight refuses (a conflicting writer, say) but whose `stage` would succeed.
+struct PreflightRefusingStager {
+    preflights: Mutex<u32>,
+}
+impl SessionStager for PreflightRefusingStager {
+    fn stage(
+        &self,
+        _source_config_dir: &Path,
+        _target_config_dir: &Path,
+        _project_dir: &Path,
+        session_id: &str,
+    ) -> relay_core::Result<TransferOutcome> {
+        OkStager.stage(
+            _source_config_dir,
+            _target_config_dir,
+            _project_dir,
+            session_id,
+        )
+    }
+    fn preflight(
+        &self,
+        _source_config_dir: &Path,
+        _project_dir: &Path,
+        _session_id: &str,
+        _recorded_owner: Option<&ProcessIdentity>,
+    ) -> relay_core::Result<()> {
+        *self.preflights.lock().expect("lock") += 1;
+        Err(Error::SourceProfileActive)
+    }
+}
+
+#[test]
+fn a_foreseeable_refusal_is_raised_before_the_source_is_stopped() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let stopper = RecordingStopper {
+        calls: Mutex::new(Vec::new()),
+        fail: false,
+    };
+    let stager = PreflightRefusingStager {
+        preflights: Mutex::new(0),
+    };
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        source_stopper: &stopper,
+        target_stopper: &stopper,
+        stager: Some(&stager),
+        context_capturer: None,
+        launcher: &OkLauncher,
+    };
+    let error = coordinator
+        .run(request(&project_dir, "erika", "megan"))
+        .expect_err("the preflight refuses");
+    assert_eq!(error.code(), "source_profile_active");
+    assert_eq!(*stager.preflights.lock().expect("lock"), 1);
+    assert!(
+        stopper.calls.lock().expect("calls").is_empty(),
+        "no stop may be issued on a predictable refusal"
+    );
+    let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
+    let lease = LeaseStore::at_path(paths.project_state_dir(&project_id).join("lease.json"));
+    assert_eq!(lease.load().expect("load"), None);
+}
+
+#[test]
+fn without_a_preflight_refusal_the_authoritative_stop_and_stage_still_run() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let stopper = RecordingStopper {
+        calls: Mutex::new(Vec::new()),
+        fail: false,
+    };
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        source_stopper: &stopper,
+        target_stopper: &stopper,
+        stager: Some(&OkStager),
+        context_capturer: None,
+        launcher: &OkLauncher,
+    };
+    coordinator
+        .run(request(&project_dir, "erika", "megan"))
+        .expect("a viable transaction completes");
+    assert_eq!(stopper.calls.lock().expect("calls").len(), 1);
+}

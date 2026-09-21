@@ -161,7 +161,9 @@ case "$1" in
     esac ;;
   agents) printf '[]\n' ;;
   stop) exit 0 ;;
-  -p) cat >/dev/null; printf '{{"session_id":"{SESSION}","is_error":false,"subtype":"success"}}\n' ;;
+  -p) cat >/dev/null
+      if [ -n "$RELAY_TEST_BAD_VERIFY" ]; then printf '{{"session_id":"99999999-9999-4999-8999-999999999999","is_error":false,"subtype":"success"}}\n'
+      else printf '{{"session_id":"{SESSION}","is_error":false,"subtype":"success"}}\n'; fi ;;
   --resume)
     ID="$2"; case "$ID" in --*) ID="" ;; esac
     # Only the launch Relay started for `relay claude --resume` acts as the running agent; a
@@ -864,6 +866,153 @@ fn a_control_request_that_does_not_match_the_current_session_is_refused() {
         "alice",
         "nothing moved"
     );
+}
+
+/// A stand-in Claude *process* (a binary really named `claude`) that lives under alice's profile,
+/// registered in Claude's session registry as working in `cwd`.
+struct SleepingClaude {
+    child: std::process::Child,
+}
+
+impl SleepingClaude {
+    fn start(world: &World, session: &str, cwd: &Path) -> Self {
+        let dir = world.root.path().join("other");
+        std::fs::create_dir_all(&dir).expect("dir");
+        let link = dir.join("claude");
+        // A tiny program really named `claude` (compiled here: `ps -E` hides the environment of
+        // protected system binaries such as /bin/sleep, and a copy of one cannot run).
+        let source = dir.join("claude.rs");
+        std::fs::write(
+            &source,
+            "fn main() { std::thread::sleep(std::time::Duration::from_secs(120)); }",
+        )
+        .expect("source");
+        let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        assert!(
+            Command::new(rustc)
+                .arg(&source)
+                .arg("-o")
+                .arg(&link)
+                .status()
+                .expect("rustc")
+                .success()
+        );
+        let config = std::fs::canonicalize(&world.alice).expect("canonical");
+        let child = Command::new(&link)
+            .current_dir(cwd)
+            .env("CLAUDE_CONFIG_DIR", &config)
+            .stdin(Stdio::null())
+            .spawn()
+            .expect("sleeper");
+        let sessions = config.join("sessions");
+        std::fs::create_dir_all(&sessions).expect("sessions");
+        std::fs::write(
+            sessions.join(format!("{}.json", child.id())),
+            serde_json::json!({
+                "pid": child.id(), "sessionId": session, "cwd": cwd, "kind": "interactive"
+            })
+            .to_string(),
+        )
+        .expect("registry");
+        Self { child }
+    }
+}
+
+impl Drop for SleepingClaude {
+    fn drop(&mut self) {
+        let _ignored = self.child.kill();
+        let _ignored = self.child.wait();
+    }
+}
+
+fn switch_via_agent(world: &World, extra_env: &[(&str, &str)]) -> std::process::Output {
+    let mut command = world.resume_command(&["--profile", "alice", "--resume", SESSION]);
+    command
+        .env("RELAY_TEST_PROMPT", "/relay switch bob")
+        .env("RELAY_TEST_PROMPT_CMD", prompt_command(world))
+        .env("RELAY_TEST_SLEEP", "60");
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    command.output().expect("relay claude --resume")
+}
+
+#[test]
+fn a_claude_session_in_another_project_on_the_same_profile_does_not_block_a_switch() {
+    skip_without_process_env_scan!();
+    let world = world();
+    world.write_transcript(&world.alice, SESSION);
+    let elsewhere = tempdir().expect("elsewhere");
+    let _unrelated = SleepingClaude::start(
+        &world,
+        OTHER_SESSION,
+        &std::fs::canonicalize(elsewhere.path()).expect("canonical"),
+    );
+    let output = switch_via_agent(&world, &[]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(world.lease().expect("lease")["owner_profile"], "bob");
+    assert_eq!(
+        world.lease().expect("lease")["session_id"],
+        SESSION,
+        "the same session"
+    );
+}
+
+#[test]
+fn a_second_claude_session_in_the_same_project_refuses_the_switch_before_anything_is_stopped() {
+    skip_without_process_env_scan!();
+    let world = world();
+    world.write_transcript(&world.alice, SESSION);
+    let _rival = SleepingClaude::start(&world, OTHER_SESSION, &world.canonical_project());
+    let output = switch_via_agent(&world, &[("RELAY_TEST_SLEEP", "4")]);
+    assert!(output.status.success());
+    let answer = std::fs::read_to_string(world.root.path().join("prompt.out")).expect("answer");
+    assert!(answer.contains("refused"), "{answer}");
+    assert!(answer.contains("left running"), "{answer}");
+    assert_eq!(world.lease().expect("lease")["owner_profile"], "alice");
+    // No switch ran at all: the supervisor never launched the transaction.
+    assert!(!world.state_dir().join("control/last.json").exists());
+    assert!(
+        !argv_log(world.root.path())
+            .iter()
+            .any(|argv| argv.first().map(String::as_str) == Some("-p"))
+    );
+}
+
+#[test]
+fn a_switch_that_fails_after_the_stop_reopens_the_same_session_and_moves_nothing() {
+    skip_without_process_env_scan!();
+    let world = world();
+    world.write_transcript(&world.alice, SESSION);
+    // The target answers with a different session, so verification fails after the source stopped.
+    let output = switch_via_agent(&world, &[("RELAY_TEST_BAD_VERIFY", "1")]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lease = world.lease().expect("lease");
+    assert_eq!(lease["owner_profile"], "alice", "ownership never moved");
+    assert_eq!(lease["session_id"], SESSION);
+    let alice = std::fs::canonicalize(&world.alice).expect("alice");
+    let log = std::fs::read_to_string(world.root.path().join("claude.argv")).expect("log");
+    let reopened = log
+        .lines()
+        .filter(|line| {
+            line.starts_with("ARGV\u{1f}--resume\u{1f}")
+                && line.ends_with(&format!("|{}", alice.display()))
+        })
+        .count();
+    assert_eq!(
+        reopened, 2,
+        "the original launch plus one native reopen of the same session:\n{log}"
+    );
+    let last = std::fs::read_to_string(world.state_dir().join("control/last.json")).expect("last");
+    assert!(last.contains("\"ok\":false"), "{last}");
 }
 
 // ---- bare `relay switch` ------------------------------------------------------------------------

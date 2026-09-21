@@ -4,6 +4,14 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+- **More precise switch safety.** The check before a Claude → Claude move no longer refuses because
+  *some* Claude process runs under the source profile (background daemons, helpers and sessions in other
+  projects did): each process is classified by pid + start time, Claude's session registry and working
+  directory, and only a possible writer for *this* project — or something that cannot be placed — blocks.
+  Foreseeable refusals now happen before the source is stopped, and a supervised terminal reopens the same
+  session when a switch fails after the stop but before ownership moved. Identity of the target is also
+  checked up front.
+
 - **Session adoption and in-agent control.** `relay claude --resume [SESSION]` adopts an existing Claude
   conversation through Claude's own resume flow (same session, no fork), proven from Claude's own
   `SessionStart` report, its live-session registry and the profile identity pin before any lease is written.

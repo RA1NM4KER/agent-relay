@@ -214,7 +214,10 @@ fn status(context: &Context<'_>) -> String {
               `relay claude`/`relay resume`; use `relay switch` from another terminal"
             .to_owned(),
     });
-    if let Some(last) = control.last_result() {
+    if let Some(last) = control
+        .last_result()
+        .filter(|last| control::is_recent(last.unix_ms))
+    {
         lines.push(format!("Last in-session action: {}", last.message));
     }
     lines.join("\n")

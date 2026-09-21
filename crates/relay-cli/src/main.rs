@@ -2920,6 +2920,11 @@ fn run_switch(
     if target_status.authentication != AuthenticationState::Authenticated {
         return Err(Error::AuthenticationRequired);
     }
+    // Known before anything is stopped: the account behind the target must still be the one
+    // registered for it.
+    if !target_status.identity_matches {
+        return Err(Error::IdentityMismatch);
+    }
     // An explicit switch to Codex is preflighted before anything is committed: an exhausted (or
     // unverifiable) target is refused outright — manual intent is never silently rerouted.
     if target.provider == ProviderKind::Codex {
@@ -3452,10 +3457,28 @@ fn serve_control_request(
     {
         return refuse(&format!("'{target}' is unavailable ({reason})"));
     }
-    let source_provider = registered
+    let source = registered
         .iter()
-        .find(|candidate| candidate.name == lease.owner_profile)
-        .map_or(ProviderKind::Claude, |candidate| candidate.provider);
+        .find(|candidate| candidate.name == lease.owner_profile);
+    let source_provider = source.map_or(ProviderKind::Claude, |candidate| candidate.provider);
+    // The same preflight the transaction runs before it stops anything: a foreseeable refusal
+    // (another writer in this project, a missing session) is answered now, with the session
+    // untouched, instead of after the agent has been closed.
+    if let Some(source) = source
+        && source_provider == ProviderKind::Claude
+        && profile.provider == ProviderKind::Claude
+        && let Some(stager) = providers::ports_for(ProviderKind::Claude, &executables).stager
+        && let Err(error) = stager.preflight(
+            &source.config_dir,
+            &context.canonical_project,
+            &lease.session_id,
+            Some(&lease.owner_process),
+        )
+    {
+        return refuse(&format!(
+            "the switch cannot start safely ({error}); the session was left running"
+        ));
+    }
     control.respond(&control::Response {
         id: request.id.clone(),
         ok: true,
@@ -3555,6 +3578,8 @@ fn run_managed_terminal_inner(
     let timing = terminal::Timing::default();
     let mut command = first;
     let mut owner = terminal::LeaseOwner(first_owner);
+    // Failed in-agent switches whose source session has already been reopened (each once).
+    let mut restored_after: Vec<u64> = Vec::new();
 
     for continuation in 0..=MAX_CONTINUATIONS {
         let _ = std::io::stdout().flush();
@@ -3652,6 +3677,10 @@ fn run_managed_terminal_inner(
             path: command.program.clone(),
             source,
         })?;
+        // The switch helper (if any) finishes recording its outcome before the decision below.
+        if let Some(helper) = pending_switch.take() {
+            let _ignored = helper.join();
+        }
         let code = match end {
             terminal::TerminalEnd::Exited(code) => code,
             terminal::TerminalEnd::OwnerMoved => 0,
@@ -3674,6 +3703,46 @@ fn run_managed_terminal_inner(
         let Ok(Some(lease)) = lease_store.load() else {
             return Ok(code);
         };
+        // A switch that failed AFTER the session was deliberately stopped, but before ownership
+        // moved, leaves the lease exactly as it was: the same owner, the same session, no process.
+        // Reopening that very session natively is safe and deterministic (one writer: nobody else
+        // holds the project), so the terminal does that instead of leaving the user stranded.
+        if terminal::LeaseOwner::of(&lease) == owner
+            && continuation < MAX_CONTINUATIONS
+            && control.last_result().is_some_and(|last| {
+                !last.ok
+                    && current_unix_ms().saturating_sub(last.unix_ms) < 120_000
+                    && !restored_after.contains(&last.unix_ms)
+            })
+            && let Some(last) = control.last_result()
+        {
+            restored_after.push(last.unix_ms);
+            let registered = context.service.list()?;
+            if let Some(profile) = registered
+                .iter()
+                .find(|candidate| candidate.name == lease.owner_profile)
+                && let Ok(reopened) = provider_args::ProviderArgs::load(&context.project_state_dir)
+                    .and_then(|stored| {
+                        plan_terminal_for_lease(
+                            profile,
+                            &lease,
+                            &context.canonical_project,
+                            context.claude_executable.as_deref(),
+                            context.codex_executable.as_deref(),
+                            &stored,
+                        )
+                    })
+            {
+                if !context.json_mode {
+                    println!(
+                        "\nAgent Relay: {} — reopening the same conversation on '{}' (nothing moved).",
+                        last.message, lease.owner_profile
+                    );
+                }
+                command = reopened;
+                continue;
+            }
+        }
         if terminal::LeaseOwner::of(&lease) == owner || continuation == MAX_CONTINUATIONS {
             if continuation == MAX_CONTINUATIONS
                 && terminal::LeaseOwner::of(&lease) != owner
@@ -3721,8 +3790,8 @@ fn run_managed_terminal_inner(
         };
         if !context.json_mode {
             println!(
-                "\nAgent Relay: '{}' reached its limit — continuing this conversation on '{}'...",
-                owner.0, lease.owner_profile
+                "\nAgent Relay: the conversation moved from '{}' to '{}' — continuing on '{}'...",
+                owner.0, lease.owner_profile, lease.owner_profile
             );
         }
         owner = terminal::LeaseOwner::of(&lease);

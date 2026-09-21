@@ -24,6 +24,7 @@ mod handoff_adapters;
 mod hook_handlers;
 mod inspection;
 mod integration;
+mod process_scope;
 mod session_registry;
 mod session_transfer;
 mod usage;
@@ -55,10 +56,12 @@ pub use integration::{
     apply_install, apply_uninstall, integration_status, load_manifest, plan_install,
     plan_uninstall,
 };
+pub use process_scope::{ClassifiedProcess, ProcessRole, WriterScope};
 pub use session_registry::{AgentSessionRecord, query_active_sessions};
 pub use session_transfer::{
     ProcessLister, SessionTransferReport, StagedArtifact, SystemProcessLister, discover_session,
-    ensure_supported_claude_version, escape_project_path, stage_transfer, validate_session_id,
+    ensure_supported_claude_version, escape_project_path, require_no_conflicting_writer,
+    stage_preflight, stage_transfer, validate_session_id,
 };
 pub use usage::{ClaudeUsageSignal, ProbeFindings, SimulatedUsageSignal, parse_probe_output};
 pub use usage_policy::{PolicyConfig, PolicyInputs, evaluate as evaluate_usage_policy};

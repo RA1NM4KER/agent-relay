@@ -138,7 +138,12 @@ tokens and the model cannot influence which session, profile or project it acts 
 | `/relay switch [profile]` | Moves the conversation to another profile (without a name it lists them). Available in terminals started through `relay claude`/`relay resume`; your terminal reopens the conversation on the new owner. |
 
 `/relay switch` is a request to the Relay process supervising your terminal, which runs the same
-`relay switch` transaction; the agent never switches itself.
+`relay switch` transaction; the agent never switches itself. Foreseeable refusals (another Claude
+session working in this project, an unavailable target) are reported before your session is touched;
+other Claude sessions on the same profile in *other* projects do not block a switch. If a switch
+fails after your session was stopped but before ownership moved, the terminal reopens the same
+conversation on the same profile automatically (nothing moved); a switch started from another
+terminal (`relay switch`) leaves recovery to `relay resume`.
 
 ### Choosing a switch target
 

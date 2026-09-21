@@ -781,10 +781,7 @@ fn resume_follows_the_conversation_onto_the_new_owner_after_a_handoff() {
     );
     assert_eq!(lease_owner(world.root.path()), "bob");
     let text = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        text.contains("continuing this conversation on 'bob'"),
-        "{text}"
-    );
+    assert!(text.contains("continuing on 'bob'"), "{text}");
 }
 
 /// `relay claude` itself (a fresh start) gets the same continuation, so the daily entry point
@@ -1151,9 +1148,7 @@ fn a_supervised_codex_session_notices_exhaustion_and_follows_the_conversation_to
             .any(|(args, _)| args.starts_with("attach ") || args.starts_with("--resume ")),
         "the terminal must continue on alice: {log:?}"
     );
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("continuing this conversation on 'alice'")
-    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("continuing on 'alice'"));
 }
 
 /// Codex -> another Codex profile (fake providers only): the hierarchy is honoured and the
