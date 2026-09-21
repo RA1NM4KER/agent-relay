@@ -236,11 +236,25 @@
   .demo-dots span { width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
 
   .sim-tag { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); letter-spacing: 0.06em; text-transform: uppercase; }
-  .paused-tag { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; margin-right: 14px; opacity: 0; transition: opacity 200ms ease; }
-  .paused-tag.show { opacity: 1; }
+  .pp-btn {
+    appearance: none;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 9px;
+    margin-right: 14px;
+    cursor: pointer;
+  }
+  .pp-btn:hover { color: var(--text); border-color: var(--accent-2); }
+  .pp-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .titlebar-right { display: flex; align-items: center; }
 
-  .loop-wrap { padding: 28px 20px 26px; cursor: default; outline-offset: -3px; }
+  .loop-wrap { padding: 28px 20px 26px; }
   .loop {
     position: relative;
     max-width: 720px;
@@ -351,6 +365,7 @@
   /* reduced motion: a static sequence replaces the animated loop */
   .static-seq { display: none; }
   @media (prefers-reduced-motion: reduce) {
+    .pp-btn { display: none; }
     .demo-anim { display: none; }
     .static-seq { display: block; }
   }
@@ -551,11 +566,11 @@
       <div class="demo" id="handoff-demo">
         <div class="demo-titlebar">
           <div class="demo-dots"><span></span><span></span><span></span></div>
-          <div class="titlebar-right"><span class="paused-tag" id="paused-tag">Paused</span><span class="sim-tag">Simulated timeline</span></div>
+          <div class="titlebar-right"><button class="pp-btn" id="pp-btn" type="button" aria-label="Pause animation">Pause</button><span class="sim-tag">Simulated timeline</span></div>
         </div>
 
         <div class="demo-anim">
-          <div class="loop-wrap" id="loop-wrap" tabindex="0" role="group" aria-label="Simulated handoff loop between three profiles in priority order. Claude Primary exhausts and hands off to Claude Backup, which exhausts and hands off to Codex Backup. Claude Primary becomes ready again but Codex stays current until it exhausts, then work returns to Claude Primary.">
+          <div class="loop-wrap" id="loop-wrap" role="group" aria-label="Simulated handoff loop between three profiles in priority order. Claude Primary exhausts and hands off to Claude Backup, which exhausts and hands off to Codex Backup. Claude Primary becomes ready again but Codex stays current until it exhausts, then work returns to Claude Primary.">
             <div class="loop" id="loop">
               <svg id="loop-svg" aria-hidden="true">
                 <path class="edge" id="edge0"/>
@@ -783,7 +798,7 @@ relay claude" aria-label="Copy all three commands">
   var engine = document.getElementById("engine");
   var e1 = document.getElementById("e1");
   var e2 = document.getElementById("e2");
-  var pausedTag = document.getElementById("paused-tag");
+  var ppBtn = document.getElementById("pp-btn");
   var LABEL = { current: "Current", ready: "Ready", exhausted: "Exhausted", reset: "Reset pending" };
 
   // Schedule (ms). Each segment holds one idea; changes are sequenced, never simultaneous.
@@ -979,9 +994,11 @@ relay claude" aria-label="Copy all three commands">
     if (loopEl.style.paddingBottom !== pad) loopEl.style.paddingBottom = pad;
   }
 
-  // ---- run control: on screen, tab visible, not hovered/focused (desktop), not tapped-paused ----
+  // ---- run control: runs while the card is on screen and the tab is visible, unless the user
+  // has explicitly paused it with the Pause / Play button. Nothing else (pointer, focus, taps on
+  // the diagram) pauses it, and resuming continues from the exact point it stopped.
   var elapsed = 0, last = 0, raf = 0, running = false;
-  var inView = false, hoverPaused = false, focusPaused = false, tapPaused = false;
+  var inView = false, userPaused = false;
   function loop(now) {
     if (!running) return;
     elapsed = (elapsed + Math.min(now - last, 100)) % TOTAL;
@@ -990,10 +1007,9 @@ relay claude" aria-label="Copy all three commands">
     raf = requestAnimationFrame(loop);
   }
   function sync() {
-    var want = inView && !document.hidden && !hoverPaused && !focusPaused && !tapPaused;
+    var want = inView && !document.hidden && !userPaused;
     if (want && !running) { running = true; last = performance.now(); raf = requestAnimationFrame(loop); }
     else if (!want && running) { running = false; cancelAnimationFrame(raf); }
-    pausedTag.classList.toggle("show", inView && (hoverPaused || focusPaused || tapPaused));
   }
 
   layout();
@@ -1007,12 +1023,11 @@ relay claude" aria-label="Copy all three commands">
   if (!reduceMotion) {
     var demoEl = document.getElementById("handoff-demo");
     document.addEventListener("visibilitychange", sync);
-    wrap.addEventListener("pointerenter", function (e) { if (e.pointerType === "mouse") { hoverPaused = true; sync(); } });
-    wrap.addEventListener("pointerleave", function (e) { if (e.pointerType === "mouse") { hoverPaused = false; sync(); } });
-    wrap.addEventListener("focusin", function () { try { if (wrap.matches(":focus-visible")) { focusPaused = true; sync(); } } catch (err) { /* older browsers: no focus pause */ } });
-    wrap.addEventListener("focusout", function () { focusPaused = false; sync(); });
-    wrap.addEventListener("click", function (e) {
-      if (e.pointerType === "touch" || e.pointerType === "pen" || (window.matchMedia && window.matchMedia("(hover: none)").matches)) { tapPaused = !tapPaused; sync(); }
+    ppBtn.addEventListener("click", function () {
+      userPaused = !userPaused;
+      ppBtn.textContent = userPaused ? "Play" : "Pause";
+      ppBtn.setAttribute("aria-label", userPaused ? "Play animation" : "Pause animation");
+      sync();
     });
     if ("IntersectionObserver" in window) {
       new IntersectionObserver(function (entries) {
