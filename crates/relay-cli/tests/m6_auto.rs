@@ -2943,3 +2943,19 @@ mod pty {
         );
     }
 }
+
+#[test]
+fn the_version_names_the_exact_build() {
+    let output = Command::new(env!("CARGO_BIN_EXE_relay"))
+        .arg("--version")
+        .output()
+        .expect("relay --version");
+    let text = String::from_utf8_lossy(&output.stdout);
+    let version = text.trim().strip_prefix("relay ").expect("relay <version>");
+    // Tagged release builds are a clean `X.Y.Z`; every other build is
+    // `<next patch>-dev.<commit count>+<short sha>[.dirty]`.
+    let clean = version.split('.').count() == 3
+        && version.split('.').all(|part| part.parse::<u64>().is_ok());
+    let dev = version.contains("-dev.") && version.contains('+');
+    assert!(clean || dev, "{version}");
+}

@@ -44,7 +44,7 @@ const OUTPUT_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Parser)]
 #[command(
     name = "relay",
-    version,
+    version = env!("RELAY_VERSION"),
     about = "Explicit coding-agent profile handoff orchestration"
 )]
 struct Cli {

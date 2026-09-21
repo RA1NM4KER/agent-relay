@@ -41,6 +41,8 @@ jobs:
       - name: Add cross-compile target
         run: rustup target add ${{ matrix.target }}
       - name: Build release binaries
+        env:
+          RELAY_RELEASE_BUILD: "1"
         run: cargo build --release --target ${{ matrix.target }} --bin relay --bin relay-herdr-plugin
       - name: Package archive
         run: |

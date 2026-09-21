@@ -342,7 +342,7 @@ Every mutating step is opt-in and previewable. Details: [docs/security.md](docs/
 [Getting started](docs/getting-started.md) · [Automatic handoff](docs/automatic-handoff.md) ·
 [Herdr integration](docs/herdr-integration.md) · [architecture](docs/architecture.md) ·
 [threat model](docs/security.md) · [research](docs/research.md) · [status](STATUS.md) ·
-[changelog](CHANGELOG.md)
+[changelog](CHANGELOG.md) · [maintainer dogfooding](docs/maintainer-dogfood.md)
 
 ## License
 

@@ -1,0 +1,187 @@
+name: Dogfood build
+
+# Latest GREEN main -> packaged macOS artifacts -> the Homebrew formula.
+#
+# Runs only after the normal CI workflow (fmt, clippy, tests on macOS and Linux) has completed
+# SUCCESSFULLY for a push to main. A red CI never packages or publishes anything. Every published
+# build is tied to one exact commit: the artifacts carry the short SHA in their file names and in
+# `relay --version`, and the formula pins their SHA-256 checksums.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dogfood
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      sha: ${{ steps.plan.outputs.sha }}
+      short: ${{ steps.plan.outputs.short }}
+      count: ${{ steps.plan.outputs.count }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - id: plan
+        run: |
+          set -euo pipefail
+          sha="${{ github.event.workflow_run.head_sha }}"
+          tip="$(git ls-remote origin refs/heads/main | cut -f1)"
+          short="$(git rev-parse --short=7 "$sha")"
+          count="$(git rev-list --count "$sha")"
+          base="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([0-9]+)\.([0-9]+)\.([0-9]+)".*/\1 \2 \3/')"
+          set -- $base
+          version="$1.$2.$(( $3 + 1 ))-dev.${count}"
+          echo "sha=$sha"       >> "$GITHUB_OUTPUT"
+          echo "short=$short"   >> "$GITHUB_OUTPUT"
+          echo "count=$count"   >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$sha" = "$tip" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "main has moved on ($tip); a newer green build will be published instead."
+          fi
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: macos-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Add cross-compile target
+        run: rustup target add ${{ matrix.target }}
+      - name: Build release binaries
+        env:
+          RELAY_BUILD_SHA: ${{ needs.plan.outputs.short }}
+          RELAY_BUILD_COUNT: ${{ needs.plan.outputs.count }}
+        run: cargo build --release --target ${{ matrix.target }} --bin relay --bin relay-herdr-plugin
+      - name: Verify the binary identifies this exact commit
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: |
+          out="$(target/${{ matrix.target }}/release/relay --version)"
+          echo "$out"
+          case "$out" in *"+${{ needs.plan.outputs.short }}") ;; *) echo "version does not name the commit"; exit 1;; esac
+      - name: Package archive
+        run: |
+          set -euo pipefail
+          stage="agent-relay-${{ needs.plan.outputs.version }}-${{ needs.plan.outputs.short }}-${{ matrix.target }}"
+          mkdir -p "dist/${stage}"
+          cp "target/${{ matrix.target }}/release/relay" "dist/${stage}/"
+          cp "target/${{ matrix.target }}/release/relay-herdr-plugin" "dist/${stage}/"
+          cp LICENSE README.md "dist/${stage}/"
+          tar -C dist -czf "dist/${stage}.tar.gz" "${stage}"
+          rm -rf "dist/${stage}"
+          cd dist && shasum -a 256 "${stage}.tar.gz" > "${stage}.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      SHORT: ${{ needs.plan.outputs.short }}
+      COUNT: ${{ needs.plan.outputs.count }}
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Re-check that this commit is still the tip of main
+        run: |
+          tip="$(gh api "repos/$REPO/commits/main" --jq .sha)"
+          if [ "$tip" != "$SHA" ]; then echo "main moved on; skipping publish"; echo "SKIP=1" >> "$GITHUB_ENV"; fi
+      - name: Upload to the rolling dogfood release (immutable per-commit file names)
+        if: env.SKIP != '1'
+        run: |
+          set -euo pipefail
+          gh release view dogfood --repo "$REPO" >/dev/null 2>&1 || gh release create dogfood --repo "$REPO" --prerelease --target main \
+            --title "Agent Relay: latest green main" \
+            --notes "Rolling pre-release holding the packaged build of each green commit on main (used by the maintainer's Homebrew formula). File names carry the commit SHA; see docs/maintainer-dogfood.md. Not a versioned release."
+          gh release upload dogfood dist/*.tar.gz dist/*.tar.gz.sha256 --repo "$REPO" --clobber
+          # keep only the newest 6 builds' assets
+          gh release view dogfood --repo "$REPO" --json assets --jq '.assets|sort_by(.createdAt)|reverse|.[12:]|.[].name' | while read -r name; do
+            gh release delete-asset dogfood "$name" --repo "$REPO" -y || true
+          done
+      - name: Update the Homebrew tap formula
+        if: env.SKIP != '1'
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$TAP_DEPLOY_KEY" || { echo "TAP_DEPLOY_KEY secret is not set"; exit 1; }
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/tap_key && chmod 600 ~/.ssh/tap_key
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone --depth 1 git@github.com:RA1NM4KER/homebrew-tap.git tap
+          arm="agent-relay-${VERSION}-${SHORT}-aarch64-apple-darwin.tar.gz"
+          intel="agent-relay-${VERSION}-${SHORT}-x86_64-apple-darwin.tar.gz"
+          arm_sha="$(cut -d' ' -f1 "dist/${arm}.sha256")"
+          intel_sha="$(cut -d' ' -f1 "dist/${intel}.sha256")"
+          base="https://github.com/${REPO}/releases/download/dogfood"
+          cat > tap/Formula/agent-relay.rb <<RUBY
+          class AgentRelay < Formula
+            desc "Keep Claude Code and Codex sessions moving when one account hits its usage limit"
+            homepage "https://github.com/${REPO}"
+            # Tracks the latest GREEN main build. Commit: ${SHA}
+            version "${VERSION}"
+            license "Apache-2.0"
+
+            on_macos do
+              on_arm do
+                url "${base}/${arm}"
+                sha256 "${arm_sha}"
+              end
+              on_intel do
+                url "${base}/${intel}"
+                sha256 "${intel_sha}"
+              end
+            end
+
+            def install
+              bin.install "relay"
+              bin.install "relay-herdr-plugin"
+            end
+
+            test do
+              system "#{bin}/relay", "--version"
+            end
+          end
+          RUBY
+          cd tap
+          git config user.name "agent-relay dogfood bot"
+          git config user.email "noreply@github.com"
+          git add Formula/agent-relay.rb
+          git diff --cached --quiet && { echo "formula unchanged"; exit 0; }
+          git commit -m "agent-relay ${VERSION} (${SHORT})"
+          git push origin HEAD:main

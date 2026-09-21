@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 description = "Command-line interface for Agent Relay"
 
+build = "build.rs"
+
 [[bin]]
 name = "relay"
 path = "src/main.rs"
