@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent Relay</title>
-<meta name="description" content="Agent Relay hands your Claude Code work to the next available profile in your priority order when the current one hits its usage limit.">
+<meta name="description" content="Agent Relay supervises isolated Claude and Codex profiles, keeps one writer, and hands work to the next eligible profile when the current one hits its usage limit.">
 <style>
   :root {
     --bg: #0D0F12;
@@ -349,6 +349,23 @@
   .engine .fade { opacity: 0; }
   .engine-label { position: absolute; left: 0; right: 0; top: calc(50% - 116px); text-align: center; font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); z-index: 0; }
 
+  .passthrough { max-width: 640px; margin: 44px auto 0; }
+  .pt-code {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    font-family: var(--mono);
+    font-size: 0.86rem;
+    overflow-x: auto;
+    margin-bottom: 14px;
+  }
+  .pt-code .l { display: block; white-space: nowrap; }
+  .pt-code .l + .l { margin-top: 6px; }
+  @media (max-width: 520px) { .pt-code { font-size: 0.78rem; } .pt-code .l { white-space: normal; overflow-wrap: anywhere; text-indent: -1.4em; padding-left: 1.4em; } }
+  .pt-code .prompt { color: var(--accent); margin-right: 10px; }
+  .passthrough p { color: var(--muted); font-size: 0.92rem; margin-top: 8px; }
+  .passthrough code.mono { color: var(--text); font-size: 0.86em; }
   .loop-note { text-align: center; color: var(--muted); font-size: 0.82rem; max-width: 640px; margin: 22px auto 0; }
 
   @media (max-width: 520px) {
@@ -531,8 +548,8 @@
   <!-- HERO -->
   <section class="hero">
     <div class="wrap">
-      <h1>Keep coding when Claude hits its limit.</h1>
-      <p class="sub">When your current Claude profile reaches its usage limit, Agent Relay hands the work to the next available profile in your priority order: the same Claude session on another Claude profile, or a state-seeded Codex session.</p>
+      <h1>Keep coding when your agent hits its limit.</h1>
+      <p class="sub">Agent Relay supervises isolated Claude and Codex profiles, keeps one writer, and hands the work to the next eligible profile in your priority order when the current one is exhausted.</p>
 
       <div class="hero-ctas">
         <div class="install-cmd">
@@ -610,12 +627,12 @@
             <li>Relay checks the priority order. <b>Claude Backup</b> becomes <span class="st">Current</span> (session continuation, Claude → Claude). Claude Primary is <span class="st">Reset pending</span>.</li>
             <li>Claude Backup exhausts before Claude Primary resets. Relay checks again: Primary is unavailable, so <b>Codex Backup</b> becomes <span class="st">Current</span> (state continuation, Claude → Codex).</li>
             <li>Claude Primary's reset completes and it is <span class="st rd">Ready</span>, but Codex Backup stays <span class="st">Current</span>: the current writer stays put.</li>
-            <li>Codex Backup exhausts. Relay checks again and Claude Primary is <span class="st">Current</span> once more (state continuation, Codex → Claude).</li>
+            <li>Codex Backup exhausts, seen by Relay's periodic Codex check. Relay checks again and Claude Primary is <span class="st">Current</span> once more (state continuation, Codex → Claude).</li>
           </ol>
         </div>
       </div>
 
-      <p class="loop-note">Codex quota is checked periodically while Relay supervises the session.</p>
+      <p class="loop-note">Claude exhaustion is event-driven through Relay's Claude integration. Codex usage is checked periodically while Relay supervises the Codex session.</p>
     </div>
   </section>
 
@@ -627,12 +644,12 @@
         <div class="proof-card">
           <span class="proof-num">01</span>
           <h3>Honest continuity</h3>
-          <p>Claude → Claude continues the same Claude session. Claude → Codex continues from a state bundle: a new Codex session, not the same native conversation.</p>
+          <p>Claude → Claude continues the same Claude session. Between Claude and Codex, work continues from a state bundle: a new session on the other provider, not the same native conversation.</p>
         </div>
         <div class="proof-card">
           <span class="proof-num">02</span>
           <h3>Local credentials</h3>
-          <p>Claude authentication remains Claude-owned. Relay never stores your OAuth tokens, cookies, or keys.</p>
+          <p>Authentication remains provider-owned. Relay never reads or stores your OAuth tokens, cookies, or keys.</p>
         </div>
         <div class="proof-card">
           <span class="proof-num">03</span>
@@ -654,18 +671,27 @@
         <div class="step">
           <span class="step-num">01</span>
           <h3>relay setup</h3>
-          <p>Authenticate your Claude (and optionally Codex) profiles and set one priority order.</p>
+          <p>Log in to your Claude and Codex profiles, each in its own isolated home, and set one priority order.</p>
         </div>
         <div class="step">
           <span class="step-num">02</span>
-          <h3>relay claude</h3>
-          <p>Start your work through Agent Relay and keep using Claude Code normally. A supervised terminal follows the conversation after a handoff.</p>
+          <h3>Start managed work</h3>
+          <p>Use <code class="mono">relay claude</code> or <code class="mono">relay codex</code> to start a new conversation on your highest-priority profile for that provider. Relay supervises it and follows ownership when a handoff occurs. <code class="mono">relay resume</code> continues it.</p>
         </div>
         <div class="step">
           <span class="step-num">03</span>
           <h3>Automatic handoff</h3>
-          <p>When a real Claude limit is hit, Relay re-checks the whole priority order and hands off to the first eligible profile. Codex can be a target, not yet a trigger.</p>
+          <p>When the current writer is exhausted, Relay re-checks the whole priority order and hands off to the first eligible profile, Claude or Codex. Claude limits arrive as events; Codex quota is checked while Relay supervises its terminal.</p>
         </div>
+      </div>
+
+      <div class="passthrough">
+        <div class="pt-code">
+          <span class="l"><span class="prompt">$</span>relay claude -- --dangerously-skip-permissions</span>
+          <span class="l"><span class="prompt">$</span>relay codex -- --sandbox workspace-write</span>
+        </div>
+        <p>Arguments after <code class="mono">--</code> go straight to that provider and stay provider-scoped across handoffs. Claude's are never translated into Codex's, or the other way round.</p>
+        <p>Managed Claude sessions also show the current Relay owner in the status line: <code class="mono">[Relay · profile]</code>.</p>
       </div>
     </div>
   </section>
