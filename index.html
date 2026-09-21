@@ -250,7 +250,7 @@
     justify-content: center;
     grid-template-rows: auto 190px auto;
     column-gap: 120px;
-    padding-bottom: 56px;
+    padding-bottom: 24px;
   }
   .loop svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
   .edge { fill: none; stroke: var(--border); stroke-width: 1.5; transition: stroke 350ms ease, stroke-width 350ms ease; }
@@ -258,8 +258,7 @@
   .edge.go { stroke: var(--accent); stroke-width: 3; }
   .pulse { fill: var(--accent); opacity: 0; }
   .pulse.on { opacity: 1; }
-  .arrow-muted { fill: var(--border); }
-  .arrow-lit { fill: var(--accent); }
+  .pulse.eval { fill: var(--accent-2); }
 
   .node {
     position: relative;
@@ -282,7 +281,7 @@
   .node .nm { font-family: var(--mono); font-weight: 600; font-size: 0.86rem; }
   .node .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   .node .val { font-family: var(--mono); font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .node .tag { font-family: var(--mono); font-size: 0.68rem; color: var(--accent); min-height: 1em; letter-spacing: 0.04em; text-transform: uppercase; }
+  .node .tag { font-family: var(--mono); font-size: 0.68rem; color: var(--accent); height: 1.4em; line-height: 1.4; letter-spacing: 0.04em; text-transform: uppercase; }
   .node .meter { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
   .node .meter i { display: block; height: 100%; width: 0; background: var(--muted); }
   .badge-state {
@@ -340,7 +339,7 @@
 
   @media (max-width: 520px) {
     .loop-wrap { padding: 22px 12px 20px; }
-    .loop { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto 176px auto; column-gap: 26px; padding-bottom: 50px; }
+    .loop { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto 176px auto; column-gap: 26px; padding-bottom: 24px; }
     .node[data-n="0"] { width: min(280px, 70%); }
     .node { padding: 10px 10px; }
     .node .nm { font-size: 0.78rem; }
@@ -559,14 +558,10 @@
           <div class="loop-wrap" id="loop-wrap" tabindex="0" role="group" aria-label="Simulated handoff loop between three profiles in priority order. Claude Primary exhausts and hands off to Claude Backup, which exhausts and hands off to Codex Backup. Claude Primary becomes ready again but Codex stays current until it exhausts, then work returns to Claude Primary.">
             <div class="loop" id="loop">
               <svg id="loop-svg" aria-hidden="true">
-                <defs>
-                  <marker id="ah-m" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 Z" class="arrow-muted"/></marker>
-                  <marker id="ah-l" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 Z" class="arrow-lit"/></marker>
-                </defs>
-                <path class="edge" id="edge0" marker-end="url(#ah-m)"/>
-                <path class="edge" id="edge1" marker-end="url(#ah-m)"/>
-                <path class="edge" id="edge2" marker-end="url(#ah-m)"/>
-                <circle class="pulse" id="pulse" r="6"/>
+                <path class="edge" id="edge0"/>
+                <path class="edge" id="edge1"/>
+                <path class="edge" id="edge2"/>
+                <circle class="pulse" id="pulse" r="4"/>
               </svg>
             <div class="node" data-n="0">
               <div class="top"><span class="pri">#1</span><span class="nm">Claude Primary</span></div>
@@ -781,7 +776,9 @@ relay claude" aria-label="Copy all three commands">
   var wrap = document.getElementById("loop-wrap");
   var svg = document.getElementById("loop-svg");
   var nodes = Array.prototype.slice.call(loopEl.querySelectorAll(".node"));
+  // Three undirected connectors on one invisible circle; direction only ever comes from motion.
   var edges = [document.getElementById("edge0"), document.getElementById("edge1"), document.getElementById("edge2")];
+  var EDGE_ENDS = [[0, 1], [1, 2], [2, 0]];   // path is drawn first -> second; travel may run either way
   var pulse = document.getElementById("pulse");
   var engine = document.getElementById("engine");
   var e1 = document.getElementById("e1");
@@ -867,10 +864,22 @@ relay claude" aria-label="Copy all three commands">
     [T.tail, "Claude Primary", "is writing", false]
   ];
   // Which node is being evaluated (dashed outline + small tag): [from, to, index, text].
-  var EVAL = [[T.evP, T.evB, 0, "Unavailable"], [T.evB, T.edge2, 1, "Source exhausted"]];
-  // Edges: [from, to, edgeIndex, class]; the travelling dot rides the "go" ones.
-  var EDGE_LIT = [[T.chk1 + 1000, T.dot1, 0, "lit"], [T.dot1, T.cont1, 0, "go"], [T.edge2, T.dot2, 1, "lit"], [T.dot2, T.cont2, 1, "go"], [T.chk3 + 1000, T.dot3, 2, "lit"], [T.dot3, T.cont3, 2, "go"]];
-  var TRAVEL = [[T.dot1, 0], [T.dot2, 1], [T.dot3, 2]];
+  var EVAL = [
+    [T.chk1, T.dot1, 0, ""], [T.chk2, T.dot2, 1, ""], [T.chk3, T.dot3, 2, ""],   // the exhausted source
+    [T.evP, T.evB, 0, "Unavailable"], [T.evB, T.edge2, 1, "Source exhausted"]
+  ];
+  // Connector use: [from, to, edgeIndex, reverse, kind]. "eval" = Relay is considering that route (a
+  // small dot repeats from the source toward the candidate); "go" = the handoff itself (one clean
+  // pass). Outside these windows every connector is neutral: no arrowheads, no direction.
+  var EDGE_USE = [
+    [T.chk1 + 1300, T.dot1, 0, false, "eval"],   // Primary -> Backup considered
+    [T.dot1, T.cont1, 0, false, "go"],
+    [T.evP, T.evB, 0, true, "eval"],             // Backup -> Primary considered (unavailable)
+    [T.edge2, T.dot2, 1, false, "eval"],         // Backup -> Codex considered
+    [T.dot2, T.cont2, 1, false, "go"],
+    [T.chk3 + 1300, T.dot3, 2, false, "eval"],   // Codex -> Primary considered
+    [T.dot3, T.cont3, 2, false, "go"]
+  ];
   var ENGINE_ACTIVE = [[T.chk1, T.cont1], [T.chk2, T.cont2], [T.chk3, T.cont3]];
 
   var lastKey = { center: "" };
@@ -886,7 +895,7 @@ relay claude" aria-label="Copy all three commands">
     el.querySelector(".val").textContent = m.line;
     el.querySelector(".meter i").style.width = m.fill + "%";
     var tagText = "";
-    EVAL.forEach(function (e) { if (e[2] === i && frameT >= e[0] && frameT < e[1]) tagText = e[3]; });
+    EVAL.forEach(function (e) { if (e[2] === i && frameT >= e[0] && frameT < e[1] && e[3]) tagText = e[3]; });
     var tag = el.querySelector(".tag");
     if (tag.textContent !== tagText) tag.textContent = tagText;
   }
@@ -912,21 +921,27 @@ relay claude" aria-label="Copy all three commands">
     e2.classList.toggle("fade", fading);
     engine.classList.toggle("active", ENGINE_ACTIVE.some(function (r) { return t >= r[0] && t < r[1]; }));
 
-    edges.forEach(function (edge) { edge.setAttribute("class", "edge"); edge.setAttribute("marker-end", "url(#ah-m)"); });
-    EDGE_LIT.forEach(function (r) {
-      if (t >= r[0] && t < r[1]) { edges[r[2]].setAttribute("class", "edge " + r[3]); edges[r[2]].setAttribute("marker-end", "url(#ah-l)"); }
+    edges.forEach(function (edge) { edge.setAttribute("class", "edge"); });
+    var dot = null;
+    EDGE_USE.forEach(function (r) {
+      if (t < r[0] || t >= r[1]) return;
+      var edge = edges[r[2]];
+      edge.setAttribute("class", "edge " + (r[4] === "go" ? "go" : "lit"));
+      var p = r[4] === "go" ? (t - r[0]) / (r[1] - r[0]) : ((t - r[0]) % 1100) / 1100;
+      if (r[4] === "go") p = Math.min(1, (t - r[0]) / 1200);
+      if (r[3]) p = 1 - p;
+      dot = { edge: edge, p: p, kind: r[4] };
     });
-    var moving = false;
-    TRAVEL.forEach(function (r) {
-      if (t >= r[0] && t < r[0] + 1200 && edges[r[1]].getTotalLength) {
-        var path = edges[r[1]];
-        var pt = path.getPointAtLength(path.getTotalLength() * ((t - r[0]) / 1200));
-        pulse.setAttribute("cx", pt.x);
-        pulse.setAttribute("cy", pt.y);
-        moving = true;
-      }
-    });
-    pulse.setAttribute("class", "pulse" + (moving ? " on" : ""));
+    if (dot && dot.edge.getTotalLength) {
+      var len = dot.edge.getTotalLength();
+      var pt = dot.edge.getPointAtLength(len * dot.p);
+      pulse.setAttribute("cx", pt.x);
+      pulse.setAttribute("cy", pt.y);
+      pulse.setAttribute("r", dot.kind === "go" ? 6 : 4);
+      pulse.setAttribute("class", "pulse on" + (dot.kind === "go" ? "" : " eval"));
+    } else {
+      pulse.setAttribute("class", "pulse");
+    }
   }
 
   // Curved outer edges, measured from the real card positions so they stay attached at any width.
@@ -937,15 +952,31 @@ relay claude" aria-label="Copy all three commands">
   function layout() {
     var o = loopEl.getBoundingClientRect();
     svg.setAttribute("viewBox", "0 0 " + o.width + " " + o.height);
-    var P = rect(nodes[0]), B = rect(nodes[1]), C = rect(nodes[2]);
-    var k = Math.min(o.width * 0.22, 110);
-    // Primary -> Backup: out the left of Primary, round the outside, into the top of Backup
-    edges[0].setAttribute("d", "M " + (P.l - 3) + " " + P.cy + " C " + (P.l - k) + " " + P.cy + ", " + B.cx + " " + (B.t - k) + ", " + B.cx + " " + (B.t - 4));
-    // Backup -> Codex: a shallow arc under the bottom row, bottom of Backup to bottom of Codex
-    var dip = 44;
-    edges[1].setAttribute("d", "M " + B.cx + " " + (B.b + 3) + " C " + B.cx + " " + (B.b + dip) + ", " + C.cx + " " + (C.b + dip) + ", " + C.cx + " " + (C.b + 6));
-    // Codex -> Primary: up the right side, into the right of Primary
-    edges[2].setAttribute("d", "M " + C.cx + " " + (C.t - 3) + " C " + C.cx + " " + (C.t - k) + ", " + (P.r + k) + " " + P.cy + ", " + (P.r + 4) + " " + P.cy);
+    var c = [rect(nodes[0]), rect(nodes[1]), rect(nodes[2])];
+    // One invisible circle through the three card centres; every connector is an arc of it, so
+    // the geometry is consistent by construction. Cards sit above the svg and hide the parts of
+    // the circle that pass behind them.
+    var A = c[0], B = c[1], C = c[2];
+    var d = 2 * (A.cx * (B.cy - C.cy) + B.cx * (C.cy - A.cy) + C.cx * (A.cy - B.cy));
+    if (!d) return;
+    var sq = function (p) { return p.cx * p.cx + p.cy * p.cy; };
+    var ux = (sq(A) * (B.cy - C.cy) + sq(B) * (C.cy - A.cy) + sq(C) * (A.cy - B.cy)) / d;
+    var uy = (sq(A) * (C.cx - B.cx) + sq(B) * (A.cx - C.cx) + sq(C) * (B.cx - A.cx)) / d;
+    var R = Math.hypot(A.cx - ux, A.cy - uy);
+    var TAU = Math.PI * 2;
+    var ang = function (p) { return Math.atan2(p.cy - uy, p.cx - ux); };
+    var norm = function (x) { return ((x % TAU) + TAU) % TAU; };
+    EDGE_ENDS.forEach(function (ends, i) {
+      var a = c[ends[0]], b = c[ends[1]], other = c[3 - ends[0] - ends[1]];
+      var forward = norm(ang(b) - ang(a));
+      var sweep = norm(ang(other) - ang(a)) < forward ? 0 : 1;   // take the arc that skips the third card
+      var span = sweep ? forward : TAU - forward;
+      edges[i].setAttribute("d", "M " + a.cx + " " + a.cy + " A " + R + " " + R + " 0 " + (span > Math.PI ? 1 : 0) + " " + sweep + " " + b.cx + " " + b.cy);
+    });
+    // room below the cards for the lowest part of the circle
+    var lowest = uy + R, cards = Math.max(B.b, C.b);
+    var pad = Math.max(24, Math.ceil(lowest - cards) + 14) + "px";
+    if (loopEl.style.paddingBottom !== pad) loopEl.style.paddingBottom = pad;
   }
 
   // ---- run control: on screen, tab visible, not hovered/focused (desktop), not tapped-paused ----
