@@ -523,7 +523,26 @@ fn a_malformed_codex_response_fails_the_switch_closed_without_moving_the_lease()
     let executable = root.path().join("fake-codex-broken");
     std::fs::write(
         &executable,
-        "#!/bin/sh\ncase \"$1\" in\n  --version) printf 'codex-cli 0.155.0\\n' ;;\n  doctor) printf '{\"checks\":{\"auth.credentials\":{\"status\":\"ok\",\"summary\":\"ok\"}}}\\n' ;;\n  login) exit 0 ;;\n  exec) cat >/dev/null ; printf '{\"type\":\"turn.failed\"}\\n' ;;\n  *) exit 2 ;;\nesac\n",
+        r#"#!/bin/sh
+case "$1" in
+  --version) printf 'codex-cli 0.155.0\n' ;;
+  doctor) printf '{"checks":{"auth.credentials":{"status":"ok","summary":"ok"}}}\n' ;;
+  login) exit 0 ;;
+  exec) cat >/dev/null ; printf '{"type":"turn.failed"}\n' ;;
+  app-server)
+    while IFS= read -r line; do
+      id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+      [ -z "$id" ] && continue
+      case "$line" in
+        *'"method":"initialize"'*) printf '{"id":%s,"result":{"codexHome":"%s"}}\n' "$id" "$CODEX_HOME" ;;
+        *'"method":"account/read"'*) printf '{"id":%s,"result":{"account":{"type":"chatgpt"}}}\n' "$id" ;;
+        *'"method":"account/rateLimits/read"'*) printf '{"id":%s,"result":{"ordinaryUsageAllowed":true,"accountId":"a","rateLimits":{"primary":{"usedPercent":1}}}}\n' "$id" ;;
+      esac
+    done ;;
+  *) exit 2 ;;
+esac
+"#,
+
     )
     .expect("broken codex script");
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))

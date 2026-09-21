@@ -16,8 +16,8 @@ use relay_core::{
     AddProfileRequest, AuthenticationState, Error, IdentityMetadata, Profile, ProfileDirectory,
     ProfileName, ProfileService, ProfileSetupMode, Provider, ProviderKind, RelayPaths,
     automation::{
-        AutomationPolicy, LedgerStore, ProfileCandidate, WatchCoordinator, WatchOutcome,
-        WatchRequest,
+        AutomationDecision, AutomationPolicy, LedgerStore, ProfileCandidate, WatchCoordinator,
+        WatchOutcome, WatchRequest, decide,
     },
     handoff::{
         HandoffCoordinator, HandoffRequest, JournalStore, LeaseStore, OrchestrationLock, ProjectId,
@@ -266,7 +266,7 @@ struct ClaudeArgs {
     provider_args: Vec<String>,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 struct CodexArgs {
     /// An optional first message, typed into the interactive Codex session once it opens.
     message: Vec<String>,
@@ -2762,6 +2762,17 @@ fn run_switch(
     if target_status.authentication != AuthenticationState::Authenticated {
         return Err(Error::AuthenticationRequired);
     }
+    // An explicit switch to Codex is preflighted before anything is committed: an exhausted (or
+    // unverifiable) target is refused outright — manual intent is never silently rerouted.
+    if target.provider == ProviderKind::Codex {
+        let usage = codex_preflight(target, &executables, &canonical_project);
+        if usage.state.is_blocking() {
+            return Err(Error::TargetProfileExhausted(target.name.to_string()));
+        }
+        if usage.state == UsageState::Unknown {
+            return Err(Error::CodexUsageUnverified(target.name.to_string()));
+        }
+    }
 
     let continuity_type =
         relay_core::handoff::ContinuityType::for_transition(source.provider, target.provider);
@@ -2893,7 +2904,7 @@ fn run_resume(
     })?;
     let project_id = ProjectId::for_canonical_path(&canonical_project)?;
     let project_state_dir = paths.project_state_dir(&project_id);
-    let lease = LeaseStore::at_path(project_state_dir.join("lease.json"))
+    let mut lease = LeaseStore::at_path(project_state_dir.join("lease.json"))
         .load()?
         .ok_or(Error::NoActiveWriterForProject)?;
     if let Some(requested) = &args.profile {
@@ -2905,12 +2916,67 @@ fn run_resume(
     }
     // Bare `relay resume`: the resolved profile is whoever the lease says owns it right now,
     // never the configured primary.
-    let resolved_profile = lease.owner_profile.clone();
+    let mut resolved_profile = lease.owner_profile.clone();
     let registered = service.list()?;
-    let profile = registered
+    let mut profile = registered
         .iter()
         .find(|profile| profile.name == resolved_profile)
         .ok_or_else(|| Error::ProfileNotFound(resolved_profile.to_string()))?;
+
+    // Immediate structured Codex preflight: an already-exhausted Codex thread is handed off NOW
+    // (the same evaluation, hierarchy, ledger and transaction the periodic check would start)
+    // instead of launching Codex into a quota failure and waiting for the next poll. `Unknown`
+    // never triggers a handoff.
+    if profile.provider == ProviderKind::Codex {
+        let executables = providers::ExecutableOverrides {
+            claude: args.claude_executable.clone(),
+            codex: args.codex_executable.clone(),
+        };
+        let usage = codex_preflight(profile, &executables, &canonical_project);
+        if usage.state.is_blocking() {
+            let preferences =
+                preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
+            let fallback = auto_handoff::hierarchy_without(&preferences, &profile.name, |name| {
+                registered.iter().any(|candidate| &candidate.name == name)
+            });
+            if fallback.is_empty() {
+                if !json_mode {
+                    eprintln!(
+                        "Agent Relay: Codex profile '{}' is exhausted and no fallback profile is configured.",
+                        profile.name
+                    );
+                }
+            } else {
+                let outcome = evaluate_handoff_now(
+                    paths,
+                    &profile.name,
+                    &fallback,
+                    &canonical_project,
+                    &lease.session_id,
+                    args.claude_executable.as_deref(),
+                )?;
+                if !json_mode {
+                    println!("{}\n", outcome.human);
+                }
+                if let Some(reloaded) = LeaseStore::at_path(project_state_dir.join("lease.json"))
+                    .load()?
+                    .filter(|reloaded| reloaded.owner_profile != profile.name)
+                {
+                    lease = reloaded;
+                    resolved_profile = lease.owner_profile.clone();
+                    profile = registered
+                        .iter()
+                        .find(|candidate| candidate.name == resolved_profile)
+                        .ok_or_else(|| Error::ProfileNotFound(resolved_profile.to_string()))?;
+                }
+            }
+        } else if usage.state == UsageState::Unknown && !json_mode {
+            eprintln!(
+                "Agent Relay: could not verify Codex usage for '{}'; resuming without an automatic handoff decision.",
+                profile.name
+            );
+        }
+    }
 
     // Explicit arguments replace the owner provider's stored ones for this project (the other
     // provider's are untouched); otherwise the stored ones are reused.
@@ -3939,6 +4005,189 @@ fn run_claude(
     )
 }
 
+/// Immediate structured Codex usage for one profile (`codex app-server` →
+/// `account/rateLimits/read`, expected `CODEX_HOME` verified). Read-only: it never spends quota,
+/// and any failure is `Unknown`, which nothing acts on.
+fn codex_preflight(
+    profile: &Profile,
+    executables: &providers::ExecutableOverrides,
+    project_dir: &Path,
+) -> relay_core::usage::UsageObservation {
+    providers::usage_signal_for(ProviderKind::Codex, executables, false, None)
+        .detect(&profile.config_dir, project_dir, "")
+        .unwrap_or_else(|_| relay_core::usage::UsageObservation {
+            state: UsageState::Unknown,
+            evidence: relay_core::usage::UsageEvidence::ProviderRateLimitApi,
+            detected_via: "codex usage check failed".to_owned(),
+            observed_unix_ms: current_unix_ms(),
+            reset_unix_ms: None,
+        })
+}
+
+/// Runs the same one-shot automatic-handoff evaluation `relay watch run` performs, in-process, for
+/// the given owner/session (so `relay resume` does not have to wait for the periodic check).
+fn evaluate_handoff_now(
+    paths: &RelayPaths,
+    profile: &ProfileName,
+    fallback: &[&ProfileName],
+    project_dir: &Path,
+    session_id: &str,
+    claude_executable: Option<&Path>,
+) -> Result<CommandOutput, Error> {
+    let mut argv: Vec<OsString> = vec![
+        "relay".into(),
+        "--json".into(),
+        "--config-root".into(),
+        paths.config_root().into(),
+        "--state-root".into(),
+        paths.state_root().into(),
+        "watch".into(),
+        "run".into(),
+        "--profile".into(),
+        profile.as_str().into(),
+    ];
+    for name in fallback {
+        argv.extend(["--fallback".into(), name.as_str().into()]);
+    }
+    argv.extend([
+        "--project".into(),
+        project_dir.as_os_str().to_owned(),
+        "--session".into(),
+        session_id.into(),
+    ]);
+    if let Some(claude) = claude_executable {
+        argv.extend(["--claude-executable".into(), claude.as_os_str().to_owned()]);
+    }
+    let inner = Cli::try_parse_from(argv).map_err(|_| Error::ProviderUnsupported)?;
+    run(&inner)
+}
+
+/// Pre-launch routing for a fresh `relay codex` whose chosen profile is already exhausted. There
+/// is no Codex conversation yet, so this is NOT a handoff transaction: it is the ordinary global
+/// hierarchy (the same `decide` the automatic path uses, minus the cooldown/loop guard that only
+/// concern real handoffs) picking the first eligible other profile to start the new conversation on.
+#[allow(clippy::too_many_arguments)]
+fn route_exhausted_codex_start(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    args: &CodexArgs,
+    exhausted: &Profile,
+    usage: relay_core::usage::UsageObservation,
+    registered: &[Profile],
+    preferences: &preferences::Preferences,
+    executables: &providers::ExecutableOverrides,
+    canonical_project: &Path,
+    json_mode: bool,
+    allow_reroute: bool,
+) -> Result<CommandOutput, Error> {
+    let no_eligible = || Error::NoEligibleProfile(exhausted.name.to_string());
+    if !allow_reroute {
+        return Err(no_eligible());
+    }
+    let source = ProfileCandidate {
+        name: exhausted.name.clone(),
+        provider: exhausted.provider,
+        config_dir: exhausted.config_dir.clone(),
+        identity_stable_id: Some(exhausted.expected_identity.stable_id.clone()),
+        enabled: exhausted.enabled,
+        healthy: true,
+        usage,
+    };
+    let mut candidates = Vec::new();
+    for name in auto_handoff::hierarchy_without(preferences, &exhausted.name, |_| true) {
+        let Some(candidate) = registered.iter().find(|profile| &profile.name == name) else {
+            continue;
+        };
+        let candidate_usage =
+            providers::usage_signal_for(candidate.provider, executables, false, None).detect(
+                &candidate.config_dir,
+                canonical_project,
+                "",
+            )?;
+        candidates.push(ProfileCandidate {
+            name: candidate.name.clone(),
+            provider: candidate.provider,
+            config_dir: candidate.config_dir.clone(),
+            identity_stable_id: Some(candidate.expected_identity.stable_id.clone()),
+            enabled: candidate.enabled,
+            healthy: doctor_is_healthy(service, candidate, executables)?,
+            usage: candidate_usage,
+        });
+    }
+    let project_id = ProjectId::for_canonical_path(canonical_project)?;
+    let mut ledger = LedgerStore::at_path(
+        paths
+            .project_state_dir(&project_id)
+            .join("automation_state.json"),
+    )
+    .load()?;
+    // Reset-pending / known-exhausted profiles stay skipped; past handoffs (cooldown, loop guard)
+    // are about real transactions and do not apply to starting a fresh conversation.
+    ledger.recent_handoffs.clear();
+    let AutomationDecision::Handoff { target } = decide(
+        current_unix_ms(),
+        &source,
+        &candidates,
+        &ledger,
+        &AutomationPolicy::default(),
+    ) else {
+        return Err(no_eligible());
+    };
+    let target_profile = registered
+        .iter()
+        .find(|profile| profile.name == target)
+        .ok_or_else(|| Error::ProfileNotFound(target.to_string()))?;
+
+    let notice = format!(
+        "Codex profile '{}' is exhausted.\nStarting managed work on '{}' instead.",
+        exhausted.name, target_profile.name
+    );
+    if !json_mode {
+        println!("{notice}\n");
+    }
+    let mut output = match target_profile.provider {
+        ProviderKind::Codex => run_codex_inner(
+            service,
+            paths,
+            &CodexArgs {
+                profile: Some(target_profile.name.clone()),
+                ..args.clone()
+            },
+            json_mode,
+            false,
+        )?,
+        ProviderKind::Claude | ProviderKind::Fake => run_claude(
+            service,
+            paths,
+            &ClaudeArgs {
+                message: args.message.clone(),
+                profile: Some(target_profile.name.clone()),
+                fallback: Vec::new(),
+                project_dir: args.project_dir.clone(),
+                no_attach: args.no_attach,
+                new: args.new,
+                claude_executable: args.claude_executable.clone(),
+                // Codex's arguments are never translated to Claude.
+                provider_args: Vec::new(),
+            },
+            json_mode,
+        )?,
+    };
+    if let Some(data) = output.json.get_mut("data").and_then(Value::as_object_mut) {
+        data.insert(
+            "prelaunch_fallback".to_owned(),
+            json!({
+                "requested_profile": exhausted.name.as_str(),
+                "reason": "exhausted",
+                "routed_to": target_profile.name.as_str(),
+                "handoff": false,
+            }),
+        );
+    }
+    // (In text mode the notice was already printed above, before the launch output.)
+    Ok(output)
+}
+
 /// The Codex counterpart of [`perform_launch`]: under the project's orchestration lock, refuses a
 /// still-active existing writer (judged by the *owner's* provider), creates a fresh Codex thread
 /// (Relay's own arguments only) and records a new writer lease for it.
@@ -4014,6 +4263,16 @@ fn run_codex(
     args: &CodexArgs,
     json_mode: bool,
 ) -> Result<CommandOutput, Error> {
+    run_codex_inner(service, paths, args, json_mode, true)
+}
+
+fn run_codex_inner(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    args: &CodexArgs,
+    json_mode: bool,
+    allow_reroute: bool,
+) -> Result<CommandOutput, Error> {
     provider_args::validate(ProviderKind::Codex, &args.provider_args)?;
     let project_dir = match &args.project_dir {
         Some(path) => path.clone(),
@@ -4041,6 +4300,28 @@ fn run_codex(
     let (auth, _) = friendly_auth_state(profile, &executables);
     if auth != "authenticated" {
         return Err(Error::AuthenticationRequired);
+    }
+
+    // Immediate structured preflight — before anything is stopped, created or spent. An exhausted
+    // profile never gets the quota-consuming bootstrap turn; an unverifiable one fails closed.
+    let usage = codex_preflight(profile, &executables, &canonical_project);
+    if usage.state.is_blocking() {
+        return route_exhausted_codex_start(
+            service,
+            paths,
+            args,
+            profile,
+            usage,
+            &registered,
+            &preferences,
+            &executables,
+            &canonical_project,
+            json_mode,
+            allow_reroute,
+        );
+    }
+    if usage.state == UsageState::Unknown {
+        return Err(Error::CodexUsageUnverified(profile.name.to_string()));
     }
 
     let project_id = ProjectId::for_canonical_path(&canonical_project)?;

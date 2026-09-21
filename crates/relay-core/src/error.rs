@@ -118,6 +118,20 @@ pub enum Error {
          managed session ({1}); Relay did not start anything"
     )]
     ProviderArgumentRejected(String, &'static str),
+    #[error(
+        "profile '{0}' is exhausted right now (Codex reports ordinary usage is not allowed); Relay \
+         did not switch to it"
+    )]
+    TargetProfileExhausted(String),
+    #[error(
+        "Relay could not verify Codex usage for profile '{0}' (the structured usage interface was \
+         unavailable or ambiguous), so it did not start or switch to it"
+    )]
+    CodexUsageUnverified(String),
+    #[error(
+        "Codex profile '{0}' is exhausted and no other configured profile is eligible right now"
+    )]
+    NoEligibleProfile(String),
     #[error("no {0} profile is configured (checked the primary and fallbacks in priority order)")]
     NoProfileForProvider(&'static str),
     #[error(
@@ -225,6 +239,9 @@ impl Error {
             Self::CodexThreadNotVerified(_) => "codex_thread_not_verified",
             Self::ProviderArgumentRejected(..) => "provider_argument_rejected",
             Self::NoProfileForProvider(_) => "no_profile_for_provider",
+            Self::TargetProfileExhausted(_) => "target_profile_exhausted",
+            Self::CodexUsageUnverified(_) => "codex_usage_unverified",
+            Self::NoEligibleProfile(_) => "no_eligible_profile",
             Self::ProfileProviderMismatch { .. } => "profile_provider_mismatch",
             Self::PendingRecoveryRequired(_) => "pending_recovery_required",
             Self::StopNotVerified(_) => "stop_not_verified",

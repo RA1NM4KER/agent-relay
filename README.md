@@ -254,6 +254,14 @@ relay handoff run --from alice --to bob --project ~/repos/foo --session <session
   for as long as that terminal is open. Codex → Claude (and Codex → another Codex profile, tested with fakes only) hand over as state
   continuation, never as the same native conversation; only same-profile Codex resume is native, and
   Relay confirms the thread with Codex before resuming it.
+- Before Relay enters a Codex terminal it checks Codex's structured usage immediately, so an already
+  exhausted account never has to wait for the periodic check: `relay resume` on an exhausted Codex
+  thread hands off at once (a real state-continuation handoff, since a thread exists); a fresh
+  `relay codex` on an exhausted profile skips Codex entirely and starts the new conversation on the
+  next eligible profile in your priority order (pre-launch routing — there is no Codex conversation
+  yet, so nothing is "handed off"); `relay switch <codex-profile>` refuses an exhausted target
+  (`target_profile_exhausted`) rather than rerouting your explicit choice. If the usage interface
+  can't be read (`unknown`), Relay starts or switches nothing on a guess.
 - Relay is not a daemon. Claude is never polled. Automatic handoff needs a *trigger*: the
   usage-integration `StopFailure` hook (installed by `relay setup`, per profile — a fallback
   profile needs it installed too for a *second* hop), Herdr's status event, or a manual

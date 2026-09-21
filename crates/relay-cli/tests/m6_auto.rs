@@ -2139,3 +2139,312 @@ fn the_badge_is_muted_amber_and_reset_unless_no_color_is_set() {
         std::fs::read_to_string(project_state_dir(world.root.path()).join("lease.json")).unwrap();
     assert!(!lease.contains('\u{1b}'));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Immediate structured Codex preflight (before any Codex-managed terminal is entered).
+// ---------------------------------------------------------------------------------------------
+
+fn set_limits_for(world: &World, profile: &str, allowed: &str, used: u32) {
+    std::fs::write(
+        profile_dir(world.root.path(), profile, "codex").join("limits.json"),
+        format!(
+            r#"{{"ordinaryUsageAllowed":{allowed},"accountId":"acct","rateLimits":{{"primary":{{"usedPercent":{used},"windowDurationMins":300,"resetsAt":4000000000}},"secondary":{{"usedPercent":10,"resetsAt":4000000000}}}}}}"#
+        ),
+    )
+    .expect("limits");
+}
+
+fn break_app_server(world: &World, profile: &str) {
+    std::fs::write(
+        profile_dir(world.root.path(), profile, "codex").join("app_server_fail"),
+        "",
+    )
+    .expect("marker");
+}
+
+fn relay_codex_no_attach(world: &World, extra: &[&str]) -> std::process::Output {
+    let project = world.project.path().to_string_lossy().into_owned();
+    let (claude, codex) = (claude_exe(world), codex_exe(world));
+    let mut args = vec![
+        "codex",
+        "--project-dir",
+        &project,
+        "--no-attach",
+        "--claude-executable",
+        &claude,
+        "--codex-executable",
+        &codex,
+    ];
+    args.extend_from_slice(extra);
+    let mut command = relay_command(world.root.path(), &args);
+    command.env("PATH", path_with_fixtures(world.root.path()));
+    command.output().expect("relay codex")
+}
+
+fn has_no_lease(root: &Path) -> bool {
+    !root.join("state").join("projects").exists()
+        || std::fs::read_dir(root.join("state").join("projects"))
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(true)
+}
+
+fn error_code(output: &std::process::Output) -> String {
+    let error: Value = serde_json::from_slice(&output.stderr).expect("error json");
+    error["error"]["code"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+#[test]
+fn a_fresh_relay_codex_on_a_profile_near_its_limit_still_launches_normally() {
+    let world = world_opts(true, &[], false);
+    set_limits_for(&world, "codex-main", "true", 96);
+    let output = relay_codex_no_attach(&world, &[]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(lease_owner(world.root.path()), "codex-main");
+    assert_eq!(argv_starting(world.root.path(), "codex", "exec").len(), 1);
+}
+
+#[test]
+fn a_fresh_relay_codex_on_an_exhausted_profile_never_runs_the_bootstrap_and_routes_to_claude() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    set_limits_for(&world, "codex-main", "false", 100);
+    let output = relay_codex_no_attach(&world, &["hello", "--", "--sandbox", "workspace-write"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // No quota-consuming Codex turn was started to discover what the structured check already said.
+    assert!(argv_starting(root, "codex", "exec").is_empty());
+    assert_eq!(
+        lease_owner(root),
+        "alice",
+        "the next eligible profile in the hierarchy"
+    );
+    let json = json_stdout(&output);
+    let fallback = &json["data"]["prelaunch_fallback"];
+    assert_eq!(fallback["requested_profile"], "codex-main");
+    assert_eq!(fallback["routed_to"], "alice");
+    assert_eq!(
+        fallback["handoff"], false,
+        "pre-launch routing, not a handoff"
+    );
+    // Codex's arguments never reach Claude
+    assert!(argv_log(root, "claude").iter().all(|(argv, _)| {
+        !argv
+            .iter()
+            .any(|a| a == "--sandbox" || a == "workspace-write")
+    }));
+    assert_eq!(stored_args(&world)["codex"], serde_json::json!([]));
+    // no handoff transaction was pretended
+    assert!(
+        ledger(&world)["recent_handoffs"]
+            .as_array()
+            .is_none_or(Vec::is_empty)
+    );
+}
+
+#[test]
+fn a_fresh_relay_codex_on_an_exhausted_profile_can_route_to_the_next_codex_profile() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    login(
+        root,
+        "codex-backup",
+        "codex",
+        "--codex-executable",
+        &root.join("bin").join("codex"),
+    );
+    let setup = relay(
+        root,
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "codex-main",
+            "--fallback",
+            "codex-backup",
+            "--fallback",
+            "alice",
+            "--claude-executable",
+            &claude_exe(&world),
+        ],
+    );
+    assert!(setup.status.success());
+    set_limits_for(&world, "codex-main", "false", 100);
+    let output = relay_codex_no_attach(&world, &[]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(lease_owner(root), "codex-backup");
+    let execs = argv_log(root, "codex")
+        .into_iter()
+        .filter(|(argv, _)| argv.first().map(String::as_str) == Some("exec"))
+        .collect::<Vec<_>>();
+    assert_eq!(execs.len(), 1);
+    assert!(
+        execs[0].1.ends_with("codex-backup/codex"),
+        "under the ROUTED profile's home: {}",
+        execs[0].1
+    );
+    assert_eq!(
+        json_stdout(&output)["data"]["prelaunch_fallback"]["routed_to"],
+        "codex-backup"
+    );
+}
+
+#[test]
+fn an_unverifiable_codex_profile_launches_nothing_and_routes_nowhere() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    set_limits_for(&world, "codex-main", "false", 100);
+    break_app_server(&world, "codex-main");
+    let output = relay_codex_no_attach(&world, &[]);
+    assert!(!output.status.success());
+    assert_eq!(error_code(&output), "codex_usage_unverified");
+    assert!(argv_starting(root, "codex", "exec").is_empty());
+    assert!(
+        argv_starting(root, "claude", "--bg").is_empty(),
+        "no routing on a guess"
+    );
+    assert!(has_no_lease(root));
+}
+
+#[test]
+fn an_exhausted_fresh_relay_codex_still_refuses_to_create_a_second_writer() {
+    let world = world(true); // alice is a live managed writer
+    let root = world.root.path();
+    set_limits_for(&world, "codex-main", "false", 100);
+    let output = relay_codex_no_attach(&world, &[]);
+    assert!(!output.status.success());
+    assert_eq!(error_code(&output), "managed_session_active");
+    assert_eq!(lease_owner(root), "alice");
+    assert!(argv_starting(root, "codex", "exec").is_empty());
+    assert_eq!(
+        argv_starting(root, "claude", "--bg").len(),
+        1,
+        "only the original launch"
+    );
+}
+
+#[test]
+fn resuming_an_already_exhausted_codex_thread_hands_off_immediately_before_any_codex_launch() {
+    let world = codex_writer_world();
+    let root = world.root.path();
+    set_limits_for(&world, "codex-main", "false", 100);
+    let resumed = relay_resume(&world, &[]);
+    assert!(
+        resumed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resumed.stderr)
+    );
+    assert_eq!(
+        lease_owner(root),
+        "alice",
+        "the real handoff moved ownership"
+    );
+    assert!(
+        argv_starting(root, "codex", "resume").is_empty(),
+        "Codex was never launched into a quota failure"
+    );
+    let stdout = String::from_utf8_lossy(&resumed.stdout);
+    assert!(stdout.contains("Automatic handoff to 'alice'"), "{stdout}");
+    let ledger = ledger(&world);
+    assert_eq!(
+        ledger["recent_handoffs"].as_array().expect("array").len(),
+        1
+    );
+    assert_eq!(ledger["known_exhausted"][0]["profile"], "codex-main");
+    // the terminal then continued on the new owner (Claude)
+    assert!(
+        argv_log(root, "claude")
+            .iter()
+            .any(
+                |(argv, _)| argv.first().map(String::as_str) == Some("attach")
+                    || argv.first().map(String::as_str) == Some("--resume")
+            ),
+        "{:?}",
+        argv_log(root, "claude")
+    );
+}
+
+#[test]
+fn resuming_a_healthy_codex_thread_resumes_it_and_an_unverifiable_one_never_hands_off() {
+    let world = codex_writer_world();
+    let root = world.root.path();
+    set_limits_for(&world, "codex-main", "true", 20);
+    let resumed = relay_resume(&world, &[]);
+    assert!(
+        resumed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resumed.stderr)
+    );
+    assert_eq!(lease_owner(root), "codex-main");
+    assert_eq!(argv_starting(root, "codex", "resume").len(), 1);
+
+    set_limits_for(&world, "codex-main", "false", 100);
+    break_app_server(&world, "codex-main");
+    let unknown = relay_resume(&world, &[]);
+    let _ = unknown;
+    assert_eq!(
+        lease_owner(root),
+        "codex-main",
+        "UNKNOWN never triggers a handoff"
+    );
+    assert!(
+        ledger(&world)["recent_handoffs"]
+            .as_array()
+            .is_none_or(Vec::is_empty)
+    );
+}
+
+#[test]
+fn an_explicit_switch_to_an_exhausted_or_unverifiable_codex_profile_is_refused_before_anything_commits()
+ {
+    let world = world(true);
+    let root = world.root.path();
+    let project = world.project.path().to_string_lossy().into_owned();
+    let (claude, codex) = (claude_exe(&world), codex_exe(&world));
+    let switch = || {
+        relay(
+            root,
+            &[
+                "switch",
+                "codex-main",
+                "--project-dir",
+                &project,
+                "--no-attach",
+                "--claude-executable",
+                &claude,
+                "--codex-executable",
+                &codex,
+            ],
+        )
+    };
+    set_limits_for(&world, "codex-main", "false", 100);
+    let exhausted = switch();
+    assert!(!exhausted.status.success());
+    assert_eq!(error_code(&exhausted), "target_profile_exhausted");
+    break_app_server(&world, "codex-main");
+    let unknown = switch();
+    assert!(!unknown.status.success());
+    assert_eq!(error_code(&unknown), "codex_usage_unverified");
+    assert_eq!(
+        lease_owner(root),
+        "alice",
+        "no silent reroute, nothing committed"
+    );
+    assert!(
+        argv_starting(root, "codex", "exec").is_empty(),
+        "no bootstrap against a refused target"
+    );
+}
