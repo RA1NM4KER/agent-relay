@@ -1009,6 +1009,7 @@ fn ledger(world: &World) -> Value {
 /// never resumed on Claude, and Codex is recorded exhausted with its reset time.
 #[test]
 fn an_exhausted_codex_writer_hands_off_to_claude_with_state_continuation() {
+    skip_without_process_env_scan!();
     let world = codex_writer_world();
     set_codex_limits(&world, "false", 100, 4_000_000_000);
     let output = watch_run_codex(&world).output().expect("watch run");
@@ -1076,6 +1077,7 @@ fn a_failing_codex_app_server_never_triggers_a_handoff() {
 /// and exactly one writer.
 #[test]
 fn duplicate_triggers_for_an_exhausted_codex_writer_create_one_handoff() {
+    skip_without_process_env_scan!();
     let world = codex_writer_world();
     set_codex_limits(&world, "false", 100, 4_000_000_000);
     let first = watch_run_codex(&world).spawn().expect("first");
@@ -1095,6 +1097,7 @@ fn duplicate_triggers_for_an_exhausted_codex_writer_create_one_handoff() {
 /// conversation to Claude, and the terminal continues on the new owner — nobody types anything.
 #[test]
 fn a_supervised_codex_session_notices_exhaustion_and_follows_the_conversation_to_claude() {
+    skip_without_process_env_scan!();
     let world = codex_writer_world();
     let root = world.root.path();
     // Healthy at start; the fake `codex resume` blocks (like the TUI) until Relay closes it.
@@ -1149,6 +1152,7 @@ fn a_supervised_codex_session_notices_exhaustion_and_follows_the_conversation_to
 /// continuity is STATE_CONTINUATION, never a native resume of the first profile's thread.
 #[test]
 fn an_exhausted_codex_writer_can_hand_off_to_a_second_codex_profile_with_state_continuation() {
+    skip_without_process_env_scan!();
     let world = codex_writer_world();
     let root = world.root.path();
     login(
@@ -1441,6 +1445,7 @@ fn without_new_relay_codex_refuses_to_replace_an_active_session() {
 
 #[test]
 fn each_entrypoint_picks_the_highest_priority_profile_of_its_own_provider() {
+    skip_without_process_env_scan!();
     let world = world_opts(true, &[], false);
     let root = world.root.path();
     // Priority order: the Codex profile first, then the Claude profile.
@@ -1565,6 +1570,7 @@ fn a_profile_of_the_wrong_provider_or_none_of_that_provider_fails_clearly() {
 
 #[test]
 fn claude_arguments_never_reach_codex_and_codex_arguments_never_reach_claude() {
+    skip_without_process_env_scan!();
     let world = world_with(true, &["--dangerously-skip-permissions", "--model", "opus"]);
     let root = world.root.path();
     // Claude -> Codex: the Codex continuation gets ONLY Codex's own (here: none) arguments.
@@ -2367,6 +2373,7 @@ fn an_exhausted_fresh_relay_codex_still_refuses_to_create_a_second_writer() {
 
 #[test]
 fn resuming_an_already_exhausted_codex_thread_hands_off_immediately_before_any_codex_launch() {
+    skip_without_process_env_scan!();
     let world = codex_writer_world();
     let root = world.root.path();
     set_limits_for(&world, "codex-main", "false", 100);
@@ -2538,6 +2545,7 @@ fn status_reports_a_live_and_a_dead_claude_owner_through_claudes_own_liveness() 
 
 #[test]
 fn status_reports_a_live_and_a_dead_codex_owner_through_codexs_own_liveness() {
+    skip_without_process_env_scan!();
     let world = codex_writer_world();
     // The recorded process (the short-lived `codex exec` that created the thread) is gone and no
     // Codex process runs under the profile's home: idle — even though the fake Claude registry
@@ -2558,6 +2566,7 @@ fn status_reports_a_live_and_a_dead_codex_owner_through_codexs_own_liveness() {
 
 #[test]
 fn status_never_claims_active_on_a_provider_mismatch_or_an_unresolvable_owner() {
+    skip_without_process_env_scan!();
     let world = codex_writer_world();
     // A Codex-owned lease whose session id happens to be one Claude's registry lists: the old
     // Claude-only check would have called this active; the Codex owner's own check says idle.
