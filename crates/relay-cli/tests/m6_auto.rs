@@ -1733,3 +1733,359 @@ fn a_provider_argument_can_never_replace_the_session_relay_resumes() {
         serde_json::json!(["--model", "opus"])
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// The Relay status-line badge and the Claude flags that would disable Relay's hooks.
+// ---------------------------------------------------------------------------------------------
+
+/// Runs the real `relay hook claude statusline` exactly as Claude would (JSON on stdin), returning
+/// its raw stdout. `chain` is the user's own status-line command Relay wraps.
+fn statusline(world: &World, config_dir: &Path, session: &str, chain: Option<&str>) -> String {
+    let root = world.root.path();
+    let project = std::fs::canonicalize(world.project.path()).expect("project");
+    let payload = format!(
+        r#"{{"session_id":"{session}","cwd":"{0}","workspace":{{"project_dir":"{0}","current_dir":"{0}"}}}}"#,
+        project.display()
+    );
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(["hook", "claude", "statusline", "--config-dir"])
+        .arg(config_dir);
+    if let Some(chain) = chain {
+        command.args(["--chain", chain]);
+    }
+    command
+        .env("PATH", path_with_fixtures(root))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    scrub(&mut command);
+    let mut child = command.spawn().expect("spawn statusline");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(payload.as_bytes())
+        .expect("write stdin");
+    let output = child.wait_with_output().expect("statusline output");
+    assert!(output.status.success());
+    String::from_utf8(output.stdout).expect("utf8")
+}
+
+#[test]
+fn a_managed_session_shows_the_badge_with_the_current_owner_and_nothing_else() {
+    let world = world(false);
+    let out = statusline(&world, &world.alice_dir, SESSION_ID, None);
+    assert_eq!(out.trim_end(), "[Relay · alice]");
+    // plain text only: no escape or control characters anywhere
+    assert!(out.chars().all(|c| c == '\n' || !c.is_control()), "{out:?}");
+    assert!(!out.contains('%'), "no quota in the badge");
+}
+
+#[test]
+fn an_unmanaged_claude_session_never_gets_the_badge_and_its_output_is_untouched() {
+    let world = world(false);
+    // a different Claude session in the same project directory
+    let plain = statusline(
+        &world,
+        &world.alice_dir,
+        "99999999-9999-4999-8999-999999999999",
+        None,
+    );
+    assert!(!plain.contains("Relay"), "{plain:?}");
+    let chained = statusline(
+        &world,
+        &world.alice_dir,
+        "99999999-9999-4999-8999-999999999999",
+        Some("printf 'MY-LINE'"),
+    );
+    assert_eq!(
+        chained, "MY-LINE",
+        "byte for byte what the user's own status line printed"
+    );
+}
+
+#[test]
+fn the_badge_is_added_to_the_users_own_status_line_without_changing_it() {
+    let world = world(false);
+    let out = statusline(
+        &world,
+        &world.alice_dir,
+        SESSION_ID,
+        Some("printf '\\033[32mgreen\\033[0m mine'"),
+    );
+    assert_eq!(out, "\u{1b}[32mgreen\u{1b}[0m mine [Relay · alice]\n");
+}
+
+#[test]
+fn the_badge_follows_the_lease_owner_after_a_claude_to_claude_handoff() {
+    let world = world(false);
+    write_source_transcript(&world);
+    let root = world.root.path();
+    assert_eq!(
+        statusline(&world, &world.alice_dir, SESSION_ID, None).trim_end(),
+        "[Relay · alice]"
+    );
+    let switched = relay(
+        root,
+        &[
+            "switch",
+            "bob",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+        ],
+    );
+    assert!(
+        switched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&switched.stderr)
+    );
+    // The same conversation (same session id) now belongs to bob — shown in either terminal.
+    let bob_dir = profile_dir(root, "bob", "claude");
+    assert_eq!(
+        statusline(&world, &bob_dir, SESSION_ID, None).trim_end(),
+        "[Relay · bob]"
+    );
+    assert_eq!(
+        statusline(&world, &world.alice_dir, SESSION_ID, None).trim_end(),
+        "[Relay · bob]",
+        "no stale owner"
+    );
+}
+
+#[test]
+fn a_claude_session_the_conversation_has_left_for_codex_shows_no_stale_ownership() {
+    let world = world(true);
+    let root = world.root.path();
+    assert_eq!(
+        statusline(&world, &world.alice_dir, SESSION_ID, None).trim_end(),
+        "[Relay · alice]"
+    );
+    let switched = relay(
+        root,
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+            "--codex-executable",
+            &codex_exe(&world),
+        ],
+    );
+    assert!(
+        switched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&switched.stderr)
+    );
+    assert_eq!(lease_owner(root), "codex-main");
+    let out = statusline(&world, &world.alice_dir, SESSION_ID, None);
+    assert!(
+        !out.contains("Relay"),
+        "the old Claude session must not claim ownership: {out:?}"
+    );
+    // and Relay's machine-readable state never contains the badge or any escape sequence
+    for name in ["lease.json", "provider_args.json"] {
+        let text = std::fs::read_to_string(project_state_dir(root).join(name)).unwrap_or_default();
+        assert!(
+            !text.contains("[Relay") && !text.contains('\u{1b}'),
+            "{name}"
+        );
+    }
+}
+
+/// A settings.json with the user's own status line, before and after install/reinstall/uninstall.
+#[test]
+fn install_composes_with_an_existing_status_line_is_idempotent_and_uninstall_restores_it() {
+    let world = world(false);
+    let root = world.root.path();
+    let dir = profile_dir(root, "bob", "claude");
+    std::fs::create_dir_all(&dir).expect("bob dir");
+    let settings = dir.join("settings.json");
+    let original = "{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"my-status --fancy 'x y'\",\n    \"padding\": 2\n  },\n  \"theme\": \"dark\"\n}\n";
+    std::fs::write(&settings, original).expect("settings");
+    let run = |verb: &str| {
+        let mut args = vec!["integration", "claude", verb, "--config-dir"];
+        let dir_text = dir.to_string_lossy().into_owned();
+        args.push(&dir_text);
+        let claude = claude_exe(&world);
+        if verb == "install" {
+            args.extend(["--claude-executable", &claude]);
+        }
+        let output = relay(root, &args);
+        assert!(
+            output.status.success(),
+            "{verb}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    run("install");
+    let installed: Value =
+        serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+    let command = installed["statusLine"]["command"]
+        .as_str()
+        .expect("command");
+    assert!(command.contains("hook claude statusline"), "{command}");
+    assert!(
+        command.contains("my-status --fancy"),
+        "the user's command is chained, not replaced: {command}"
+    );
+    assert_eq!(installed["statusLine"]["padding"], 2);
+    assert_eq!(installed["theme"], "dark");
+    let first = std::fs::read(&settings).unwrap();
+    run("install");
+    assert_eq!(
+        std::fs::read(&settings).unwrap(),
+        first,
+        "reinstall is idempotent"
+    );
+    run("uninstall");
+    assert_eq!(
+        std::fs::read_to_string(&settings).unwrap(),
+        original,
+        "uninstall restores the user's original settings byte for byte"
+    );
+}
+
+#[test]
+fn flags_that_disable_relays_hooks_are_rejected_with_a_clear_explanation_and_change_nothing() {
+    let world = world_with(false, &["--model", "opus"]);
+    let root = world.root.path();
+    let before = stored_args(&world);
+    let project = world.project.path().to_string_lossy().into_owned();
+    let claude = claude_exe(&world);
+    for bad in [
+        vec!["--bare"],
+        vec!["--safe-mode"],
+        vec!["--restricted"],
+        vec!["--setting-sources", "project"],
+    ] {
+        let mut args = vec![
+            "claude",
+            "--project-dir",
+            &project,
+            "--no-attach",
+            "--new",
+            "--claude-executable",
+            &claude,
+            "--",
+        ];
+        args.extend(bad.iter().copied());
+        let output = relay(root, &args);
+        assert!(!output.status.success(), "{bad:?}");
+        let error: Value = serde_json::from_slice(&output.stderr).expect("error json");
+        assert_eq!(
+            error["error"]["code"], "provider_argument_rejected",
+            "{bad:?}"
+        );
+        let message = error["error"]["message"].as_str().expect("message");
+        assert!(message.contains(bad[0]), "{message}");
+        assert!(message.contains("Agent Relay"), "{message}");
+    }
+    assert_eq!(
+        argv_starting(root, "claude", "--bg").len(),
+        1,
+        "nothing was launched"
+    );
+    assert_eq!(
+        stored_args(&world),
+        before,
+        "stored arguments were not touched"
+    );
+    assert_eq!(lease_owner(root), "alice");
+}
+
+#[test]
+fn hook_disabling_flags_are_also_rejected_through_resume_and_switch_but_not_for_codex() {
+    let world = world_with(true, &["--model", "opus"]);
+    write_source_transcript(&world);
+    let root = world.root.path();
+    let before = stored_args(&world);
+    let resume = relay_resume(&world, &["--", "--bare"]);
+    assert!(!resume.status.success());
+    assert!(String::from_utf8_lossy(&resume.stderr).contains("provider_argument_rejected"));
+    let switch = relay(
+        root,
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+            "--codex-executable",
+            &codex_exe(&world),
+            "--",
+            "--sandbox",
+            "workspace-write",
+        ],
+    );
+    assert!(switch.status.success(), "codex passthrough is unaffected");
+    let to_claude = relay(
+        root,
+        &[
+            "switch",
+            "alice",
+            "--project-dir",
+            &world.project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+            "--codex-executable",
+            &codex_exe(&world),
+            "--",
+            "--safe-mode",
+        ],
+    );
+    assert!(
+        !to_claude.status.success(),
+        "a Claude target with --safe-mode is refused"
+    );
+    assert_eq!(
+        lease_owner(root),
+        "codex-main",
+        "the refused switch moved nothing"
+    );
+    assert_eq!(
+        stored_args(&world)["claude"],
+        before["claude"],
+        "Claude's stored arguments untouched"
+    );
+}
+
+#[test]
+fn ordinary_and_future_claude_flags_still_pass_through() {
+    let world = world_with(
+        false,
+        &[
+            "--setting-sources",
+            "user,project",
+            "--brand-new-flag",
+            "value",
+            "--effort",
+            "high",
+        ],
+    );
+    let launches = argv_starting(world.root.path(), "claude", "--bg");
+    assert_eq!(
+        launches[0][4..],
+        s(&[
+            "--setting-sources",
+            "user,project",
+            "--brand-new-flag",
+            "value",
+            "--effort",
+            "high"
+        ])
+    );
+}

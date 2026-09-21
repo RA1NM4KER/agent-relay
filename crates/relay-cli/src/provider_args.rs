@@ -168,7 +168,24 @@ const CLAUDE_REJECTED: &[(&str, &str)] = &[
         "--no-session-persistence",
         "Relay must be able to resume the session",
     ),
+    // Audited against `claude --help` (2.1.x): these disable the hooks / user settings that
+    // Relay's installed integration (StopFailure hook + status line) lives in, which would leave a
+    // session presented as Relay-managed but silently unable to hand off automatically.
+    (
+        "--bare",
+        "it disables the hooks Agent Relay requires for automatic handoff (and Claude's OAuth/keychain login)",
+    ),
+    (
+        "--safe-mode",
+        "it disables all hooks and customizations, including the ones Agent Relay requires for automatic handoff",
+    ),
+    (
+        "--restricted",
+        "it ignores the user settings file where Agent Relay's automatic-handoff hooks are installed",
+    ),
 ];
+
+const SETTING_SOURCES_WITHOUT_USER: &str = "it excludes the `user` settings source where Agent Relay's automatic-handoff hooks are installed";
 
 const CODEX_REJECTED: &[(&str, &str)] = &[
     ("-C", "Relay owns the working directory"),
@@ -215,13 +232,30 @@ pub fn validate(provider: ProviderKind, args: &[String]) -> Result<()> {
         ProviderKind::Codex => CODEX_REJECTED,
         ProviderKind::Claude | ProviderKind::Fake => CLAUDE_REJECTED,
     };
-    for argument in args {
+    for (index, argument) in args.iter().enumerate() {
         if argument == "--" {
             break;
         }
         for (flag, why) in table {
             if matches_flag(argument, flag) {
                 return Err(Error::ProviderArgumentRejected(argument.clone(), why));
+            }
+        }
+        // Claude only: `--setting-sources` is fine as long as it still loads the `user` source
+        // (Relay's hooks and status line are installed in the profile's user settings).
+        if !matches!(provider, ProviderKind::Codex) {
+            let value = if argument == "--setting-sources" {
+                args.get(index + 1).map(String::as_str)
+            } else {
+                argument.strip_prefix("--setting-sources=")
+            };
+            if let Some(value) = value
+                && !value.split(',').any(|source| source.trim() == "user")
+            {
+                return Err(Error::ProviderArgumentRejected(
+                    argument.clone(),
+                    SETTING_SOURCES_WITHOUT_USER,
+                ));
             }
         }
     }
@@ -358,6 +392,59 @@ mod tests {
                 "{bad} must be rejected for {provider:?}"
             );
         }
+    }
+
+    #[test]
+    fn flags_that_disable_relays_hooks_are_rejected_for_claude_only() {
+        for bad in ["--bare", "--safe-mode", "--restricted"] {
+            let error = validate(ProviderKind::Claude, &strings(&["--model", "opus", bad]))
+                .expect_err("must be rejected");
+            assert!(
+                matches!(error, Error::ProviderArgumentRejected(ref flag, why)
+                    if flag == bad && why.contains("Agent Relay")),
+                "{bad}: {error}"
+            );
+            // the human message names the flag and explains why
+            assert!(error.to_string().contains(bad));
+            assert!(
+                error.to_string().contains("automatic handoff")
+                    || error.to_string().contains("settings")
+            );
+        }
+        // Codex has no such flags, so the same words pass through to Codex untouched.
+        validate(ProviderKind::Codex, &strings(&["--bare", "--safe-mode"])).expect("codex ok");
+    }
+
+    #[test]
+    fn setting_sources_is_only_rejected_when_it_drops_the_user_source() {
+        validate(
+            ProviderKind::Claude,
+            &strings(&["--setting-sources", "user,project"]),
+        )
+        .expect("has user");
+        validate(
+            ProviderKind::Claude,
+            &strings(&["--setting-sources=local, user"]),
+        )
+        .expect("has user");
+        for bad in [
+            strings(&["--setting-sources", "project,local"]),
+            strings(&["--setting-sources=project"]),
+            strings(&["--setting-sources", ""]),
+        ] {
+            assert!(
+                matches!(
+                    validate(ProviderKind::Claude, &bad),
+                    Err(Error::ProviderArgumentRejected(..))
+                ),
+                "{bad:?}"
+            );
+        }
+        validate(
+            ProviderKind::Codex,
+            &strings(&["--setting-sources", "project"]),
+        )
+        .expect("codex ok");
     }
 
     #[test]

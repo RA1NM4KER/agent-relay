@@ -1,4 +1,5 @@
 mod auto_handoff;
+mod badge;
 mod preferences;
 mod provider_args;
 mod providers;
@@ -854,7 +855,10 @@ fn run_hook(hook: &HookArgs, cli: &Cli) -> ExitCode {
             ExitCode::SUCCESS
         }
         ClaudeHookCommand::Statusline { config_dir, chain } => {
-            let code = handle_statusline(config_dir, &stdin, now, chain.as_deref());
+            // The badge is best-effort and additive: any doubt about the session means no badge.
+            let badge = hook_paths(cli).and_then(|paths| badge::badge_for(&paths, &stdin));
+            let code =
+                handle_statusline(config_dir, &stdin, now, chain.as_deref(), badge.as_deref());
             ExitCode::from(u8::try_from(code).unwrap_or(0))
         }
     }
@@ -863,10 +867,9 @@ fn run_hook(hook: &HookArgs, cli: &Cli) -> ExitCode {
 /// Starts a one-shot, detached automatic-handoff evaluation when a rate-limit `StopFailure` hook
 /// fires for the session Relay manages (see [`auto_handoff`] for why this is the trigger). Best
 /// effort and silent: a hook must never fail, print into, or block the Claude session it runs in.
-fn trigger_automatic_handoff(cli: &Cli, config_dir: &Path, stdin: &[u8]) {
-    let Ok(discovered) = RelayPaths::discover() else {
-        return;
-    };
+/// The Relay roots a hook process should use: the global overrides when given, else the defaults.
+fn hook_paths(cli: &Cli) -> Option<RelayPaths> {
+    let discovered = RelayPaths::discover().ok()?;
     let config_root = cli
         .config_root
         .clone()
@@ -875,7 +878,11 @@ fn trigger_automatic_handoff(cli: &Cli, config_dir: &Path, stdin: &[u8]) {
         .state_root
         .clone()
         .unwrap_or_else(|| discovered.state_root().to_path_buf());
-    let Ok(paths) = RelayPaths::new(config_root, state_root) else {
+    RelayPaths::new(config_root, state_root).ok()
+}
+
+fn trigger_automatic_handoff(cli: &Cli, config_dir: &Path, stdin: &[u8]) {
+    let Some(paths) = hook_paths(cli) else {
         return;
     };
     let service = ProfileService::new(paths.clone());

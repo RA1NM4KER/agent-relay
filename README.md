@@ -82,6 +82,19 @@ brew update && brew upgrade agent-relay
 
 ## Everyday commands
 
+### Status-line badge
+
+Inside a Relay-managed Claude session the status line ends with a small plain-text badge,
+`[Relay · <profile>]`, showing who owns the conversation right now (and `[Relay · switching →
+<profile>]` for the moment a handoff is in progress). It is read from Relay's own project state on
+every refresh, so it changes owner after a handoff without a new terminal, and it never appears in an
+ordinary Claude session, or in one whose conversation has since moved to another provider. It rides on
+the status line the usage integration already installs, which wraps — never replaces — your own
+status line (your command's output is kept byte for byte and the badge is appended to its last
+line; `relay integration claude uninstall` restores your original settings). Codex has no equivalent:
+its status line only accepts a fixed set of built-in items, with no supported way to show custom
+text, so Relay leaves Codex's interface alone.
+
 ### Provider options: `--` separates Relay's options from the provider's
 
 Everything **before** `--` is Relay's; everything **after** it is forwarded, verbatim and as exact
@@ -108,7 +121,10 @@ A handful of flags are refused, because they would replace something Relay must 
 session — the working directory (`-C`/`--cd`, `--worktree`), session/thread identity
 (`--resume`, `--continue`, `--session-id`, `--fork-session`, `--last`, …), headless or
 machine-readable output (`-p`, `--output-format`, `--json`, …), detaching (`--bg`, `--tmux`) and
-non-resumable sessions (`--ephemeral`, `--no-session-persistence`). Everything else is yours.
+non-resumable sessions (`--ephemeral`, `--no-session-persistence`). Claude flags that would switch
+off the hooks Relay's automatic handoff depends on are refused too — `--bare`, `--safe-mode`,
+`--restricted`, and `--setting-sources` without `user` — with a message saying so; Relay never
+silently strips a flag or quietly downgrades a session to "not automatic". Everything else is yours.
 
 
 | Command | What it does |

@@ -32,19 +32,27 @@ pub fn handle_stop_failure(config_dir: &Path, stdin: &[u8], now_unix_ms: u64) {
 /// `relay hook claude statusline`: records the `rate_limits` snapshot, then either runs the
 /// chained original command (same stdin, its stdout/stderr passed straight through, its exit code
 /// returned) or prints a short Relay status line.
+///
+/// `badge` is `Some` only for a Relay-managed session. It is purely additive: it is appended to the
+/// last line of whatever would have been shown anyway (the chained command's own output, byte for
+/// byte, or Relay's own summary), and without a badge nothing about the previous behaviour changes.
 #[must_use]
 pub fn handle_statusline(
     config_dir: &Path,
     stdin: &[u8],
     now_unix_ms: u64,
     chain: Option<&str>,
+    badge: Option<&str>,
 ) -> i32 {
     let snapshot = parse_statusline_input(stdin, now_unix_ms);
     if let Some(snapshot) = &snapshot {
         let _ignored = record_statusline(config_dir, snapshot);
     }
     if let Some(chain) = chain {
-        return run_chain(chain, stdin);
+        return match badge {
+            Some(badge) => run_chain_with_badge(chain, stdin, badge),
+            None => run_chain(chain, stdin),
+        };
     }
     let summary = snapshot
         .map(|snapshot| {
@@ -62,8 +70,52 @@ pub fn handle_statusline(
         })
         .filter(|text| !text.is_empty())
         .unwrap_or_default();
-    println!("{summary}");
+    println!("{}", append_badge(&summary, badge));
     0
+}
+
+/// Appends the badge to the last line of `output` (space-separated), or shows it alone when there
+/// is nothing else. Never alters any existing byte of `output`.
+#[must_use]
+pub fn append_badge(output: &str, badge: Option<&str>) -> String {
+    let Some(badge) = badge else {
+        return output.to_owned();
+    };
+    let trimmed = output.trim_end_matches(['\n', '\r']);
+    if trimmed.is_empty() {
+        badge.to_owned()
+    } else {
+        format!("{trimmed} {badge}")
+    }
+}
+
+/// Like [`run_chain`], but the chained command's stdout is captured (bounded) so the badge can be
+/// appended to its last line; its stderr stays inherited and its exit code is returned.
+fn run_chain_with_badge(chain: &str, stdin: &[u8], badge: &str) -> i32 {
+    let Ok(mut child) = Command::new("sh")
+        .arg("-c")
+        .arg(chain)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+    else {
+        return 0;
+    };
+    if let Some(mut pipe) = child.stdin.take() {
+        let _ignored = pipe.write_all(stdin);
+    }
+    let mut captured = Vec::new();
+    if let Some(stdout) = child.stdout.take() {
+        let _ignored = stdout.take(MAX_STDIN_BYTES).read_to_end(&mut captured);
+    }
+    let code = child
+        .wait()
+        .ok()
+        .and_then(|status| status.code())
+        .unwrap_or(0);
+    let text = String::from_utf8_lossy(&captured);
+    println!("{}", append_badge(&text, Some(badge)));
+    code
 }
 
 fn run_chain(chain: &str, stdin: &[u8]) -> i32 {
@@ -88,6 +140,23 @@ fn run_chain(chain: &str, stdin: &[u8]) -> i32 {
 #[cfg(test)]
 mod tests {
     use std::fs;
+
+    use super::append_badge;
+
+    #[test]
+    fn the_badge_is_appended_to_the_last_line_and_never_rewrites_anything() {
+        assert_eq!(append_badge("mine", None), "mine");
+        assert_eq!(append_badge("mine\n", Some("[R]")), "mine [R]");
+        assert_eq!(
+            append_badge("line one\nline two\n", Some("[R]")),
+            "line one\nline two [R]"
+        );
+        assert_eq!(append_badge("", Some("[R]")), "[R]");
+        assert_eq!(
+            append_badge("\x1b[32mgreen\x1b[0m", Some("[R]")),
+            "\x1b[32mgreen\x1b[0m [R]"
+        );
+    }
 
     use tempfile::tempdir;
 
