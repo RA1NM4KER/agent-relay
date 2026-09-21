@@ -3892,9 +3892,13 @@ fn run_claude(
         ));
     }
     for fallback_name in &fallback {
+        // Only Claude fallbacks are checked here: a Codex profile's login inspection
+        // (`codex doctor`) takes ~13s, which would sit in front of the terminal handover for a
+        // mere warning. `relay profiles` reports every profile's login state on demand.
         if let Some(fallback_profile) = registered
             .iter()
             .find(|profile| &profile.name == fallback_name)
+            .filter(|profile| profile.provider != ProviderKind::Codex)
         {
             let (fallback_auth, _) = friendly_auth_state(fallback_profile, &executables);
             if fallback_auth != "authenticated" && !json_mode {
