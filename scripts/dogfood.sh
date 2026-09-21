@@ -37,7 +37,7 @@ status() {
   echo "tap formula:       ${formula:-unknown}"
   case "$bin" in *target/debug*|*target/release*) echo "WARNING: relay resolves to a cargo build, not the packaged binary";; esac
   if [ -z "$sha" ]; then
-    echo "state:             this binary carries no commit id (a tagged release build)"
+    echo "state:             installed is a tagged release build (no commit id); latest green main is newer -> scripts/dogfood.sh update"
   elif [ -n "$green" ] && [ "$sha" = "$green" ]; then
     echo "state:             CURRENT (installed build is the latest green main)"
   elif [ -n "$formula" ] && [ "$sha" = "$formula" ]; then
