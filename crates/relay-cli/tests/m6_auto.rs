@@ -791,6 +791,7 @@ fn resume_follows_the_conversation_onto_the_new_owner_after_a_handoff() {
 /// carries the user through a fallback without any second command.
 #[test]
 fn claude_follows_the_conversation_onto_the_new_owner_after_a_handoff() {
+    skip_without_process_env_scan!();
     let root = tempdir().expect("tempdir");
     let project = tempdir().expect("project");
     init_git_repo(project.path());
