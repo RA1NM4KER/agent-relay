@@ -16,7 +16,9 @@
 //! * `switching → <target>` only while a handoff transaction for this session is genuinely in
 //!   progress (its journal says so), never merely because an evaluation briefly held the lock.
 //!
-//! Output is plain text: no colour, no escape sequences.
+//! `badge_for` is plain text; [`styled`] wraps it in one restrained amber colour (256-colour, reset
+//! immediately after so it can never bleed into the rest of the status line) unless `NO_COLOR` is
+//! set. The colour exists only in what is printed to the status line — never in any Relay state.
 
 use std::path::{Path, PathBuf};
 
@@ -64,6 +66,30 @@ pub fn badge_for(paths: &RelayPaths, stdin: &[u8]) -> Option<String> {
         None => lease.owner_profile.to_string(),
     };
     Some(format!("[Relay · {text}]"))
+}
+
+const AMBER: &str = "\u{1b}[38;5;172m";
+const AMBER_SWITCHING: &str = "\u{1b}[38;5;179m";
+const RESET: &str = "\u{1b}[0m";
+
+/// The badge in muted amber (a lighter amber while switching), honouring `NO_COLOR`.
+#[must_use]
+pub fn styled(badge: &str) -> String {
+    let no_color = std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty());
+    styled_with(badge, no_color)
+}
+
+#[must_use]
+pub fn styled_with(badge: &str, no_color: bool) -> String {
+    if no_color {
+        return badge.to_owned();
+    }
+    let color = if badge.contains("switching") {
+        AMBER_SWITCHING
+    } else {
+        AMBER
+    };
+    format!("{color}{badge}{RESET}")
 }
 
 /// The target profile of a handoff of *this session* that is still in progress.
@@ -146,6 +172,16 @@ mod tests {
             Some("[Relay · claude-primary]"),
             "a finished transaction is no longer 'switching'"
         );
+    }
+
+    #[test]
+    fn colour_is_one_amber_span_that_is_always_reset_and_no_color_turns_it_off() {
+        assert_eq!(
+            styled_with("[Relay · a]", false),
+            "\u{1b}[38;5;172m[Relay · a]\u{1b}[0m"
+        );
+        assert!(styled_with("[Relay · switching → b]", false).starts_with("\u{1b}[38;5;179m"));
+        assert_eq!(styled_with("[Relay · a]", true), "[Relay · a]");
     }
 
     #[test]

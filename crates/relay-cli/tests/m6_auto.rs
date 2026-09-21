@@ -1741,6 +1741,17 @@ fn a_provider_argument_can_never_replace_the_session_relay_resumes() {
 /// Runs the real `relay hook claude statusline` exactly as Claude would (JSON on stdin), returning
 /// its raw stdout. `chain` is the user's own status-line command Relay wraps.
 fn statusline(world: &World, config_dir: &Path, session: &str, chain: Option<&str>) -> String {
+    statusline_env(world, config_dir, session, chain, true)
+}
+
+/// `plain` sets `NO_COLOR`; otherwise the variable is removed so the coloured form is produced.
+fn statusline_env(
+    world: &World,
+    config_dir: &Path,
+    session: &str,
+    chain: Option<&str>,
+    plain: bool,
+) -> String {
     let root = world.root.path();
     let project = std::fs::canonicalize(world.project.path()).expect("project");
     let payload = format!(
@@ -1764,6 +1775,11 @@ fn statusline(world: &World, config_dir: &Path, session: &str, chain: Option<&st
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     scrub(&mut command);
+    if plain {
+        command.env("NO_COLOR", "1");
+    } else {
+        command.env_remove("NO_COLOR");
+    }
     let mut child = command.spawn().expect("spawn statusline");
     child
         .stdin
@@ -2088,4 +2104,38 @@ fn ordinary_and_future_claude_flags_still_pass_through() {
             "high"
         ])
     );
+}
+
+#[test]
+fn the_badge_is_muted_amber_and_reset_unless_no_color_is_set() {
+    let world = world(false);
+    let coloured = statusline_env(
+        &world,
+        &world.alice_dir,
+        SESSION_ID,
+        Some("printf 'mine'"),
+        false,
+    );
+    assert_eq!(coloured, "mine \u{1b}[38;5;172m[Relay · alice]\u{1b}[0m\n");
+    let plain = statusline_env(
+        &world,
+        &world.alice_dir,
+        SESSION_ID,
+        Some("printf 'mine'"),
+        true,
+    );
+    assert_eq!(plain, "mine [Relay · alice]\n");
+    // an unmanaged session stays completely uncoloured and untouched
+    let unmanaged = statusline_env(
+        &world,
+        &world.alice_dir,
+        "99999999-9999-4999-8999-999999999999",
+        Some("printf 'mine'"),
+        false,
+    );
+    assert_eq!(unmanaged, "mine");
+    // the colour is only in what is printed, never in Relay's state
+    let lease =
+        std::fs::read_to_string(project_state_dir(world.root.path()).join("lease.json")).unwrap();
+    assert!(!lease.contains('\u{1b}'));
 }

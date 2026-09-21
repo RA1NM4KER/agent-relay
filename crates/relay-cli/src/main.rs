@@ -856,7 +856,9 @@ fn run_hook(hook: &HookArgs, cli: &Cli) -> ExitCode {
         }
         ClaudeHookCommand::Statusline { config_dir, chain } => {
             // The badge is best-effort and additive: any doubt about the session means no badge.
-            let badge = hook_paths(cli).and_then(|paths| badge::badge_for(&paths, &stdin));
+            let badge = hook_paths(cli)
+                .and_then(|paths| badge::badge_for(&paths, &stdin))
+                .map(|plain| badge::styled(&plain));
             let code =
                 handle_statusline(config_dir, &stdin, now, chain.as_deref(), badge.as_deref());
             ExitCode::from(u8::try_from(code).unwrap_or(0))

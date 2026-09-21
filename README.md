@@ -84,7 +84,8 @@ brew update && brew upgrade agent-relay
 
 ### Status-line badge
 
-Inside a Relay-managed Claude session the status line ends with a small plain-text badge,
+Inside a Relay-managed Claude session the status line ends with a small badge (muted amber; plain
+text if `NO_COLOR` is set),
 `[Relay · <profile>]`, showing who owns the conversation right now (and `[Relay · switching →
 <profile>]` for the moment a handoff is in progress). It is read from Relay's own project state on
 every refresh, so it changes owner after a handoff without a new terminal, and it never appears in an
