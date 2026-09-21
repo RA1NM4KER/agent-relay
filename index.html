@@ -723,7 +723,7 @@
     <div class="wrap-narrow">
       <span class="eyebrow">Optional</span>
       <h2 style="margin-bottom: 16px;">Herdr integration</h2>
-      <p class="muted" style="font-size: 1rem; margin-bottom: 24px;">Optional <a href="https://herdr.dev">Herdr</a> integration gives Agent Relay automatic pane/session context and an additional event trigger — no separate terminal or manual session id required.</p>
+      <p class="muted" style="font-size: 1rem; margin-bottom: 24px;">Optional <a href="https://herdr.dev">Herdr</a> integration gives Agent Relay automatic pane/session context and an additional event trigger — no separate terminal or manual session id required. It works with Claude panes today; Codex panes are not integrated yet.</p>
       <div class="herdr-flow">
         <span class="node">herdr</span>
         <span class="arrow">↓ pane + session context</span>
@@ -745,10 +745,10 @@
       <div class="install-block">
         <span class="l"><span class="prompt">$</span>brew install RA1NM4KER/tap/agent-relay</span>
         <span class="l"><span class="prompt">$</span>relay setup</span>
-        <span class="l"><span class="prompt">$</span>relay claude</span>
+        <span class="l"><span class="prompt">$</span>relay claude   # or: relay codex</span>
         <button class="copy-btn" type="button" data-copy="brew install RA1NM4KER/tap/agent-relay
 relay setup
-relay claude" aria-label="Copy all three commands">
+relay claude   # or: relay codex" aria-label="Copy all three commands">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </button>
       </div>
