@@ -21,6 +21,31 @@ use tempfile::tempdir;
 use relay_provider_claude::AUTHENTICATION_OVERRIDE_VARIABLES as CLAUDE_AUTH_OVERRIDE_VARIABLES;
 use relay_provider_codex::AUTHENTICATION_OVERRIDE_VARIABLES as CODEX_AUTH_OVERRIDE_VARIABLES;
 
+/// GitHub's hosted runners refuse `ps -E` (list a process's environment), and Linux `ps` has no such
+/// flag: the handoff safety checks that need it correctly fail closed there, which is what these
+/// tests would then observe. They are validated on macOS developer machines (the supported
+/// platform); on such a runner they skip instead of reporting Relay's fail-closed behaviour as a
+/// failure. (Same policy as `relay_provider_claude`'s own `ps_dash_e_is_available`.)
+fn process_env_scan_available() -> bool {
+    ["-Eww -o command=", "-Eww -axo pid=,command="]
+        .iter()
+        .all(|flags| {
+            Command::new("ps")
+                .args(flags.split(' '))
+                .output()
+                .is_ok_and(|output| output.status.success())
+        })
+}
+
+macro_rules! skip_without_process_env_scan {
+    () => {
+        if !process_env_scan_available() {
+            eprintln!("skipping: `ps -E` is unavailable in this environment");
+            return;
+        }
+    };
+}
+
 const SESSION_ID: &str = "11111111-1111-4111-8111-111111111111";
 const BG_ID: &str = "aaaa1111";
 
@@ -559,6 +584,7 @@ fn write_source_transcript(world: &World) {
 /// and silently never hand off.
 #[test]
 fn a_real_limit_event_hands_off_to_a_claude_fallback_despite_the_ambient_claude_environment() {
+    skip_without_process_env_scan!();
     let world = world(false);
     write_source_transcript(&world);
     statusline_at_100(world.root.path(), &world.alice_dir);
@@ -1649,6 +1675,7 @@ fn claude_arguments_never_reach_codex_and_codex_arguments_never_reach_claude() {
 
 #[test]
 fn claude_to_claude_handoff_reuses_the_claude_arguments_on_the_continuation_only() {
+    skip_without_process_env_scan!();
     let world = world_with(false, &["--model", "opus"]);
     write_source_transcript(&world);
     let root = world.root.path();
@@ -1702,6 +1729,7 @@ fn claude_to_claude_handoff_reuses_the_claude_arguments_on_the_continuation_only
 
 #[test]
 fn a_provider_argument_can_never_replace_the_session_relay_resumes() {
+    skip_without_process_env_scan!();
     let world = world_with(false, &["--model", "opus"]);
     write_source_transcript(&world);
     let root = world.root.path();
@@ -1839,6 +1867,7 @@ fn the_badge_is_added_to_the_users_own_status_line_without_changing_it() {
 
 #[test]
 fn the_badge_follows_the_lease_owner_after_a_claude_to_claude_handoff() {
+    skip_without_process_env_scan!();
     let world = world(false);
     write_source_transcript(&world);
     let root = world.root.path();

@@ -13,6 +13,31 @@ use tempfile::tempdir;
 use relay_provider_claude::AUTHENTICATION_OVERRIDE_VARIABLES as CLAUDE_AUTH_OVERRIDE_VARIABLES;
 use relay_provider_codex::AUTHENTICATION_OVERRIDE_VARIABLES as CODEX_AUTH_OVERRIDE_VARIABLES;
 
+/// GitHub's hosted runners refuse `ps -E` (list a process's environment), and Linux `ps` has no such
+/// flag: the handoff safety checks that need it correctly fail closed there, which is what these
+/// tests would then observe. They are validated on macOS developer machines (the supported
+/// platform); on such a runner they skip instead of reporting Relay's fail-closed behaviour as a
+/// failure. (Same policy as `relay_provider_claude`'s own `ps_dash_e_is_available`.)
+fn process_env_scan_available() -> bool {
+    ["-Eww -o command=", "-Eww -axo pid=,command="]
+        .iter()
+        .all(|flags| {
+            Command::new("ps")
+                .args(flags.split(' '))
+                .output()
+                .is_ok_and(|output| output.status.success())
+        })
+}
+
+macro_rules! skip_without_process_env_scan {
+    () => {
+        if !process_env_scan_available() {
+            eprintln!("skipping: `ps -E` is unavailable in this environment");
+            return;
+        }
+    };
+}
+
 fn relay(root: &Path, arguments: &[&str]) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
     command
@@ -381,6 +406,7 @@ fn switch_claude_to_codex_is_state_continuation_and_moves_the_lease() {
 
 #[test]
 fn switch_codex_to_claude_is_also_state_continuation() {
+    skip_without_process_env_scan!();
     let root = tempdir().expect("tempdir");
     let project = tempdir().expect("project dir");
     init_git_repo(project.path());
