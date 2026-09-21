@@ -6,7 +6,7 @@ profile in one priority order. Claude → Claude continues the same native Claud
 involving Codex continues from a Relay state bundle in a new session — never the same native
 conversation across the two CLIs.
 
-Status: **`main` — the unreleased next version after v0.2.0, macOS-first.** The handoff, recovery,
+Status: **v0.3.0, macOS-first.** The handoff, recovery,
 usage-detection, and Herdr integration paths are validated live on macOS with Claude Code
 2.1.276–2.1.278; Codex support was checked live against Codex CLI 0.155.0 (structured usage reads,
 thread verification, Codex → Claude handoff by hand, pre-launch fallback from an exhausted Codex
@@ -20,9 +20,8 @@ live-supported or validated (some process-scan code is macOS-specific).
 brew install RA1NM4KER/tap/agent-relay
 ```
 
-Homebrew installs the latest **released** version (v0.2.0). `main` — and this README — describe newer,
-unreleased work (Codex profiles, `relay codex`, provider options after `--`, the status-line badge);
-to try it now, build from source (see [below](#advanced--manual-setup--building-from-source)).
+Homebrew installs the latest released version (v0.3.0). To try unreleased work on `main`, build from
+source (see [below](#advanced--manual-setup--building-from-source)).
 
 ## Use
 

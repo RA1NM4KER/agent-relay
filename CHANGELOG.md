@@ -4,20 +4,55 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
-Everything on `main` since v0.2.0 (not yet released; Homebrew still installs v0.2.0):
+Nothing yet.
 
-- **Codex support:** isolated Codex profiles, `relay codex`, Claude ⇄ Codex handoff as state
-  continuation, same-profile Codex resume with thread verification, Codex exhaustion detection from
-  Codex's structured app-server rate limits (immediate preflight before a Codex terminal plus
-  periodic checks while supervised), pre-launch fallback from an exhausted Codex profile.
-- **Automatic handoff trigger:** the Claude `StopFailure` hook now starts the evaluation itself, and a
-  supervised terminal follows the conversation to the new owner.
-- **Provider options after `--`** (`relay claude -- …`, `relay codex -- …`), stored per project and
-  kept provider-scoped; flags that would replace something Relay owns or disable its hooks are
-  rejected.
-- **Status-line badge** `[Relay · <profile>]` for managed Claude sessions.
-- **Fixes:** provider-aware liveness (launch, handoff and `relay status`), Claude `--bg` id parsing
-  with coloured output, `relay resume` attach-vs-resume, isolated `CLAUDE_CONFIG_DIR` on attach.
+## v0.3.0 — 2026-09-21
+
+Agent Relay becomes multi-provider: Claude Code and Codex profiles share one priority order, one
+writer per project, and automatic handoff in both directions.
+
+### Added
+
+- **Codex support:** isolated Codex profiles (`relay login`, `relay setup`), `relay codex` (a new
+  Relay-managed Codex conversation, symmetric with `relay claude`), same-profile Codex resume with
+  thread verification, and Claude ⇄ Codex handoff as *state continuation* (a new session seeded from
+  a Relay state bundle — never presented as the same native conversation).
+- **Automatic Codex handoff:** exhaustion is read from Codex's own structured app-server rate limits
+  (`ordinaryUsageAllowed`) — immediately before Relay enters a Codex terminal, then periodically
+  while that terminal is supervised. A fresh `relay codex` on an exhausted profile skips Codex and
+  starts on the next eligible profile; `relay resume` on an exhausted Codex thread hands off at
+  once; `relay switch` refuses an exhausted or unverifiable Codex target. Unknown never moves
+  anything.
+- **Automatic Claude handoff that actually fires:** the Claude `StopFailure` hook starts a one-shot
+  evaluation itself, and a supervised terminal follows the conversation to the new owner
+  (`relay claude` / `relay codex` / `relay resume`).
+- **Provider options after `--`:** `relay claude -- --model opus`, `relay codex -- --sandbox
+  workspace-write`, forwarded verbatim, stored per project and never translated between providers.
+  Flags that would replace something Relay owns — or disable its hooks (`--bare`, `--safe-mode`,
+  `--restricted`, `--setting-sources` without `user`) — are rejected with a clear error.
+- **Status-line badge** `[Relay · <profile>]` (`switching → <profile>` mid-handoff) for managed Claude
+  sessions, composed with your own status line and colour-aware (`NO_COLOR` respected).
+- One global priority order (primary + fallbacks) reconsidered at every exhaustion; the current
+  writer stays sticky (no eager fail-back).
+
+### Fixed
+
+- `relay status`, launch, handoff and session-conflict paths now ask the *lease owner's* provider
+  whether a session is live (Claude or Codex), and report `unknown` instead of guessing `active`.
+- Codex liveness/stop cover the interactive `codex resume` process, not only the short-lived
+  `codex exec` that created the thread.
+- Claude `--bg` job ids with coloured output, `relay resume` attach-vs-resume for a live background
+  job, and attaching under the lease owner's isolated `CLAUDE_CONFIG_DIR`.
+- `relay switch --no-attach` now points at `relay resume`.
+
+### Notes
+
+- macOS is the validated platform; Linux builds and passes CI but is not yet live-supported.
+- Automatic handoff from a real Codex exhaustion mid-session is covered by automated tests and has
+  not yet been observed live; a real exhausted Codex profile has been live-checked for pre-launch
+  fallback.
+- After upgrading, re-run `relay integration claude install --profile <name>` so the Claude hooks
+  and status line point at the new `relay` binary.
 
 ## v0.2.0
 
