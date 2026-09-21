@@ -45,7 +45,7 @@ const OUTPUT_SCHEMA_VERSION: u32 = 1;
 #[command(
     name = "relay",
     version = env!("RELAY_VERSION"),
-    about = "Explicit coding-agent profile handoff orchestration"
+    about = "Supervise coding-agent sessions across isolated Claude and Codex profiles, and move work to the next eligible profile when one is exhausted"
 )]
 struct Cli {
     /// Emit a stable machine-readable JSON envelope.
@@ -68,13 +68,13 @@ struct Cli {
 enum Command {
     /// Manage explicit provider profiles.
     Profile(ProfileArgs),
-    /// M2A: minimal, explicit, manual cross-profile Claude session staging.
+    /// Advanced: stage a Claude session transcript from one profile into another by hand.
     Session(SessionArgs),
-    /// M2B: project-level writer lease and orchestration lock inspection.
+    /// Advanced: inspect a project's writer lease and orchestration lock.
     Lock(LockArgs),
-    /// M2B: crash-safe transactional handoff between two registered profiles.
+    /// Advanced: run or inspect a crash-safe handoff between two Claude profiles by hand.
     Handoff(HandoffArgs),
-    /// M2B: decide the safe next action for an interrupted handoff transaction.
+    /// Advanced: decide the safe next action for an interrupted handoff.
     Recover {
         transaction_id: String,
         #[arg(long, value_name = "PATH")]
@@ -88,9 +88,8 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
     },
-    /// M2B.5: launch Claude as a Relay-managed writer, recording a durable writer lease tied to
-    /// its real pid and start-time fingerprint (not a `ps` text scan). Refuses if another
-    /// verified-live writer already holds this project.
+    /// Advanced: start a background Claude session as this project's Relay-managed writer
+    /// (scripting form of `relay claude`). Refuses if another live writer holds the project.
     Launch {
         #[arg(long)]
         profile: ProfileName,
@@ -101,38 +100,36 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
     },
-    /// M2C: explicit, opt-in, usage-triggered automatic handoff. Nothing here runs unless this
-    /// command is invoked; there is no background monitoring.
+    /// Advanced: run one automatic-handoff evaluation by hand (Relay never runs a background
+    /// monitor).
     Watch(WatchArgs),
-    /// M2C.1: opt-in Claude usage integration (StopFailure hook + statusline snapshot) for one
-    /// isolated profile.
+    /// Claude usage integration (StopFailure hook + status line) and the optional Herdr plugin.
+    /// Codex needs no installed integration.
     Integration(IntegrationArgs),
     /// Internal: commands Claude Code runs on behalf of an installed integration. Never fails the
     /// calling Claude session.
     #[command(hide = true)]
     Hook(HookArgs),
-    /// M4: interactive first-run wizard — authenticate/adopt Claude profiles, choose a primary
-    /// and fallback order, and optionally enable the usage and Herdr integrations. Safe to
-    /// re-run any time; detects and reuses what already exists rather than starting over.
+    /// First-run wizard: set up Claude and/or Codex profiles (whichever CLIs you have installed),
+    /// choose one priority order, and optionally enable integrations. Safe to re-run any time;
+    /// it reuses what already exists.
     Setup(SetupArgs),
-    /// M4: the normal daily entry point. `cd` into a project and run `relay claude` — no
-    /// `--profile`/`--project-dir`/`--session` required once `relay setup` has run once.
+    /// Start a new Relay-managed Claude conversation in this project and open Claude directly
+    /// (type your first message inside Claude). Options after `--` go straight to `claude`.
     Claude(ClaudeArgs),
-    /// Start a new Relay-managed Codex conversation (the Codex counterpart of `relay claude`).
+    /// Start a new Relay-managed Codex conversation in this project and open Codex directly.
+    /// Options after `--` go straight to `codex`.
     Codex(CodexArgs),
-    /// M4: a short, human-readable summary of the current project's Relay/Claude/Herdr state.
+    /// Show this project's current writer, fallback order and integrations at a glance.
     Status {
         #[arg(long = "project", value_name = "PATH")]
         project_dir: Option<PathBuf>,
     },
-    /// M4: a friendly list of registered profiles with their primary/fallback role and
-    /// authentication state (unlike `relay profile list`, which is provider-neutral and does not
-    /// show M4 preferences).
+    /// List registered profiles with their provider, priority role and login state.
     Profiles,
-    /// M4/M6: friendly wrapper around the official `claude auth login`/`codex login` flow for one
-    /// isolated profile's config directory — the same flow `relay setup` uses for a new profile.
-    /// Dispatches by the profile's already-registered provider; `--provider` picks the provider
-    /// for a brand-new profile name (defaults to `claude`, preserving pre-M6 behavior).
+    /// Log a profile in through its provider's own official login (Claude or Codex), in an
+    /// isolated config home. An existing profile uses its registered provider; `--provider`
+    /// chooses one for a brand-new profile name.
     Login {
         name: ProfileName,
         #[arg(long, value_enum, default_value_t = ProviderArg::Claude)]
@@ -142,8 +139,8 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         codex_executable: Option<PathBuf>,
     },
-    /// M4/M6: friendly wrapper around the official `claude auth logout`/`codex logout` flow for
-    /// one isolated profile's config directory. Never touches credential files directly.
+    /// Log a profile out through its provider's own official logout. Relay never touches
+    /// credential files itself.
     Logout {
         name: ProfileName,
         #[arg(long, value_name = "PATH")]
@@ -151,17 +148,12 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         codex_executable: Option<PathBuf>,
     },
-    /// M6: explicit manual handoff to a different registered profile, same provider or not.
-    /// Uses SESSION_CONTINUATION when the current writer and the target are both Claude (the
-    /// only pairing with proven cross-profile session transfer), STATE_CONTINUATION otherwise.
+    /// Explicitly move the current conversation to another profile, of the same provider or not.
+    /// Claude → Claude continues the same session; anything involving Codex continues from a
+    /// Relay state bundle in a new session.
     Switch(SwitchArgs),
-    /// The normal way to continue an already-active Relay-managed session: reattaches
-    /// interactively to the session/thread the current writer lease already records, under the
-    /// *lease owner's* own isolated config — Codex's NATIVE_RESUME, or (for a Claude profile) an
-    /// interactive `claude --resume`. `relay resume` (no profile) resolves the owner
-    /// automatically; an explicit `relay resume <profile>` still works but refuses if that
-    /// profile does not already own this project's writer lease (use `relay switch` to move
-    /// ownership first).
+    /// Continue this project's current Relay-managed conversation, on whichever profile and
+    /// provider owns it now (native resume of the same Claude session / Codex thread).
     Resume(ResumeArgs),
 }
 
@@ -616,7 +608,7 @@ enum SessionCommand {
         #[arg(long)]
         session_id: String,
     },
-    /// M2B.5: classify and safely resolve a target profile's session-transcript conflict.
+    /// Inspect and resolve a session-transcript conflict on a target profile.
     Conflict(ConflictArgs),
 }
 
@@ -689,7 +681,7 @@ enum ProfileCommand {
     /// Create and register a profile.
     Add {
         name: ProfileName,
-        /// M1 intentionally executes only the fake provider.
+        /// Provider for the new profile.
         #[arg(long, value_enum, default_value_t = CliProvider::Fake)]
         provider: CliProvider,
         /// Optional managed directory; it must remain below the Relay profiles root.
@@ -4718,19 +4710,19 @@ fn run_setup(
     let claude_executable = args.claude_executable.as_deref();
     let claude_version = ClaudeInspector::discover(claude_executable)
         .and_then(|inspector| inspector.inspect_version());
-    match &claude_version {
-        Ok(version) => println!("  Claude Code        \u{2713} ({version})"),
-        Err(_) => println!("  Claude Code        \u{2717} not found"),
-    }
-    // M6: detected only — never required. A user with no Codex CLI installed sees exactly the
-    // pre-M6 wizard; the Codex-profile prompt below only appears when this succeeds.
     let codex_executable = args.codex_executable.as_deref();
     let codex_version = relay_provider_codex::CodexInspector::discover(codex_executable)
         .and_then(|inspector| inspector.inspect_version());
+    // Either provider is enough on its own; neither is privileged.
+    match &claude_version {
+        Ok(version) => println!("  Claude Code        \u{2713} ({version})"),
+        Err(_) => println!("  Claude Code        (not installed)"),
+    }
     match &codex_version {
         Ok(version) => println!("  Codex CLI          \u{2713} ({version})"),
-        Err(_) => println!("  Codex CLI          (not found; optional)"),
+        Err(_) => println!("  Codex CLI          (not installed)"),
     }
+    let claude_available = claude_version.is_ok();
     let codex_available = codex_version.is_ok();
     let herdr_client = HerdrCliClient::discover(None);
     let herdr_probe = herdr_client
@@ -4752,9 +4744,9 @@ fn run_setup(
             paths.state_root().display()
         );
     }
-    if claude_version.is_err() {
+    if !claude_available && !codex_available {
         println!(
-            "\nClaude Code was not found. Install it first: https://docs.claude.com/en/docs/claude-code"
+            "\nAgent Relay needs at least one supported coding-agent CLI installed:\n  \u{2022} Claude Code  https://docs.claude.com/en/docs/claude-code\n  \u{2022} Codex CLI    https://developers.openai.com/codex\nInstall one (or both), then run `relay setup` again."
         );
         return Err(Error::ProviderExecutableMissing);
     }
@@ -4768,7 +4760,7 @@ fn run_setup(
                 profile,
                 &providers::ExecutableOverrides {
                     claude: claude_executable.map(Path::to_path_buf),
-                    codex: None,
+                    codex: codex_executable.map(Path::to_path_buf),
                 },
             );
             println!("  \u{2713} {} ({auth})", profile.name);
@@ -4787,11 +4779,20 @@ fn run_setup(
             println!("'{name}' is already registered.");
             continue;
         }
-        let use_codex = codex_available
-            && prompt_yes_no(
-                &format!("Is '{name}' a Codex profile? (no = Claude)"),
-                false,
-            )?;
+        // Which provider is this profile for? Implied when only one CLI is installed; asked (with
+        // no preferred answer) when both are.
+        let use_codex = match (claude_available, codex_available) {
+            (true, true) => loop {
+                let answer = prompt_line(&format!("Provider for '{name}' (claude/codex)"), None)?;
+                match answer.trim().to_ascii_lowercase().as_str() {
+                    "claude" => break false,
+                    "codex" => break true,
+                    _ => println!("Please answer 'claude' or 'codex'."),
+                }
+            },
+            (false, true) => true,
+            _ => false,
+        };
         if use_codex {
             println!("\nOpening Codex login for '{name}'...");
             match create_and_authenticate_codex_profile(service, paths, &name, codex_executable) {
@@ -4916,20 +4917,46 @@ fn run_setup(
     preferences.fallback_profiles = fallback.clone();
 
     // --- Step 4: usage integration ---
-    let enable_usage = prompt_yes_no("\nEnable automatic quota detection?", true)?;
-    if enable_usage {
-        for name in std::iter::once(&primary).chain(fallback.iter()) {
-            let Some(profile) = registered.iter().find(|profile| &profile.name == name) else {
-                continue;
-            };
-            install_usage_integration_interactive(profile, claude_executable)?;
+    // Claude reports a rate limit through an installed hook + status line; Codex's quota is read
+    // from Codex's own structured interface and needs nothing installed. So only Claude profiles
+    // are offered the integration.
+    let claude_profiles: Vec<&Profile> = std::iter::once(&primary)
+        .chain(fallback.iter())
+        .filter_map(|name| registered.iter().find(|profile| &profile.name == name))
+        .filter(|profile| profile.provider != ProviderKind::Codex)
+        .collect();
+    let enable_usage = if claude_profiles.is_empty() {
+        println!(
+            "\nCodex quota is checked automatically; there is no usage integration to install."
+        );
+        true
+    } else {
+        let enable = prompt_yes_no(
+            if registered
+                .iter()
+                .any(|profile| profile.provider == ProviderKind::Codex)
+            {
+                "\nEnable automatic quota detection? (installs a hook for Claude profiles; Codex needs nothing)"
+            } else {
+                "\nEnable automatic quota detection?"
+            },
+            true,
+        )?;
+        if enable {
+            for profile in &claude_profiles {
+                install_usage_integration_interactive(profile, claude_executable)?;
+            }
         }
-    }
+        enable
+    };
     preferences.usage_integration_enabled = Some(enable_usage);
 
     // --- Step 5: Herdr ---
     let enable_herdr = if herdr_probe.is_some() {
-        prompt_yes_no("\nEnable Herdr integration?", true)?
+        prompt_yes_no(
+            "\nEnable Herdr integration? (works with Claude panes today)",
+            true,
+        )?
     } else {
         println!("\nHerdr not found.\nAgent Relay will work without it.\nYou can add Herdr later.");
         false
@@ -4952,8 +4979,14 @@ fn run_setup(
     preferences.save(paths.config_root())?;
 
     // --- Step 6: finish ---
+    let start_commands = start_commands_for(
+        std::iter::once(&primary)
+            .chain(fallback.iter())
+            .filter_map(|name| registered.iter().find(|profile| &profile.name == name))
+            .map(|profile| profile.provider),
+    );
     let human = format!(
-        "Agent Relay is ready.\n\nPrimary:  {}\nFallback: {}\n\nAutomatic usage detection: {}\nHerdr integration: {}\n\nStart working with:\n\n    relay claude",
+        "Agent Relay is ready.\n\nPrimary:  {}\nFallback: {}\n\nAutomatic usage detection: {}\nHerdr integration: {}\n\nStart a new managed conversation with:\n\n{}\n\nContinue the current conversation with:\n\n    relay resume",
         primary,
         if fallback.is_empty() {
             "(none)".to_owned()
@@ -4966,6 +4999,11 @@ fn run_setup(
         },
         if enable_usage { "enabled" } else { "disabled" },
         if enable_herdr { "enabled" } else { "disabled" },
+        start_commands
+            .iter()
+            .map(|command| format!("    {command}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
     );
     success(
         "setup",
@@ -4975,8 +5013,30 @@ fn run_setup(
             "fallback": fallback.iter().map(ProfileName::to_string).collect::<Vec<_>>(),
             "usage_integration_enabled": enable_usage,
             "herdr_enabled": enable_herdr,
+            "start_commands": start_commands,
         }),
     )
+}
+
+/// The "start a new conversation" commands worth showing for the providers actually configured:
+/// only commands the user can really use, each provider a peer.
+fn start_commands_for(providers: impl Iterator<Item = ProviderKind>) -> Vec<&'static str> {
+    let mut claude = false;
+    let mut codex = false;
+    for provider in providers {
+        match provider {
+            ProviderKind::Codex => codex = true,
+            ProviderKind::Claude | ProviderKind::Fake => claude = true,
+        }
+    }
+    let mut commands = Vec::new();
+    if claude {
+        commands.push("relay claude");
+    }
+    if codex {
+        commands.push("relay codex");
+    }
+    commands
 }
 
 /// Shared by the interactive and non-interactive setup paths: installs the usage integration for
@@ -5068,6 +5128,10 @@ fn run_setup_non_interactive(
                     .iter()
                     .find(|profile| &profile.name == name)
                     .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+                // The usage integration is a Claude hook + status line; Codex needs none.
+                if profile.provider == ProviderKind::Codex {
+                    continue;
+                }
                 let capabilities =
                     assess_installed(args.claude_executable.as_deref(), &profile.config_dir)?;
                 capabilities
@@ -5101,6 +5165,12 @@ fn run_setup_non_interactive(
             "fallback": args.fallback.iter().map(ProfileName::to_string).collect::<Vec<_>>(),
             "usage_integration_enabled": preferences.usage_integration_enabled,
             "herdr_enabled": preferences.herdr_enabled,
+            "start_commands": start_commands_for(
+                std::iter::once(&primary)
+                    .chain(args.fallback.iter())
+                    .filter_map(|name| registered.iter().find(|profile| &profile.name == name))
+                    .map(|profile| profile.provider),
+            ),
         }),
     )
 }

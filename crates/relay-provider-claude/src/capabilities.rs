@@ -19,7 +19,7 @@ use crate::{AUTHENTICATION_OVERRIDE_VARIABLES, ClaudeInspector, session_registry
 
 /// Claude Code versions on which every capability below was exercised (live or against real
 /// output). Extend this after validating a new release; never assume a release is on it.
-pub const VERIFIED_VERSIONS: &[&str] = &["2.1.276", "2.1.277"];
+pub const VERIFIED_VERSIONS: &[&str] = &["2.1.276", "2.1.277", "2.1.278"];
 /// The supported release line. A different major/minor is `Unsupported`.
 const SUPPORTED_MAJOR: u32 = 2;
 const SUPPORTED_MINOR: u32 = 1;
@@ -252,8 +252,8 @@ mod tests {
     use super::{Capability, CapabilityStatus, RuntimeChecks, assess};
 
     #[test]
-    fn validated_versions_are_verified_including_2_1_277() {
-        for version in ["2.1.276", "2.1.277"] {
+    fn validated_versions_are_verified_including_2_1_278() {
+        for version in ["2.1.276", "2.1.277", "2.1.278"] {
             let report = assess(version, &RuntimeChecks::default());
             assert!(
                 report

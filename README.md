@@ -26,17 +26,25 @@ source (see [below](#advanced--manual-setup--building-from-source)).
 ## Use
 
 ```sh
-relay setup
+relay setup                 # once: profiles for the providers you use, one priority order
 cd ~/repos/my-project
-relay claude          # start a new Relay-managed Claude conversation
-relay codex           # start a new Relay-managed Codex conversation
-relay resume          # continue whichever provider currently owns it, in the same project
+
+relay claude                # start a new managed conversation with Claude ...
+relay codex                 # ... or with Codex (peer entry points — use whichever you want)
+
+relay resume                # continue whoever currently owns the conversation
+relay switch <profile>      # explicitly move ownership to another profile
+
+relay status                # what is going on in this project
+relay profiles              # your profiles, their order and login state
 ```
 
-`relay setup` is a one-time wizard: it detects Claude Code, the Codex CLI and (optionally)
-[Herdr](https://herdr.dev), walks you through logging in to one or more **isolated** Claude and Codex
-profiles (Relay opens each provider's own official login — it never sees your password or token),
-and asks for **one global priority order**: which profile is primary and which are fallbacks.
+`relay setup` is a one-time wizard: it detects the coding-agent CLIs you have (Claude Code and/or
+the Codex CLI — either one is enough) and, optionally, [Herdr](https://herdr.dev), walks you through
+logging in to one or more **isolated** profiles (Relay opens each provider's own official login — it
+never sees your password or token), and asks for **one global priority order**: which profile is
+primary and which are fallbacks. Any provider can be primary; a Codex primary with a Claude
+fallback is as natural as the reverse.
 
 The mental model is simple:
 
@@ -119,8 +127,8 @@ brew update && brew upgrade agent-relay
 | Command | What it does |
 |---|---|
 | `relay setup` | First-run wizard; safe to re-run any time (detects and reuses what's already there). |
-| `relay claude [message]` | Start a **new** Relay-managed Claude conversation in the current project. Refuses if one is already active. |
-| `relay codex [message]` | Start a **new** Relay-managed Codex conversation (same rules as `relay claude`: single writer, `--new`, `--no-attach`, `--profile`, supervised terminal). |
+| `relay claude [message]` | Start a **new** Relay-managed Claude conversation in the current project and open Claude directly (an optional message is passed to Claude as the opening prompt). Refuses if one is already active. |
+| `relay codex [message]` | Start a **new** Relay-managed Codex conversation and open Codex directly — the peer of `relay claude`, with the same rules (single writer, `--new`, `--profile`, supervised terminal). |
 | `relay claude --new [message]` | Explicitly stop the active managed session (safely, with the same authoritative stop-and-verify machinery `relay switch`/recovery use) and start a fresh one. |
 | `relay resume [profile]` | Continue the project's active Relay-managed session — resolves the current owner automatically; the profile argument is only needed for the advanced explicit form. |
 | `relay switch <profile>` | Explicitly hand the *current* conversation to a different profile/provider (state continuation across providers). Refuses an exhausted or unverifiable Codex target rather than rerouting your choice. |
@@ -163,7 +171,7 @@ another profile of the same provider. A Claude → Codex (or Codex → Claude) h
 flags between the two CLIs: the new provider is continued with *its own* stored options, if any.
 `relay resume -- …` and `relay switch <profile> -- …` replace the stored options for the provider
 they continue. Relay's own internal turns (the headless verification/bootstrap turns) never carry
-user options, and `claude attach` re-enters a background job that already has them.
+user options.
 
 A handful of flags are refused, because they would replace something Relay must own for a managed
 session — the working directory (`-C`/`--cd`, `--worktree`), session/thread identity
@@ -282,12 +290,13 @@ relay handoff run --from claude-primary --to claude-backup --project ~/repos/foo
   `CLAUDE_CONFIG_DIR` (see [Herdr integration](docs/herdr-integration.md)).
 - Claude's transcript layout and `--resume` behavior are not a stable public API; Relay gates on
   validated versions and fails closed.
-- `relay claude`'s interactive experience is `claude attach <id>` on a session Relay just launched
-  with `claude --bg` — Claude's own documented mechanism for attaching to a background session, not
-  a Relay workaround — rather than a plain `claude` process; the first exchange happens before you
-  attach (Relay needs an initial message to start the tracked session). `relay resume` instead execs
+- `relay claude` runs `claude --session-id <uuid>` in your terminal: Relay assigns and records the
+  session before Claude starts, so it knows the native session, and you type your first message
+  inside Claude. (Until you send a first message Claude has no transcript yet, so a `relay resume` of
+  a session you never wrote in reports Claude's own "no conversation" error.) `relay resume` runs
   an interactive `claude --resume <id>` (or `codex resume <thread-id>`) under the session's actual
-  owner profile.
+  owner profile. `relay claude --no-attach` is the scripting form: it starts a background Claude
+  session, which needs its first message on the command line.
 - Codex can be an automatic *source* as well as a target. Its exhaustion is read from Codex's own
   typed interface (`codex app-server` → `account/rateLimits/read`, `ordinaryUsageAllowed`), never
   from error text; anything unavailable or ambiguous is `UNKNOWN` and moves nothing. Codex has no
@@ -311,9 +320,8 @@ relay handoff run --from claude-primary --to claude-backup --project ~/repos/foo
   handoff. Hooks record `relay`'s own path at install time, so after upgrading Relay re-run
   `relay integration claude install` to point them at the new binary.
 - Automatic continuation into the fallback happens in the terminal `relay claude`/`relay resume`
-  is running in. A session attached some other way (plain `claude attach`, another terminal that
-  wasn't started through Relay) is still handed off correctly, but that terminal has to run
-  `relay resume` itself.
+  is running in. A terminal that wasn't started through Relay is still handed off correctly, but
+  it has to run `relay resume` itself.
 
 ## Herdr integration
 

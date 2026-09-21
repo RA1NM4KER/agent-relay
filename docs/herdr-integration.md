@@ -1,4 +1,8 @@
-# M3.0: current Herdr integration research
+# Herdr integration: design and live research
+
+> **Scope.** Relay's core supports Claude and Codex profiles. The Herdr adapter described here
+> recognises **Claude panes** and uses the `relay_profile` / `relay_profile_fallback` /
+> `relay_session_id` pane metadata; equivalent Codex-pane integration is not implemented yet.
 
 This document re-verifies Herdr's plugin/CLI/socket surface **live**, against the actually
 installed Herdr binary and the current `herdr.dev` documentation, rather than trusting the

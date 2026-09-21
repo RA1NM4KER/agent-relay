@@ -3289,3 +3289,27 @@ fn a_handoff_stops_an_interactive_claude_writer_by_its_verified_process() {
     assert_eq!(lease_owner(root), "bob");
     kill_quietly(pid);
 }
+
+/// The docs must not describe the retired flow where Relay itself collected a first message and
+/// launched a background session for an ordinary `relay claude`.
+#[test]
+fn the_docs_describe_the_direct_interactive_launch_not_relay_collecting_a_first_message() {
+    let docs = [
+        ("README.md", include_str!("../../../README.md")),
+        (
+            "docs/getting-started.md",
+            include_str!("../../../docs/getting-started.md"),
+        ),
+    ];
+    for (name, text) in docs {
+        for stale in [
+            "asks you once",
+            "Relay needs an initial message",
+            "What would you like Claude to help with",
+            "Start working with:",
+            "the first exchange happens before you",
+        ] {
+            assert!(!text.contains(stale), "{name} still says: {stale}");
+        }
+    }
+}

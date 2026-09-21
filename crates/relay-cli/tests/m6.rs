@@ -677,52 +677,72 @@ fn resume_execs_codex_resume_under_the_profiles_own_codex_home() {
     assert!(resumed[0].starts_with("01a-resume-me"));
 }
 
-#[test]
-fn interactive_setup_can_register_a_codex_only_profile() {
-    let root = tempdir().expect("tempdir");
-    let codex = FakeCodex::new(root.path(), "codex-main", "01a-setup-thread");
-    // The wizard's environment check requires SOME Claude Code install to proceed at all (M6
-    // kept this pre-existing gate — see run_setup's doc comment); it is never actually used to
-    // register a profile in this test.
-    let claude = FakeClaude::new(root.path(), "unused", "u1", "unused-session", 1);
-
+/// Runs the real interactive `relay setup` with the given fake provider CLIs (a provider left out
+/// is simply not installed: `PATH` is empty, so nothing is discovered by accident).
+fn run_setup_wizard(
+    root: &Path,
+    claude: Option<&FakeClaude>,
+    codex: Option<&FakeCodex>,
+    answers: &str,
+) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
     command
         .arg("--config-root")
-        .arg(root.path().join("config"))
+        .arg(root.join("config"))
         .arg("--state-root")
-        .arg(root.path().join("state"))
+        .arg(root.join("state"))
         .arg("setup")
-        .arg("--claude-executable")
-        .arg(claude.path_text())
-        .arg("--codex-executable")
-        .arg(codex.path_text())
         .env_remove("CLAUDE_CONFIG_DIR")
         .env_remove("CODEX_HOME")
-        .env("PATH", "/nonexistent") // no real claude/codex on PATH; both are explicit flags
+        .env("PATH", "/nonexistent")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(claude) = claude {
+        command.arg("--claude-executable").arg(claude.path_text());
+    }
+    if let Some(codex) = codex {
+        command.arg("--codex-executable").arg(codex.path_text());
+    }
     let mut child = command.spawn().expect("spawn relay setup");
-    // Answers, in prompt order: profile name -> "is this a Codex profile?" yes -> "add
-    // another?" no -> "enable automatic quota detection?" no.
     child
         .stdin
         .take()
         .expect("stdin")
-        .write_all(b"codex-main\ny\nn\nn\n")
+        .write_all(answers.as_bytes())
         .expect("write stdin");
-    let output = child.wait_with_output().expect("relay setup output");
+    child.wait_with_output().expect("relay setup output")
+}
+
+#[test]
+fn setup_works_with_only_codex_installed_and_offers_only_relay_codex() {
+    let root = tempdir().expect("tempdir");
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-setup-thread");
+    // No Claude Code at all. Answers: profile name (the provider is implied), then "add another?" no.
+    let output = run_setup_wizard(root.path(), None, Some(&codex), "codex-main\nn\n");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     assert!(
         output.status.success(),
-        "stdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&output.stdout),
+        "stdout: {stdout}\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-
-    let list = relay(root.path(), &["profiles"]);
-    assert!(list.status.success());
-    let rows = json_stdout(&list)["data"]["profiles"].clone();
+    assert!(
+        stdout.contains("Claude Code        (not installed)"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("relay codex") && stdout.contains("relay resume"),
+        "{stdout}"
+    );
+    assert!(
+        !stdout.contains("relay claude"),
+        "no unusable command is shown: {stdout}"
+    );
+    assert!(
+        !stdout.contains("hook"),
+        "the Claude integration is irrelevant here: {stdout}"
+    );
+    let rows = json_stdout(&relay(root.path(), &["profiles"]))["data"]["profiles"].clone();
     let row = rows
         .as_array()
         .unwrap()
@@ -731,6 +751,89 @@ fn interactive_setup_can_register_a_codex_only_profile() {
         .expect("codex-main registered");
     assert_eq!(row["provider"], "codex");
     assert_eq!(row["role"], "primary");
+}
+
+#[test]
+fn setup_works_with_only_claude_installed_and_offers_only_relay_claude() {
+    let root = tempdir().expect("tempdir");
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    login_claude(root.path(), "alice", &claude);
+    // "Use these?" yes, "add another?" no, "enable automatic quota detection?" no.
+    let output = run_setup_wizard(root.path(), Some(&claude), None, "y\nn\nn\n");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("Codex CLI          (not installed)"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("relay claude") && !stdout.contains("relay codex"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn setup_with_both_providers_shows_both_start_commands_as_peers() {
+    let root = tempdir().expect("tempdir");
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    login_claude(root.path(), "alice", &claude);
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-setup-thread");
+    login_codex(root.path(), "codex-main", &codex);
+    // use existing: yes; add another: no; primary: codex-main (a Codex primary is fine);
+    // fallback order: default; automatic quota detection: no.
+    let output = run_setup_wizard(
+        root.path(),
+        Some(&claude),
+        Some(&codex),
+        "y\nn\ncodex-main\n\nn\n",
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("Start a new managed conversation with:\n\n    relay claude\n    relay codex\n\nContinue the current conversation with:\n\n    relay resume"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("Primary:  codex-main"), "{stdout}");
+    assert!(!stdout.contains("Start working with"), "{stdout}");
+}
+
+#[test]
+fn setup_with_no_supported_cli_says_which_ones_are_supported() {
+    let root = tempdir().expect("tempdir");
+    let output = run_setup_wizard(root.path(), None, None, "");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        stdout.contains("Claude Code") && stdout.contains("Codex CLI"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("at least one supported"), "{stdout}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("provider_executable_missing")
+            || String::from_utf8_lossy(&output.stderr).contains("executable"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 /// NATIVE_RESUME is only launched for a thread Codex itself confirms in the profile's own home:

@@ -1,7 +1,13 @@
 # Automatic handoff: day-to-day use
 
-Automatic handoff is **opt-in**. Nothing runs unless you install the integration into a profile.
-Once installed, the profile's `StopFailure` hook is the trigger: when Claude reports a rate limit
+Relay moves work automatically when the current writer is exhausted, for both providers — with a
+different trigger for each. **Claude** reports a rate limit as an event, so this page's main flow is the
+Claude usage integration (a hook Relay installs into a Claude profile). **Codex** has no such event;
+Relay reads its structured rate-limit state directly, before entering a Codex terminal and
+periodically while it is supervised (see [Codex as the exhausted writer](#codex-as-the-exhausted-writer)).
+
+For Claude, automatic handoff is **opt-in**: nothing runs unless you install the integration into a
+profile. Once installed, the profile's `StopFailure` hook is the trigger: when Claude reports a rate limit
 for the session Relay manages for that project, the hook starts one short-lived, detached
 `relay watch auto` (a hidden command) that runs exactly the evaluation `relay watch run` runs,
 retrying for about two minutes only while it answers "no action needed" (the statusline snapshot
@@ -59,7 +65,7 @@ handoff. A bare `rate_limit` can be a transient 429 capacity error, so it is nev
 Model-specific limits (Opus/Sonnet/Fable) only count when `--workload-model` names that family;
 a fast-mode limit never counts.
 
-The handoff itself is the unchanged transactional M2B handoff. The target is the first `--fallback`
+The handoff itself is Relay's transactional handoff (the same one `relay switch` uses). The target is the first `--fallback`
 that is healthy, has a different identity, and is not recorded exhausted.
 
 ## Reset windows

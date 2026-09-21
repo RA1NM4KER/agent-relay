@@ -5,10 +5,10 @@ internally. If you want the internals — writer leases, transaction states, Her
 live in [`docs/architecture.md`](architecture.md) and [`docs/automatic-handoff.md`](automatic-handoff.md).
 Here, you only need three ideas:
 
-- You have one or more Claude accounts.
-- One is your **primary**; the others are **fallbacks**.
-- You run Claude *through* Agent Relay, and Relay moves your session to a fallback if your primary
-  genuinely runs out of quota.
+- You have one or more coding-agent accounts — Claude Code and/or Codex profiles.
+- One is your **primary**; the others are **fallbacks** (any provider can be either).
+- You run your agent *through* Agent Relay (`relay claude` or `relay codex`), and Relay moves your
+  work to the next eligible profile if the current one genuinely runs out of quota.
 
 ## 1. Install
 
@@ -39,13 +39,15 @@ relay setup
 This is a one-time interactive wizard. It walks through six things:
 
 1. **Environment check.** It looks for Claude Code, the Codex CLI, Herdr (if you have it), and Agent Relay's own
-   config directory, and shows a simple checklist — no raw JSON unless you pass `--verbose`.
+   config directory, and shows a simple checklist — no raw JSON unless you pass `--verbose`. Either
+   Claude Code or the Codex CLI is enough to continue; if you have neither it says so and stops.
 2. **Accounts.** For each Claude or Codex account you want Relay to manage, you can either:
    - **Authenticate a new one.** You give it a short name (e.g. `work`); Relay creates a private,
      isolated directory for it and opens that provider's own official login (a browser window, or
      whatever its login flow normally shows you). **Relay never sees your password or your
-     token** — it only waits for the login to finish and then asks Claude "are you
-     authenticated now?" the same way `relay profile doctor` already does.
+     token** — it only waits for the login to finish and then asks the provider "are you
+     authenticated now?" the same way `relay profile doctor` already does. With both CLIs
+     installed it asks which provider the new profile is for; with one installed it just uses that.
    - **Reuse one that's already logged in.** If you've already set up an isolated Claude profile
      by hand, point Relay at its config directory once and it adopts it.
 
@@ -56,52 +58,55 @@ This is a one-time interactive wizard. It walks through six things:
    priority order for the rest. This is saved to a small file Agent Relay owns
    (`~/.config/agent-relay/preferences.toml`) — just profile *names*, never anything that could
    authenticate as one of your accounts.
-4. **Automatic quota detection** (recommended, default yes). This installs a couple of small,
-   already-existing Claude Code hooks (`StopFailure` and a statusline addition) into each chosen
-   profile, so Relay can tell when an account is genuinely out of quota without spending an extra
-   API call to check. If your Claude Code version is newer than what Relay has explicitly
-   verified, it says so and asks before installing anyway — it never does this silently.
+4. **Automatic quota detection** (recommended, default yes). For Claude profiles this installs a
+   couple of small, already-existing Claude Code hooks (`StopFailure` and a statusline addition)
+   so Relay can tell when an account is genuinely out of quota without spending an extra API call
+   to check. If your Claude Code version is newer than what Relay has explicitly verified, it
+   says so and asks before installing anyway — it never does this silently. Codex profiles need
+   nothing installed: Relay reads Codex's own quota state directly, so a Codex-only setup skips this
+   step.
 5. **Herdr** (if installed, recommended, default yes). Wires the same status/doctor/watch/handoff
-   behavior into Herdr so a Claude pane inside Herdr can trigger them without a separate terminal.
+   behavior into Herdr so a Claude pane inside Herdr can trigger them without a separate terminal
+   (the Herdr adapter recognises Claude panes today; Codex panes are not integrated yet).
    If Herdr isn't installed, Relay just says so and moves on — it works fine standalone.
-6. **Done.** It prints your primary/fallback and reminds you of the two commands you actually need
-   day to day: `relay claude` to start, `relay resume` to continue.
+6. **Done.** It prints your primary/fallback and the commands you need day to day — `relay claude`
+   and/or `relay codex` to start a new conversation (only the providers you set up are listed) and
+   `relay resume` to continue the current one.
 
 You can re-run `relay setup` any time — to add another account, change the primary, or toggle an
 integration. It's safe: it never re-authenticates something that's already logged in, and it never
 throws away an existing profile.
 
-## 3. `relay claude`, `relay codex` and `relay resume`
+## 3. Start with `relay claude` or `relay codex`, continue with `relay resume`
 
-The mental model: **`relay claude` = `claude` + Relay supervision.** It always starts something
-new; it never silently reattaches you to something old. Continuing is a separate, explicit command.
+The mental model: **`relay claude` = Claude + Relay supervision** and **`relay codex` = Codex + Relay
+supervision** — two peer ways to *start* a conversation. Both always start something new; neither
+silently reattaches you to something old. Continuing is a separate, explicit command.
 
 ```sh
 cd ~/repos/my-project
-relay claude
+relay claude      # or:  relay codex
 ```
 
-This is the command you use to **start** a conversation. It:
+Either command:
 
 - figures out the project from your current directory,
-- figures out which account to use from what `relay setup` saved (no `--profile` needed),
-- starts a **new** Claude conversation under that account, tracked from the start (Relay assigns
-  the session id itself, so it knows the native session before Claude opens),
+- picks the account from what `relay setup` saved — the highest-priority profile *of that
+  provider* (no `--profile` needed; `--profile <name>` overrides it and must be a profile of the
+  right provider),
+- starts a **new** conversation under it, tracked from the start (for Claude, Relay assigns the
+  session id itself, so it knows the native session before Claude opens),
 - if you're inside a Herdr pane, tells Herdr which account/session this pane belongs to
   automatically (you never type a pane id or copy a session UUID anywhere),
-- and hands you a normal, interactive Claude terminal.
+- and drops you into the provider's normal interactive terminal.
 
-Relay does not ask for a first message: it drops you straight into Claude and you type it there.
-(You may still give one on the command line — `relay claude "let's refactor the auth module"` — and
-it is passed to Claude as the opening prompt. `relay claude --no-attach`, the scripting form, does need
-a message because it starts a background session without a terminal.)
-
-`relay codex` is the same command for Codex: it starts a **new** Relay-managed Codex conversation
-under your highest-priority configured Codex profile (`relay claude` picks the highest-priority
-Claude profile). Neither command prompts for a profile; `--profile <name>` overrides the choice and
-must name a profile of the right provider. Both support `--new` and `--no-attach`, refuse to create
-a second writer, and open the supervised terminal, so automatic handoff stays active. `relay resume`
-continues whichever provider currently owns the conversation.
+Relay does not ask for a first message: you type it inside Claude or Codex. (You may still give one
+on the command line — `relay claude "let's refactor the auth module"` — and it is passed to the
+provider as the opening prompt. `relay claude --no-attach`, the scripting form, does need a
+message because it starts a background session without a terminal.) Both commands support `--new`
+and `--no-attach`, refuse to create a second writer, and open the supervised terminal, so
+automatic handoff stays active. If the Codex profile you'd start on is already exhausted,
+`relay codex` skips it and starts on the next eligible profile in your priority order.
 
 ### Passing options to Claude or Codex
 
@@ -120,8 +125,8 @@ stored options (if any), never `--dangerously-skip-permissions`. Flags that woul
 Relay owns — the working directory, the session/thread being resumed, headless/machine-readable
 output, backgrounding — are rejected with a clear error.
 
-If a Relay-managed session is *already* active for this project, `relay claude` refuses rather than
-guessing what you meant:
+If a Relay-managed session is *already* active for this project, `relay claude` (or `relay codex`)
+refuses rather than guessing what you meant:
 
 ```
 A Relay-managed session is already active for this project.
@@ -133,7 +138,7 @@ Run:
 to continue it.
 
 Or:
-  relay claude --new
+  relay claude --new        (relay codex --new if you ran relay codex)
 to stop the existing managed session and start a fresh one.
 ```
 
@@ -147,7 +152,7 @@ name; that's only for the advanced explicit form, `relay resume <profile>`). If 
 running, it says so clearly instead of starting something you didn't ask for.
 
 ```sh
-relay claude --new
+relay claude --new      # or: relay codex --new
 ```
 
 The explicit escape hatch: safely stop the active managed session (the same authoritative

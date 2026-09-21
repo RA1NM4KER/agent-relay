@@ -115,7 +115,7 @@ pub enum Error {
         "Relay could not prove that Codex thread '{0}' exists in this profile's own Codex home \
          (for the expected project), so it did not resume it: an interactive `codex resume` with a \
          missing or stale id may silently start a different thread. Start a new session with \
-         `relay claude --new` or hand off explicitly with `relay switch`."
+         `relay codex --new` (or `relay claude --new`), or hand off explicitly with `relay switch`."
     )]
     CodexThreadNotVerified(String),
     #[error(
@@ -168,8 +168,8 @@ pub enum Error {
     #[error("required handoff port is not configured for this continuity type: {0}")]
     MissingHandoffPort(String),
     #[error(
-        "no writer currently owns this project; run `relay claude` (or an equivalent provider \
-         entry point) first"
+        "no writer currently owns this project; start a managed conversation with `relay claude` or \
+         `relay codex` first"
     )]
     NoActiveWriterForProject,
     #[error("'{0}' is already the current writer for this project")]

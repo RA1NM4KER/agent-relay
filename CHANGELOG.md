@@ -4,6 +4,11 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+- `relay setup` works with Claude Code and/or Codex (either alone is enough), asks which provider a new
+  profile is for only when both are installed, installs the usage hook only for Claude profiles, and ends
+  with the start commands for the providers you configured (`relay claude` / `relay codex` as peers +
+  `relay resume`). Claude Code 2.1.278 is now a verified version. CLI help and docs no longer use internal
+  milestone labels or describe the retired background-launch flow.
 - `relay claude` no longer asks for a first message: it starts `claude --session-id <uuid>` directly in
   your terminal (Relay assigns and records the session) and a handoff can stop that interactive session by
   its verified process. One progress indicator now covers every slow provider phase of `relay claude` /
