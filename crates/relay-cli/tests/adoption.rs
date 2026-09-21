@@ -910,6 +910,22 @@ fn bare_switch_without_a_terminal_is_deterministic_and_emits_no_control_codes() 
     );
 }
 
+/// The picker tests drive a real pseudo-terminal through BSD `script -q /dev/null <cmd>` (macOS,
+/// the supported platform); util-linux `script` takes different arguments, so elsewhere they skip.
+fn pty_script_available() -> bool {
+    let available = cfg!(target_os = "macos")
+        && Command::new("script")
+            .arg("-q")
+            .arg("/dev/null")
+            .arg("true")
+            .status()
+            .is_ok_and(|status| status.success());
+    if !available {
+        eprintln!("skipping: a BSD `script` pseudo-terminal is unavailable here");
+    }
+    available
+}
+
 /// Runs `relay switch` under a real pseudo-terminal (`script`), feeding it `keys`.
 fn switch_in_terminal(world: &World, keys: &[u8]) -> (bool, String) {
     let mut command = Command::new("script");
@@ -950,14 +966,7 @@ fn switch_in_terminal(world: &World, keys: &[u8]) -> (bool, String) {
 
 #[test]
 fn bare_switch_in_a_terminal_lists_profiles_and_escape_cancels_without_changing_anything() {
-    if Command::new("script")
-        .arg("-q")
-        .arg("/dev/null")
-        .arg("true")
-        .status()
-        .is_err()
-    {
-        eprintln!("skipping: `script` is unavailable");
+    if !pty_script_available() {
         return;
     }
     let world = managed_world();
@@ -979,14 +988,7 @@ fn bare_switch_in_a_terminal_lists_profiles_and_escape_cancels_without_changing_
 #[test]
 fn bare_switch_in_a_terminal_enter_takes_the_same_path_as_switch_with_a_profile() {
     skip_without_process_env_scan!();
-    if Command::new("script")
-        .arg("-q")
-        .arg("/dev/null")
-        .arg("true")
-        .status()
-        .is_err()
-    {
-        eprintln!("skipping: `script` is unavailable");
+    if !pty_script_available() {
         return;
     }
     let world = managed_world();
