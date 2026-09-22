@@ -508,6 +508,24 @@ mod tests {
             .env("CODEX_HOME", config_dir.path())
             .spawn()
             .expect("spawn a stand-in codex process");
+        // `process_env_scan_can_see_children` only proved *some* freshly spawned child's
+        // environment is observable in general; a loaded CI runner can still lag before *this
+        // specific* child shows up in a `ps -E` snapshot. Wait for it, the same way production
+        // code never has to (a real supervised process is alive for minutes, not milliseconds) —
+        // otherwise the scan below can race the child's own environment becoming visible and
+        // fail for a reason that has nothing to do with the fix under test.
+        let visible = (0..40).any(|_| {
+            if codex_pids_for(config_dir.path()).is_ok_and(|pids| pids.contains(&child.id())) {
+                true
+            } else {
+                thread::sleep(Duration::from_millis(50));
+                false
+            }
+        });
+        assert!(
+            visible,
+            "the spawned child never became visible via the CODEX_HOME scan"
+        );
         // The exact shape record_writer_process would have persisted had the pid already been
         // gone (or unreadable) at the moment it queried `ps` — an identity `stop_and_verify` can
         // never confirm on its own, by construction.
