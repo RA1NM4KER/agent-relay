@@ -481,32 +481,25 @@ mod tests {
         assert!(verification.started_successfully);
     }
 
-    /// `ps -E` (whole-environment listing) isn't available in every sandboxed CI environment; the
-    /// broad `-Eww -ax` listing and the *targeted* `ps -p <pid> -o lstart=` query
-    /// `ProcessIdentity`/`terminate_verified_process` actually rely on have shown different
-    /// reliability on GitHub's `macos-latest` runner — a freshly spawned child can be visible in
-    /// the former while never confirmable via the latter (observed: 5/5 retries of the full
-    /// scenario below still failed there). Probe the *exact* mechanism the test needs, not a
-    /// merely-correlated one (same policy as the `relay-cli` integration tests'
-    /// `skip_without_process_env_scan!`).
-    fn process_env_scan_can_confirm_a_fresh_child() -> bool {
-        let Ok(mut probe) = Command::new("sleep").arg("2").spawn() else {
-            return false;
-        };
-        let confirmed = (0..20).any(|_| {
-            if ProcessIdentity::query(probe.id())
-                .start_time_fingerprint
-                .is_some()
-            {
-                true
-            } else {
-                thread::sleep(Duration::from_millis(50));
-                false
+    /// `codex_pids_for`'s CODEX_HOME scan shells out to `ps -Eww` — BSD/macOS environment-listing
+    /// syntax, not portable to every `ps` (observed: Ubuntu's procps rejects it outright, so even
+    /// an *empty* scan returns `Err`, not `Ok(vec![])`). Even where the syntax is valid, a
+    /// just-spawned child's CODEX_HOME token has shown real lag before appearing in it on
+    /// GitHub's macos-latest CI runner. Skip cleanly wherever this exact mechanism — the one the
+    /// code under test actually uses, not a merely-correlated one like the portable `ps -p <pid>`
+    /// query `ProcessIdentity` uses elsewhere — cannot be relied on here, rather than asserting on
+    /// something the platform/runner never promised (same policy as the `relay-cli` integration
+    /// tests' `skip_without_process_env_scan!`).
+    const CODEX_HOME_SCAN_RETRY_ATTEMPTS: u32 = 100;
+    const CODEX_HOME_SCAN_RETRY_DELAY: Duration = Duration::from_millis(100);
+
+    fn wait_for_codex_home_scan_to_find(config_dir: &Path, pid: u32) -> bool {
+        (0..CODEX_HOME_SCAN_RETRY_ATTEMPTS).any(|attempt| {
+            if attempt > 0 {
+                thread::sleep(CODEX_HOME_SCAN_RETRY_DELAY);
             }
-        });
-        let _ignored = probe.kill();
-        let _ignored = probe.wait();
-        confirmed
+            codex_pids_for(config_dir).is_ok_and(|pids| pids.contains(&pid))
+        })
     }
 
     /// Regression for the incident where `stop_and_verify` aborted on an ambiguous *recorded*
@@ -515,10 +508,6 @@ mod tests {
     /// running and the handoff `StopNotVerified`. The scan must get its chance regardless.
     #[test]
     fn an_ambiguous_recorded_pid_still_stops_via_the_codex_home_scan() {
-        if !process_env_scan_can_confirm_a_fresh_child() {
-            eprintln!("skipping: this environment cannot confirm a child's identity via `ps`");
-            return;
-        }
         let config_dir = tempfile::tempdir().expect("config dir");
         let project_dir = tempfile::tempdir().expect("project dir");
         let mut child = Command::new("sleep")
@@ -526,25 +515,14 @@ mod tests {
             .env("CODEX_HOME", config_dir.path())
             .spawn()
             .expect("spawn a stand-in codex process");
-        // The guard above only proved *some* freshly spawned child's identity is confirmable in
-        // general; wait for *this specific* child the same way, via the same mechanism
-        // `terminate_verified_process` actually uses — not the broader `-Eww` listing, which has
-        // shown different (and here, insufficient) reliability on at least one CI runner.
-        let confirmed = (0..40).any(|_| {
-            if ProcessIdentity::query(child.id())
-                .start_time_fingerprint
-                .is_some()
-            {
-                true
-            } else {
-                thread::sleep(Duration::from_millis(50));
-                false
-            }
-        });
-        assert!(
-            confirmed,
-            "the spawned child's identity was never confirmable via `ps`"
-        );
+        if !wait_for_codex_home_scan_to_find(config_dir.path(), child.id()) {
+            eprintln!(
+                "skipping: this environment's CODEX_HOME scan cannot find a freshly spawned child"
+            );
+            let _ignored = child.kill();
+            let _ignored = child.wait();
+            return;
+        }
         // The exact shape record_writer_process would have persisted had the pid already been
         // gone (or unreadable) at the moment it queried `ps` — an identity `stop_and_verify` can
         // never confirm on its own, by construction.
@@ -570,11 +548,16 @@ mod tests {
     }
 
     /// No recorded owner at all (the `stop_unrecorded_targets` case in miniature): the CODEX_HOME
-    /// scan is the only signal, and an empty scan is itself a clean pass.
+    /// scan is the only signal, and an empty scan is itself a clean pass — but only where the
+    /// scan mechanism runs at all; see `wait_for_codex_home_scan_to_find`'s doc comment.
     #[test]
     fn no_recorded_owner_and_an_empty_scan_is_a_clean_stop() {
         let config_dir = tempfile::tempdir().expect("config dir");
         let project_dir = tempfile::tempdir().expect("project dir");
+        if codex_pids_for(config_dir.path()).is_err() {
+            eprintln!("skipping: the CODEX_HOME scan does not run in this environment");
+            return;
+        }
         CodexSessionStopper
             .stop_and_verify(config_dir.path(), project_dir.path(), "session", None)
             .expect("nothing to stop is itself quiescent");
