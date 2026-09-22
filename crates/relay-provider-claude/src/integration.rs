@@ -28,19 +28,80 @@ const STOP_MARKER: &str = "hook claude stop-failure";
 const STATUSLINE_MARKER: &str = "hook claude statusline";
 /// The `UserPromptSubmit` hook that answers `/relay …` inside a Claude session without a model turn.
 const PROMPT_MARKER: &str = "hook claude prompt";
-/// First line of the `/relay` command file Relay installs; only files carrying it are ever touched.
+/// First line of the `/relay` command files Relay installs; only files carrying it are ever
+/// touched.
 pub const COMMAND_FILE_MARKER: &str = "<!-- agent-relay:managed-command v1 -->";
 const COMMAND_DIR: &str = "commands";
+/// The bare `/relay` overview command lives at the top of `commands/`.
 const COMMAND_FILE: &str = "relay.md";
+/// The namespaced `/relay:*` commands live in this subdirectory, giving Claude
+/// `commands/relay/<name>.md` -> `/relay:<name>`.
+const NAMESPACE_DIR: &str = "relay";
 
-/// The `/relay` command. Claude's own hook (`relay hook claude prompt`) answers it before any
-/// model turn; this body is only what would reach the model if that hook were not running, and it
-/// deliberately gives the model nothing to act on.
-fn command_file_contents() -> String {
+/// One namespaced `/relay:<stem>` command: human-facing frontmatter only — never the internal
+/// `agent-relay:managed-command` marker, which stays out of the visible command picker.
+struct NamespacedCommand {
+    stem: &'static str,
+    description: &'static str,
+    argument_hint: &'static str,
+    fallback: &'static str,
+}
+
+const NAMESPACED_COMMANDS: &[NamespacedCommand] = &[
+    NamespacedCommand {
+        stem: "status",
+        description: "See who owns this conversation",
+        argument_hint: "",
+        fallback: "relay status",
+    },
+    NamespacedCommand {
+        stem: "switch",
+        description: "Move this conversation to another profile",
+        argument_hint: "[profile]",
+        fallback: "relay switch",
+    },
+    NamespacedCommand {
+        stem: "doctor",
+        description: "Check whether automatic handoff is ready",
+        argument_hint: "",
+        fallback: "relay doctor",
+    },
+    NamespacedCommand {
+        stem: "why",
+        description: "Explain Relay's current decision/state",
+        argument_hint: "",
+        fallback: "relay why",
+    },
+    NamespacedCommand {
+        stem: "adopt",
+        description: "Bring this conversation under Relay",
+        argument_hint: "",
+        fallback: "relay adopt",
+    },
+];
+
+/// The body every Relay command file shares. Claude's own `UserPromptSubmit` hook
+/// (`relay hook claude prompt`) answers the real command before any model turn; this text is only
+/// what would reach the model if that hook were somehow not running, and it deliberately gives the
+/// model nothing to act on.
+fn command_file_body(description: &str, argument_hint: &str, fallback: &str) -> String {
+    let hint_line = if argument_hint.is_empty() {
+        String::new()
+    } else {
+        format!("argument-hint: {argument_hint}\n")
+    };
     format!(
-        "{COMMAND_FILE_MARKER}\n---\ndescription: Agent Relay: status, switch, adopt (answered by Relay itself)\nargument-hint: status | switch [profile] | adopt\n---\nThe Agent Relay `/relay` command is answered by Relay's own hook before this reaches you. \
+        "{COMMAND_FILE_MARKER}\n---\ndescription: {description}\n{hint_line}---\nAgent Relay answers this command with its own hook before it reaches you. \
 It did not run in this session, so do nothing except tell the user: \"Agent Relay's hook did not answer; \
-run `relay status` in a terminal.\" Do not run commands or guess anything about sessions or profiles.\n"
+run `{fallback}` in a terminal.\" Do not run commands or guess anything about sessions or profiles.\n"
+    )
+}
+
+fn overview_command_file_contents() -> String {
+    command_file_body(
+        "Agent Relay: overview (status, switch, doctor, why, adopt)",
+        "",
+        "relay status",
     )
 }
 
@@ -48,20 +109,46 @@ fn command_file_path(config_dir: &Path) -> PathBuf {
     config_dir.join(COMMAND_DIR).join(COMMAND_FILE)
 }
 
-/// What the install does with the `/relay` command file.
+fn namespaced_command_file_path(config_dir: &Path, stem: &str) -> PathBuf {
+    config_dir
+        .join(COMMAND_DIR)
+        .join(NAMESPACE_DIR)
+        .join(format!("{stem}.md"))
+}
+
+/// Every command file Relay wants installed: its path, the human label used in change
+/// descriptions (`/relay`, `/relay:status`, ...), and its contents.
+fn all_command_files(config_dir: &Path) -> Vec<(PathBuf, String, String)> {
+    let mut files = vec![(
+        command_file_path(config_dir),
+        "/relay".to_owned(),
+        overview_command_file_contents(),
+    )];
+    files.extend(NAMESPACED_COMMANDS.iter().map(|command| {
+        (
+            namespaced_command_file_path(config_dir, command.stem),
+            format!("/relay:{}", command.stem),
+            command_file_body(command.description, command.argument_hint, command.fallback),
+        )
+    }));
+    files
+}
+
+/// What the install does with one command file.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CommandFilePlan {
     /// Write (or refresh) Relay's own file.
     Write,
     /// Already current.
     Current,
-    /// A `relay.md` that is not Relay's exists: it is kept and `/relay` is not installed.
+    /// A file that is not Relay's already exists there: it is kept and that command is not
+    /// installed.
     ForeignKept,
 }
 
-fn plan_command_file(config_dir: &Path) -> CommandFilePlan {
-    match fs::read_to_string(command_file_path(config_dir)) {
-        Ok(existing) if existing == command_file_contents() => CommandFilePlan::Current,
+fn plan_command_file(path: &Path, contents: &str) -> CommandFilePlan {
+    match fs::read_to_string(path) {
+        Ok(existing) if existing == contents => CommandFilePlan::Current,
         Ok(existing) if existing.starts_with(COMMAND_FILE_MARKER) => CommandFilePlan::Write,
         Ok(_) => CommandFilePlan::ForeignKept,
         Err(_) => CommandFilePlan::Write,
@@ -200,7 +287,7 @@ pub struct InstallPlan {
     new_settings: Vec<u8>,
     relay_executable: String,
     statusline: StatusLineMode,
-    command_file: CommandFilePlan,
+    command_files: Vec<(PathBuf, CommandFilePlan, String)>,
 }
 
 fn refuse(message: impl Into<String>) -> Error {
@@ -373,18 +460,24 @@ pub fn plan_install(config_dir: &Path, relay_executable: &Path) -> Result<Instal
         .and_then(Value::as_object_mut)
         .ok_or_else(|| refuse("settings.json `hooks` is not an object"))?;
     ensure_prompt_hook(hooks_map, &relay, config_dir, &mut changes)?;
-    let command_file = plan_command_file(config_dir);
-    match command_file {
-        CommandFilePlan::Write => changes.push(format!(
-            "add the `/relay` command ({}); it answers status/switch/adopt without a model turn",
-            command_file_path(config_dir).display()
-        )),
-        CommandFilePlan::Current => {}
-        CommandFilePlan::ForeignKept => changes.push(
-            "keep your existing commands/relay.md untouched (the in-session `/relay` command is not installed)"
-                .to_owned(),
-        ),
-    }
+    let command_files: Vec<(PathBuf, CommandFilePlan, String)> = all_command_files(config_dir)
+        .into_iter()
+        .map(|(path, label, contents)| {
+            let plan = plan_command_file(&path, &contents);
+            match plan {
+                CommandFilePlan::Write => changes.push(format!(
+                    "add the `{label}` command ({}); it answers without a model turn",
+                    path.display()
+                )),
+                CommandFilePlan::Current => {}
+                CommandFilePlan::ForeignKept => changes.push(format!(
+                    "keep your existing {} untouched (`{label}` is not installed)",
+                    path.display()
+                )),
+            }
+            (path, plan, contents)
+        })
+        .collect();
 
     // Status line.
     let mut mode = None;
@@ -468,7 +561,7 @@ pub fn plan_install(config_dir: &Path, relay_executable: &Path) -> Result<Instal
         new_settings,
         relay_executable: relay,
         statusline,
-        command_file,
+        command_files,
     })
 }
 
@@ -525,15 +618,16 @@ pub fn apply_install(plan: &InstallPlan, now_unix_ms: u64) -> Result<()> {
         serde_json::to_vec_pretty(&manifest).map_err(|_| Error::SerializationFailed)?;
     FsAtomicWriter.write_atomic(&directory.join(MANIFEST_FILE), &manifest_bytes)?;
     FsAtomicWriter.write_atomic(&plan.settings_path, &plan.new_settings)?;
-    if plan.command_file == CommandFilePlan::Write {
-        let path = command_file_path(&plan.config_dir);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|source| Error::Io {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+    for (path, file_plan, contents) in &plan.command_files {
+        if *file_plan == CommandFilePlan::Write {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).map_err(|source| Error::Io {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
+            }
+            FsAtomicWriter.write_atomic(path, contents.as_bytes())?;
         }
-        FsAtomicWriter.write_atomic(&path, command_file_contents().as_bytes())?;
     }
     Ok(())
 }
@@ -713,11 +807,16 @@ pub fn apply_uninstall(plan: &UninstallPlan) -> Result<()> {
             FsAtomicWriter.write_atomic(&settings_path, new_settings)?;
         }
     }
-    // Only a `/relay` command file that carries Relay's marker is ever removed.
-    let command_path = command_file_path(&plan.config_dir);
-    if fs::read_to_string(&command_path).is_ok_and(|text| text.starts_with(COMMAND_FILE_MARKER)) {
-        let _ignored = fs::remove_file(&command_path);
+    // Only a command file that carries Relay's marker is ever removed — a foreign
+    // `relay.md`/`relay/*.md` a user might have is always left alone.
+    for (path, _, _) in all_command_files(&plan.config_dir) {
+        if fs::read_to_string(&path).is_ok_and(|text| text.starts_with(COMMAND_FILE_MARKER)) {
+            let _ignored = fs::remove_file(&path);
+        }
     }
+    // Tidy the namespace directory if Relay's removals left it empty; a non-empty directory
+    // (e.g. it still holds a foreign command file) is left untouched.
+    let _ignored = fs::remove_dir(plan.config_dir.join(COMMAND_DIR).join(NAMESPACE_DIR));
     // Retire the manifest and recorded signals; keep the settings backup so nothing is lost.
     let directory = integration_dir(&plan.config_dir);
     let _ignored = fs::remove_file(directory.join(MANIFEST_FILE));
@@ -1037,5 +1136,72 @@ mod tests {
         let plan = plan_uninstall(dir.path()).unwrap();
         assert!(!plan.installed);
         apply_uninstall(&plan).unwrap();
+    }
+
+    #[test]
+    fn install_writes_all_five_namespaced_commands_with_human_descriptions() {
+        let dir = tempdir().unwrap();
+        install(dir.path());
+        for stem in ["status", "switch", "doctor", "why", "adopt"] {
+            let path = dir.path().join("commands/relay").join(format!("{stem}.md"));
+            let text = fs::read_to_string(&path)
+                .unwrap_or_else(|_| panic!("missing namespaced command file {}", path.display()));
+            assert!(text.starts_with(super::COMMAND_FILE_MARKER));
+            // The marker line is internal; everything a person sees in the picker must be short
+            // and human, never the marker or long implementation detail.
+            let description_line = text
+                .lines()
+                .find(|line| line.starts_with("description:"))
+                .expect("description line");
+            assert!(!description_line.contains("agent-relay:managed-command"));
+            assert!(description_line.len() < 80);
+        }
+        // Re-installing changes nothing.
+        let plan = plan_install(dir.path(), Path::new(RELAY)).unwrap();
+        assert!(plan.already_installed);
+    }
+
+    #[test]
+    fn switch_command_file_carries_a_profile_argument_hint() {
+        let dir = tempdir().unwrap();
+        install(dir.path());
+        let text = fs::read_to_string(dir.path().join("commands/relay/switch.md")).unwrap();
+        assert!(text.contains("argument-hint: [profile]"));
+    }
+
+    #[test]
+    fn a_foreign_namespaced_command_is_never_overwritten_or_removed() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("commands/relay")).unwrap();
+        fs::write(
+            dir.path().join("commands/relay/status.md"),
+            "my own status command\n",
+        )
+        .unwrap();
+        install(dir.path());
+        // The other four namespaced commands still get installed.
+        assert!(dir.path().join("commands/relay/doctor.md").exists());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("commands/relay/status.md")).unwrap(),
+            "my own status command\n"
+        );
+        let uninstall = plan_uninstall(dir.path()).unwrap();
+        apply_uninstall(&uninstall).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join("commands/relay/status.md")).unwrap(),
+            "my own status command\n"
+        );
+        // Relay's own namespaced files are removed on uninstall.
+        assert!(!dir.path().join("commands/relay/doctor.md").exists());
+    }
+
+    #[test]
+    fn uninstall_removes_the_namespaced_commands_and_their_now_empty_directory() {
+        let dir = tempdir().unwrap();
+        install(dir.path());
+        assert!(dir.path().join("commands/relay/status.md").exists());
+        apply_uninstall(&plan_uninstall(dir.path()).unwrap()).unwrap();
+        assert!(!dir.path().join("commands/relay").exists());
+        assert!(!dir.path().join("commands/relay.md").exists());
     }
 }
