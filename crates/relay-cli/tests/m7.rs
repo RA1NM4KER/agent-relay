@@ -57,6 +57,36 @@ fn relay(root: &Path, arguments: &[&str]) -> std::process::Output {
     command.output().expect("run relay")
 }
 
+/// Like [`relay`], but sets `extra_env` on top of the scrubbed baseline instead of leaving every
+/// override variable removed - for reproducing exactly what a live, currently-supervised Claude
+/// session's own environment (inherited by a child process such as the `/relay:doctor` hook)
+/// looks like.
+fn relay_with_env(
+    root: &Path,
+    arguments: &[&str],
+    extra_env: &[(&str, &str)],
+) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--json")
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(arguments)
+        .env_remove("CLAUDE_CONFIG_DIR");
+    for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    for variable in HERDR_ENV_VARS {
+        command.env_remove(variable);
+    }
+    for (name, value) in extra_env {
+        command.env(name, value);
+    }
+    command.output().expect("run relay")
+}
+
 fn json_stdout(output: &std::process::Output) -> Value {
     serde_json::from_slice(&output.stdout).expect("valid JSON stdout")
 }
@@ -504,6 +534,74 @@ fn doctor_human_output_matches_the_documented_shape() {
     assert!(human.starts_with("Agent Relay health"));
     assert!(human.contains("\u{2713} alice (Claude) authenticated"));
     assert!(human.contains("Ready for automatic handoff."));
+}
+
+/// Reproduces the exact false-positive a live `/relay:doctor` hit: `relay doctor` invoked as a
+/// child of an *already-running, different* Claude Code session, inheriting that session's own
+/// `CLAUDE_CONFIG_DIR` (pointing at a different profile entirely) and its
+/// `CLAUDE_CODE_MESSAGING_TOKEN`. Neither is a real authentication override, so alice's check
+/// must still report genuinely authenticated - never a false "Run: relay login alice".
+#[test]
+fn doctor_inside_a_live_claude_session_never_reports_a_false_login_remedy() {
+    let root = tempdir().expect("tempdir");
+    let claude = FakeClaude::new(root.path(), "alice", "2.1.276", "aaaa1111", "s1");
+    adopt_profile(root.path(), "alice", &claude);
+    let setup = relay(
+        root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "alice",
+            "--usage-integration",
+            "true",
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(
+        setup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&setup.stderr)
+    );
+
+    // Simulates the ambient environment `/relay:doctor` actually runs in: a *different* Claude
+    // Code session's own `CLAUDE_CONFIG_DIR` and its instance-scoped messaging token, both
+    // inherited purely because this process is a child of that live session - not because
+    // alice's own authentication is in any way in question.
+    let output = relay_with_env(
+        root.path(),
+        &["doctor", "--claude-executable", &claude.path_text()],
+        &[
+            (
+                "CLAUDE_CONFIG_DIR",
+                &root
+                    .path()
+                    .join("some-other-live-sessions-profile")
+                    .to_string_lossy(),
+            ),
+            (
+                "CLAUDE_CODE_MESSAGING_TOKEN",
+                "6053b7e95eedfd452239c466c8720498",
+            ),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "doctor must still report ready: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let data = json_stdout(&output)["data"].clone();
+    assert_eq!(data["ready"], true);
+    let alice_check = data["checks"]
+        .as_array()
+        .expect("checks")
+        .iter()
+        .find(|check| check["label"] == "alice (Claude) authenticated")
+        .expect("alice's authentication check is present");
+    assert_eq!(alice_check["level"], "ok");
+    assert_eq!(alice_check["remedy"], Value::Null);
+    assert_eq!(alice_check["detail"], Value::Null);
 }
 
 // =================================================================================================

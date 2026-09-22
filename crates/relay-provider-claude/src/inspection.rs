@@ -13,7 +13,7 @@ use relay_core::{ClaudeConfigMode, Error, Result};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::AUTHENTICATION_OVERRIDE_VARIABLES;
+use crate::{AUTHENTICATION_OVERRIDE_VARIABLES, SESSION_SCOPED_VARIABLES};
 
 const AUTH_OUTPUT_LIMIT: usize = 64 * 1024;
 const VERSION_OUTPUT_LIMIT: usize = 4 * 1024;
@@ -555,26 +555,39 @@ pub fn inspect_environment(config_dir: &Path) -> EnvironmentOverrideStatus {
 }
 
 pub fn inspect_environment_with(
-    config_dir: &Path,
+    // Kept in the signature for API stability and because it documents which profile this
+    // report is for, even though no check here depends on it any more - see the doc comment on
+    // the `CLAUDE_CONFIG_DIR` entry below for why.
+    _config_dir: &Path,
     lookup: impl Fn(&str) -> Option<OsString>,
 ) -> EnvironmentOverrideStatus {
     let mut variables = Vec::with_capacity(AUTHENTICATION_OVERRIDE_VARIABLES.len() + 1);
+    // `CLAUDE_CONFIG_DIR` is reported (present/absent) for transparency, but its ambient value is
+    // never a conflict: every Relay-controlled invocation - this inspection's own child process
+    // (`run_auth_status`/`inspect_version` below) and a real interactive launch alike
+    // (`terminal_session::claude_terminal_env`) - always explicitly sets it to the exact target
+    // `config_dir`, which unconditionally overrides whatever was ambiently inherited. A mismatch
+    // here only ever means "the calling process's own profile differs from the one being
+    // checked" - the normal, expected shape of a multi-profile `relay doctor`/`relay status`
+    // sweep, or of `/relay:doctor` running inside a different profile's supervised session -
+    // never evidence that this check's own result is untrustworthy.
     let selected_config = lookup("CLAUDE_CONFIG_DIR");
-    let selected_conflict = selected_config
-        .as_deref()
-        .is_some_and(|value| !paths_refer_to_same_location(Path::new(value), config_dir));
     variables.push(EnvironmentVariableStatus {
         name: "CLAUDE_CONFIG_DIR",
         present: selected_config.is_some(),
-        conflict: selected_conflict,
+        conflict: false,
         category: "profile_selection",
     });
     for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
         let present = lookup(variable).is_some();
+        // Session-scoped variables (the running Claude Code CLI's own instance bookkeeping) are
+        // still reported so nothing is hidden, but their ambient presence alone is never a
+        // conflict - see `SESSION_SCOPED_VARIABLES`'s doc comment.
+        let conflict = present && !SESSION_SCOPED_VARIABLES.contains(variable);
         variables.push(EnvironmentVariableStatus {
             name: variable,
             present,
-            conflict: present,
+            conflict,
             category: override_category(variable),
         });
     }
@@ -590,7 +603,9 @@ fn paths_refer_to_same_location(first: &Path, second: &Path) -> bool {
 }
 
 fn override_category(variable: &str) -> &'static str {
-    if variable.starts_with("CLAUDE_CODE_USE_") {
+    if SESSION_SCOPED_VARIABLES.contains(&variable) {
+        "session_scoped"
+    } else if variable.starts_with("CLAUDE_CODE_USE_") {
         "provider_routing"
     } else if variable.contains("BASE_URL")
         || variable.contains("PROJECT_ID")

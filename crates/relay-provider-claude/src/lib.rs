@@ -255,6 +255,19 @@ pub const AUTHENTICATION_OVERRIDE_VARIABLES: &[&str] = &[
     "CLAUDE_CODE_USE_MANTLE",
 ];
 
+/// The subset of [`AUTHENTICATION_OVERRIDE_VARIABLES`] that belongs to the *currently running*
+/// Claude Code CLI process itself, not to account/endpoint/credential routing: freshly generated
+/// per process, torn down with it, and never inherited by an unrelated future `claude` launch
+/// (Relay's own, or a real one a person starts later from an ordinary shell). Still always
+/// stripped before Relay invokes any child `claude` process, same as every other variable in
+/// [`AUTHENTICATION_OVERRIDE_VARIABLES`] (defense in depth costs nothing here) - but its *ambient
+/// presence* is expected and harmless whenever Relay itself runs as a child of an
+/// already-supervised session (for example the `/relay:doctor` hook), and must never be treated
+/// as evidence that some *other* profile's authentication is compromised. Verified empirically:
+/// setting or clearing `CLAUDE_CODE_MESSAGING_TOKEN` does not change what `claude auth status
+/// --json` reports.
+pub const SESSION_SCOPED_VARIABLES: &[&str] = &["CLAUDE_CODE_MESSAGING_TOKEN"];
+
 impl ClaudeProcessPlan {
     #[must_use]
     pub fn references_config_dir(&self, expected: &Path) -> bool {

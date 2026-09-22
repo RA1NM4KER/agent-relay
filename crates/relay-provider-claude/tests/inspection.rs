@@ -344,6 +344,153 @@ fn environment_override_blocks_commands_without_reading_value() {
     assert!(serialized.contains("ANTHROPIC_API_KEY"));
 }
 
+/// Reproduces the exact scenario a live `/relay:doctor` (or any readiness check run from a
+/// terminal Claude itself spawned) sees: `CLAUDE_CONFIG_DIR` ambiently points at the *calling*
+/// process's own profile, not the different profile being inspected here. This must never be
+/// treated as a conflict - every Relay-controlled invocation always explicitly overrides
+/// `CLAUDE_CONFIG_DIR` for its actual target regardless of what was ambiently inherited, so the
+/// mismatch reflects nothing more than "a different profile is being checked."
+#[test]
+fn an_ambient_claude_config_dir_for_a_different_profile_is_never_a_conflict() {
+    let root = tempdir().expect("temp directory");
+    let config_dir = root.path().join("profile-being-checked");
+    fs::create_dir(&config_dir).expect("profile directory");
+    let other_profile = root.path().join("the-calling-sessions-own-profile");
+    let runner = FakeRunner::new(vec![
+        output("2.1.276 (Claude Code)"),
+        output(
+            r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"acct","email":"a@example.com"}"#,
+        ),
+    ]);
+    let inspector =
+        ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");
+    let other_profile_text = OsString::from(other_profile.as_os_str());
+    let environment = inspect_environment_with(&config_dir, |name| {
+        (name == "CLAUDE_CONFIG_DIR").then(|| other_profile_text.clone())
+    });
+    assert!(
+        environment.safe,
+        "an ambient CLAUDE_CONFIG_DIR for a different profile must not mark the report unsafe"
+    );
+
+    let report = inspector
+        .inspect(
+            &config_dir,
+            relay_core::ClaudeConfigMode::Explicit,
+            environment,
+        )
+        .expect("inspection must proceed despite the ambient mismatch");
+    assert!(report.authenticated);
+    assert!(report.safe_to_adopt);
+}
+
+/// Reproduces the other half of the same live in-session scenario: the running Claude Code CLI's
+/// own instance bookkeeping variable, inherited purely because Relay is a child of the currently
+/// supervised session. Must never block a *different* profile's readiness check, and must never
+/// print a false "log back in" remedy for a profile that is genuinely authenticated.
+#[test]
+fn an_inherited_claude_code_messaging_token_is_never_a_conflict() {
+    let root = tempdir().expect("temp directory");
+    let config_dir = root.path().join("profile");
+    fs::create_dir(&config_dir).expect("profile directory");
+    let runner = FakeRunner::new(vec![
+        output("2.1.276 (Claude Code)"),
+        output(
+            r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"acct","email":"a@example.com"}"#,
+        ),
+    ]);
+    let inspector =
+        ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");
+    let token = OsString::from("6053b7e95eedfd452239c466c8720498");
+    let environment = inspect_environment_with(&config_dir, |name| {
+        (name == "CLAUDE_CODE_MESSAGING_TOKEN").then(|| token.clone())
+    });
+    assert!(
+        environment.safe,
+        "an inherited CLAUDE_CODE_MESSAGING_TOKEN must not mark the report unsafe"
+    );
+
+    let report = inspector
+        .inspect(
+            &config_dir,
+            relay_core::ClaudeConfigMode::Explicit,
+            environment,
+        )
+        .expect("inspection must proceed despite the inherited messaging token");
+    assert!(
+        report.authenticated,
+        "a genuinely authenticated profile must report so"
+    );
+}
+
+/// The full in-session reproduction: both benign, inherited variables present together, exactly
+/// as a live `/relay:doctor` sees them - still safe, still authenticated.
+#[test]
+fn both_benign_inherited_variables_together_still_report_authenticated() {
+    let root = tempdir().expect("temp directory");
+    let config_dir = root.path().join("erika");
+    fs::create_dir(&config_dir).expect("profile directory");
+    let runner = FakeRunner::new(vec![
+        output("2.1.280 (Claude Code)"),
+        output(
+            r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"acct-erika","email":"erika@example.com"}"#,
+        ),
+    ]);
+    let inspector =
+        ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");
+    let megan_dir = root.path().join("megan");
+    let megan_dir_text = OsString::from(megan_dir.as_os_str());
+    let token = OsString::from("6053b7e95eedfd452239c466c8720498");
+    let environment = inspect_environment_with(&config_dir, |name| match name {
+        "CLAUDE_CONFIG_DIR" => Some(megan_dir_text.clone()),
+        "CLAUDE_CODE_MESSAGING_TOKEN" => Some(token.clone()),
+        _ => None,
+    });
+    assert!(environment.safe);
+
+    let report = inspector
+        .inspect(
+            &config_dir,
+            relay_core::ClaudeConfigMode::Explicit,
+            environment,
+        )
+        .expect("inspection must succeed");
+    assert!(report.authenticated);
+}
+
+/// A genuine credential override remains blocking even alongside the two benign, session-scoped
+/// variables above - the fix narrows detection, it does not disable it.
+#[test]
+fn a_real_credential_override_still_blocks_even_alongside_benign_session_variables() {
+    let root = tempdir().expect("temp directory");
+    let config_dir = root.path().join("profile");
+    fs::create_dir(&config_dir).expect("profile directory");
+    let runner = FakeRunner::new(Vec::new());
+    let inspector =
+        ClaudeInspector::with_runner(executable(root.path()), runner.clone()).expect("inspector");
+    let megan_dir = root.path().join("megan");
+    let megan_dir_text = OsString::from(megan_dir.as_os_str());
+    let token = OsString::from("6053b7e95eedfd452239c466c8720498");
+    let api_key = OsString::from("sk-ant-secret-canary");
+    let environment = inspect_environment_with(&config_dir, |name| match name {
+        "CLAUDE_CONFIG_DIR" => Some(megan_dir_text.clone()),
+        "CLAUDE_CODE_MESSAGING_TOKEN" => Some(token.clone()),
+        "ANTHROPIC_API_KEY" => Some(api_key.clone()),
+        _ => None,
+    });
+    assert!(!environment.safe);
+
+    let error = inspector
+        .inspect(
+            &config_dir,
+            relay_core::ClaudeConfigMode::Explicit,
+            environment,
+        )
+        .expect_err("a genuine credential override must still block");
+    assert_eq!(error.code(), "environment_override_conflict");
+    assert_eq!(runner.call_count(), 0);
+}
+
 #[test]
 fn provider_command_failure_is_closed() {
     let root = tempdir().expect("temp directory");
