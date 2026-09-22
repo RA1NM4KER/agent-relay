@@ -133,14 +133,31 @@ fn codex_process_running_for(config_dir: &Path) -> Result<bool> {
 /// `CODEX_HOME=<config_dir>`, from `ps -Eww -axo pid=,command=` text. Mirrors
 /// `relay_provider_claude::handoff_adapters::matching_target_pids`'s whole-token matching so a
 /// path that merely shares a prefix can never match.
+/// `ps` itself can transiently fail to run (or report a non-zero exit) under heavy concurrent
+/// process load — observed on GitHub's resource-constrained `macos-latest` CI runner during a
+/// full parallel `cargo test --workspace`. Retried a few times before this scan (the more
+/// authoritative of the two liveness signals — see module doc) gives up and reports a hard
+/// failure; a `ps` that ran fine and simply listed nothing is not a failure at all, just an
+/// empty result, and is never retried.
+const PS_SPAWN_RETRY_ATTEMPTS: u32 = 3;
+const PS_SPAWN_RETRY_DELAY: Duration = Duration::from_millis(20);
+
 fn codex_pids_for(config_dir: &Path) -> Result<Vec<u32>> {
-    let output = Command::new("ps")
-        .args(["-Eww", "-axo", "pid=,command="])
-        .output()
-        .map_err(|_| Error::ProviderCommandFailed)?;
-    if !output.status.success() {
-        return Err(Error::ProviderCommandFailed);
+    let mut succeeded = None;
+    for attempt in 0..PS_SPAWN_RETRY_ATTEMPTS {
+        match Command::new("ps")
+            .args(["-Eww", "-axo", "pid=,command="])
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                succeeded = Some(output);
+                break;
+            }
+            _ if attempt + 1 < PS_SPAWN_RETRY_ATTEMPTS => thread::sleep(PS_SPAWN_RETRY_DELAY),
+            _ => {}
+        }
     }
+    let output = succeeded.ok_or(Error::ProviderCommandFailed)?;
     let text = String::from_utf8_lossy(&output.stdout);
     let needle = format!("CODEX_HOME={}", config_dir.display());
     let own_pid = std::process::id();

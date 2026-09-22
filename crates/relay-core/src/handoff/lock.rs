@@ -2,6 +2,8 @@ use std::{
     fs::{self, OpenOptions},
     path::PathBuf,
     process::Command,
+    thread,
+    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
@@ -123,24 +125,41 @@ enum ProcessQuery {
     Indeterminate,
 }
 
+/// Retried only for the "could not even run `ps`" case: on a resource-constrained host under
+/// heavy concurrent load (observed on GitHub's 3-vCPU `macos-latest` runner during a full
+/// parallel `cargo test --workspace`), spawning `ps` itself can transiently fail — not because
+/// the pid is gone, but because the OS momentarily couldn't fork it. A `ps` that *did* run,
+/// successfully, and reported nothing is never retried here: that is `ConfirmedAbsent`, a real
+/// positive answer, not something to second-guess.
+const SPAWN_RETRY_ATTEMPTS: u32 = 3;
+const SPAWN_RETRY_DELAY: Duration = Duration::from_millis(20);
+
 fn query_start_time(pid: u32) -> ProcessQuery {
-    let Ok(output) = Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "lstart="])
-        .output()
-    else {
-        return ProcessQuery::Indeterminate;
-    };
-    // macOS `ps -p <pid>` for a pid that does not exist exits non-zero with empty output; that
-    // is a confirmed, positive answer ("no such process"), not a failure to determine anything.
-    if !output.status.success() {
-        return ProcessQuery::ConfirmedAbsent;
+    for attempt in 0..SPAWN_RETRY_ATTEMPTS {
+        let Ok(output) = Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "lstart="])
+            .output()
+        else {
+            if attempt + 1 < SPAWN_RETRY_ATTEMPTS {
+                thread::sleep(SPAWN_RETRY_DELAY);
+                continue;
+            }
+            return ProcessQuery::Indeterminate;
+        };
+        // macOS `ps -p <pid>` for a pid that does not exist exits non-zero with empty output;
+        // that is a confirmed, positive answer ("no such process"), not a failure to determine
+        // anything.
+        if !output.status.success() {
+            return ProcessQuery::ConfirmedAbsent;
+        }
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        return if text.is_empty() {
+            ProcessQuery::ConfirmedAbsent
+        } else {
+            ProcessQuery::Found(text)
+        };
     }
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    if text.is_empty() {
-        ProcessQuery::ConfirmedAbsent
-    } else {
-        ProcessQuery::Found(text)
-    }
+    ProcessQuery::Indeterminate
 }
 
 #[cfg(test)]
