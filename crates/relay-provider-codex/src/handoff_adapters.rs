@@ -76,18 +76,23 @@ impl SessionStopper for CodexSessionStopper {
         _session_id: &str,
         recorded_owner: Option<&ProcessIdentity>,
     ) -> Result<()> {
-        if let Some(owner) = recorded_owner {
-            terminate_verified_process(owner, ORPHAN_TERM_GRACE)?;
-        }
+        // Two independent views of the same question, exactly as `CodexSourceLiveness::check`
+        // already combines them for liveness: the recorded pid is only the `codex exec` that
+        // created the thread, while the interactive `codex resume` the user is typing into is a
+        // different process, visible only through its environment (see module doc). An ambiguous
+        // or failed recorded-pid attempt must not short-circuit the CODEX_HOME-token scan below —
+        // that scan is the more authoritative signal and, on its own, is enough to establish
+        // quiescence. Only report `StopNotVerified` when *neither* view can confirm it.
+        let recorded_result =
+            recorded_owner.map(|owner| terminate_verified_process(owner, ORPHAN_TERM_GRACE));
         // Also stop every process whose environment carries this exact profile's CODEX_HOME
-        // token: the recorded pid is only the `codex exec` that created the thread, while the
-        // interactive `codex resume` the user is typing into is a different process. Acceptable
-        // because this CODEX_HOME is Relay-owned (see docs/security.md) — nothing else is
-        // expected to run under it.
-        for pid in codex_pids_for(source_config_dir)? {
-            terminate_verified_process(&ProcessIdentity::query(pid), ORPHAN_TERM_GRACE)?;
+        // token. Acceptable because this CODEX_HOME is Relay-owned (see docs/security.md) —
+        // nothing else is expected to run under it.
+        let scan_result = stop_codex_home_scan(source_config_dir);
+        match (recorded_result, scan_result) {
+            (Some(Ok(())), _) | (_, Ok(())) => Ok(()),
+            (Some(Err(error)), Err(_)) | (None, Err(error)) => Err(error),
         }
-        Ok(())
     }
 
     fn stop_orphan_target(
@@ -106,11 +111,18 @@ impl SessionStopper for CodexSessionStopper {
         _project_dir: &Path,
         _session_id: &str,
     ) -> Result<()> {
-        for pid in codex_pids_for(target_config_dir)? {
-            terminate_verified_process(&ProcessIdentity::query(pid), ORPHAN_TERM_GRACE)?;
-        }
-        Ok(())
+        stop_codex_home_scan(target_config_dir)
     }
+}
+
+/// Terminates (verified) every process whose environment carries `config_dir`'s CODEX_HOME
+/// token. `Err` only when the scan itself could not run, or a matched process could not be
+/// confirmed stopped.
+fn stop_codex_home_scan(config_dir: &Path) -> Result<()> {
+    for pid in codex_pids_for(config_dir)? {
+        terminate_verified_process(&ProcessIdentity::query(pid), ORPHAN_TERM_GRACE)?;
+    }
+    Ok(())
 }
 
 fn codex_process_running_for(config_dir: &Path) -> Result<bool> {
@@ -413,7 +425,7 @@ fn parse_exec_json_stream(stdout: &[u8]) -> Result<TargetVerification> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_exec_json_stream;
+    use super::*;
 
     #[test]
     fn a_completed_turn_with_a_thread_id_verifies_successfully() {
@@ -450,5 +462,88 @@ mod tests {
                        {\"type\":\"turn.completed\"}\n";
         let verification = parse_exec_json_stream(stream.as_bytes()).expect("parse");
         assert!(verification.started_successfully);
+    }
+
+    /// `ps -E` (whole-environment listing) isn't available in every sandboxed CI environment,
+    /// and even where the command itself succeeds it can still fail to show a just-spawned
+    /// child's own environment (observed in at least one sandboxed dev shell). Probe for that
+    /// directly with a throwaway marker rather than trusting the command's exit code alone (same
+    /// policy as the `relay-cli` integration tests' `skip_without_process_env_scan!`).
+    fn process_env_scan_can_see_children() -> bool {
+        let Ok(mut probe) = Command::new("sleep")
+            .arg("2")
+            .env("RELAY_TEST_ENV_SCAN_PROBE", "1")
+            .spawn()
+        else {
+            return false;
+        };
+        let visible = (0..20).any(|_| {
+            thread::sleep(Duration::from_millis(50));
+            Command::new("ps")
+                .args(["-Eww", "-axo", "pid=,command="])
+                .output()
+                .is_ok_and(|output| {
+                    String::from_utf8_lossy(&output.stdout).contains("RELAY_TEST_ENV_SCAN_PROBE=1")
+                })
+        });
+        let _ignored = probe.kill();
+        let _ignored = probe.wait();
+        visible
+    }
+
+    /// Regression for the incident where `stop_and_verify` aborted on an ambiguous *recorded*
+    /// pid (no captured start-time fingerprint — exactly what `is_still_the_same_process` reports
+    /// `None` for) without ever reaching the CODEX_HOME scan below it, leaving the real process
+    /// running and the handoff `StopNotVerified`. The scan must get its chance regardless.
+    #[test]
+    fn an_ambiguous_recorded_pid_still_stops_via_the_codex_home_scan() {
+        if !process_env_scan_can_see_children() {
+            eprintln!("skipping: this environment's `ps -E` cannot see a child's environment");
+            return;
+        }
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let project_dir = tempfile::tempdir().expect("project dir");
+        let mut child = Command::new("sleep")
+            .arg("30")
+            .env("CODEX_HOME", config_dir.path())
+            .spawn()
+            .expect("spawn a stand-in codex process");
+        // The exact shape record_writer_process would have persisted had the pid already been
+        // gone (or unreadable) at the moment it queried `ps` — an identity `stop_and_verify` can
+        // never confirm on its own, by construction.
+        let ambiguous = ProcessIdentity {
+            pid: child.id(),
+            start_time_fingerprint: None,
+        };
+        CodexSessionStopper
+            .stop_and_verify(
+                config_dir.path(),
+                project_dir.path(),
+                "session",
+                Some(&ambiguous),
+            )
+            .expect("the CODEX_HOME scan alone must be enough to establish quiescence");
+        for _ in 0..50 {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        panic!("the real process, found only via the CODEX_HOME scan, was never stopped");
+    }
+
+    /// No recorded owner at all (the `stop_unrecorded_targets` case in miniature): the CODEX_HOME
+    /// scan is the only signal, and an empty scan is itself a clean pass.
+    #[test]
+    fn no_recorded_owner_and_an_empty_scan_is_a_clean_stop() {
+        if !process_env_scan_can_see_children() {
+            eprintln!("skipping: this environment's `ps -E` cannot see a child's environment");
+            return;
+        }
+        let config_dir = tempfile::tempdir().expect("config dir");
+        let project_dir = tempfile::tempdir().expect("project dir");
+        CodexSessionStopper
+            .stop_and_verify(config_dir.path(), project_dir.path(), "session", None)
+            .expect("nothing to stop is itself quiescent");
     }
 }

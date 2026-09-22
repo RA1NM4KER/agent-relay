@@ -233,6 +233,7 @@ case "$1" in
     ;;
   resume)
     [ -f "$CODEX_HOME/resume_sleep" ] && sleep 30
+    [ -f "$CODEX_HOME/resume_exit_soon" ] && sleep 0.5
     exit 0 ;;
   app-server)
     [ -f "$CODEX_HOME/app_server_fail" ] && exit 1
@@ -1204,6 +1205,64 @@ fn a_supervised_codex_session_notices_exhaustion_and_follows_the_conversation_to
         "the terminal must continue on alice: {log:?}"
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("continuing on 'alice'"));
+}
+
+/// Regression: Codex has no "the limit was hit" event, so the periodic structured-usage tick
+/// above is normally the only way exhaustion is noticed while the terminal is up — but the real
+/// `codex resume` process can just as well exit on its own the moment it hits the limit, and it
+/// can do that between two ticks, or before the first one ever fires. With the poll interval set
+/// far longer than this test will ever wait, the periodic tick alone could not possibly be what
+/// catches this — only the exit-triggered evaluation, run when the child exits, can.
+#[test]
+fn a_codex_session_that_exits_exhausted_between_polls_still_hands_off() {
+    skip_without_process_env_scan!();
+    let world = codex_writer_world();
+    let root = world.root.path();
+    // Healthy at start, so the terminal genuinely launches — this is not exercising `relay
+    // resume`'s own upfront preflight, which would otherwise catch an already-exhausted profile
+    // before anything ever runs. The fake `codex resume` then quits on its own shortly after,
+    // exactly like the real CLI exiting the moment it hits the rate limit mid-turn.
+    set_codex_limits(&world, "true", 5, 4_000_000_000);
+    std::fs::write(codex_home(&world).join("resume_exit_soon"), "").expect("marker");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(["resume", "--project-dir"])
+        .arg(world.project.path())
+        .arg("--claude-executable")
+        .arg(root.join("bin").join("claude"))
+        .arg("--codex-executable")
+        .arg(root.join("bin").join("codex"))
+        .env("PATH", path_with_fixtures(root))
+        .env("RELAY_CODEX_POLL_SECS", "3600")
+        .env("RELAY_AUTO_WATCH_ATTEMPTS", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    scrub(&mut command);
+    let child = command.spawn().expect("relay resume");
+    // Land well inside the fake process's own brief lifetime, after it has actually started.
+    std::thread::sleep(Duration::from_millis(150));
+    set_codex_limits(&world, "false", 100, 4_000_000_000);
+    let output = child.wait_with_output().expect("relay resume finishes");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        lease_owner(root),
+        "alice",
+        "the exit-triggered evaluation must hand off even though the periodic tick never fired"
+    );
+    let ledger = ledger(&world);
+    assert_eq!(
+        ledger["recent_handoffs"].as_array().expect("array").len(),
+        1
+    );
+    assert_eq!(ledger["known_exhausted"][0]["profile"], "codex-main");
 }
 
 /// Codex -> another Codex profile (fake providers only): the hierarchy is honoured and the

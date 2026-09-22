@@ -504,6 +504,33 @@ fn run_managed_terminal_inner(
             terminal::TerminalEnd::OwnerMoved => 0,
         };
 
+        // Codex has no "the limit was hit" event: the only honest way to notice real exhaustion
+        // is the periodic structured-usage tick above, while the child runs. But the child can
+        // also exit *because* it just hit the limit — possibly between two ticks, or before the
+        // first one ever fired — and nothing has evaluated that yet. A detached, fire-and-forget
+        // poll (as the periodic tick uses) would race `release_after_exit` in the caller and could
+        // easily lose: this session must not be released before a final evaluation has had its
+        // chance to run and, if the writer really is exhausted, complete the handoff — so it runs
+        // synchronously, in-process, right here.
+        if owner_is_codex
+            && matches!(end, terminal::TerminalEnd::Exited(_))
+            && let Ok(Some(lease)) = context.lease_store().load()
+            && let Ok(registered) = context.service.list()
+            && let Some(profile) = registered
+                .iter()
+                .find(|candidate| candidate.name == lease.owner_profile)
+        {
+            let _ignored = auto_handoff::evaluate_now(
+                &context.paths,
+                &context.preferences,
+                &registered,
+                profile,
+                &lease,
+                &context.canonical_project,
+                context.claude_executable.as_deref(),
+            );
+        }
+
         // A handoff stops the source session itself, so the session can end *before* the lease
         // has moved: wait for any in-flight transaction to settle before deciding.
         if !terminal::wait_until_settled(

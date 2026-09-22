@@ -24,11 +24,12 @@ use std::{
     process::{Command, Stdio},
 };
 
+use clap::Parser as _;
 use relay_core::{ProfileName, ProfileService, ProviderKind, RelayPaths, handoff::ProjectId};
 use relay_provider_claude::AUTHENTICATION_OVERRIDE_VARIABLES;
 use serde_json::Value;
 
-use crate::preferences::Preferences;
+use crate::{cli::Cli, output::CommandOutput, preferences::Preferences};
 
 /// Defaults for the bounded retry: about two minutes of re-evaluation, each a purely local read.
 pub const DEFAULT_ATTEMPTS: u32 = 7;
@@ -146,6 +147,60 @@ pub fn plan_poll(
         (1, 0),
         paths.project_state_dir(&project_id).join(LOG_FILE_NAME),
     ))
+}
+
+/// The same one-shot evaluation [`plan_poll`] hands to a detached `relay watch auto`, but run
+/// synchronously, in-process, right here. For the periodic tick a detached child is the right
+/// call — the supervised terminal is still running and must not stall waiting on it. But a Codex
+/// child that has just *exited* is a different situation: Codex has no "the limit was hit" event,
+/// so this may be the only chance to notice real exhaustion before the session is released, and a
+/// fire-and-forget detached process could easily lose that race against `release_after_exit`
+/// running moments later. Mirrors `relay resume`'s own immediate Codex preflight
+/// (`commands::resume::evaluate_handoff_now`), which exists for exactly the same reason.
+pub fn evaluate_now(
+    paths: &RelayPaths,
+    preferences: &Preferences,
+    registered: &[relay_core::Profile],
+    profile: &relay_core::Profile,
+    lease: &relay_core::handoff::WriterLease,
+    project: &Path,
+    claude_executable: Option<&Path>,
+) -> Option<CommandOutput> {
+    if lease.owner_profile != profile.name {
+        return None;
+    }
+    let fallback = hierarchy_without(preferences, &profile.name, |name| {
+        registered.iter().any(|candidate| &candidate.name == name)
+    });
+    if fallback.is_empty() {
+        return None;
+    }
+    let mut argv: Vec<OsString> = vec![
+        "relay".into(),
+        "--json".into(),
+        "--config-root".into(),
+        paths.config_root().into(),
+        "--state-root".into(),
+        paths.state_root().into(),
+        "watch".into(),
+        "run".into(),
+        "--profile".into(),
+        profile.name.as_str().into(),
+    ];
+    for name in &fallback {
+        argv.extend(["--fallback".into(), name.as_str().into()]);
+    }
+    argv.extend([
+        "--project".into(),
+        project.as_os_str().to_owned(),
+        "--session".into(),
+        lease.session_id.clone().into(),
+    ]);
+    if let Some(claude) = claude_executable {
+        argv.extend(["--claude-executable".into(), claude.as_os_str().to_owned()]);
+    }
+    let inner = Cli::try_parse_from(argv).ok()?;
+    crate::commands::dispatch(&inner).ok()
 }
 
 fn assemble(
