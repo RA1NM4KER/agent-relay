@@ -36,16 +36,26 @@ pub fn block_output(text: &str) -> String {
     json!({"decision": "block", "reason": text}).to_string()
 }
 
-/// Splits `/relay <sub> <args…>`. `None` when the prompt is not a `/relay` command at all.
+/// Splits either the namespaced form (`/relay:status`, `/relay:switch megan`, ...) or the legacy
+/// space-separated form (`/relay status`, `/relay switch megan`, ...) into `(subcommand, args)`.
+/// Bare `/relay` (no subcommand at all, either form) is `"overview"` — the small command list —
+/// never a silent alias for `status`, so a user who just types `/relay` sees what exists rather
+/// than an answer to a question they did not ask. `None` when the prompt is not a `/relay`
+/// command at all.
 #[must_use]
 pub fn parse_command(prompt: &str) -> Option<(String, Vec<String>)> {
     let trimmed = prompt.trim();
     let rest = trimmed.strip_prefix("/relay")?;
+    if let Some(namespaced) = rest.strip_prefix(':') {
+        let mut words = namespaced.split_whitespace().map(str::to_owned);
+        let sub = words.next()?;
+        return Some((sub, words.collect()));
+    }
     if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
         return None;
     }
     let mut words = rest.split_whitespace().map(str::to_owned);
-    let sub = words.next().unwrap_or_else(|| "status".to_owned());
+    let sub = words.next().unwrap_or_else(|| "overview".to_owned());
     Some((sub, words.collect()))
 }
 
@@ -157,13 +167,29 @@ fn run_subcommand(paths: &RelayPaths, session: &LiveSession, sub: &str, args: &[
         state_dir,
     };
     match sub {
+        "overview" => overview(),
         "status" => status(&context),
         "adopt" => adopt(&context),
         "switch" => switch(&context, args),
+        "doctor" => doctor(&context),
+        "why" => why(&context),
         other => format!(
-            "Unknown /relay command '{other}'. Try: /relay status · /relay switch [profile] · /relay adopt"
+            "Unknown /relay command '{other}'. Try: /relay:status · /relay:switch [profile] · \
+             /relay:doctor · /relay:why · /relay:adopt"
         ),
     }
+}
+
+/// Bare `/relay` (or `/relay:` with nothing after it): a short, human command list — never a
+/// silent alias for any one answer.
+fn overview() -> String {
+    "Agent Relay\n\n\
+     /relay:status   See who owns this conversation\n\
+     /relay:switch   Move this conversation to another profile\n\
+     /relay:doctor   Check whether automatic handoff is ready\n\
+     /relay:why      Explain Relay's current decision/state\n\
+     /relay:adopt    Bring this conversation under Relay"
+        .to_owned()
 }
 
 fn project_name(path: &Path) -> String {
@@ -407,16 +433,169 @@ fn switch(context: &Context<'_>, args: &[String]) -> String {
     }
 }
 
+/// `/relay:doctor`: the exact same shared readiness model `relay doctor` and `relay setup`'s
+/// completion screen use, so the answer can never disagree with either.
+fn doctor(context: &Context<'_>) -> String {
+    let readiness = crate::readiness::assess(
+        &context.service,
+        &context.registered,
+        &context.preferences,
+        &providers::ExecutableOverrides::default(),
+    );
+    crate::commands::doctor::render_human(&readiness)
+}
+
+/// `/relay:why`: the exact same shared explanation model `relay why` uses, evaluated for this
+/// conversation's own profile.
+fn why(context: &Context<'_>) -> String {
+    let Some(owner) = context.managed_owner() else {
+        return "Agent Relay: this conversation is not managed, so there is nothing to explain \
+                yet. Use /relay:adopt first."
+            .to_owned();
+    };
+    let executables = providers::ExecutableOverrides::default();
+    let fallback_names =
+        crate::auto_handoff::hierarchy_without(&context.preferences, &owner.name, |name| {
+            context
+                .registered
+                .iter()
+                .any(|profile| &profile.name == name)
+        });
+    let fallback_profiles: Vec<&Profile> = fallback_names
+        .into_iter()
+        .filter_map(|name| {
+            context
+                .registered
+                .iter()
+                .find(|profile| &profile.name == name)
+        })
+        .collect();
+    let signal_for = |profile: &Profile| {
+        providers::usage_signal_for(
+            profile.provider,
+            &executables,
+            false,
+            None,
+            profile.effective_claude_config_mode(),
+        )
+    };
+    let Ok(source_usage) = signal_for(owner).detect(
+        &owner.config_dir,
+        &context.session.project,
+        &context.session.session_id,
+    ) else {
+        return "Agent Relay could not verify this profile's usage right now.".to_owned();
+    };
+    let Ok(source_healthy) = crate::auth::doctor_is_healthy(&context.service, owner, &executables)
+    else {
+        return "Agent Relay could not check this profile's health right now.".to_owned();
+    };
+    let source_candidate = relay_core::automation::ProfileCandidate {
+        name: owner.name.clone(),
+        provider: owner.provider,
+        config_dir: owner.config_dir.clone(),
+        claude_config_mode: Some(owner.effective_claude_config_mode()),
+        identity_stable_id: Some(owner.expected_identity.stable_id.clone()),
+        enabled: owner.enabled,
+        healthy: source_healthy,
+        usage: source_usage,
+    };
+    let mut fallback_candidates = Vec::new();
+    for profile in &fallback_profiles {
+        let Ok(usage) = signal_for(profile).detect(
+            &profile.config_dir,
+            &context.session.project,
+            &context.session.session_id,
+        ) else {
+            continue;
+        };
+        let healthy = crate::auth::doctor_is_healthy(&context.service, profile, &executables)
+            .unwrap_or(false);
+        fallback_candidates.push(relay_core::automation::ProfileCandidate {
+            name: profile.name.clone(),
+            provider: profile.provider,
+            config_dir: profile.config_dir.clone(),
+            claude_config_mode: Some(profile.effective_claude_config_mode()),
+            identity_stable_id: Some(profile.expected_identity.stable_id.clone()),
+            enabled: profile.enabled,
+            healthy,
+            usage,
+        });
+    }
+    let Ok(ledger) = relay_core::automation::LedgerStore::at_path(
+        context.state_dir.join("automation_state.json"),
+    )
+    .load() else {
+        return "Agent Relay could not read this project's automation ledger right now.".to_owned();
+    };
+    let now = crate::util::current_unix_ms();
+    let automatic_handoff_enabled = context.preferences.usage_integration_enabled == Some(true);
+    let explanation = relay_core::automation::explain(
+        now,
+        &source_candidate,
+        &fallback_candidates,
+        &ledger,
+        &relay_core::automation::AutomationPolicy::default(),
+    );
+    let category = crate::commands::why::resolve_category(
+        &explanation,
+        &ledger,
+        &context.state_dir,
+        automatic_handoff_enabled,
+    );
+    crate::commands::why::render_human(
+        owner,
+        &context.session.session_id,
+        now,
+        &source_candidate,
+        &explanation.decision,
+        category,
+        &explanation.candidates,
+        context.lease.is_some(),
+        automatic_handoff_enabled,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn only_relay_commands_are_recognised() {
-        assert_eq!(parse_command("/relay"), Some(("status".to_owned(), vec![])));
+        // Bare `/relay` is the friendly overview, not an implicit `status`.
+        assert_eq!(
+            parse_command("/relay"),
+            Some(("overview".to_owned(), vec![]))
+        );
+        // Legacy space-separated forms remain valid aliases.
         assert_eq!(
             parse_command("  /relay switch megan "),
             Some(("switch".to_owned(), vec!["megan".to_owned()]))
+        );
+        assert_eq!(
+            parse_command("/relay status"),
+            Some(("status".to_owned(), vec![]))
+        );
+        // New namespaced forms are canonical.
+        assert_eq!(
+            parse_command("/relay:status"),
+            Some(("status".to_owned(), vec![]))
+        );
+        assert_eq!(
+            parse_command("/relay:switch megan"),
+            Some(("switch".to_owned(), vec!["megan".to_owned()]))
+        );
+        assert_eq!(
+            parse_command("/relay:doctor"),
+            Some(("doctor".to_owned(), vec![]))
+        );
+        assert_eq!(
+            parse_command("/relay:why"),
+            Some(("why".to_owned(), vec![]))
+        );
+        assert_eq!(
+            parse_command("/relay:adopt"),
+            Some(("adopt".to_owned(), vec![]))
         );
         assert_eq!(parse_command("/relayx status"), None);
         assert_eq!(parse_command("please /relay status"), None);
