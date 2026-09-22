@@ -291,12 +291,14 @@ pub fn require_no_conflicting_writer(
     project_dir: &Path,
     session_id: &str,
     expected: Option<&ProcessIdentity>,
+    mode: relay_core::ClaudeConfigMode,
 ) -> Result<()> {
     let blocking = lister.blocking_claude_processes(&WriterScope {
         config_dir: source_config_dir,
         project_dir,
         session_id: Some(session_id),
         expected,
+        mode,
     })?;
     if blocking.is_empty() {
         Ok(())
@@ -314,9 +316,17 @@ pub fn stage_preflight(
     project_dir: &Path,
     session_id: &str,
     expected: Option<&ProcessIdentity>,
+    mode: relay_core::ClaudeConfigMode,
 ) -> Result<()> {
     let project_dir = require_absolute(project_dir)?;
-    require_no_conflicting_writer(lister, source_config_dir, project_dir, session_id, expected)?;
+    require_no_conflicting_writer(
+        lister,
+        source_config_dir,
+        project_dir,
+        session_id,
+        expected,
+        mode,
+    )?;
     discover_session(source_config_dir, project_dir, session_id).map(|_| ())
 }
 
@@ -332,9 +342,17 @@ pub fn stage_transfer(
     target_config_dir: &Path,
     project_dir: &Path,
     session_id: &str,
+    source_mode: relay_core::ClaudeConfigMode,
 ) -> Result<SessionTransferReport> {
     let project_dir = require_absolute(project_dir)?;
-    require_no_conflicting_writer(lister, source_config_dir, project_dir, session_id, None)?;
+    require_no_conflicting_writer(
+        lister,
+        source_config_dir,
+        project_dir,
+        session_id,
+        None,
+        source_mode,
+    )?;
     let key = escape_project_path(project_dir);
     let artifacts = discover_session(source_config_dir, project_dir, session_id)?;
 
@@ -504,8 +522,15 @@ mod tests {
         )
         .expect("source contents");
 
-        let report = stage_transfer(&FixedLister(false), &source, &target, &project, SESSION_ID)
-            .expect("stage transfer");
+        let report = stage_transfer(
+            &FixedLister(false),
+            &source,
+            &target,
+            &project,
+            SESSION_ID,
+            relay_core::ClaudeConfigMode::Explicit,
+        )
+        .expect("stage transfer");
 
         assert_eq!(report.artifacts.len(), 1);
         assert!(!report.artifacts[0].already_present_and_identical);
@@ -549,10 +574,24 @@ mod tests {
         std::fs::create_dir_all(&target).expect("target dir");
         seed_session(&source, &project, b"identical\n");
 
-        stage_transfer(&FixedLister(false), &source, &target, &project, SESSION_ID)
-            .expect("first stage");
-        let second = stage_transfer(&FixedLister(false), &source, &target, &project, SESSION_ID)
-            .expect("second stage is a no-op, not an error");
+        stage_transfer(
+            &FixedLister(false),
+            &source,
+            &target,
+            &project,
+            SESSION_ID,
+            relay_core::ClaudeConfigMode::Explicit,
+        )
+        .expect("first stage");
+        let second = stage_transfer(
+            &FixedLister(false),
+            &source,
+            &target,
+            &project,
+            SESSION_ID,
+            relay_core::ClaudeConfigMode::Explicit,
+        )
+        .expect("second stage is a no-op, not an error");
 
         assert!(second.artifacts[0].already_present_and_identical);
     }
@@ -575,8 +614,15 @@ mod tests {
         )
         .expect("seed diverging target");
 
-        let error = stage_transfer(&FixedLister(false), &source, &target, &project, SESSION_ID)
-            .expect_err("must reject a diverging target");
+        let error = stage_transfer(
+            &FixedLister(false),
+            &source,
+            &target,
+            &project,
+            SESSION_ID,
+            relay_core::ClaudeConfigMode::Explicit,
+        )
+        .expect_err("must reject a diverging target");
         assert_eq!(error.code(), "target_artifact_diverges");
 
         let target_bytes = std::fs::read(target_session_dir.join(format!("{SESSION_ID}.jsonl")))
@@ -594,8 +640,15 @@ mod tests {
         std::fs::create_dir_all(&target).expect("target dir");
         seed_session(&source, &project, b"content\n");
 
-        let error = stage_transfer(&FixedLister(true), &source, &target, &project, SESSION_ID)
-            .expect_err("must reject a live source");
+        let error = stage_transfer(
+            &FixedLister(true),
+            &source,
+            &target,
+            &project,
+            SESSION_ID,
+            relay_core::ClaudeConfigMode::Explicit,
+        )
+        .expect_err("must reject a live source");
         assert_eq!(error.code(), "source_profile_active");
         assert!(
             !target
@@ -615,8 +668,15 @@ mod tests {
         std::fs::create_dir_all(&source).expect("source dir");
         std::fs::create_dir_all(&target).expect("target dir");
 
-        let error = stage_transfer(&FixedLister(false), &source, &target, &project, SESSION_ID)
-            .expect_err("missing session must be reported");
+        let error = stage_transfer(
+            &FixedLister(false),
+            &source,
+            &target,
+            &project,
+            SESSION_ID,
+            relay_core::ClaudeConfigMode::Explicit,
+        )
+        .expect_err("missing session must be reported");
         assert_eq!(error.code(), "session_not_found");
     }
 
@@ -652,6 +712,7 @@ mod tests {
             project_dir: root.path(),
             session_id: None,
             expected: None,
+            mode: relay_core::ClaudeConfigMode::Explicit,
         });
         assert!(result.expect("ok").is_empty());
     }
@@ -671,7 +732,15 @@ mod tests {
             seen: seen.clone(),
         };
 
-        stage_transfer(&lister, &source, &target, &project, SESSION_ID).expect("stage transfer");
+        stage_transfer(
+            &lister,
+            &source,
+            &target,
+            &project,
+            SESSION_ID,
+            relay_core::ClaudeConfigMode::Explicit,
+        )
+        .expect("stage transfer");
 
         assert_eq!(seen.lock().expect("seen lock").as_slice(), [source]);
     }

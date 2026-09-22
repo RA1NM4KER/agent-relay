@@ -242,6 +242,7 @@ fn dry_run_rejects_an_identity_pin_registered_under_another_name() {
                 observed_unix_ms: 0,
                 reset_unix_ms: None,
             },
+            claude_config_mode: None,
         }],
     };
     let state_path = root.path().join("config/profiles.toml");

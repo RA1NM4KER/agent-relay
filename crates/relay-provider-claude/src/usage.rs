@@ -23,7 +23,7 @@ use std::{
 };
 
 use relay_core::{
-    Error, Result,
+    ClaudeConfigMode, Error, Result,
     usage::{UsageEvidence, UsageObservation, UsageSignal, UsageState},
 };
 use serde_json::Value;
@@ -53,21 +53,32 @@ pub struct ClaudeUsageSignal {
     probe_enabled: bool,
     /// The model the watched workload runs, so model-scoped limits are applied correctly.
     workload_model: Option<String>,
+    /// Whether the watched profile is Claude's native-default account (`~/.claude`, never
+    /// carrying `CLAUDE_CONFIG_DIR`) or an explicit isolated profile. Defaults to `Explicit`,
+    /// matching every pre-existing caller.
+    mode: ClaudeConfigMode,
 }
 
 impl ClaudeUsageSignal {
     #[must_use]
-    pub const fn new(claude_executable: Option<PathBuf>, probe_enabled: bool) -> Self {
+    pub fn new(claude_executable: Option<PathBuf>, probe_enabled: bool) -> Self {
         Self {
             claude_executable,
             probe_enabled,
             workload_model: None,
+            mode: ClaudeConfigMode::default(),
         }
     }
 
     #[must_use]
     pub fn with_workload_model(mut self, workload_model: Option<String>) -> Self {
         self.workload_model = workload_model;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_mode(mut self, mode: ClaudeConfigMode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -107,11 +118,13 @@ impl UsageSignal for ClaudeUsageSignal {
             return Ok(free);
         }
 
-        if let Ok(sessions) =
-            session_registry::query_active_sessions(config_dir, self.claude_executable.as_deref())
-            && let Some(record) = sessions
-                .iter()
-                .find(|record| record.session_id == session_id)
+        if let Ok(sessions) = session_registry::query_active_sessions(
+            config_dir,
+            self.mode,
+            self.claude_executable.as_deref(),
+        ) && let Some(record) = sessions
+            .iter()
+            .find(|record| record.session_id == session_id)
             && let Some(state) = record.state.as_deref()
             && EXHAUSTED_SESSION_STATES.contains(&state)
         {
@@ -140,10 +153,10 @@ impl UsageSignal for ClaudeUsageSignal {
             .arg("stream-json")
             .arg("--verbose")
             .arg(PROBE_PROMPT)
-            .env("CLAUDE_CONFIG_DIR", config_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        crate::apply_config_mode(&mut command, self.mode, config_dir);
         for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
             command.env_remove(variable);
         }

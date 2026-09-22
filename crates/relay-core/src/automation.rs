@@ -34,6 +34,8 @@ pub struct ProfileCandidate {
     pub name: ProfileName,
     pub provider: ProviderKind,
     pub config_dir: PathBuf,
+    /// Only meaningful when `provider` is Claude; see [`crate::ClaudeConfigMode`].
+    pub claude_config_mode: Option<crate::ClaudeConfigMode>,
     /// `None` when identity could not be established; never treated as a safe non-match.
     pub identity_stable_id: Option<String>,
     pub enabled: bool,
@@ -282,6 +284,8 @@ pub struct WatchRequest {
     pub source_profile: ProfileName,
     pub source_provider: ProviderKind,
     pub source_config_dir: PathBuf,
+    /// Only meaningful when `source_provider` is Claude; see [`crate::ClaudeConfigMode`].
+    pub source_claude_mode: Option<crate::ClaudeConfigMode>,
     pub source_identity_stable_id: Option<String>,
     pub session_id: String,
     pub source_usage: UsageObservation,
@@ -378,6 +382,7 @@ impl WatchCoordinator<'_> {
             name: request.source_profile.clone(),
             provider: request.source_provider,
             config_dir: request.source_config_dir.clone(),
+            claude_config_mode: request.source_claude_mode,
             identity_stable_id: request.source_identity_stable_id.clone(),
             enabled: true,
             healthy: true,
@@ -456,6 +461,8 @@ impl WatchCoordinator<'_> {
                     source_profile: request.source_profile.clone(),
                     source_provider: request.source_provider,
                     source_config_dir: request.source_config_dir.clone(),
+                    source_claude_mode: request.source_claude_mode.unwrap_or_default(),
+                    target_claude_mode: target_candidate.claude_config_mode.unwrap_or_default(),
                     target_profile: target.clone(),
                     target_provider: target_candidate.provider,
                     target_config_dir: target_candidate.config_dir.clone(),
@@ -652,6 +659,7 @@ mod tests {
             enabled: true,
             healthy: true,
             usage: observation(state),
+            claude_config_mode: None,
         }
     }
 

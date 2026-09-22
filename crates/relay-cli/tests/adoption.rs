@@ -245,6 +245,20 @@ fn argv_log(root: &Path) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// The `CLAUDE_CONFIG_DIR` the (last) `claude --resume ...` invocation actually ran under —
+/// proof of which profile the exact-uuid discovery picked, independent of anything printed.
+fn resume_invocation_config_dir(root: &Path) -> Option<String> {
+    std::fs::read_to_string(root.join("claude.argv"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| {
+            let (argv, config) = line.strip_prefix("ARGV")?.rsplit_once('|')?;
+            let first = argv.split('\u{1f}').nth(1)?;
+            (first == "--resume").then(|| config.to_owned())
+        })
+        .next_back()
+}
+
 fn login_claude(root: &Path, name: &str, claude: &Path) {
     let output = relay(
         root,
@@ -542,6 +556,90 @@ fn a_session_belonging_to_another_profile_is_not_adopted() {
         .output()
         .expect("relay");
     assert_eq!(error_code(&output), "adoption_refused");
+    assert!(world.lease().is_none());
+    // M4.3: an explicit but wrong `--profile` names the real, provable owner rather than a bare
+    // "not found" — Relay searched every registered Claude profile's own transcripts.
+    let message = error_message(&output);
+    assert!(
+        message.contains("bob") && message.contains("--profile bob"),
+        "{message}"
+    );
+}
+
+fn error_message(output: &std::process::Output) -> String {
+    let value: Value = serde_json::from_slice(&output.stderr).expect("json error envelope");
+    value["error"]["message"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// M4.3: an exact session id, given with no `--profile`, must not default to the configured
+/// primary and fail there — every registered Claude profile is searched structurally, and the one
+/// real owner is used automatically.
+#[test]
+fn exact_uuid_resume_auto_discovers_the_sole_owning_profile_without_an_explicit_profile_flag() {
+    let world = world();
+    let bob = world.root.path().join("config/profiles/bob/claude");
+    world.write_transcript(&bob, SESSION);
+    // No `--profile`: the configured primary is alice, who does NOT have this transcript.
+    let mut command = world.resume_command(&["--resume", SESSION]);
+    command.env(
+        "RELAY_TEST_TRANSCRIPT_DIR",
+        world.transcript_dir(&bob).to_str().expect("utf8"),
+    );
+    let output = command.output().expect("relay claude --resume");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // The native `--resume` invocation actually ran under BOB's CLAUDE_CONFIG_DIR, proving the
+    // auto-discovered owner (not the configured primary alice) was used to launch Claude.
+    let config_dir_used =
+        resume_invocation_config_dir(world.root.path()).expect("a --resume invocation was logged");
+    assert!(
+        PathBuf::from(&config_dir_used).ends_with("bob/claude"),
+        "expected bob's config dir, got: {config_dir_used}"
+    );
+    assert_eq!(world.lease().expect("lease")["owner_profile"], "bob");
+}
+
+#[test]
+fn exact_uuid_resume_with_no_registered_owner_gives_an_actionable_error() {
+    let world = world();
+    // No profile — alice or bob — has ever saved this session.
+    let output = world
+        .resume_command(&["--resume", SESSION])
+        .output()
+        .expect("relay");
+    assert_eq!(error_code(&output), "adoption_refused");
+    let message = error_message(&output);
+    assert!(
+        message.contains("no registered Claude profile") && message.contains("profile adopt"),
+        "{message}"
+    );
+    assert!(world.lease().is_none());
+}
+
+#[test]
+fn exact_uuid_resume_with_more_than_one_owner_refuses_and_names_every_candidate() {
+    let world = world();
+    let bob = world.root.path().join("config/profiles/bob/claude");
+    // The same session id is (unrealistically, but a safety case worth proving) saved under both
+    // registered profiles: Relay must refuse rather than silently pick one.
+    world.write_transcript(&world.alice, SESSION);
+    world.write_transcript(&bob, SESSION);
+    let output = world
+        .resume_command(&["--resume", SESSION])
+        .output()
+        .expect("relay");
+    assert_eq!(error_code(&output), "adoption_refused");
+    let message = error_message(&output);
+    assert!(
+        message.contains("alice") && message.contains("bob") && message.contains("--profile"),
+        "{message}"
+    );
     assert!(world.lease().is_none());
 }
 
@@ -869,6 +967,178 @@ fn several_live_conversations_in_one_project_are_each_adopted_as_their_own_relay
     // the same live one again is idempotent.
     let again = reason(&second.type_into(&world, &world.alice, OTHER_SESSION, "/relay adopt"));
     assert!(again.contains("already managed"), "{again}");
+}
+
+// ---- relay adopt --session <id> (external adoption, no in-session /relay command needed) -------
+
+/// M4.4: a live Claude process started before Relay's `/relay` command was ever installed can
+/// still be brought under Relay — the whole point of `relay adopt` existing as a normal CLI
+/// command rather than only an in-session hook.
+#[test]
+fn adopt_cli_brings_an_already_running_conversation_under_relay_without_the_relay_command() {
+    let world = world();
+    world.write_transcript(&world.alice, SESSION);
+    let agent = LiveAgent::start(&world, &world.alice, SESSION);
+    let output = relay(
+        world.root.path(),
+        &[
+            "adopt",
+            "--session",
+            SESSION,
+            "--claude-executable",
+            world.claude.to_str().expect("utf8"),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // Same live process, no restart: the lease names the pid that was already running.
+    let lease = world.lease().expect("lease");
+    assert_eq!(lease["session_id"], SESSION);
+    assert_eq!(lease["owner_profile"], "alice");
+    assert_eq!(lease["owner_process"]["pid"], agent.pid());
+
+    // Idempotent: adopting again reports the same session rather than creating a second one.
+    let again = relay(
+        world.root.path(),
+        &[
+            "adopt",
+            "--session",
+            SESSION,
+            "--claude-executable",
+            world.claude.to_str().expect("utf8"),
+        ],
+    );
+    assert!(again.status.success());
+    assert_eq!(world.session_dirs().len(), 1);
+
+    // `relay status` shows it ACTIVE, exactly as the milestone's dogfood scenario requires.
+    let status = relay(
+        world.root.path(),
+        &[
+            "status",
+            "--project",
+            world.project.path().to_str().unwrap(),
+        ],
+    );
+    assert!(status.status.success());
+}
+
+#[test]
+fn adopt_cli_searches_every_registered_profile_when_no_profile_is_pinned() {
+    let world = world();
+    let bob = world.root.path().join("config/profiles/bob/claude");
+    world.write_transcript(&bob, SESSION);
+    let agent = LiveAgent::start(&world, &bob, SESSION);
+    // No --profile: every registered Claude profile (alice, bob) is searched.
+    let output = relay(
+        world.root.path(),
+        &[
+            "adopt",
+            "--session",
+            SESSION,
+            "--claude-executable",
+            world.claude.to_str().expect("utf8"),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lease = world.lease().expect("lease");
+    assert_eq!(lease["owner_profile"], "bob");
+    assert_eq!(lease["owner_process"]["pid"], agent.pid());
+}
+
+#[test]
+fn adopt_cli_pinned_to_the_wrong_profile_names_the_real_live_owner() {
+    let world = world();
+    let bob = world.root.path().join("config/profiles/bob/claude");
+    world.write_transcript(&bob, OTHER_SESSION);
+    let _agent = LiveAgent::start(&world, &bob, OTHER_SESSION);
+    let wrong = relay(
+        world.root.path(),
+        &[
+            "adopt",
+            "--session",
+            OTHER_SESSION,
+            "--profile",
+            "alice",
+            "--claude-executable",
+            world.claude.to_str().expect("utf8"),
+        ],
+    );
+    assert_eq!(error_code(&wrong), "adoption_refused");
+    let message = error_message(&wrong);
+    assert!(
+        message.contains("bob") && message.contains("--profile bob"),
+        "{message}"
+    );
+    assert!(world.lease().is_none());
+}
+
+#[test]
+fn adopt_cli_refuses_when_no_registered_profile_has_a_live_process_for_the_session() {
+    let world = world();
+    // No transcript, no live process, nothing — under either registered profile.
+    let output = relay(
+        world.root.path(),
+        &[
+            "adopt",
+            "--session",
+            SESSION,
+            "--claude-executable",
+            world.claude.to_str().expect("utf8"),
+        ],
+    );
+    assert_eq!(error_code(&output), "adoption_refused");
+    assert!(world.lease().is_none());
+}
+
+#[test]
+fn adopt_cli_then_external_switch_moves_only_that_session() {
+    skip_without_process_env_scan!();
+    let world = world();
+    world.write_transcript(&world.alice, SESSION);
+    let _agent = LiveAgent::start(&world, &world.alice, SESSION);
+    let adopted = relay(
+        world.root.path(),
+        &[
+            "adopt",
+            "--session",
+            SESSION,
+            "--claude-executable",
+            world.claude.to_str().expect("utf8"),
+        ],
+    );
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+    // An external `relay switch` can act on the externally adopted session like any other.
+    let switch = relay(
+        world.root.path(),
+        &[
+            "switch",
+            "bob",
+            "--project-dir",
+            world.project.path().to_str().unwrap(),
+            "--no-attach",
+            "--claude-executable",
+            world.claude.to_str().expect("utf8"),
+        ],
+    );
+    assert!(
+        switch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&switch.stderr)
+    );
+    let lease = world.lease().expect("lease");
+    assert_eq!(lease["owner_profile"], "bob");
 }
 
 #[test]

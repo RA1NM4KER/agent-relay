@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use relay_core::{Error, Result};
+use relay_core::{ClaudeConfigMode, Error, Result};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -130,6 +130,9 @@ pub struct ProcessSpec {
 pub struct ProcessResult {
     pub success: bool,
     pub stdout: Vec<u8>,
+    /// Captured for diagnostics only (see [`sanitize_diagnostic`]) — never returned to a caller
+    /// raw, and never used as a data source for anything safety-relevant.
+    pub stderr: Vec<u8>,
 }
 
 pub trait CommandRunner: Send + Sync {
@@ -178,14 +181,50 @@ impl CommandRunner for SystemCommandRunner {
         let stdout = stdout_reader
             .join()
             .map_err(|_| Error::ProviderCommandFailed)??;
-        let _discarded_stderr = stderr_reader
+        let stderr = stderr_reader
             .join()
-            .map_err(|_| Error::ProviderCommandFailed)??;
+            .map_err(|_| Error::ProviderCommandFailed)?
+            .unwrap_or_default();
         Ok(ProcessResult {
             success: status.success(),
             stdout,
+            stderr,
         })
     }
+}
+
+/// A bounded, redacted line of the command's own stderr, safe to put in an error message: long
+/// token-shaped runs (anything that could be a credential/session id) are replaced with
+/// `<redacted>`, and the whole thing is capped so a runaway or binary-garbage stream can never
+/// blow up an error string. Never includes environment values — the caller only ever passes
+/// captured stderr bytes here, nothing derived from `std::env`.
+#[must_use]
+pub fn sanitize_diagnostic(stderr: &[u8]) -> Option<String> {
+    const MAX_LEN: usize = 300;
+    let text = String::from_utf8_lossy(stderr);
+    let first_line = text.lines().find(|line| !line.trim().is_empty())?;
+    let mut redacted = String::new();
+    for word in first_line.split_whitespace() {
+        if !redacted.is_empty() {
+            redacted.push(' ');
+        }
+        let looks_like_a_secret = word.len() >= 20
+            && word
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '/');
+        redacted.push_str(if looks_like_a_secret {
+            "<redacted>"
+        } else {
+            word
+        });
+    }
+    if redacted.is_empty() {
+        return None;
+    }
+    if redacted.chars().count() > MAX_LEN {
+        redacted = redacted.chars().take(MAX_LEN).collect::<String>() + "…";
+    }
+    Some(redacted)
 }
 
 fn read_limited(reader: impl Read, limit: usize) -> Result<Vec<u8>> {
@@ -236,17 +275,23 @@ impl<R: CommandRunner> ClaudeInspector<R> {
     pub fn inspect(
         &self,
         config_dir: &Path,
+        mode: ClaudeConfigMode,
         environment: EnvironmentOverrideStatus,
     ) -> Result<ClaudeInspectionReport> {
         if !environment.safe {
             return Err(Error::EnvironmentOverrideConflict);
+        }
+        if mode == ClaudeConfigMode::NativeDefault
+            && config_dir != crate::native_default_dir().ok_or(Error::MissingEnvironment("HOME"))?
+        {
+            return Err(Error::ProviderProfileMismatch);
         }
         let version = self.inspect_version()?;
         if !is_supported_version(&version) {
             return Err(Error::UnsupportedProviderVersion);
         }
 
-        let auth = self.run_auth_status(config_dir)?;
+        let auth = self.run_auth_status(config_dir, mode)?;
         let mut reasons = Vec::new();
         let identity_pin = if auth.logged_in {
             match auth.identity_pin() {
@@ -290,12 +335,27 @@ impl<R: CommandRunner> ClaudeInspector<R> {
             output_limit: VERSION_OUTPUT_LIMIT,
         })?;
         if !result.success {
-            return Err(Error::ProviderCommandFailed);
+            return Err(diagnostic("claude --version", &result.stderr));
         }
         parse_version(&result.stdout)
     }
 
-    fn run_auth_status(&self, config_dir: &Path) -> Result<AuthStatus> {
+    fn run_auth_status(&self, config_dir: &Path, mode: ClaudeConfigMode) -> Result<AuthStatus> {
+        let environment = match mode {
+            ClaudeConfigMode::Explicit => BTreeMap::from([(
+                OsString::from("CLAUDE_CONFIG_DIR"),
+                config_dir.as_os_str().to_os_string(),
+            )]),
+            // NativeDefault: CLAUDE_CONFIG_DIR must stay unset, not "set to config_dir" — the two
+            // report different `loggedIn` results for the identical effective directory (see
+            // crate::config_mode's doc comment). `remove_environment` below strips any inherited
+            // value (e.g. from a parent Claude process of a different profile).
+            ClaudeConfigMode::NativeDefault => BTreeMap::new(),
+        };
+        let mut remove_environment = override_names();
+        if mode == ClaudeConfigMode::NativeDefault {
+            remove_environment.push(OsString::from("CLAUDE_CONFIG_DIR"));
+        }
         let result = self.runner.run(&ProcessSpec {
             executable: self.executable.clone(),
             arguments: vec![
@@ -303,18 +363,27 @@ impl<R: CommandRunner> ClaudeInspector<R> {
                 OsString::from("status"),
                 OsString::from("--json"),
             ],
-            environment: BTreeMap::from([(
-                OsString::from("CLAUDE_CONFIG_DIR"),
-                config_dir.as_os_str().to_os_string(),
-            )]),
-            remove_environment: override_names(),
+            environment,
+            remove_environment,
             timeout: COMMAND_TIMEOUT,
             output_limit: AUTH_OUTPUT_LIMIT,
         })?;
         if !result.success {
-            return Err(Error::ProviderCommandFailed);
+            return Err(diagnostic("claude auth status --json", &result.stderr));
         }
         parse_auth_status(&result.stdout, config_dir)
+    }
+}
+
+/// Turns a failed provider command into an actionable [`Error::ProviderDiagnostic`]: which
+/// operation failed, and (when the command left anything on stderr worth showing) a sanitized
+/// excerpt of it — never the raw text, never anything that looks like a token.
+fn diagnostic(operation: &str, stderr: &[u8]) -> Error {
+    let detail = sanitize_diagnostic(stderr)
+        .unwrap_or_else(|| "the command exited with a non-zero status".to_owned());
+    Error::ProviderDiagnostic {
+        operation: operation.to_owned(),
+        detail,
     }
 }
 

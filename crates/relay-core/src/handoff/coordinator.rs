@@ -114,12 +114,16 @@ pub struct TransferOutcome {
 /// Only used for [`ContinuityType::SessionContinuation`] — `STATE_CONTINUATION` never copies
 /// provider-native session artifacts between providers (see [`ContextCapturer`] instead).
 pub trait SessionStager: Send + Sync {
+    /// `source_mode`/`target_mode` are only meaningful for Claude (see
+    /// [`crate::ClaudeConfigMode`]); a stager for any other provider ignores them.
     fn stage(
         &self,
         source_config_dir: &Path,
         target_config_dir: &Path,
         project_dir: &Path,
         session_id: &str,
+        source_mode: crate::ClaudeConfigMode,
+        target_mode: crate::ClaudeConfigMode,
     ) -> Result<TransferOutcome>;
 
     /// Everything [`stage`](Self::stage) will require that can be known without writing anything,
@@ -133,6 +137,7 @@ pub trait SessionStager: Send + Sync {
         _project_dir: &Path,
         _session_id: &str,
         _recorded_owner: Option<&ProcessIdentity>,
+        _source_mode: crate::ClaudeConfigMode,
     ) -> Result<()> {
         Ok(())
     }
@@ -212,6 +217,13 @@ pub struct HandoffRequest {
     /// The Relay Session's own state directory (lease, journals, lock). `None` keeps the legacy
     /// project-level directory (used only by low-level tests).
     pub state_dir: Option<PathBuf>,
+    /// Only meaningful when the respective side is Claude; see [`crate::ClaudeConfigMode`].
+    /// Defaults preserved for every existing construction site via `..Default::default()`-style
+    /// literal fields would be nicer, but `HandoffRequest` has no `Default`; every constructor
+    /// simply states `relay_core::ClaudeConfigMode::Explicit` when the mode is not yet threaded
+    /// through that call site.
+    pub source_claude_mode: crate::ClaudeConfigMode,
+    pub target_claude_mode: crate::ClaudeConfigMode,
 }
 
 pub struct HandoffCoordinator<'a> {
@@ -470,6 +482,7 @@ impl HandoffCoordinator<'_> {
                 project_dir,
                 &request.session_id,
                 recorded_owner.as_ref(),
+                request.source_claude_mode,
             )
         {
             fail_and_return!(
@@ -522,6 +535,8 @@ impl HandoffCoordinator<'_> {
                     &request.target_config_dir,
                     project_dir,
                     &request.session_id,
+                    request.source_claude_mode,
+                    request.target_claude_mode,
                 ) {
                     Ok(transfer) => transfer,
                     Err(error) => fail_and_return!(

@@ -19,8 +19,9 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use relay_core::{
-    AddProfileRequest, AuthenticationState, Error, IdentityMetadata, Profile, ProfileDirectory,
-    ProfileName, ProfileService, ProfileSetupMode, Provider, ProviderKind, RelayPaths,
+    AddProfileRequest, AuthenticationState, ClaudeConfigMode, Error, IdentityMetadata, Profile,
+    ProfileDirectory, ProfileName, ProfileService, ProfileSetupMode, Provider, ProviderKind,
+    RelayPaths,
     automation::{
         AutomationDecision, AutomationPolicy, LedgerStore, ProfileCandidate, WatchCoordinator,
         WatchOutcome, WatchRequest, decide,
@@ -165,6 +166,28 @@ enum Command {
     /// (native resume of the same Claude session / Codex thread). With several you choose, or pass
     /// `--session`; an active session is never started twice.
     Resume(ResumeArgs),
+    /// Bring an ALREADY-RUNNING Claude conversation under Relay from outside it — no in-session
+    /// `/relay adopt` required. Exists because a Claude process started before Relay's `/relay`
+    /// command was installed never sees it (Claude only loads custom commands at session start),
+    /// so the in-session path is unreachable for a conversation that predates the install. Every
+    /// fact comes from Claude's own structural session registry and transcript layout, exactly as
+    /// the in-session adoption hook requires — never a guess from a profile name. Refuses (leaves
+    /// everything untouched) on any ambiguity; never restarts or stops the Claude process.
+    Adopt(AdoptArgs),
+}
+
+#[derive(Debug, Args)]
+struct AdoptArgs {
+    /// The exact native Claude session id to adopt (see the Claude pane's own status, or
+    /// `claude agents --json` under the owning profile).
+    #[arg(long)]
+    session: String,
+    /// Pin the search to this registered profile instead of searching every registered Claude
+    /// profile (NativeDefault included) for the one that structurally owns this live session.
+    #[arg(long)]
+    profile: Option<ProfileName>,
+    #[arg(long, value_name = "PATH")]
+    claude_executable: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -374,11 +397,17 @@ struct ClaudeIntegrationArgs {
 #[group(required = true, multiple = false)]
 struct IntegrationTarget {
     /// A registered Relay profile whose isolated Claude config directory is modified.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "native_default")]
     profile: Option<ProfileName>,
-    /// An explicit Claude config directory (for example `~/.claude`, only when you mean it).
-    #[arg(long, value_name = "PATH")]
+    /// An explicit, isolated Claude config directory (never `~/.claude` — use
+    /// `--native-default` for that, since Claude's own auth lookup differs by mode even for the
+    /// identical path).
+    #[arg(long, value_name = "PATH", conflicts_with = "native_default")]
     config_dir: Option<PathBuf>,
+    /// Target Claude's own native-default account (`~/.claude`, launched with
+    /// `CLAUDE_CONFIG_DIR` left unset) instead of a profile or an explicit directory.
+    #[arg(long)]
+    native_default: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -761,32 +790,56 @@ enum ProfileCommand {
     InspectExisting {
         #[arg(long, value_enum)]
         provider: ExistingProvider,
-        #[arg(long, value_name = "PATH")]
-        config_dir: PathBuf,
-        /// Permit a private directory outside Relay's managed profiles root.
+        /// Required unless `--native-default` is given.
+        #[arg(
+            long,
+            value_name = "PATH",
+            conflicts_with = "native_default",
+            required_unless_present = "native_default"
+        )]
+        config_dir: Option<PathBuf>,
+        /// Permit a private directory outside Relay's managed profiles root. Implied by
+        /// `--native-default`, since `~/.claude` is never inside it.
         #[arg(long)]
         allow_external: bool,
         /// Explicit Claude executable, primarily for controlled validation.
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
+        /// Inspect Claude's own native-default account (`~/.claude`, launched with
+        /// `CLAUDE_CONFIG_DIR` left unset) instead of an explicit isolated profile directory.
+        /// These are not interchangeable: Claude's own auth lookup differs by mode even for the
+        /// identical path.
+        #[arg(long, conflicts_with = "config_dir")]
+        native_default: bool,
     },
     /// Adopt an existing Claude profile by reference, or preview the adoption.
     Adopt {
         name: ProfileName,
         #[arg(long, value_enum)]
         provider: ExistingProvider,
-        #[arg(long, value_name = "PATH")]
-        config_dir: PathBuf,
+        /// Required unless `--native-default` is given.
+        #[arg(
+            long,
+            value_name = "PATH",
+            conflicts_with = "native_default",
+            required_unless_present = "native_default"
+        )]
+        config_dir: Option<PathBuf>,
         /// Preview only: report what adoption would do without changing Relay's registry.
         /// Without this flag, adoption is performed and the registry is written.
         #[arg(long)]
         dry_run: bool,
-        /// Permit a private directory outside Relay's managed profiles root.
+        /// Permit a private directory outside Relay's managed profiles root. Implied by
+        /// `--native-default`, since `~/.claude` is never inside it.
         #[arg(long)]
         allow_external: bool,
         /// Explicit Claude executable, primarily for controlled validation.
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
+        /// Adopt Claude's own native-default account (`~/.claude`, launched with
+        /// `CLAUDE_CONFIG_DIR` left unset) instead of an explicit isolated profile directory.
+        #[arg(long, conflicts_with = "config_dir")]
+        native_default: bool,
     },
 }
 
@@ -1069,6 +1122,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         config_dir: config_dir.clone(),
                         mode: ProfileSetupMode::Create,
                         expected_identity: None,
+                        claude_config_mode: None,
                     },
                     &provider,
                 )?;
@@ -1177,12 +1231,19 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 config_dir,
                 allow_external,
                 claude_executable,
+                native_default,
             } => {
+                let (config_dir, allow_external, mode) = resolve_claude_adoption_target(
+                    config_dir.as_deref(),
+                    *native_default,
+                    *allow_external,
+                )?;
                 let report = inspect_existing_claude(
                     &paths,
-                    config_dir,
-                    *allow_external,
+                    &config_dir,
+                    allow_external,
                     claude_executable.as_deref(),
+                    mode,
                 )?;
                 let human = inspection_human(&report);
                 success("profile.inspect_existing", human, report)
@@ -1194,12 +1255,19 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 dry_run,
                 allow_external,
                 claude_executable,
+                native_default,
             } if !dry_run => {
+                let (config_dir, allow_external, mode) = resolve_claude_adoption_target(
+                    config_dir.as_deref(),
+                    *native_default,
+                    *allow_external,
+                )?;
                 let report = inspect_existing_claude(
                     &paths,
-                    config_dir,
-                    *allow_external,
+                    &config_dir,
+                    allow_external,
                     claude_executable.as_deref(),
+                    mode,
                 )?;
                 if !report.safe_to_adopt {
                     return Err(if report.authenticated {
@@ -1225,6 +1293,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         config_dir: Some(report.config_dir.clone()),
                         mode: ProfileSetupMode::AdoptExisting,
                         expected_identity: Some(expected_identity),
+                        claude_config_mode: Some(mode),
                     },
                     &claude_provider,
                 )?;
@@ -1248,12 +1317,19 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 dry_run: _,
                 allow_external,
                 claude_executable,
+                native_default,
             } => {
+                let (config_dir, allow_external, mode) = resolve_claude_adoption_target(
+                    config_dir.as_deref(),
+                    *native_default,
+                    *allow_external,
+                )?;
                 let report = inspect_existing_claude(
                     &paths,
-                    config_dir,
-                    *allow_external,
+                    &config_dir,
+                    allow_external,
                     claude_executable.as_deref(),
+                    mode,
                 )?;
                 let mut reasons = report.reasons.clone();
                 let registered_profiles = service.list()?;
@@ -1358,6 +1434,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     &target.config_dir,
                     project_dir,
                     session_id,
+                    source.effective_claude_config_mode(),
                 )?;
                 let human = format!(
                     "Staged session {} from '{}' to '{}'\nProject key: {}\nArtifacts: {}",
@@ -1463,6 +1540,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         session_id,
                         target_active,
                         decision,
+                        source.effective_claude_config_mode(),
                     )?;
                     let human = format!(
                         "Session {session_id}: {} (dry_run={}){}",
@@ -1609,15 +1687,20 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     .iter()
                     .find(|profile| &profile.name == target_profile)
                     .ok_or_else(|| Error::ProfileNotFound(target_profile.to_string()))?;
-                let liveness = ClaudeSourceLiveness::new(claude_executable.clone());
-                let stopper = ClaudeSessionStopper::new(claude_executable.clone());
+                let source_mode = source.effective_claude_config_mode();
+                let target_mode = target.effective_claude_config_mode();
+                let liveness = ClaudeSourceLiveness::new(claude_executable.clone(), source_mode);
+                let source_stopper =
+                    ClaudeSessionStopper::new(claude_executable.clone(), source_mode);
+                let target_stopper =
+                    ClaudeSessionStopper::new(claude_executable.clone(), target_mode);
                 let stager = ClaudeSessionStager;
-                let launcher = ClaudeTargetLauncher::new(claude_executable.clone());
+                let launcher = ClaudeTargetLauncher::new(claude_executable.clone(), target_mode);
                 let coordinator = HandoffCoordinator {
                     paths: &paths,
                     liveness: &liveness,
-                    source_stopper: &stopper,
-                    target_stopper: &stopper,
+                    source_stopper: &source_stopper,
+                    target_stopper: &target_stopper,
                     stager: Some(&stager),
                     context_capturer: None,
                     launcher: &launcher,
@@ -1635,6 +1718,8 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     target_config_dir: target.config_dir.clone(),
                     session_id: session_id.clone(),
                     continuity_type: relay_core::handoff::ContinuityType::SessionContinuation,
+                    source_claude_mode: source_mode,
+                    target_claude_mode: target_mode,
                     state_dir: {
                         let canonical =
                             std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
@@ -1690,15 +1775,37 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             })?;
             let parsed = relay_core::handoff::TransactionId::parse(transaction_id)?;
             let project_state_dir = find_transaction_dir(&paths, &canonical, &parsed)?;
-            let liveness = ClaudeSourceLiveness::new(claude_executable.clone());
-            let stopper = ClaudeSessionStopper::new(claude_executable.clone());
+            // Peek the journal (independent of the coordinator below) to learn which registered
+            // profiles this transaction actually named, so recovery uses their real
+            // NativeDefault/Explicit modes rather than assuming Explicit.
+            let peeked_journal = JournalStore::at_path(
+                project_state_dir
+                    .join("handoffs")
+                    .join(format!("{parsed}.json")),
+            )
+            .load()?;
+            let registered = service.list()?;
+            let mode_for = |name: &relay_core::ProfileName| {
+                registered
+                    .iter()
+                    .find(|profile| &profile.name == name)
+                    .map_or_else(
+                        ClaudeConfigMode::default,
+                        Profile::effective_claude_config_mode,
+                    )
+            };
+            let source_mode = mode_for(&peeked_journal.source_profile);
+            let target_mode = mode_for(&peeked_journal.target_profile);
+            let liveness = ClaudeSourceLiveness::new(claude_executable.clone(), source_mode);
+            let source_stopper = ClaudeSessionStopper::new(claude_executable.clone(), source_mode);
+            let target_stopper = ClaudeSessionStopper::new(claude_executable.clone(), target_mode);
             let stager = ClaudeSessionStager;
-            let launcher = ClaudeTargetLauncher::new(claude_executable.clone());
+            let launcher = ClaudeTargetLauncher::new(claude_executable.clone(), target_mode);
             let coordinator = HandoffCoordinator {
                 paths: &paths,
                 liveness: &liveness,
-                source_stopper: &stopper,
-                target_stopper: &stopper,
+                source_stopper: &source_stopper,
+                target_stopper: &target_stopper,
                 stager: Some(&stager),
                 context_capturer: None,
                 launcher: &launcher,
@@ -1747,26 +1854,33 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
         Command::Integration(integration) => match &integration.command {
             IntegrationCommand::Herdr(herdr) => run_herdr_integration(herdr, &paths),
             IntegrationCommand::Claude(claude) => {
-                let resolve = |target: &IntegrationTarget| -> Result<PathBuf, Error> {
-                    match (&target.profile, &target.config_dir) {
-                        (Some(name), None) => {
-                            let profile = service
-                                .list()?
-                                .into_iter()
-                                .find(|candidate| &candidate.name == name)
-                                .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
-                            if profile.provider != ProviderKind::Claude {
-                                return Err(Error::ProviderMismatch {
-                                    expected: "claude".to_owned(),
-                                    observed: format!("{:?}", profile.provider),
-                                });
-                            }
-                            Ok(profile.config_dir)
+                let resolve =
+                    |target: &IntegrationTarget| -> Result<(PathBuf, ClaudeConfigMode), Error> {
+                        if target.native_default {
+                            let dir = relay_provider_claude::native_default_dir()
+                                .ok_or(Error::MissingEnvironment("HOME"))?;
+                            return Ok((dir, ClaudeConfigMode::NativeDefault));
                         }
-                        (None, Some(path)) => Ok(path.clone()),
-                        _ => Err(Error::ProviderUnsupported),
-                    }
-                };
+                        match (&target.profile, &target.config_dir) {
+                            (Some(name), None) => {
+                                let profile = service
+                                    .list()?
+                                    .into_iter()
+                                    .find(|candidate| &candidate.name == name)
+                                    .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+                                if profile.provider != ProviderKind::Claude {
+                                    return Err(Error::ProviderMismatch {
+                                        expected: "claude".to_owned(),
+                                        observed: format!("{:?}", profile.provider),
+                                    });
+                                }
+                                let mode = profile.effective_claude_config_mode();
+                                Ok((profile.config_dir, mode))
+                            }
+                            (None, Some(path)) => Ok((path.clone(), ClaudeConfigMode::Explicit)),
+                            _ => Err(Error::ProviderUnsupported),
+                        }
+                    };
                 match &claude.command {
                     ClaudeIntegrationCommand::Install {
                         target,
@@ -1774,9 +1888,9 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         allow_unverified_version,
                         claude_executable,
                     } => {
-                        let config_dir = resolve(target)?;
+                        let (config_dir, mode) = resolve(target)?;
                         let capabilities =
-                            assess_installed(claude_executable.as_deref(), &config_dir)?;
+                            assess_installed(claude_executable.as_deref(), &config_dir, mode)?;
                         capabilities
                             .usage_integration_ready(*allow_unverified_version)
                             .map_err(Error::IntegrationRefused)?;
@@ -1828,10 +1942,10 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         target,
                         claude_executable,
                     } => {
-                        let config_dir = resolve(target)?;
+                        let (config_dir, mode) = resolve(target)?;
                         let status = integration_status(&config_dir)?;
                         let capabilities =
-                            assess_installed(claude_executable.as_deref(), &config_dir).ok();
+                            assess_installed(claude_executable.as_deref(), &config_dir, mode).ok();
                         let human = format!(
                             "Config dir: {}\nInstalled: {}\nStopFailure hook: {}\nStatusLine: {}\n\
                          Settings changed since install: {}\nHooks disabled: {}\n\
@@ -1866,7 +1980,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         )
                     }
                     ClaudeIntegrationCommand::Uninstall { target, dry_run } => {
-                        let config_dir = resolve(target)?;
+                        let (config_dir, _mode) = resolve(target)?;
                         let plan = plan_uninstall(&config_dir)?;
                         if !dry_run {
                             apply_uninstall(&plan)?;
@@ -1937,9 +2051,13 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     providers::ProviderPorts,
                 > = std::collections::BTreeMap::new();
                 for profile in std::iter::once(source).chain(fallback_profiles.iter().copied()) {
-                    all_ports
-                        .entry(profile.name.clone())
-                        .or_insert_with(|| providers::ports_for(profile.provider, &executables));
+                    all_ports.entry(profile.name.clone()).or_insert_with(|| {
+                        providers::ports_for(
+                            profile.provider,
+                            &executables,
+                            profile.effective_claude_config_mode(),
+                        )
+                    });
                 }
 
                 let coordinators: std::collections::BTreeMap<
@@ -2019,8 +2137,11 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 // machinery); Codex's separate version gate lives in
                 // relay_provider_codex::assess_version and is checked inside the adapter itself.
                 if source.provider == ProviderKind::Claude {
-                    let capabilities =
-                        assess_installed(claude_executable.as_deref(), &source.config_dir)?;
+                    let capabilities = assess_installed(
+                        claude_executable.as_deref(),
+                        &source.config_dir,
+                        source.effective_claude_config_mode(),
+                    )?;
                     for required in [
                         relay_provider_claude::Capability::AgentsJsonShape,
                         relay_provider_claude::Capability::TranscriptLayout,
@@ -2062,6 +2183,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         &executables,
                         *probe && !ledger.is_known_exhausted(&profile.name, now),
                         workload_model.clone(),
+                        profile.effective_claude_config_mode(),
                     )
                 };
 
@@ -2094,6 +2216,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                             enabled: candidate.enabled,
                             healthy,
                             usage,
+                            claude_config_mode: Some(candidate.effective_claude_config_mode()),
                         })
                     })
                     .collect::<Result<Vec<_>, Error>>()?;
@@ -2110,6 +2233,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         fallbacks: fallback_candidates,
                         dry_run: *dry_run,
                         state_dir: Some(project_state_dir.clone()),
+                        source_claude_mode: Some(source.effective_claude_config_mode()),
                     },
                     current_unix_ms(),
                 )?;
@@ -2233,6 +2357,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
         ),
         Command::Switch(args) => run_switch(&service, &paths, args, cli.json),
         Command::Resume(args) => run_resume(&service, &paths, args, cli.json),
+        Command::Adopt(args) => run_adopt(&service, &paths, args),
     }
 }
 
@@ -2581,7 +2706,11 @@ fn confirm_not_active(
 ) -> Result<bool, Error> {
     // The OWNER's provider decides what "still running" means: a Codex-owned lease must never be
     // judged by Claude's session registry (or the reverse).
-    let ports = providers::ports_for(owner.provider, executables);
+    let ports = providers::ports_for(
+        owner.provider,
+        executables,
+        owner.effective_claude_config_mode(),
+    );
     for attempt in 0..LAUNCH_LIVENESS_CONFIRM_ATTEMPTS {
         let verdict = ports.liveness.check(
             &owner.config_dir,
@@ -2625,6 +2754,7 @@ fn perform_launch(
     // none of its business.
     let launched = relay_provider_claude::launch_background(
         &target.config_dir,
+        target.effective_claude_config_mode(),
         &canonical_project,
         prompt,
         claude_executable,
@@ -2667,6 +2797,7 @@ fn perform_launch(
 fn run_claude_auth_subcommand(
     claude_executable: Option<&Path>,
     config_dir: &Path,
+    mode: ClaudeConfigMode,
     subcommand: &str,
 ) -> Result<(), Error> {
     let inspector = ClaudeInspector::discover(claude_executable)?;
@@ -2674,10 +2805,10 @@ fn run_claude_auth_subcommand(
     command
         .arg("auth")
         .arg(subcommand)
-        .env("CLAUDE_CONFIG_DIR", config_dir)
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit());
+    relay_provider_claude::apply_config_mode(&mut command, mode, config_dir);
     for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
         command.env_remove(variable);
     }
@@ -2694,11 +2825,12 @@ fn run_claude_auth_subcommand(
 /// `config_dir` is the exact directory just logged into) the config directory matches.
 fn verify_authenticated(
     config_dir: &Path,
+    mode: ClaudeConfigMode,
     claude_executable: Option<&Path>,
 ) -> Result<ClaudeInspectionReport, Error> {
     let environment = inspect_environment(config_dir);
     let inspector = ClaudeInspector::discover(claude_executable)?;
-    inspector.inspect(config_dir, environment)
+    inspector.inspect(config_dir, mode, environment)
 }
 
 /// Registers a freshly authenticated (or re-authenticated) directory as a Relay profile through
@@ -2730,6 +2862,7 @@ fn adopt_authenticated_profile(
             config_dir: Some(config_dir.to_path_buf()),
             mode: ProfileSetupMode::AdoptExisting,
             expected_identity: Some(expected_identity),
+            claude_config_mode: Some(ClaudeConfigMode::Explicit),
         },
         &claude_provider,
     )
@@ -2747,8 +2880,15 @@ fn create_and_authenticate_profile(
 ) -> Result<Profile, Error> {
     let config_dir = paths.default_profile_dir(name, ProviderKind::Claude);
     ProfileDirectory::new(paths.profiles_root())?.create_managed(&config_dir)?;
-    run_claude_auth_subcommand(claude_executable, &config_dir, "login")?;
-    let report = verify_authenticated(&config_dir, claude_executable)?;
+    // A freshly created directory under Relay's managed profiles root is always an explicit,
+    // isolated profile — never Claude's native-default account.
+    run_claude_auth_subcommand(
+        claude_executable,
+        &config_dir,
+        ClaudeConfigMode::Explicit,
+        "login",
+    )?;
+    let report = verify_authenticated(&config_dir, ClaudeConfigMode::Explicit, claude_executable)?;
     if !report.authenticated || report.identity_pin.is_none() {
         return Err(Error::AuthenticationRequired);
     }
@@ -2771,7 +2911,7 @@ fn create_and_authenticate_codex_profile(
     ProfileDirectory::new(paths.profiles_root())?.create_managed(&config_dir)?;
     run_codex_auth_subcommand(codex_executable, &config_dir, "login")?;
     let backend = relay_provider_codex::CodexBackend::discover(codex_executable)?;
-    let observation = backend.inspect_profile(&config_dir)?;
+    let observation = backend.inspect_profile(&config_dir, None)?;
     if observation.authentication != AuthenticationState::Authenticated {
         return Err(Error::AuthenticationRequired);
     }
@@ -2786,6 +2926,7 @@ fn create_and_authenticate_codex_profile(
             config_dir: Some(config_dir),
             mode: ProfileSetupMode::AdoptExisting,
             expected_identity: Some(expected_identity),
+            claude_config_mode: None,
         },
         &backend,
     )
@@ -2868,13 +3009,18 @@ fn run_login(
                 if !json_mode {
                     println!("Opening Claude login for '{name}'...");
                 }
+                let mode = existing.effective_claude_config_mode();
                 run_claude_auth_subcommand(
                     executables.claude.as_deref(),
                     &existing.config_dir,
+                    mode,
                     "login",
                 )?;
-                let report =
-                    verify_authenticated(&existing.config_dir, executables.claude.as_deref())?;
+                let report = verify_authenticated(
+                    &existing.config_dir,
+                    mode,
+                    executables.claude.as_deref(),
+                )?;
                 if !report.authenticated {
                     return Err(Error::AuthenticationRequired);
                 }
@@ -2890,7 +3036,7 @@ fn run_login(
                 )?;
                 let backend =
                     relay_provider_codex::CodexBackend::discover(executables.codex.as_deref())?;
-                let observation = backend.inspect_profile(&existing.config_dir)?;
+                let observation = backend.inspect_profile(&existing.config_dir, None)?;
                 if observation.authentication != AuthenticationState::Authenticated {
                     return Err(Error::AuthenticationRequired);
                 }
@@ -2951,6 +3097,7 @@ fn run_logout(
             run_claude_auth_subcommand(
                 executables.claude.as_deref(),
                 &profile.config_dir,
+                profile.effective_claude_config_mode(),
                 "logout",
             )?;
         }
@@ -3066,8 +3213,16 @@ fn run_switch(
 
     let continuity_type =
         relay_core::handoff::ContinuityType::for_transition(source.provider, target.provider);
-    let source_ports = providers::ports_for(source.provider, &executables);
-    let target_ports = providers::ports_for(target.provider, &executables);
+    let source_ports = providers::ports_for(
+        source.provider,
+        &executables,
+        source.effective_claude_config_mode(),
+    );
+    let target_ports = providers::ports_for(
+        target.provider,
+        &executables,
+        target.effective_claude_config_mode(),
+    );
     let coordinator = HandoffCoordinator {
         paths,
         liveness: source_ports.liveness.as_ref(),
@@ -3120,6 +3275,8 @@ fn run_switch(
         target_config_dir: target.config_dir.clone(),
         session_id: source_native.clone(),
         continuity_type,
+        source_claude_mode: source.effective_claude_config_mode(),
+        target_claude_mode: target.effective_claude_config_mode(),
         state_dir: Some(session.dir.clone()),
     })?;
 
@@ -3241,6 +3398,149 @@ fn choose_switch_target(
             &targets,
         ))),
     }
+}
+
+/// `relay adopt --session <id>`: brings an already-running Claude conversation under Relay from
+/// OUTSIDE it — no in-session `/relay adopt` required. This exists because a Claude process
+/// started before Relay's `/relay` command was installed never sees it (Claude only loads custom
+/// commands at session start), so the in-session hook path is structurally unreachable for a
+/// conversation that predates the install. Searches every registered Claude profile's own live
+/// session registry (NativeDefault included, exactly like any other registered profile) for the
+/// one that structurally owns `--session`, unless `--profile` pins the search — never guessing
+/// from a profile name. Never restarts or stops the Claude process; the exact-session safety
+/// invariants `adopt_claude` already enforces (one live owner per native conversation, atomic
+/// lease creation) apply unchanged.
+fn run_adopt(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    args: &AdoptArgs,
+) -> Result<CommandOutput, Error> {
+    if !live::is_session_uuid(&args.session) {
+        return Err(Error::AdoptionRefused(format!(
+            "'{}' is not a Claude session id",
+            args.session
+        )));
+    }
+    let registered = service.list()?;
+    let executables = providers::ExecutableOverrides {
+        claude: args.claude_executable.clone(),
+        codex: None,
+    };
+
+    if let Some(name) = &args.profile {
+        let pinned = registered
+            .iter()
+            .find(|profile| &profile.name == name)
+            .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+        if pinned.provider != ProviderKind::Claude {
+            return Err(Error::ProfileProviderMismatch {
+                profile: name.to_string(),
+                expected: "Claude",
+                actual: pinned.provider.to_string(),
+            });
+        }
+    }
+    let all_claude: Vec<&Profile> = registered
+        .iter()
+        .filter(|profile| profile.provider == ProviderKind::Claude)
+        .collect();
+    let checked = all_claude.len();
+
+    // Every registered Claude profile is checked structurally regardless of `--profile`: an
+    // explicit-but-wrong pin still gets told which profile actually owns the live conversation,
+    // exactly like the exact-uuid discovery in `relay claude --resume` — never a bare "not found".
+    let mut live_owner: Option<(&Profile, live::LiveSession)> = None;
+    for profile in &all_claude {
+        match live::identify_external(
+            &profile.config_dir,
+            profile.effective_claude_config_mode(),
+            args.claude_executable.as_deref(),
+            &args.session,
+        ) {
+            Ok(live_session) => {
+                if live_owner.is_some() {
+                    return Err(Error::AdoptionRefused(format!(
+                        "conversation '{}' appears live under more than one registered profile; \
+                         pass `--profile <name>` to choose",
+                        args.session
+                    )));
+                }
+                live_owner = Some((profile, live_session));
+            }
+            Err(_) => continue,
+        }
+    }
+    let (profile, live_session) = match (live_owner, &args.profile) {
+        (Some((profile, _live_session)), Some(pinned)) if &profile.name != pinned => {
+            return Err(Error::AdoptionRefused(format!(
+                "'{pinned}' has no live process for session '{}'; it is live under profile '{}' \
+                 instead — run `relay adopt --session {} --profile {}`",
+                args.session, profile.name, args.session, profile.name
+            )));
+        }
+        (Some(found), _) => found,
+        (None, _) => {
+            return Err(Error::AdoptionRefused(format!(
+                "no registered Claude profile ({checked} checked) has a live process for \
+                 session '{}'; register the profile that owns it first (`relay profile adopt \
+                 --provider claude --native-default`, or `--config-dir <dir>` for an isolated \
+                 one)",
+                args.session
+            )));
+        }
+    };
+
+    let outcome = live::adopt_claude(
+        service,
+        paths,
+        &live_session,
+        args.profile.as_ref(),
+        &executables,
+        None,
+        Vec::new(),
+    )?;
+
+    let (verb, relay_session_id, automatic_handoff) = match &outcome {
+        live::AdoptionOutcome::Adopted {
+            relay_session_id,
+            automatic_handoff,
+            ..
+        } => ("adopted", relay_session_id.clone(), *automatic_handoff),
+        live::AdoptionOutcome::Reactivated {
+            relay_session_id,
+            automatic_handoff,
+            ..
+        } => ("reactivated", relay_session_id.clone(), *automatic_handoff),
+        live::AdoptionOutcome::AlreadyManaged {
+            relay_session_id, ..
+        } => ("already managed", relay_session_id.clone(), false),
+    };
+    let human = format!(
+        "Session {} {verb} under profile '{}' as Relay session {}.\nProject: {}\nAutomatic \
+         handoff: {}\n\n`relay status` now shows it ACTIVE; `relay switch --session {} <target>` \
+         moves it.",
+        args.session,
+        profile.name,
+        relay_session_id.short(),
+        project_display_name(&live_session.project),
+        if automatic_handoff {
+            "enabled"
+        } else {
+            "not installed for this profile"
+        },
+        relay_session_id.short(),
+    );
+    success(
+        "adopt",
+        human,
+        json!({
+            "profile": profile.name.as_str(),
+            "relay_session_id": relay_session_id.as_str(),
+            "session_id": args.session,
+            "project_dir": live_session.project,
+            "outcome": verb,
+        }),
+    )
 }
 
 /// The normal way to continue an existing Relay-managed session: `relay resume` (no profile)
@@ -3510,18 +3810,25 @@ fn plan_terminal_for_lease(
             None,
         ),
         ProviderKind::Claude | ProviderKind::Fake => {
-            match resolve_claude_resume_action(&profile.config_dir, claude_executable, lease)? {
+            match resolve_claude_resume_action(
+                &profile.config_dir,
+                profile.effective_claude_config_mode(),
+                claude_executable,
+                lease,
+            )? {
                 ClaudeResumeAction::Attach(short_id) => {
                     let inspector = ClaudeInspector::discover(claude_executable)?;
                     Ok(plan_claude_attach(
                         inspector.executable(),
                         &profile.config_dir,
+                        profile.effective_claude_config_mode(),
                         &short_id,
                     ))
                 }
                 ClaudeResumeAction::NativeResume => plan_claude_resume(
                     claude_executable,
                     &profile.config_dir,
+                    profile.effective_claude_config_mode(),
                     canonical_project,
                     &lease.session_id,
                     provider_args,
@@ -3774,12 +4081,18 @@ fn serve_control_request(
     if let Some(source) = source
         && source_provider == ProviderKind::Claude
         && profile.provider == ProviderKind::Claude
-        && let Some(stager) = providers::ports_for(ProviderKind::Claude, &executables).stager
+        && let Some(stager) = providers::ports_for(
+            ProviderKind::Claude,
+            &executables,
+            source.effective_claude_config_mode(),
+        )
+        .stager
         && let Err(error) = stager.preflight(
             &source.config_dir,
             &context.canonical_project,
             &lease.session_id,
             Some(&lease.owner_process),
+            source.effective_claude_config_mode(),
         )
     {
         return refuse(&format!(
@@ -4138,13 +4451,14 @@ fn run_managed_terminal_inner(
 ///   against, so this is unconditionally `NativeResume`, not ambiguous.
 fn resolve_claude_resume_action(
     config_dir: &Path,
+    mode: ClaudeConfigMode,
     claude_executable: Option<&Path>,
     lease: &relay_core::handoff::WriterLease,
 ) -> Result<ClaudeResumeAction, Error> {
     let Some(handle) = &lease.provider_handle else {
         return Ok(ClaudeResumeAction::NativeResume);
     };
-    let sessions = query_active_sessions(config_dir, claude_executable)?;
+    let sessions = query_active_sessions(config_dir, mode, claude_executable)?;
     let listed = sessions
         .iter()
         .any(|record| record.id.as_deref() == Some(handle.as_str()));
@@ -4217,6 +4531,7 @@ fn plan_codex_resume(
         program: inspector.executable().to_path_buf(),
         args,
         envs: vec![("CODEX_HOME".into(), config_dir.into())],
+        env_removals: Vec::new(),
         current_dir: Some(project_dir.to_path_buf()),
     })
 }
@@ -4226,6 +4541,7 @@ fn plan_codex_resume(
 fn plan_claude_resume(
     claude_executable: Option<&Path>,
     config_dir: &Path,
+    mode: ClaudeConfigMode,
     project_dir: &Path,
     session_id: &str,
     extra_args: &[String],
@@ -4235,12 +4551,31 @@ fn plan_claude_resume(
     // The user's own arguments follow Relay's `--resume <id>` verbatim; the session is always the
     // one Relay chose (a conflicting flag was rejected up front).
     args.extend(extra_args.iter().map(OsString::from));
+    let (envs, env_removals) = claude_terminal_env(config_dir, mode);
     Ok(terminal::TerminalCommand {
         program: inspector.executable().to_path_buf(),
         args,
-        envs: vec![("CLAUDE_CONFIG_DIR".into(), config_dir.into())],
+        envs,
+        env_removals,
         current_dir: Some(project_dir.to_path_buf()),
     })
+}
+
+/// The `CLAUDE_CONFIG_DIR` environment a Claude child launched into the user's own terminal must
+/// get, by mode — mirrors `relay_provider_claude::apply_config_mode` (which operates on a
+/// `std::process::Command` we don't build directly here, since `TerminalCommand` also covers
+/// Codex).
+fn claude_terminal_env(
+    config_dir: &Path,
+    mode: ClaudeConfigMode,
+) -> (Vec<(OsString, OsString)>, Vec<OsString>) {
+    match mode {
+        ClaudeConfigMode::Explicit => (
+            vec![("CLAUDE_CONFIG_DIR".into(), config_dir.into())],
+            Vec::new(),
+        ),
+        ClaudeConfigMode::NativeDefault => (Vec::new(), vec!["CLAUDE_CONFIG_DIR".into()]),
+    }
 }
 
 // -------------------------------------------------------------------------------------------
@@ -4309,7 +4644,11 @@ fn friendly_auth_state(
             return ("unreachable", None);
         };
         let environment = inspect_environment(&profile.config_dir);
-        return match inspector.inspect(&profile.config_dir, environment) {
+        return match inspector.inspect(
+            &profile.config_dir,
+            profile.effective_claude_config_mode(),
+            environment,
+        ) {
             Ok(report) if report.authenticated && report.identity_pin.is_some() => {
                 ("authenticated", None)
             }
@@ -4320,7 +4659,7 @@ fn friendly_auth_state(
     let Ok(provider) = providers::provider_backend(profile.provider, executables) else {
         return ("unreachable", None);
     };
-    match provider.inspect_profile(&profile.config_dir) {
+    match provider.inspect_profile(&profile.config_dir, None) {
         Ok(observation) if observation.authentication == AuthenticationState::Authenticated => {
             ("authenticated", None)
         }
@@ -4541,12 +4880,15 @@ fn resolve_initial_message(args_message: &[String]) -> Result<String, Error> {
 fn plan_claude_attach(
     executable: &Path,
     config_dir: &Path,
+    mode: ClaudeConfigMode,
     short_id: &str,
 ) -> terminal::TerminalCommand {
+    let (envs, env_removals) = claude_terminal_env(config_dir, mode);
     terminal::TerminalCommand {
         program: executable.to_path_buf(),
         args: vec!["attach".into(), short_id.into()],
-        envs: vec![("CLAUDE_CONFIG_DIR".into(), config_dir.into())],
+        envs,
+        env_removals,
         current_dir: None,
     }
 }
@@ -4690,10 +5032,12 @@ fn run_claude(
         run_claude_auth_subcommand(
             args.claude_executable.as_deref(),
             &primary_profile.config_dir,
+            primary_profile.effective_claude_config_mode(),
             "login",
         )?;
         let report = verify_authenticated(
             &primary_profile.config_dir,
+            primary_profile.effective_claude_config_mode(),
             args.claude_executable.as_deref(),
         )?;
         if !report.authenticated {
@@ -4835,13 +5179,15 @@ fn run_claude(
     }
     command_args.extend(["--session-id".into(), session_id.clone().into()]);
     command_args.extend(args.provider_args.iter().map(OsString::from));
+    let (envs, env_removals) = claude_terminal_env(
+        &primary_profile.config_dir,
+        primary_profile.effective_claude_config_mode(),
+    );
     let command = terminal::TerminalCommand {
         program: inspector.executable().to_path_buf(),
         args: command_args,
-        envs: vec![(
-            "CLAUDE_CONFIG_DIR".into(),
-            primary_profile.config_dir.clone().into(),
-        )],
+        envs,
+        env_removals,
         current_dir: Some(canonical_project.clone()),
     };
 
@@ -4893,12 +5239,86 @@ fn run_claude_resume(
              pick one)"
         )));
     }
-    let profile = select_profile(
-        registered,
-        preferences,
-        args.profile.as_ref(),
-        ProviderKind::Claude,
-    )?;
+    // Exact-UUID owner discovery (M4.3): a concrete session id names exactly one native
+    // conversation, which lives under exactly one profile's transcripts. Rather than defaulting
+    // to the primary/configured profile and failing there, every registered Claude profile
+    // (NativeDefault included) is checked structurally; `--profile` still pins the search, but
+    // its error names the real owner when one is provable instead of a bare "not found".
+    let profile = if session.is_empty() {
+        select_profile(
+            registered,
+            preferences,
+            args.profile.as_ref(),
+            ProviderKind::Claude,
+        )?
+    } else if let Some(explicit) = &args.profile {
+        let profile = registered
+            .iter()
+            .find(|candidate| &candidate.name == explicit)
+            .ok_or_else(|| Error::ProfileNotFound(explicit.to_string()))?;
+        if profile.provider != ProviderKind::Claude {
+            return Err(Error::ProfileProviderMismatch {
+                profile: explicit.to_string(),
+                expected: "Claude",
+                actual: profile.provider.to_string(),
+            });
+        }
+        if !claude_transcript_exists(&profile.config_dir, session) {
+            let owners = claude_transcript_owners(registered, session);
+            return Err(Error::AdoptionRefused(match owners.as_slice() {
+                [owner] => format!(
+                    "profile '{explicit}' has no saved conversation with id '{session}'; it \
+                     belongs to profile '{}' instead — run `relay claude --resume {session} \
+                     --profile {}`",
+                    owner.name, owner.name
+                ),
+                [] => format!(
+                    "profile '{explicit}' has no saved conversation with id '{session}', and no \
+                     other registered Claude profile has it either"
+                ),
+                _ => format!(
+                    "profile '{explicit}' has no saved conversation with id '{session}'; it was \
+                     found under more than one other registered profile ({}) — this should never \
+                     happen for one native session id",
+                    owners
+                        .iter()
+                        .map(|owner| owner.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            }));
+        }
+        profile
+    } else {
+        let owners = claude_transcript_owners(registered, session);
+        match owners.as_slice() {
+            [owner] => {
+                if !json_mode {
+                    println!("Found session {session} under profile '{}'.", owner.name);
+                }
+                *owner
+            }
+            [] => {
+                return Err(Error::AdoptionRefused(format!(
+                    "no registered Claude profile has a saved conversation with id '{session}'; \
+                     register the profile that owns it first (`relay profile adopt --provider \
+                     claude --native-default` for Claude's own default account, or `relay \
+                     profile adopt --provider claude --config-dir <dir>` for an isolated one)"
+                )));
+            }
+            _ => {
+                return Err(Error::AdoptionRefused(format!(
+                    "conversation '{session}' is saved under more than one registered profile \
+                     ({}); pass `--profile <name>` to choose",
+                    owners
+                        .iter()
+                        .map(|owner| owner.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )));
+            }
+        }
+    };
     let executables = providers::ExecutableOverrides {
         claude: args.claude_executable.clone(),
         codex: None,
@@ -4918,12 +5338,6 @@ fn run_claude_resume(
                 active.record.relay_session_id.short().to_owned(),
             ));
         }
-    }
-    if !session.is_empty() && !claude_transcript_exists(&profile.config_dir, session) {
-        return Err(Error::AdoptionRefused(format!(
-            "profile '{}' has no saved conversation with that id",
-            profile.name
-        )));
     }
     let (auth, _) = friendly_auth_state(profile, &executables);
     if auth != "authenticated" {
@@ -4964,11 +5378,9 @@ fn run_claude_resume(
     }
     command_args.extend(["--settings".into(), settings.into()]);
     command_args.extend(args.provider_args.iter().map(OsString::from));
-    let mut envs: Vec<(OsString, OsString)> = vec![
-        (
-            "CLAUDE_CONFIG_DIR".into(),
-            profile.config_dir.clone().into(),
-        ),
+    let (mut envs, env_removals) =
+        claude_terminal_env(&profile.config_dir, profile.effective_claude_config_mode());
+    envs.extend([
         (ADOPT_PROFILE_ENV.into(), profile.name.as_str().into()),
         (ADOPT_RESULT_ENV.into(), result_path.clone().into()),
         (ADOPT_RELAY_SESSION_ENV.into(), preassigned.as_str().into()),
@@ -4978,7 +5390,7 @@ fn run_claude_resume(
                 .unwrap_or_default()
                 .into(),
         ),
-    ];
+    ]);
     if !session.is_empty() {
         envs.push((ADOPT_SESSION_ENV.into(), session.into()));
     }
@@ -4986,6 +5398,7 @@ fn run_claude_resume(
         program: inspector.executable().to_path_buf(),
         args: command_args,
         envs,
+        env_removals,
         current_dir: Some(canonical_project.to_path_buf()),
     };
     if !json_mode {
@@ -5015,6 +5428,21 @@ fn claude_transcript_exists(config_dir: &Path, session_id: &str) -> bool {
         .flatten()
         .flatten()
         .any(|project| project.path().join(format!("{session_id}.jsonl")).is_file())
+}
+
+/// Every registered Claude profile (NativeDefault included — it is a registered profile like any
+/// other) that structurally owns a saved transcript for `session_id`, straight from Claude's own
+/// on-disk transcript layout — never a guess from a profile name, email, or model output. Used so
+/// `relay claude --resume <exact-uuid>` finds the real owner instead of defaulting to the
+/// configured primary profile and failing there.
+fn claude_transcript_owners<'a>(registered: &'a [Profile], session_id: &str) -> Vec<&'a Profile> {
+    registered
+        .iter()
+        .filter(|profile| {
+            profile.provider == ProviderKind::Claude
+                && claude_transcript_exists(&profile.config_dir, session_id)
+        })
+        .collect()
 }
 
 fn shell_quote(value: &str) -> String {
@@ -5118,15 +5546,21 @@ fn codex_usage_now(
     executables: &providers::ExecutableOverrides,
     project_dir: &Path,
 ) -> relay_core::usage::UsageObservation {
-    providers::usage_signal_for(ProviderKind::Codex, executables, false, None)
-        .detect(&profile.config_dir, project_dir, "")
-        .unwrap_or_else(|_| relay_core::usage::UsageObservation {
-            state: UsageState::Unknown,
-            evidence: relay_core::usage::UsageEvidence::ProviderRateLimitApi,
-            detected_via: "codex usage check failed".to_owned(),
-            observed_unix_ms: current_unix_ms(),
-            reset_unix_ms: None,
-        })
+    providers::usage_signal_for(
+        ProviderKind::Codex,
+        executables,
+        false,
+        None,
+        ClaudeConfigMode::default(),
+    )
+    .detect(&profile.config_dir, project_dir, "")
+    .unwrap_or_else(|_| relay_core::usage::UsageObservation {
+        state: UsageState::Unknown,
+        evidence: relay_core::usage::UsageEvidence::ProviderRateLimitApi,
+        detected_via: "codex usage check failed".to_owned(),
+        observed_unix_ms: current_unix_ms(),
+        reset_unix_ms: None,
+    })
 }
 
 /// Runs the same one-shot automatic-handoff evaluation `relay watch run` performs, in-process, for
@@ -5198,6 +5632,7 @@ fn route_exhausted_codex_start(
         enabled: exhausted.enabled,
         healthy: true,
         usage,
+        claude_config_mode: Some(exhausted.effective_claude_config_mode()),
     };
     progress.say(&format!("Codex profile '{}' is exhausted.", exhausted.name));
     progress.set_label("Finding the next eligible profile…");
@@ -5206,12 +5641,14 @@ fn route_exhausted_codex_start(
         let Some(candidate) = registered.iter().find(|profile| &profile.name == name) else {
             continue;
         };
-        let candidate_usage =
-            providers::usage_signal_for(candidate.provider, executables, false, None).detect(
-                &candidate.config_dir,
-                canonical_project,
-                "",
-            )?;
+        let candidate_usage = providers::usage_signal_for(
+            candidate.provider,
+            executables,
+            false,
+            None,
+            candidate.effective_claude_config_mode(),
+        )
+        .detect(&candidate.config_dir, canonical_project, "")?;
         candidates.push(ProfileCandidate {
             name: candidate.name.clone(),
             provider: candidate.provider,
@@ -5220,6 +5657,7 @@ fn route_exhausted_codex_start(
             enabled: candidate.enabled,
             healthy: doctor_is_healthy(service, candidate, executables)?,
             usage: candidate_usage,
+            claude_config_mode: Some(candidate.effective_claude_config_mode()),
         });
     }
     let project_id = ProjectId::for_canonical_path(canonical_project)?;
@@ -5618,8 +6056,13 @@ fn run_setup(
         } else {
             let config_dir_text = prompt_line("Existing isolated Claude config directory", None)?;
             let config_dir = PathBuf::from(config_dir_text);
-            let report = match inspect_existing_claude(paths, &config_dir, true, claude_executable)
-            {
+            let report = match inspect_existing_claude(
+                paths,
+                &config_dir,
+                true,
+                claude_executable,
+                ClaudeConfigMode::Explicit,
+            ) {
                 Ok(report) => report,
                 Err(error) => {
                     println!("Could not inspect that directory: {error}");
@@ -5842,7 +6285,11 @@ fn install_usage_integration_interactive(
     profile: &Profile,
     claude_executable: Option<&Path>,
 ) -> Result<(), Error> {
-    let capabilities = match assess_installed(claude_executable, &profile.config_dir) {
+    let capabilities = match assess_installed(
+        claude_executable,
+        &profile.config_dir,
+        profile.effective_claude_config_mode(),
+    ) {
         Ok(capabilities) => capabilities,
         Err(error) => {
             println!("  Could not assess '{}': {error}", profile.name);
@@ -5928,8 +6375,11 @@ fn run_setup_non_interactive(
                 if profile.provider == ProviderKind::Codex {
                     continue;
                 }
-                let capabilities =
-                    assess_installed(args.claude_executable.as_deref(), &profile.config_dir)?;
+                let capabilities = assess_installed(
+                    args.claude_executable.as_deref(),
+                    &profile.config_dir,
+                    profile.effective_claude_config_mode(),
+                )?;
                 capabilities
                     .usage_integration_ready(false)
                     .map_err(Error::IntegrationRefused)?;
@@ -5982,7 +6432,11 @@ fn owner_is_live(
     recorded_owner: Option<&relay_core::handoff::ProcessIdentity>,
     executables: &providers::ExecutableOverrides,
 ) -> Result<bool, Error> {
-    let ports = providers::ports_for(owner.provider, executables);
+    let ports = providers::ports_for(
+        owner.provider,
+        executables,
+        owner.effective_claude_config_mode(),
+    );
     Ok(ports
         .liveness
         .check(&owner.config_dir, project_dir, session_id, recorded_owner)?
@@ -6042,16 +6496,39 @@ fn provider_for_profile(
     })
 }
 
+/// Resolves `--config-dir`/`--native-default`/`--allow-external` into the directory to inspect,
+/// the `allow_external` to actually apply, and the [`ClaudeConfigMode`] the rest of the pipeline
+/// must use. `~/.claude` is never inside Relay's managed profiles root, so native-default always
+/// implies external. Clap's `required_unless_present`/`conflicts_with` guarantee exactly one of
+/// `config_dir`/`native_default` is meaningfully set before this runs.
+fn resolve_claude_adoption_target(
+    config_dir: Option<&std::path::Path>,
+    native_default: bool,
+    allow_external: bool,
+) -> Result<(PathBuf, bool, ClaudeConfigMode), Error> {
+    if native_default {
+        let dir =
+            relay_provider_claude::native_default_dir().ok_or(Error::MissingEnvironment("HOME"))?;
+        Ok((dir, true, ClaudeConfigMode::NativeDefault))
+    } else {
+        let dir = config_dir
+            .ok_or(Error::MissingEnvironment("--config-dir"))?
+            .to_path_buf();
+        Ok((dir, allow_external, ClaudeConfigMode::Explicit))
+    }
+}
+
 fn inspect_existing_claude(
     paths: &RelayPaths,
     requested_config_dir: &std::path::Path,
     allow_external: bool,
     requested_executable: Option<&std::path::Path>,
+    mode: ClaudeConfigMode,
 ) -> Result<ClaudeInspectionReport, Error> {
     let config_dir = paths.validate_adoption_path(requested_config_dir, allow_external)?;
     let environment = inspect_environment(&config_dir);
     let inspector = ClaudeInspector::discover(requested_executable)?;
-    inspector.inspect(&config_dir, environment)
+    inspector.inspect(&config_dir, mode, environment)
 }
 
 fn inspection_human(report: &ClaudeInspectionReport) -> String {

@@ -14,8 +14,9 @@ pub mod usage;
 pub use atomic::{AtomicWrite, FsAtomicWriter};
 pub use error::{Error, Result};
 pub use model::{
-    AuthenticationState, Availability, AvailabilityObservation, DoctorCheck, DoctorReport,
-    IdentityMetadata, Profile, ProfileName, ProfileOrigin, ProfileStatus, ProviderKind,
+    AuthenticationState, Availability, AvailabilityObservation, ClaudeConfigMode, DoctorCheck,
+    DoctorReport, IdentityMetadata, Profile, ProfileName, ProfileOrigin, ProfileStatus,
+    ProviderKind,
 };
 pub use paths::{ProfileDirectory, RelayPaths};
 pub use provider::{

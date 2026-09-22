@@ -4,7 +4,7 @@ use std::{
 };
 
 use relay_core::{
-    Error, ProfileName, ProviderKind, RelayPaths,
+    ClaudeConfigMode, Error, ProfileName, ProviderKind, RelayPaths,
     handoff::{
         ContinuityType, FailedPhase, HandoffCoordinator, HandoffRequest, HandoffState,
         JournalStore, LaunchDirective, LeaseStore, LivenessVerdict, OrchestrationLock,
@@ -118,6 +118,8 @@ impl SessionStager for OkStager {
         _target_config_dir: &Path,
         _project_dir: &Path,
         session_id: &str,
+        _source_mode: ClaudeConfigMode,
+        _target_mode: ClaudeConfigMode,
     ) -> relay_core::Result<TransferOutcome> {
         Ok(TransferOutcome {
             artifacts: vec![TransferredArtifact {
@@ -137,6 +139,8 @@ impl SessionStager for FailingStager {
         _target_config_dir: &Path,
         _project_dir: &Path,
         _session_id: &str,
+        _source_mode: ClaudeConfigMode,
+        _target_mode: ClaudeConfigMode,
     ) -> relay_core::Result<TransferOutcome> {
         Err(Error::TargetArtifactDiverges)
     }
@@ -223,6 +227,8 @@ fn request(project_dir: &Path, from: &str, to: &str) -> HandoffRequest {
         session_id: SESSION_ID.to_owned(),
         continuity_type: ContinuityType::SessionContinuation,
         state_dir: None,
+        source_claude_mode: ClaudeConfigMode::Explicit,
+        target_claude_mode: ClaudeConfigMode::Explicit,
     }
 }
 
@@ -1593,6 +1599,8 @@ fn cross_provider_request(project_dir: &Path) -> HandoffRequest {
         session_id: SESSION_ID.to_owned(),
         continuity_type: ContinuityType::StateContinuation,
         state_dir: None,
+        source_claude_mode: ClaudeConfigMode::Explicit,
+        target_claude_mode: ClaudeConfigMode::Explicit,
     }
 }
 
@@ -1815,12 +1823,16 @@ impl SessionStager for PreflightRefusingStager {
         _target_config_dir: &Path,
         _project_dir: &Path,
         session_id: &str,
+        _source_mode: ClaudeConfigMode,
+        _target_mode: ClaudeConfigMode,
     ) -> relay_core::Result<TransferOutcome> {
         OkStager.stage(
             _source_config_dir,
             _target_config_dir,
             _project_dir,
             session_id,
+            _source_mode,
+            _target_mode,
         )
     }
     fn preflight(
@@ -1829,6 +1841,7 @@ impl SessionStager for PreflightRefusingStager {
         _project_dir: &Path,
         _session_id: &str,
         _recorded_owner: Option<&ProcessIdentity>,
+        _source_mode: ClaudeConfigMode,
     ) -> relay_core::Result<()> {
         *self.preflights.lock().expect("lock") += 1;
         Err(Error::SourceProfileActive)

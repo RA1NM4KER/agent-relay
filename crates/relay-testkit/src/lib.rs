@@ -3,9 +3,9 @@
 use std::path::Path;
 
 use relay_core::{
-    AtomicWrite, AuthenticationState, Availability, AvailabilityObservation, Error, FsAtomicWriter,
-    IdentityMetadata, ProfileSetupMode, ProfileSetupRequest, Provider, ProviderKind,
-    ProviderObservation, Result,
+    AtomicWrite, AuthenticationState, Availability, AvailabilityObservation, ClaudeConfigMode,
+    Error, FsAtomicWriter, IdentityMetadata, ProfileSetupMode, ProfileSetupRequest, Provider,
+    ProviderKind, ProviderObservation, Result,
 };
 use serde::{Deserialize, Serialize};
 
@@ -61,7 +61,7 @@ impl Provider for FakeProvider {
 
     fn setup_profile(&self, request: &ProfileSetupRequest) -> Result<ProviderObservation> {
         if request.mode == ProfileSetupMode::AdoptExisting {
-            return self.inspect_profile(&request.config_dir);
+            return self.inspect_profile(&request.config_dir, request.claude_config_mode);
         }
         let (authentication, stable_id) = match &self.setup_behavior {
             FakeSetupBehavior::Normal => (
@@ -89,7 +89,11 @@ impl Provider for FakeProvider {
         observation(&marker)
     }
 
-    fn inspect_profile(&self, config_dir: &Path) -> Result<ProviderObservation> {
+    fn inspect_profile(
+        &self,
+        config_dir: &Path,
+        _claude_config_mode: Option<ClaudeConfigMode>,
+    ) -> Result<ProviderObservation> {
         observation(&read_marker(config_dir)?)
     }
 }

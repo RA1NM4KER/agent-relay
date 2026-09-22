@@ -13,8 +13,9 @@ use std::{
 };
 
 use relay_core::{
-    AuthenticationState, Availability, AvailabilityObservation, Error, IdentityMetadata,
-    ProfileSetupMode, ProfileSetupRequest, Provider, ProviderKind, ProviderObservation, Result,
+    AuthenticationState, Availability, AvailabilityObservation, ClaudeConfigMode, Error,
+    IdentityMetadata, ProfileSetupMode, ProfileSetupRequest, Provider, ProviderKind,
+    ProviderObservation, Result,
 };
 
 use crate::{
@@ -72,16 +73,24 @@ impl<R: CommandRunner> Provider for ClaudeAdoptionProvider<R> {
         if request.mode != ProfileSetupMode::AdoptExisting {
             return Err(Error::ProviderUnsupported);
         }
-        self.inspect_profile(&request.config_dir)
+        self.inspect_profile(&request.config_dir, request.claude_config_mode)
     }
 
     /// Never errors on an expected state (unauthenticated, no identity yet): a profile can
     /// become unauthenticated after adoption, and `status`/`doctor` must be able to report
     /// that plainly rather than failing the whole inspection.
-    fn inspect_profile(&self, config_dir: &Path) -> Result<ProviderObservation> {
+    fn inspect_profile(
+        &self,
+        config_dir: &Path,
+        claude_config_mode: Option<ClaudeConfigMode>,
+    ) -> Result<ProviderObservation> {
         let environment =
             inspect_environment_with(config_dir, |name| (self.environment_lookup)(name));
-        let report = self.inspector.inspect(config_dir, environment)?;
+        let report = self.inspector.inspect(
+            config_dir,
+            claude_config_mode.unwrap_or_default(),
+            environment,
+        )?;
         Ok(to_observation(&report))
     }
 }
@@ -153,6 +162,7 @@ mod tests {
             Ok(ProcessResult {
                 success: true,
                 stdout: next.as_bytes().to_vec(),
+                stderr: Vec::new(),
             })
         }
     }
@@ -174,6 +184,7 @@ mod tests {
             name: ProfileName::new("erika").expect("profile name"),
             config_dir,
             mode: ProfileSetupMode::AdoptExisting,
+            claude_config_mode: None,
         }
     }
 

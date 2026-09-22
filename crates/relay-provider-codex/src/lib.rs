@@ -174,10 +174,14 @@ impl Provider for CodexBackend {
 
     fn setup_profile(&self, request: &ProfileSetupRequest) -> Result<ProviderObservation> {
         let _ = request.mode; // Create and AdoptExisting both reduce to inspection; see doc comment.
-        self.inspect_profile(&request.config_dir)
+        self.inspect_profile(&request.config_dir, request.claude_config_mode)
     }
 
-    fn inspect_profile(&self, config_dir: &Path) -> Result<ProviderObservation> {
+    fn inspect_profile(
+        &self,
+        config_dir: &Path,
+        _claude_config_mode: Option<relay_core::ClaudeConfigMode>,
+    ) -> Result<ProviderObservation> {
         let auth = self.inspector.inspect_auth_status(config_dir)?;
         let observed_unix_ms = now_unix_ms();
         let (authentication, availability_state) = if auth.authenticated {

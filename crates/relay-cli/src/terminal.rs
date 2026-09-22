@@ -38,6 +38,12 @@ pub struct TerminalCommand {
     pub program: PathBuf,
     pub args: Vec<OsString>,
     pub envs: Vec<(OsString, OsString)>,
+    /// Variables explicitly stripped from the child's environment, never merely left unset —
+    /// needed for a NativeDefault Claude profile, whose `CLAUDE_CONFIG_DIR` must be actively
+    /// removed even when this process itself inherited one from a different-profile parent (see
+    /// `relay_provider_claude::apply_config_mode`, which this mirrors for the interactive path).
+    #[allow(clippy::struct_field_names)]
+    pub env_removals: Vec<OsString>,
     pub current_dir: Option<PathBuf>,
 }
 
@@ -45,6 +51,9 @@ impl TerminalCommand {
     fn to_command(&self) -> Command {
         let mut command = Command::new(&self.program);
         command.args(&self.args);
+        for key in &self.env_removals {
+            command.env_remove(key);
+        }
         for (key, value) in &self.envs {
             command.env(key, value);
         }
@@ -220,6 +229,7 @@ mod tests {
             program: PathBuf::from("/bin/sh"),
             args: vec![OsString::from("-c"), OsString::from(script)],
             envs: Vec::new(),
+            env_removals: Vec::new(),
             current_dir: None,
         }
     }

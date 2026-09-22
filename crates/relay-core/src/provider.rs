@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use crate::{
-    AuthenticationState, AvailabilityObservation, IdentityMetadata, ProfileName, ProviderKind,
-    Result,
+    AuthenticationState, AvailabilityObservation, ClaudeConfigMode, IdentityMetadata, ProfileName,
+    ProviderKind, Result,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -16,6 +16,10 @@ pub struct ProfileSetupRequest {
     pub name: ProfileName,
     pub config_dir: PathBuf,
     pub mode: ProfileSetupMode,
+    /// Only meaningful for Claude; `None` for every other provider. See
+    /// [`crate::ClaudeConfigMode`]: a native-default request must not have `CLAUDE_CONFIG_DIR`
+    /// set when the provider inspects it, even though `config_dir` is `~/.claude`.
+    pub claude_config_mode: Option<ClaudeConfigMode>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -32,7 +36,13 @@ pub trait Provider: Send + Sync {
     /// inspect the referenced directory and must never copy or rewrite credentials.
     fn setup_profile(&self, request: &ProfileSetupRequest) -> Result<ProviderObservation>;
 
-    fn inspect_profile(&self, config_dir: &std::path::Path) -> Result<ProviderObservation>;
+    /// `claude_config_mode` is only meaningful for Claude (`None` for Codex); see
+    /// [`crate::ClaudeConfigMode`].
+    fn inspect_profile(
+        &self,
+        config_dir: &std::path::Path,
+        claude_config_mode: Option<ClaudeConfigMode>,
+    ) -> Result<ProviderObservation>;
 }
 
 /// A declarative, data-only summary of what a provider adapter can actually do. Each

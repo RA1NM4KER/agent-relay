@@ -125,8 +125,14 @@ fn usage_reason(
     if profile.provider == ProviderKind::Codex && !deep {
         return None;
     }
-    let observation = providers::usage_signal_for(profile.provider, executables, false, None)
-        .detect(&profile.config_dir, project_dir, "");
+    let observation = providers::usage_signal_for(
+        profile.provider,
+        executables,
+        false,
+        None,
+        profile.effective_claude_config_mode(),
+    )
+    .detect(&profile.config_dir, project_dir, "");
     match observation {
         Ok(observation) if observation.state.is_blocking() => Some("exhausted".to_owned()),
         Ok(observation)

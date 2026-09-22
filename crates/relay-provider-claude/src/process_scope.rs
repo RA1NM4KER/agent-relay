@@ -87,6 +87,11 @@ pub struct WriterScope<'a> {
     pub session_id: Option<&'a str>,
     /// The recorded source process, when known.
     pub expected: Option<&'a ProcessIdentity>,
+    /// A `NativeDefault` process is a Claude process that never carries `CLAUDE_CONFIG_DIR` at
+    /// all — matching on "the env var equals `config_dir`" would silently match nothing for it,
+    /// which is a detection gap, not a safe default. This field is how `classify` tells the two
+    /// apart; see [`relay_core::ClaudeConfigMode`].
+    pub mode: relay_core::ClaudeConfigMode,
 }
 
 fn basename(text: &str) -> &str {
@@ -147,9 +152,13 @@ pub fn classify(
 
     let mut result = Vec::new();
     for process in processes {
-        if process.config_dir.as_deref() != Some(config.as_ref())
-            || !is_claude_process(&process.argv)
-        {
+        let same_profile = match scope.mode {
+            relay_core::ClaudeConfigMode::Explicit => {
+                process.config_dir.as_deref() == Some(config.as_ref())
+            }
+            relay_core::ClaudeConfigMode::NativeDefault => process.config_dir.is_none(),
+        };
+        if !same_profile || !is_claude_process(&process.argv) {
             continue;
         }
         let (role, evidence) = classify_one(
@@ -285,11 +294,28 @@ mod tests {
         expected: Option<&ProcessIdentity>,
         matches: Option<bool>,
     ) -> Vec<(u32, ProcessRole)> {
+        roles_with_mode(
+            processes,
+            registry,
+            expected,
+            matches,
+            relay_core::ClaudeConfigMode::Explicit,
+        )
+    }
+
+    fn roles_with_mode(
+        processes: &[RawProcess],
+        registry: &[RegistryEntry],
+        expected: Option<&ProcessIdentity>,
+        matches: Option<bool>,
+        mode: relay_core::ClaudeConfigMode,
+    ) -> Vec<(u32, ProcessRole)> {
         let scope = WriterScope {
             config_dir: Path::new(CONFIG),
             project_dir: Path::new("/work/repo-b"),
             session_id: Some("S1"),
             expected,
+            mode,
         };
         classify(processes, registry, &scope, &|_| matches)
             .into_iter()
@@ -374,6 +400,57 @@ mod tests {
         let got = roles(&table, &registry, Some(&source()), Some(true));
         assert_eq!(got[0], (100, ProcessRole::ExpectedSource));
         assert_eq!(got[1], (400, ProcessRole::ConflictingWriter));
+    }
+
+    /// M4: a native-default Claude process never carries `CLAUDE_CONFIG_DIR` at all (see
+    /// `relay_provider_claude::config_mode`'s doc comment) — `classify()` must match same-profile
+    /// under `NativeDefault` by the ABSENCE of `config_dir`, not by a specific value, or every
+    /// native-default writer would be silently invisible to conflict detection. A process that
+    /// DOES carry an explicit `CLAUDE_CONFIG_DIR` (an isolated profile) must never be conflated
+    /// with the native-default source even if it resumes the identical session id.
+    #[test]
+    fn native_default_mode_matches_processes_with_no_config_dir_and_ignores_explicit_ones() {
+        let native_default = RawProcess {
+            pid: 100,
+            ppid: 1,
+            argv: vec!["claude".to_owned()],
+            config_dir: None,
+            pwd: Some(PathBuf::from("/work/repo-b")),
+            cwd: Some(PathBuf::from("/work/repo-b")),
+        };
+        let another_native_default_writer = RawProcess {
+            pid: 401,
+            ppid: 1,
+            argv: vec!["claude".to_owned()],
+            config_dir: None,
+            pwd: Some(PathBuf::from("/work/repo-b")),
+            cwd: Some(PathBuf::from("/work/repo-b")),
+        };
+        // An explicit isolated profile, coincidentally resuming the same session id: never the
+        // same writer as the native-default one, regardless of matching session.
+        let explicit_profile = proc(402, 1, &["claude"], Some("/work/repo-b"));
+        let registry = [
+            entry(100, "S1", "/work/repo-b"),
+            entry(401, "S1", "/work/repo-b"),
+            entry(402, "S1", "/work/repo-b"),
+        ];
+        let got = roles_with_mode(
+            &[
+                native_default,
+                another_native_default_writer,
+                explicit_profile,
+            ],
+            &registry,
+            Some(&source()),
+            Some(true),
+            relay_core::ClaudeConfigMode::NativeDefault,
+        );
+        assert_eq!(got[0], (100, ProcessRole::ExpectedSource));
+        assert_eq!(got[1], (401, ProcessRole::ConflictingWriter));
+        // The explicit-profile process is not classified as this scope's writer at all: it is
+        // filtered out before role assignment (same-profile check fails), so it never appears in
+        // the classified list.
+        assert!(got.iter().all(|(pid, _)| *pid != 402));
     }
 
     #[test]

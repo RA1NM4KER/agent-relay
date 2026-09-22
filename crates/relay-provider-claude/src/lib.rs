@@ -18,6 +18,7 @@ pub(crate) fn ps_dash_e_is_available() -> bool {
 
 mod adoption;
 mod capabilities;
+mod config_mode;
 mod conflict;
 mod context_capture;
 mod handoff_adapters;
@@ -36,6 +37,7 @@ pub use capabilities::{
     Capability, CapabilityEntry, CapabilityReport, CapabilityStatus, RuntimeChecks,
     VERIFIED_VERSIONS, assess as assess_capabilities, assess_installed, probe_help_for_stream_json,
 };
+pub use config_mode::{apply as apply_config_mode, native_default_dir};
 pub use conflict::{
     ConflictClassification, ConflictReport, ConflictResolution, ResolveDecision, inspect_conflict,
     resolve_conflict, rollback_conflict,

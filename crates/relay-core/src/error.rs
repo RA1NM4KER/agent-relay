@@ -29,8 +29,12 @@ pub enum Error {
     SymbolicLink(PathBuf),
     #[error("path is not a directory: {0}")]
     NotDirectory(PathBuf),
-    #[error("path has unsafe permissions: {0}")]
-    UnsafePermissions(PathBuf),
+    #[error(
+        "{path} is mode {mode:o}; Relay requires credential-bearing profile directories to be \
+         private. Run: chmod 700 {path}",
+        path = path.display()
+    )]
+    UnsafePermissions { path: PathBuf, mode: u32 },
     #[error("path is not owned by the current user: {0}")]
     WrongOwner(PathBuf),
     #[error("state file is corrupted or incompatible")]
@@ -51,6 +55,13 @@ pub enum Error {
     UnsafeProviderExecutable,
     #[error("provider command failed")]
     ProviderCommandFailed,
+    /// A richer alternative to [`Self::ProviderCommandFailed`] for the inspection paths that can
+    /// cheaply capture WHICH operation failed and a sanitized reason — used where "provider
+    /// command failed" alone left a real dogfooding failure with no next step. `detail` is
+    /// sanitized before this is ever constructed: no raw stderr, no environment values, no
+    /// credential material.
+    #[error("Claude `{operation}` failed: {detail}")]
+    ProviderDiagnostic { operation: String, detail: String },
     #[error("provider command timed out")]
     ProviderCommandTimeout,
     #[error("provider output was malformed")]
@@ -250,7 +261,7 @@ impl Error {
             Self::PathOutsideManagedRoot(_) => "path_outside_managed_root",
             Self::SymbolicLink(_) => "symbolic_link",
             Self::NotDirectory(_) => "not_directory",
-            Self::UnsafePermissions(_) => "unsafe_permissions",
+            Self::UnsafePermissions { .. } => "unsafe_permissions",
             Self::WrongOwner(_) => "wrong_owner",
             Self::CorruptedState => "corrupted_state",
             Self::UnsupportedStateVersion(_) => "unsupported_state_version",
@@ -261,6 +272,7 @@ impl Error {
             Self::ProviderExecutableMissing => "provider_executable_missing",
             Self::UnsafeProviderExecutable => "unsafe_provider_executable",
             Self::ProviderCommandFailed => "provider_command_failed",
+            Self::ProviderDiagnostic { .. } => "provider_diagnostic",
             Self::ProviderCommandTimeout => "provider_command_timeout",
             Self::MalformedProviderOutput => "malformed_provider_output",
             Self::UnsupportedProviderSchema => "unsupported_provider_schema",

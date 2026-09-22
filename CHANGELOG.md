@@ -4,6 +4,40 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+- **Claude's own native-default account is now a first-class profile.** Live-confirmed: `claude
+  auth status --json` with `CLAUDE_CONFIG_DIR` unset reports the logged-in native account
+  (`configDirectory: ~/.claude`); the identical command with `CLAUDE_CONFIG_DIR=~/.claude`
+  explicitly set reports logged **out**. These are never treated as equivalent. `relay profile
+  inspect-existing --provider claude --native-default` and `relay profile adopt <name> --provider
+  claude --native-default` register `~/.claude` by reference (no credential copy, no
+  reauthentication) with the same identity pinning, permission checks and duplicate-identity
+  rules as any isolated profile; `relay integration claude install/status/uninstall
+  --native-default` installs the usage hooks there too. A native-default profile can be the
+  source or target of a normal `relay switch`/automatic handoff, side by side with isolated
+  profiles.
+- **`relay claude --resume <exact-uuid>` finds its real owner.** With no `--profile`, every
+  registered Claude profile (native-default included) is searched structurally — via its own
+  saved transcripts, never model output — for the one that actually has that conversation: a
+  single owner is used automatically (and named), zero owners gives an actionable next step, and
+  more than one refuses and lists the candidates. An explicit `--profile` still pins the search,
+  but a wrong pin now names the real owner when one is provable instead of a bare "not found".
+- **`relay adopt --session <id>`** brings an already-running Claude conversation under Relay from
+  outside it — no in-session `/relay adopt` required. This matters because a Claude process
+  started before Relay's `/relay` command was installed never sees it (Claude only loads custom
+  commands at session start), so the in-session hook path is structurally unreachable for a
+  conversation that predates the install. Every fact still comes from Claude's own live session
+  registry and transcript layout; every registered Claude profile is checked (or one is pinned
+  with `--profile`), the process is never restarted, and the exact-session safety invariants
+  (one live owner per native conversation, atomic lease creation) apply unchanged. `relay status`
+  shows it ACTIVE immediately, and an external `relay switch --session <id> <target>` can act on
+  it like any other session.
+- **More actionable provider errors.** A failed provider inspection now reports which operation
+  failed and a sanitized reason (`Claude \`auth status\` failed: ...`) instead of a bare "provider
+  command failed"; stderr is captured, secret-shaped tokens are redacted, and raw output is never
+  leaked. An unsafe profile directory's error now names the exact mode and the fix (`... is mode
+  755; ... Run: chmod 700 <path>`), and `relay profile doctor` surfaces that same actionable text
+  instead of a generic "failed safety validation".
+
 - **Relay supervises conversations, not repositories.** A project can now hold many Relay Sessions
   (each with a stable Relay id, its own lease, journals, provider arguments and control endpoint);
   the invariant is one active owner per Relay Session, not one writer per project. Two sessions may

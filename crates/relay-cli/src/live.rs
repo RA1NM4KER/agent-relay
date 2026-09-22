@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 
 use relay_core::{
-    Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
+    ClaudeConfigMode, Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
     handoff::{ProcessIdentity, RelaySessionId, RelaySessionRecord, TransactionId, WriterLease},
 };
 use serde::Deserialize;
@@ -190,6 +190,73 @@ pub fn identify(input: &HookInput, config_dir: &Path, env: &HookEnv) -> Result<L
         session_id,
         project,
         pid,
+    })
+}
+
+/// Identifies a LIVE Claude conversation from OUTSIDE it — no hook stdin, no inherited
+/// `CLAUDE_PID`/`CLAUDE_CONFIG_DIR` environment — for `relay adopt --session <id>`. That command
+/// exists precisely because a Claude process started before Relay's `/relay` command was
+/// installed never sees it (Claude only loads custom commands at session start), so the
+/// in-session `identify()` path is unreachable for it. Every fact still comes from Claude's own
+/// structural, provider-owned metadata: `claude agents --json` (the live pid, and the cwd it
+/// itself reports for that pid) and the on-disk transcript layout (proves the conversation is
+/// really saved under this exact profile and session) — never a guess from a profile name.
+pub fn identify_external(
+    config_dir: &Path,
+    mode: ClaudeConfigMode,
+    claude_executable: Option<&Path>,
+    session_id: &str,
+) -> Result<LiveSession, Error> {
+    if !is_session_uuid(session_id) {
+        return Err(refuse(format!("'{session_id}' is not a Claude session id")));
+    }
+    let config = canonical(config_dir).ok_or_else(|| refuse("the profile directory is missing"))?;
+    let identity = relay_provider_claude::find_live_pid_for_session(
+        &config,
+        mode,
+        claude_executable,
+        session_id,
+    )
+    .ok_or_else(|| {
+        refuse(
+            "Claude's own live-session registry has no running process for this session \
+                     under this profile",
+        )
+    })?;
+    let sessions = relay_provider_claude::query_active_sessions(&config, mode, claude_executable)
+        .map_err(|_| refuse("could not query Claude's live session registry"))?;
+    let record = sessions
+        .into_iter()
+        .find(|record| record.session_id == session_id && record.pid == Some(identity.pid))
+        .ok_or_else(|| {
+            refuse("the running process for this session could not be identified unambiguously")
+        })?;
+    let cwd = record
+        .cwd
+        .as_deref()
+        .map(PathBuf::from)
+        .and_then(|path| canonical(&path))
+        .ok_or_else(|| refuse("Claude did not report a working directory for this session"))?;
+
+    // The transcript is what `relay resume` will reopen: it must exist under this exact profile's
+    // own project storage, named exactly for this session id.
+    let escaped = relay_provider_claude::escape_project_path(&cwd);
+    let transcript = config
+        .join("projects")
+        .join(&escaped)
+        .join(format!("{session_id}.jsonl"));
+    if !transcript.is_file() {
+        return Err(refuse(
+            "the conversation has no saved transcript yet under this profile (send a message \
+             first)",
+        ));
+    }
+
+    Ok(LiveSession {
+        config_dir: config,
+        session_id: session_id.to_owned(),
+        project: cwd,
+        pid: identity.pid,
     })
 }
 

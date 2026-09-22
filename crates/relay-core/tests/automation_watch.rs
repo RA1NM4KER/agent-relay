@@ -7,7 +7,7 @@ use std::{
 };
 
 use relay_core::{
-    ProfileName, ProviderKind, RelayPaths,
+    ClaudeConfigMode, ProfileName, ProviderKind, RelayPaths,
     automation::{
         AutomationPolicy, LedgerStore, ProfileCandidate, WatchCoordinator, WatchOutcome,
         WatchRequest,
@@ -67,6 +67,8 @@ impl SessionStager for Ports {
         _target: &Path,
         _project: &Path,
         session_id: &str,
+        _source_mode: ClaudeConfigMode,
+        _target_mode: ClaudeConfigMode,
     ) -> relay_core::Result<TransferOutcome> {
         self.0.stages.fetch_add(1, Ordering::SeqCst);
         Ok(TransferOutcome {
@@ -144,6 +146,7 @@ fn candidate(profile: &str, state: UsageState, reset: Option<u64>) -> ProfileCan
         enabled: true,
         healthy: true,
         usage: observation(state, reset),
+        claude_config_mode: None,
     }
 }
 
@@ -212,6 +215,7 @@ impl Fixture {
                 fallbacks,
                 dry_run,
                 state_dir: None,
+                source_claude_mode: None,
             },
             now,
         )

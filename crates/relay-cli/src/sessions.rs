@@ -253,6 +253,7 @@ pub fn reconcile(
                 executables,
                 &owner.config_dir,
                 &lease.session_id,
+                owner.effective_claude_config_mode(),
             )
         });
         rebind_or_release(&store, &view, lease, rebound, registered, now)?;

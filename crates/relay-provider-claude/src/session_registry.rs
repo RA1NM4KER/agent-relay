@@ -14,7 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use relay_core::{Error, Result, handoff::ProcessIdentity};
+use relay_core::{ClaudeConfigMode, Error, Result, handoff::ProcessIdentity};
 use serde::Deserialize;
 
 use crate::{AUTHENTICATION_OVERRIDE_VARIABLES, ClaudeInspector};
@@ -45,6 +45,7 @@ pub struct AgentSessionRecord {
 /// with nothing running.
 pub fn query_active_sessions(
     config_dir: &Path,
+    mode: ClaudeConfigMode,
     claude_executable: Option<&Path>,
 ) -> Result<Vec<AgentSessionRecord>> {
     let inspector = ClaudeInspector::discover(claude_executable)?;
@@ -54,10 +55,10 @@ pub fn query_active_sessions(
     command
         .arg("agents")
         .arg("--json")
-        .env("CLAUDE_CONFIG_DIR", config_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::apply_config_mode(&mut command, mode, config_dir);
     for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
         command.env_remove(variable);
     }
@@ -79,10 +80,11 @@ pub fn query_active_sessions(
 #[must_use]
 pub fn find_live_pid_for_session(
     config_dir: &Path,
+    mode: ClaudeConfigMode,
     claude_executable: Option<&Path>,
     session_id: &str,
 ) -> Option<ProcessIdentity> {
-    let sessions = query_active_sessions(config_dir, claude_executable).ok()?;
+    let sessions = query_active_sessions(config_dir, mode, claude_executable).ok()?;
     let pid = sessions
         .into_iter()
         .find(|record| record.session_id == session_id)?
@@ -150,6 +152,7 @@ fn read_limited(reader: impl Read, limit: usize) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::AgentSessionRecord;
+    use relay_core::ClaudeConfigMode;
 
     #[test]
     fn parses_the_observed_schema_including_optional_fields() {
@@ -213,6 +216,7 @@ mod tests {
         let claude = fake_claude(root.path(), &listing);
         let found = super::find_live_pid_for_session(
             root.path(),
+            ClaudeConfigMode::Explicit,
             Some(&claude),
             "11111111-2222-3333-4444-555555555555",
         )
@@ -220,8 +224,13 @@ mod tests {
         assert_eq!(found.pid, this_pid);
         // A different session id in the same listing is never matched.
         assert!(
-            super::find_live_pid_for_session(root.path(), Some(&claude), "no-such-session")
-                .is_none()
+            super::find_live_pid_for_session(
+                root.path(),
+                ClaudeConfigMode::Explicit,
+                Some(&claude),
+                "no-such-session"
+            )
+            .is_none()
         );
     }
 
@@ -234,6 +243,7 @@ mod tests {
         assert!(
             super::find_live_pid_for_session(
                 root.path(),
+                ClaudeConfigMode::Explicit,
                 Some(&claude),
                 "11111111-2222-3333-4444-555555555555"
             )

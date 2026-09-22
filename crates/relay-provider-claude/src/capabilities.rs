@@ -197,11 +197,12 @@ pub fn assess(version: &str, runtime: &RuntimeChecks) -> CapabilityReport {
 pub fn assess_installed(
     claude_executable: Option<&Path>,
     config_dir: &Path,
+    mode: relay_core::ClaudeConfigMode,
 ) -> Result<CapabilityReport> {
     let inspector = ClaudeInspector::discover(claude_executable)?;
     let version = inspector.inspect_version()?;
     let agents_json_parses =
-        match session_registry::query_active_sessions(config_dir, claude_executable) {
+        match session_registry::query_active_sessions(config_dir, mode, claude_executable) {
             Ok(_) => Some(true),
             Err(Error::MalformedProviderOutput) => Some(false),
             Err(_) => None,

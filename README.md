@@ -259,6 +259,14 @@ relay profile adopt claude-primary --provider claude --config-dir ~/.config/agen
 relay profile adopt claude-backup --provider claude --config-dir ~/.config/agent-relay/profiles/claude-backup/claude
 relay profile doctor claude-primary
 
+# Already logged in to Claude's own default account (no isolated profile, ~/.claude) with a real
+# terminal running? Adopt it by reference too — never as a fake explicit CLAUDE_CONFIG_DIR:
+relay profile adopt erika-default --provider claude --native-default --dry-run
+relay profile adopt erika-default --provider claude --native-default
+# ...and if that account's Claude session is already running, bring it under Relay without
+# restarting it (works even if `/relay adopt` wasn't installed when that session started):
+relay adopt --session <claude-session-id>
+
 # (Optional but recommended) usage integration, so Relay can detect a real limit for free:
 relay integration claude install --profile claude-primary --dry-run
 relay integration claude install --profile claude-primary

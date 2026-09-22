@@ -9,7 +9,7 @@ use std::{
 };
 
 use relay_core::{
-    Error, Result,
+    ClaudeConfigMode, Error, Result,
     handoff::{
         LaunchDirective, LivenessVerdict, ProcessIdentity, SessionStager, SessionStopper,
         SourceLiveness, TargetLauncher, TargetVerification, TransferOutcome, TransferredArtifact,
@@ -48,12 +48,16 @@ const VERIFICATION_PROMPT: &str =
 #[derive(Clone, Debug, Default)]
 pub struct ClaudeSourceLiveness {
     claude_executable: Option<PathBuf>,
+    mode: ClaudeConfigMode,
 }
 
 impl ClaudeSourceLiveness {
     #[must_use]
-    pub const fn new(claude_executable: Option<PathBuf>) -> Self {
-        Self { claude_executable }
+    pub const fn new(claude_executable: Option<PathBuf>, mode: ClaudeConfigMode) -> Self {
+        Self {
+            claude_executable,
+            mode,
+        }
     }
 }
 
@@ -67,6 +71,7 @@ impl SourceLiveness for ClaudeSourceLiveness {
     ) -> Result<LivenessVerdict> {
         let sessions = match session_registry::query_active_sessions(
             source_config_dir,
+            self.mode,
             self.claude_executable.as_deref(),
         ) {
             Ok(sessions) => sessions,
@@ -81,6 +86,7 @@ impl SourceLiveness for ClaudeSourceLiveness {
                     project_dir,
                     session_id: Some(expected_session_id),
                     expected: recorded_owner,
+                    mode: self.mode,
                 })?;
                 let source_alive = recorded_owner.is_some_and(|owner| {
                     owner.pid != 0 && owner.is_still_the_same_process() != Some(false)
@@ -153,12 +159,16 @@ const REQUIRED_CONSECUTIVE_QUIET: u32 = 3;
 #[derive(Clone, Debug, Default)]
 pub struct ClaudeSessionStopper {
     claude_executable: Option<PathBuf>,
+    mode: ClaudeConfigMode,
 }
 
 impl ClaudeSessionStopper {
     #[must_use]
-    pub const fn new(claude_executable: Option<PathBuf>) -> Self {
-        Self { claude_executable }
+    pub const fn new(claude_executable: Option<PathBuf>, mode: ClaudeConfigMode) -> Self {
+        Self {
+            claude_executable,
+            mode,
+        }
     }
 }
 
@@ -184,6 +194,7 @@ impl SessionStopper for ClaudeSessionStopper {
         // (query_active_sessions is itself scoped to source_config_dir).
         let sessions = session_registry::query_active_sessions(
             source_config_dir,
+            self.mode,
             self.claude_executable.as_deref(),
         )?;
         // A background session has a job id and is stopped through Claude itself. An interactive
@@ -195,7 +206,12 @@ impl SessionStopper for ClaudeSessionStopper {
             .find(|record| matches_this_session(record))
             .and_then(|record| record.id.as_deref())
         {
-            issue_stop(source_config_dir, handle, self.claude_executable.as_deref())?;
+            issue_stop(
+                source_config_dir,
+                self.mode,
+                handle,
+                self.claude_executable.as_deref(),
+            )?;
         } else if let Some(owner) = recorded_owner
             && owner.pid != 0
             && owner.is_still_the_same_process() == Some(true)
@@ -207,6 +223,7 @@ impl SessionStopper for ClaudeSessionStopper {
         for attempt in 0..QUIESCENCE_POLL_ATTEMPTS {
             let sessions = session_registry::query_active_sessions(
                 source_config_dir,
+                self.mode,
                 self.claude_executable.as_deref(),
             )?;
             let still_listed = sessions.iter().any(matches_this_session);
@@ -256,7 +273,13 @@ impl SessionStopper for ClaudeSessionStopper {
             return Err(Error::ProviderCommandFailed);
         }
         let text = String::from_utf8_lossy(&output.stdout);
-        for pid in matching_target_pids(&text, target_config_dir, session_id, std::process::id()) {
+        for pid in matching_target_pids(
+            &text,
+            target_config_dir,
+            self.mode,
+            session_id,
+            std::process::id(),
+        ) {
             terminate_verified_process(&ProcessIdentity::query(pid), ORPHAN_TERM_GRACE)?;
         }
         self.stop_and_verify(target_config_dir, project_dir, session_id, None)
@@ -270,6 +293,7 @@ impl SessionStopper for ClaudeSessionStopper {
 fn matching_target_pids(
     ps_text: &str,
     config_dir: &Path,
+    mode: ClaudeConfigMode,
     session_id: &str,
     own_pid: u32,
 ) -> Vec<u32> {
@@ -285,7 +309,12 @@ fn matching_target_pids(
             let is_print_mode = tokens
                 .iter()
                 .any(|token| *token == "-p" || *token == "--print");
-            let same_profile = tokens.iter().any(|token| *token == config_token);
+            let same_profile = match mode {
+                ClaudeConfigMode::Explicit => tokens.iter().any(|token| *token == config_token),
+                ClaudeConfigMode::NativeDefault => !tokens
+                    .iter()
+                    .any(|token| token.starts_with("CLAUDE_CONFIG_DIR=")),
+            };
             (pid != own_pid && resumes_session && is_print_mode && same_profile).then_some(pid)
         })
         .collect()
@@ -355,6 +384,7 @@ fn quiescence_step(consecutive_quiet: u32, still_listed: bool, pid_quiet: bool) 
 
 fn issue_stop(
     config_dir: &Path,
+    mode: ClaudeConfigMode,
     provider_handle: &str,
     claude_executable: Option<&Path>,
 ) -> Result<()> {
@@ -364,10 +394,10 @@ fn issue_stop(
     command
         .arg("stop")
         .arg(provider_handle)
-        .env("CLAUDE_CONFIG_DIR", config_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::apply_config_mode(&mut command, mode, config_dir);
     for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
         command.env_remove(variable);
     }
@@ -388,6 +418,7 @@ impl SessionStager for ClaudeSessionStager {
         project_dir: &Path,
         session_id: &str,
         recorded_owner: Option<&ProcessIdentity>,
+        source_mode: ClaudeConfigMode,
     ) -> Result<()> {
         session_transfer::stage_preflight(
             &SystemProcessLister,
@@ -395,6 +426,7 @@ impl SessionStager for ClaudeSessionStager {
             project_dir,
             session_id,
             recorded_owner,
+            source_mode,
         )
     }
 
@@ -404,6 +436,8 @@ impl SessionStager for ClaudeSessionStager {
         target_config_dir: &Path,
         project_dir: &Path,
         session_id: &str,
+        source_mode: ClaudeConfigMode,
+        _target_mode: ClaudeConfigMode,
     ) -> Result<TransferOutcome> {
         let report = session_transfer::stage_transfer(
             &SystemProcessLister,
@@ -411,6 +445,7 @@ impl SessionStager for ClaudeSessionStager {
             target_config_dir,
             project_dir,
             session_id,
+            source_mode,
         )?;
         Ok(TransferOutcome {
             artifacts: report
@@ -434,12 +469,16 @@ impl SessionStager for ClaudeSessionStager {
 #[derive(Clone, Debug, Default)]
 pub struct ClaudeTargetLauncher {
     claude_executable: Option<PathBuf>,
+    mode: ClaudeConfigMode,
 }
 
 impl ClaudeTargetLauncher {
     #[must_use]
-    pub const fn new(claude_executable: Option<PathBuf>) -> Self {
-        Self { claude_executable }
+    pub const fn new(claude_executable: Option<PathBuf>, mode: ClaudeConfigMode) -> Self {
+        Self {
+            claude_executable,
+            mode,
+        }
     }
 }
 
@@ -462,9 +501,9 @@ impl TargetLauncher for ClaudeTargetLauncher {
             .arg("acceptEdits")
             .arg("--output-format")
             .arg("json")
-            .env("CLAUDE_CONFIG_DIR", target_config_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        crate::apply_config_mode(&mut command, self.mode, target_config_dir);
         for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
             command.env_remove(variable);
         }
@@ -603,6 +642,7 @@ pub struct LaunchedWriter {
 /// then polls that structured listing for the real session id and pid.
 pub fn launch_background(
     config_dir: &Path,
+    mode: ClaudeConfigMode,
     project_dir: &Path,
     prompt: &str,
     claude_executable: Option<&Path>,
@@ -622,10 +662,10 @@ pub fn launch_background(
         // as `--add-dir` can then never swallow the prompt, and Relay's required arguments and
         // environment stay first (and the environment authoritative).
         .args(extra_args)
-        .env("CLAUDE_CONFIG_DIR", config_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::apply_config_mode(&mut command, mode, config_dir);
     for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
         command.env_remove(variable);
     }
@@ -641,7 +681,8 @@ pub fn launch_background(
 
     let mut found_session_id: Option<String> = None;
     for attempt in 0..AGENTS_JSON_POLL_ATTEMPTS {
-        let sessions = session_registry::query_active_sessions(config_dir, claude_executable)?;
+        let sessions =
+            session_registry::query_active_sessions(config_dir, mode, claude_executable)?;
         if let Some(record) = sessions
             .iter()
             .find(|record| record.id.as_deref() == Some(provider_handle.as_str()))
@@ -666,7 +707,8 @@ pub fn launch_background(
 
     // The record exists but its pid had not populated yet: poll specifically for that, longer.
     for attempt in 0..PID_POLL_ATTEMPTS {
-        let sessions = session_registry::query_active_sessions(config_dir, claude_executable)?;
+        let sessions =
+            session_registry::query_active_sessions(config_dir, mode, claude_executable)?;
         if let Some(pid) = sessions
             .iter()
             .find(|record| record.id.as_deref() == Some(provider_handle.as_str()))
@@ -783,7 +825,7 @@ mod tests {
         REQUIRED_CONSECUTIVE_QUIET, matching_target_pids, parse_background_job_id,
         parse_verification, quiescence_step, strip_ansi_sgr, terminate_verified_process,
     };
-    use relay_core::handoff::ProcessIdentity;
+    use relay_core::{ClaudeConfigMode, handoff::ProcessIdentity};
     use std::time::Duration;
 
     /// Spawns a real long-lived child and reaps it on a helper thread, so a terminated child
@@ -814,7 +856,36 @@ mod tests {
             format!("106 claude -p --resume {session} CLAUDE_CONFIG_DIR=/p/megan/claude"),
         ]
         .join("\n");
-        assert_eq!(matching_target_pids(&ps, dir, session, 106), vec![100, 105]);
+        assert_eq!(
+            matching_target_pids(&ps, dir, ClaudeConfigMode::Explicit, session, 106),
+            vec![100, 105]
+        );
+    }
+
+    /// M4: the identical scan under `NativeDefault` — matches must be processes carrying NO
+    /// `CLAUDE_CONFIG_DIR=` token at all (a native-default Claude process never sets one), and
+    /// naive Explicit-shaped matching would silently exclude every one of them. `config_dir`
+    /// itself is irrelevant to the match here (only the environment shape distinguishes the two
+    /// modes), matching `relay_provider_claude::config_mode`'s documented contract.
+    #[test]
+    fn target_pid_scan_under_native_default_matches_only_processes_with_no_config_dir_token() {
+        let dir = std::path::Path::new("/Users/erika/.claude");
+        let session = "99370db4-a0d6-44c0-bfba-6c15b5bcfab4";
+        let ps = [
+            // No CLAUDE_CONFIG_DIR at all: this is the native-default target.
+            format!("200 claude -p --resume {session} --permission-mode acceptEdits HOME=/h"),
+            // An explicit isolated profile resuming the same session: never a match here.
+            format!("201 claude -p --resume {session} CLAUDE_CONFIG_DIR=/p/erika/claude"),
+            // Wrong session, no config dir: still not a match.
+            "202 claude -p --resume 11111111-2222-3333-4444-555555555555 HOME=/h".to_owned(),
+            // Own pid: excluded even though it would otherwise match.
+            format!("203 claude -p --resume {session} HOME=/h"),
+        ]
+        .join("\n");
+        assert_eq!(
+            matching_target_pids(&ps, dir, ClaudeConfigMode::NativeDefault, session, 203),
+            vec![200]
+        );
     }
 
     #[test]

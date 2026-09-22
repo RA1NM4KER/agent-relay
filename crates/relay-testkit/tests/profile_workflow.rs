@@ -22,6 +22,7 @@ fn request(name: &str) -> AddProfileRequest {
         config_dir: None,
         mode: ProfileSetupMode::Create,
         expected_identity: None,
+        claude_config_mode: None,
     }
 }
 
@@ -247,11 +248,21 @@ fn doctor_detects_unsafe_permissions() {
     let doctor = service.doctor(&profile.name, &provider).expect("doctor");
 
     assert!(!doctor.healthy);
+    let check = doctor
+        .checks
+        .iter()
+        .find(|check| check.name == "directory_security")
+        .expect("directory_security check present");
+    assert!(!check.passed);
+    // M4.5: the actionable `chmod 700 <path>` guidance must reach the doctor report itself, not
+    // be swallowed into a generic "failed safety validation" message.
+    assert!(check.message.contains("chmod 700"), "{}", check.message);
     assert!(
-        doctor
-            .checks
-            .iter()
-            .any(|check| check.name == "directory_security" && !check.passed)
+        check
+            .message
+            .contains(&profile.config_dir.display().to_string()),
+        "{}",
+        check.message
     );
 }
 

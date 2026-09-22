@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use crate::{
-    AtomicWrite, AuthenticationState, Availability, DoctorCheck, DoctorReport, Error,
-    FsAtomicWriter, IdentityMetadata, Profile, ProfileDirectory, ProfileName, ProfileOrigin,
+    AtomicWrite, AuthenticationState, Availability, ClaudeConfigMode, DoctorCheck, DoctorReport,
+    Error, FsAtomicWriter, IdentityMetadata, Profile, ProfileDirectory, ProfileName, ProfileOrigin,
     ProfileSetupMode, ProfileSetupRequest, ProfileStatus, ProfileStore, Provider, ProviderKind,
     RelayPaths, Result,
 };
@@ -14,6 +14,8 @@ pub struct AddProfileRequest {
     pub config_dir: Option<PathBuf>,
     pub mode: ProfileSetupMode,
     pub expected_identity: Option<IdentityMetadata>,
+    /// Only meaningful for Claude; see [`crate::ClaudeConfigMode`].
+    pub claude_config_mode: Option<ClaudeConfigMode>,
 }
 
 pub struct ProfileService<W = FsAtomicWriter> {
@@ -72,6 +74,7 @@ impl<W: AtomicWrite> ProfileService<W> {
             name: request.name.clone(),
             config_dir: config_dir.clone(),
             mode: request.mode,
+            claude_config_mode: request.claude_config_mode,
         })?;
         validate_authentication(observation.authentication)?;
         let observed_identity = observation
@@ -100,6 +103,7 @@ impl<W: AtomicWrite> ProfileService<W> {
             },
             expected_identity,
             last_availability: observation.availability,
+            claude_config_mode: request.claude_config_mode,
         };
         state.profiles.push(profile.clone());
         state
@@ -117,7 +121,8 @@ impl<W: AtomicWrite> ProfileService<W> {
         let profile = self.find(name)?;
         validate_provider(&profile, provider)?;
         self.validate_profile_directory(&profile)?;
-        let observation = provider.inspect_profile(&profile.config_dir)?;
+        let observation =
+            provider.inspect_profile(&profile.config_dir, profile.claude_config_mode)?;
         let identity_matches = observation
             .identity
             .as_ref()
@@ -138,10 +143,14 @@ impl<W: AtomicWrite> ProfileService<W> {
         let mut checks = vec![DoctorCheck {
             name: "directory_security".to_owned(),
             passed: directory_result.is_ok(),
-            message: if directory_result.is_ok() {
-                "profile directory is private and contains no symlink components".to_owned()
-            } else {
-                "profile directory failed safety validation".to_owned()
+            message: match &directory_result {
+                Ok(()) => {
+                    "profile directory is private and contains no symlink components".to_owned()
+                }
+                // The real error (e.g. `UnsafePermissions`'s `chmod 700 <path>` guidance) is
+                // always actionable on its own; a generic "failed safety validation" here would
+                // throw that away right where a dogfooding user is most likely to be looking.
+                Err(error) => error.to_string(),
             },
         }];
 
@@ -159,7 +168,7 @@ impl<W: AtomicWrite> ProfileService<W> {
             });
         }
 
-        let observation = provider.inspect_profile(&profile.config_dir);
+        let observation = provider.inspect_profile(&profile.config_dir, profile.claude_config_mode);
         match observation {
             Ok(observation) => {
                 let auth_ok = observation.authentication == AuthenticationState::Authenticated;

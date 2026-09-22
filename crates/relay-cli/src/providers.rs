@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use relay_core::{
-    ProviderKind, Result,
+    ClaudeConfigMode, ProviderKind, Result,
     handoff::{ContextCapturer, SessionStager, SessionStopper, SourceLiveness, TargetLauncher},
     usage::UsageSignal,
 };
@@ -42,8 +42,14 @@ pub struct ProviderPorts {
     pub context_capturer: Box<dyn ContextCapturer>,
 }
 
+/// `claude_config_mode` only matters for `ProviderKind::Claude`/`Fake` — it selects which Claude
+/// profile (native-default vs. an explicit isolated one) the returned ports operate against.
 #[must_use]
-pub fn ports_for(provider: ProviderKind, executables: &ExecutableOverrides) -> ProviderPorts {
+pub fn ports_for(
+    provider: ProviderKind,
+    executables: &ExecutableOverrides,
+    claude_config_mode: ClaudeConfigMode,
+) -> ProviderPorts {
     match provider {
         ProviderKind::Codex => ProviderPorts {
             liveness: Box::new(CodexSourceLiveness),
@@ -53,10 +59,19 @@ pub fn ports_for(provider: ProviderKind, executables: &ExecutableOverrides) -> P
             context_capturer: Box::new(CodexContextCapturer),
         },
         ProviderKind::Claude | ProviderKind::Fake => ProviderPorts {
-            liveness: Box::new(ClaudeSourceLiveness::new(executables.claude.clone())),
-            stopper: Box::new(ClaudeSessionStopper::new(executables.claude.clone())),
+            liveness: Box::new(ClaudeSourceLiveness::new(
+                executables.claude.clone(),
+                claude_config_mode,
+            )),
+            stopper: Box::new(ClaudeSessionStopper::new(
+                executables.claude.clone(),
+                claude_config_mode,
+            )),
             stager: Some(Box::new(ClaudeSessionStager)),
-            launcher: Box::new(ClaudeTargetLauncher::new(executables.claude.clone())),
+            launcher: Box::new(ClaudeTargetLauncher::new(
+                executables.claude.clone(),
+                claude_config_mode,
+            )),
             context_capturer: Box::new(ClaudeContextCapturer),
         },
     }
@@ -73,12 +88,14 @@ pub fn usage_signal_for(
     executables: &ExecutableOverrides,
     probe: bool,
     workload_model: Option<String>,
+    claude_config_mode: ClaudeConfigMode,
 ) -> Box<dyn UsageSignal> {
     match provider {
         ProviderKind::Codex => Box::new(CodexUsageSignal::new(executables.codex.clone())),
         ProviderKind::Claude | ProviderKind::Fake => Box::new(
             ClaudeUsageSignal::new(executables.claude.clone(), probe)
-                .with_workload_model(workload_model),
+                .with_workload_model(workload_model)
+                .with_mode(claude_config_mode),
         ),
     }
 }
@@ -99,11 +116,13 @@ pub fn discover_live_owner(
     executables: &ExecutableOverrides,
     config_dir: &Path,
     native_session_id: &str,
+    claude_config_mode: ClaudeConfigMode,
 ) -> Option<relay_core::handoff::ProcessIdentity> {
     match provider {
         ProviderKind::Claude | ProviderKind::Fake => {
             relay_provider_claude::find_live_pid_for_session(
                 config_dir,
+                claude_config_mode,
                 executables.claude.as_deref(),
                 native_session_id,
             )

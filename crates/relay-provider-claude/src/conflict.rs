@@ -164,6 +164,7 @@ pub fn resolve_conflict(
     session_id: &str,
     target_active: bool,
     decision: ResolveDecision,
+    source_mode: relay_core::ClaudeConfigMode,
 ) -> Result<ConflictResolution> {
     let report = inspect_conflict(
         source_config_dir,
@@ -191,6 +192,7 @@ pub fn resolve_conflict(
                     target_config_dir,
                     project_dir,
                     session_id,
+                    source_mode,
                 )?;
                 ("staged".to_owned(), None)
             }
@@ -556,6 +558,7 @@ mod tests {
             SESSION_ID,
             false,
             ResolveDecision::Preview,
+            relay_core::ClaudeConfigMode::Explicit,
         )
         .expect("resolve");
         assert!(resolution.dry_run);
@@ -586,6 +589,7 @@ mod tests {
             SESSION_ID,
             false,
             ResolveDecision::Confirm,
+            relay_core::ClaudeConfigMode::Explicit,
         )
         .expect("resolve");
         assert_eq!(resolution.action, "backed_up_and_replaced");
@@ -620,6 +624,7 @@ mod tests {
             SESSION_ID,
             false,
             ResolveDecision::Confirm,
+            relay_core::ClaudeConfigMode::Explicit,
         )
         .expect_err("must refuse without ForceDiscardDivergent");
         assert_eq!(error.code(), "conflict_requires_resolution");
@@ -649,6 +654,7 @@ mod tests {
             SESSION_ID,
             false,
             ResolveDecision::ForceDiscardDivergent,
+            relay_core::ClaudeConfigMode::Explicit,
         )
         .expect("resolve");
         assert_eq!(resolution.action, "backed_up_and_replaced_divergent");
@@ -676,6 +682,7 @@ mod tests {
             SESSION_ID,
             true,
             ResolveDecision::ForceDiscardDivergent,
+            relay_core::ClaudeConfigMode::Explicit,
         )
         .expect_err("must refuse an active target regardless of decision level");
         assert_eq!(error.code(), "conflict_requires_resolution");
@@ -697,6 +704,7 @@ mod tests {
             SESSION_ID,
             false,
             ResolveDecision::Confirm,
+            relay_core::ClaudeConfigMode::Explicit,
         )
         .expect("resolve");
 
@@ -737,6 +745,7 @@ mod tests {
             SESSION_ID,
             false,
             ResolveDecision::Confirm,
+            relay_core::ClaudeConfigMode::Explicit,
         )
         .expect("resolve");
 
@@ -789,6 +798,7 @@ mod tests {
             SESSION_ID,
             false,
             ResolveDecision::Confirm,
+            relay_core::ClaudeConfigMode::Explicit,
         )
         .expect("resolve");
         assert_eq!(resolution.action, "staged");

@@ -327,7 +327,10 @@ fn validate_unix_directory_security(
         return Err(Error::WrongOwner(path.to_path_buf()));
     }
     if mode & 0o077 != 0 {
-        return Err(Error::UnsafePermissions(path.to_path_buf()));
+        return Err(Error::UnsafePermissions {
+            path: path.to_path_buf(),
+            mode: mode & 0o777,
+        });
     }
     Ok(())
 }

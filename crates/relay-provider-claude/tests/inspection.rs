@@ -46,6 +46,7 @@ fn output(contents: &str) -> relay_core::Result<ProcessResult> {
     Ok(ProcessResult {
         success: true,
         stdout: contents.as_bytes().to_vec(),
+        stderr: Vec::new(),
     })
 }
 
@@ -68,7 +69,11 @@ fn inspect(auth_json: &str) -> relay_core::Result<relay_provider_claude::ClaudeI
     let runner = FakeRunner::new(vec![output("2.1.276 (Claude Code)"), output(auth_json)]);
     let inspector = ClaudeInspector::with_runner(executable(root.path()), runner)?;
     let environment = inspect_environment_with(&config_dir, |_| None);
-    inspector.inspect(&config_dir, environment)
+    inspector.inspect(
+        &config_dir,
+        relay_core::ClaudeConfigMode::Explicit,
+        environment,
+    )
 }
 
 #[test]
@@ -111,7 +116,11 @@ fn observed_2_1_276_schema_is_accepted_and_paths_are_verified() {
         ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");
 
     let report = inspector
-        .inspect(&config_dir, inspect_environment_with(&config_dir, |_| None))
+        .inspect(
+            &config_dir,
+            relay_core::ClaudeConfigMode::Explicit,
+            inspect_environment_with(&config_dir, |_| None),
+        )
         .expect("inspection");
 
     assert!(report.safe_to_adopt);
@@ -141,10 +150,118 @@ fn reported_config_directory_mismatch_fails_closed() {
         ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");
 
     let error = inspector
-        .inspect(&config_dir, inspect_environment_with(&config_dir, |_| None))
+        .inspect(
+            &config_dir,
+            relay_core::ClaudeConfigMode::Explicit,
+            inspect_environment_with(&config_dir, |_| None),
+        )
         .expect_err("directory mismatch must fail");
 
     assert_eq!(error.code(), "provider_profile_mismatch");
+}
+
+/// M4.1: NativeDefault must be pinned to exactly `~/.claude` — never any other directory, even
+/// one that would otherwise pass every other check — and this is decided before any provider
+/// command ever runs (no version probe, no `auth status`), so a misconfigured NativeDefault
+/// profile can never leak a command against the wrong directory.
+#[test]
+fn native_default_mode_refuses_any_directory_that_is_not_the_real_native_default_one() {
+    let root = tempdir().expect("temp directory");
+    // A tempdir path is never, by construction, the real `$HOME/.claude`.
+    let config_dir = root.path().join("not-the-real-home/.claude");
+    fs::create_dir_all(&config_dir).expect("config directory");
+    let runner = FakeRunner::new(Vec::new());
+    let inspector =
+        ClaudeInspector::with_runner(executable(root.path()), runner.clone()).expect("inspector");
+
+    let error = inspector
+        .inspect(
+            &config_dir,
+            relay_core::ClaudeConfigMode::NativeDefault,
+            inspect_environment_with(&config_dir, |_| None),
+        )
+        .expect_err("a non-native-default directory must be refused");
+
+    assert_eq!(error.code(), "provider_profile_mismatch");
+    assert_eq!(
+        runner.call_count(),
+        0,
+        "no provider command must run before the mode/directory check"
+    );
+}
+
+/// The identical `CLAUDE_CONFIG_DIR`-unset-vs-explicit distinction this whole milestone rests on,
+/// exercised at the inspection layer: authenticating the SAME real native-default directory
+/// succeeds under `NativeDefault` (the only mode it is ever valid under) and is never silently
+/// accepted under `Explicit`, matching `relay_provider_claude::config_mode`'s documented contract.
+#[test]
+fn native_default_identity_pinning_succeeds_only_in_native_default_mode() {
+    let native_dir = relay_provider_claude::native_default_dir()
+        .expect("HOME must resolve in a real test environment");
+    let root = tempdir().expect("temp directory");
+    let auth = r#"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","accountUuid":"account-erika","email":"erika@example.com"}"#;
+
+    // NativeDefault against the real native-default directory: succeeds, identity pinned.
+    let runner = FakeRunner::new(vec![output("2.1.276 (Claude Code)"), output(auth)]);
+    let inspector =
+        ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");
+    let report = inspector
+        .inspect(
+            &native_dir,
+            relay_core::ClaudeConfigMode::NativeDefault,
+            inspect_environment_with(&native_dir, |_| None),
+        )
+        .expect("native-default inspection against the real directory must succeed");
+    assert!(report.authenticated);
+    let pin = report.identity_pin.expect("identity pin");
+    assert_eq!(pin.account_id.as_deref(), Some("account-erika"));
+
+    // The identical directory under Explicit is never treated the same: Relay never special-cases
+    // `config_dir == "~/.claude"` — the mode is what decides whether `CLAUDE_CONFIG_DIR` is set,
+    // and Explicit setting it changes what the (real) `claude auth status` would itself report.
+    // At this layer that means Explicit simply proceeds as an ordinary isolated-profile
+    // inspection — it must NOT be short-circuited or refused the way NativeDefault's directory
+    // check would refuse a foreign path.
+    let runner2 = FakeRunner::new(vec![output("2.1.276 (Claude Code)"), output(auth)]);
+    let inspector2 =
+        ClaudeInspector::with_runner(executable(root.path()), runner2.clone()).expect("inspector");
+    let explicit_report = inspector2
+        .inspect(
+            &native_dir,
+            relay_core::ClaudeConfigMode::Explicit,
+            inspect_environment_with(&native_dir, |_| None),
+        )
+        .expect("Explicit mode runs the ordinary path, not the NativeDefault directory check");
+    assert!(explicit_report.authenticated);
+    // The calls made were identical in count (version + auth) — proving mode alone, not an
+    // env-value special case, is what changed between the two runs.
+    assert_eq!(runner2.call_count(), 2);
+}
+
+/// NativeDefault's own auth failure (the account is not logged in at all) must be reported
+/// exactly like Explicit's — not authenticated, not safe to adopt — never treated as an
+/// inspection error just because it is the native-default account.
+#[test]
+fn native_default_auth_failure_is_reported_not_authenticated() {
+    let native_dir = relay_provider_claude::native_default_dir()
+        .expect("HOME must resolve in a real test environment");
+    let root = tempdir().expect("temp directory");
+    let runner = FakeRunner::new(vec![
+        output("2.1.276 (Claude Code)"),
+        output(r#"{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty"}"#),
+    ]);
+    let inspector =
+        ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");
+    let report = inspector
+        .inspect(
+            &native_dir,
+            relay_core::ClaudeConfigMode::NativeDefault,
+            inspect_environment_with(&native_dir, |_| None),
+        )
+        .expect("inspection itself must succeed on an expected unauthenticated state");
+    assert!(!report.authenticated);
+    assert!(!report.safe_to_adopt);
+    assert!(report.identity_pin.is_none());
 }
 
 #[test]
@@ -213,7 +330,11 @@ fn environment_override_blocks_commands_without_reading_value() {
     });
 
     let error = inspector
-        .inspect(&config_dir, environment.clone())
+        .inspect(
+            &config_dir,
+            relay_core::ClaudeConfigMode::Explicit,
+            environment.clone(),
+        )
         .expect_err("override must block");
     let serialized = serde_json::to_string(&environment).expect("serialize environment report");
 
@@ -231,16 +352,32 @@ fn provider_command_failure_is_closed() {
     let runner = FakeRunner::new(vec![Ok(ProcessResult {
         success: false,
         stdout: b"raw secret output".to_vec(),
+        stderr: b"error: some-long-token-abcdefghijklmnopqrstuvwxyz1234567890 is invalid".to_vec(),
     })]);
     let inspector =
         ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");
 
     let error = inspector
-        .inspect(&config_dir, inspect_environment_with(&config_dir, |_| None))
+        .inspect(
+            &config_dir,
+            relay_core::ClaudeConfigMode::Explicit,
+            inspect_environment_with(&config_dir, |_| None),
+        )
         .expect_err("command must fail");
 
-    assert_eq!(error.code(), "provider_command_failed");
-    assert!(!format!("{error:?} {error}").contains("raw secret output"));
+    // Actionable: names the operation, and a sanitized excerpt — but stdout (which could hold
+    // conversation/credential-adjacent content) and long token-shaped words are never included.
+    assert_eq!(error.code(), "provider_diagnostic");
+    let text = format!("{error:?} {error}");
+    assert!(
+        text.contains("claude --version") || text.contains("claude auth status"),
+        "{text}"
+    );
+    assert!(!text.contains("raw secret output"));
+    assert!(
+        !text.contains("abcdefghijklmnopqrstuvwxyz1234567890"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -253,7 +390,11 @@ fn unsupported_version_fails_before_auth_command() {
         ClaudeInspector::with_runner(executable(root.path()), runner.clone()).expect("inspector");
 
     let error = inspector
-        .inspect(&config_dir, inspect_environment_with(&config_dir, |_| None))
+        .inspect(
+            &config_dir,
+            relay_core::ClaudeConfigMode::Explicit,
+            inspect_environment_with(&config_dir, |_| None),
+        )
         .expect_err("unsupported version");
 
     assert_eq!(error.code(), "unsupported_provider_version");
@@ -304,7 +445,11 @@ fn inspection_makes_no_profile_filesystem_changes() {
         ClaudeInspector::with_runner(executable(root.path()), runner).expect("inspector");
 
     let report = inspector
-        .inspect(&config_dir, inspect_environment_with(&config_dir, |_| None))
+        .inspect(
+            &config_dir,
+            relay_core::ClaudeConfigMode::Explicit,
+            inspect_environment_with(&config_dir, |_| None),
+        )
         .expect("inspection");
 
     assert!(report.safe_to_adopt);
