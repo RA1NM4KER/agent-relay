@@ -28,8 +28,10 @@ const STOP_MARKER: &str = "hook claude stop-failure";
 const STATUSLINE_MARKER: &str = "hook claude statusline";
 /// The `UserPromptSubmit` hook that answers `/relay …` inside a Claude session without a model turn.
 const PROMPT_MARKER: &str = "hook claude prompt";
-/// First line of the `/relay` command files Relay installs; only files carrying it are ever
-/// touched.
+/// Ownership sentinel in every `/relay` command file Relay installs (first line of the body,
+/// right after the YAML frontmatter - never the file's own first line, which must be
+/// frontmatter's opening `---` or Claude's command picker cannot parse a `description` at all);
+/// only files carrying it are ever touched.
 pub const COMMAND_FILE_MARKER: &str = "<!-- agent-relay:managed-command v1 -->";
 const COMMAND_DIR: &str = "commands";
 /// The bare `/relay` overview command lives at the top of `commands/`.
@@ -84,6 +86,12 @@ const NAMESPACED_COMMANDS: &[NamespacedCommand] = &[
 /// (`relay hook claude prompt`) answers the real command before any model turn; this text is only
 /// what would reach the model if that hook were somehow not running, and it deliberately gives the
 /// model nothing to act on.
+///
+/// YAML frontmatter (the `description`/`argument-hint` Claude's command picker actually reads)
+/// must open with `---` as the file's literal first line, or Claude never parses it as
+/// frontmatter at all - and falls back to showing something else (observed: the raw marker
+/// text) as the visible description. So the ownership marker goes on the first line of the
+/// *body*, right after the closing `---`, never before the frontmatter.
 fn command_file_body(description: &str, argument_hint: &str, fallback: &str) -> String {
     let hint_line = if argument_hint.is_empty() {
         String::new()
@@ -91,7 +99,7 @@ fn command_file_body(description: &str, argument_hint: &str, fallback: &str) -> 
         format!("argument-hint: {argument_hint}\n")
     };
     format!(
-        "{COMMAND_FILE_MARKER}\n---\ndescription: {description}\n{hint_line}---\nAgent Relay answers this command with its own hook before it reaches you. \
+        "---\ndescription: {description}\n{hint_line}---\n{COMMAND_FILE_MARKER}\nAgent Relay answers this command with its own hook before it reaches you. \
 It did not run in this session, so do nothing except tell the user: \"Agent Relay's hook did not answer; \
 run `{fallback}` in a terminal.\" Do not run commands or guess anything about sessions or profiles.\n"
     )
@@ -149,7 +157,10 @@ enum CommandFilePlan {
 fn plan_command_file(path: &Path, contents: &str) -> CommandFilePlan {
     match fs::read_to_string(path) {
         Ok(existing) if existing == contents => CommandFilePlan::Current,
-        Ok(existing) if existing.starts_with(COMMAND_FILE_MARKER) => CommandFilePlan::Write,
+        // Not the literal first line (it now follows the frontmatter, so Claude's own picker
+        // can parse `description`) - a substring check is still an unambiguous ownership test:
+        // this exact sentinel is not something a foreign command file would contain by chance.
+        Ok(existing) if existing.contains(COMMAND_FILE_MARKER) => CommandFilePlan::Write,
         Ok(_) => CommandFilePlan::ForeignKept,
         Err(_) => CommandFilePlan::Write,
     }
@@ -810,7 +821,7 @@ pub fn apply_uninstall(plan: &UninstallPlan) -> Result<()> {
     // Only a command file that carries Relay's marker is ever removed — a foreign
     // `relay.md`/`relay/*.md` a user might have is always left alone.
     for (path, _, _) in all_command_files(&plan.config_dir) {
-        if fs::read_to_string(&path).is_ok_and(|text| text.starts_with(COMMAND_FILE_MARKER)) {
+        if fs::read_to_string(&path).is_ok_and(|text| text.contains(COMMAND_FILE_MARKER)) {
             let _ignored = fs::remove_file(&path);
         }
     }
@@ -1079,7 +1090,8 @@ mod tests {
                 .any(|group| group.to_string().contains("hook claude prompt"))
         );
         let command = fs::read_to_string(dir.path().join("commands/relay.md")).unwrap();
-        assert!(command.starts_with(super::COMMAND_FILE_MARKER));
+        assert!(command.starts_with("---\ndescription:"));
+        assert!(command.contains(super::COMMAND_FILE_MARKER));
         // Re-installing changes nothing.
         let plan = plan_install(dir.path(), Path::new(RELAY)).unwrap();
         assert!(plan.already_installed);
@@ -1146,7 +1158,14 @@ mod tests {
             let path = dir.path().join("commands/relay").join(format!("{stem}.md"));
             let text = fs::read_to_string(&path)
                 .unwrap_or_else(|_| panic!("missing namespaced command file {}", path.display()));
-            assert!(text.starts_with(super::COMMAND_FILE_MARKER));
+            // The file's literal first line must be frontmatter's opening `---`, or Claude's own
+            // command picker never parses `description` at all and falls back to showing
+            // something else (observed live: the raw marker text) as the visible description.
+            assert!(
+                text.starts_with("---\n"),
+                "frontmatter must open the file so Claude's picker can parse it: {text}"
+            );
+            assert!(text.contains(super::COMMAND_FILE_MARKER));
             // The marker line is internal; everything a person sees in the picker must be short
             // and human, never the marker or long implementation detail.
             let description_line = text
