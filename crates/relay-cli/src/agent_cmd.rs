@@ -15,7 +15,7 @@ use std::{path::Path, time::Duration};
 
 use relay_core::{
     Error, Profile, ProfileService, ProviderKind, RelayPaths,
-    handoff::{LeaseStore, ProjectId, WriterLease},
+    handoff::{ProjectId, SessionStore, WriterLease},
 };
 use serde_json::json;
 
@@ -98,11 +98,14 @@ fn run_subcommand(paths: &RelayPaths, session: &LiveSession, sub: &str, args: &[
     let Ok(project_id) = ProjectId::for_canonical_path(&session.project) else {
         return "Agent Relay could not identify this project.".to_owned();
     };
-    let state_dir = paths.project_state_dir(&project_id);
-    let lease = LeaseStore::at_path(state_dir.join("lease.json"))
-        .load()
-        .ok()
-        .flatten();
+    // This conversation's own Relay session (found by its native id), if it has one.
+    let store = SessionStore::new(paths, project_id.clone());
+    let found = store.find_by_native(&session.session_id).ok().flatten();
+    let state_dir = found.as_ref().map_or_else(
+        || paths.project_state_dir(&project_id),
+        |view| store.session_dir(&view.record.relay_session_id),
+    );
+    let lease = found.and_then(|view| view.lease);
     let context = Context {
         paths,
         session,
@@ -236,30 +239,51 @@ fn adopt(context: &Context<'_>) -> String {
         context.session,
         None,
         &providers::ExecutableOverrides::default(),
+        None,
+        Vec::new(),
     );
+    let note = |automatic_handoff: bool| {
+        if automatic_handoff {
+            ""
+        } else {
+            "Automatic handoff is off for this profile (run `relay setup`).\n"
+        }
+    };
     match outcome {
         Ok(AdoptionOutcome::Adopted {
             profile,
+            relay_session_id,
             automatic_handoff,
         }) => format!(
-            "Agent Relay: adopted this conversation in place — Claude · {} · profile {} · session {}…\n\
-             {}Use /relay status, /relay switch, or `relay resume` from a terminal.",
+            "Agent Relay: adopted this conversation in place — Claude · {} · profile {} · Relay session {}\n\
+             {}Other Relay sessions in this project are untouched. Use /relay status, /relay switch, \
+             or `relay resume` from a terminal.",
             project_name(&context.session.project),
             profile,
-            &context.session.session_id[..8],
-            if automatic_handoff {
-                ""
-            } else {
-                "Automatic handoff is off for this profile (run `relay setup`).\n"
-            }
+            relay_session_id.short(),
+            note(automatic_handoff)
         ),
-        Ok(AdoptionOutcome::AlreadyManaged { profile }) => {
-            format!("Agent Relay: already managed (profile {profile}). Nothing to do.")
-        }
-        Err(Error::WriterAlreadyActive(owner)) => format!(
-            "Agent Relay refused: this project already has a live Relay-managed conversation \
-             (profile {owner}). Continue it with `relay resume`, move it with `relay switch`, or \
-             replace it explicitly with `relay claude --new`. Nothing was changed."
+        Ok(AdoptionOutcome::Reactivated {
+            profile,
+            relay_session_id,
+            automatic_handoff,
+        }) => format!(
+            "Agent Relay: this conversation was already Relay session {} and is managed again \
+             (profile {profile}).\n{}",
+            relay_session_id.short(),
+            note(automatic_handoff)
+        ),
+        Ok(AdoptionOutcome::AlreadyManaged {
+            profile,
+            relay_session_id,
+        }) => format!(
+            "Agent Relay: already managed (Relay session {}, profile {profile}). Nothing to do.",
+            relay_session_id.short()
+        ),
+        Err(Error::NativeSessionAlreadyActive(id)) => format!(
+            "Agent Relay refused: this exact conversation is already active under Relay (session \
+             {id}) in another process, and one conversation never gets two owners. Nothing was \
+             changed."
         ),
         Err(error) => format!("Agent Relay refused: {error}"),
     }

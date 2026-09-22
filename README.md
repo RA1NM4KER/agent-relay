@@ -1,7 +1,7 @@
 # Agent Relay
 
 Keep your coding agent moving when one account hits its usage limit. Agent Relay supervises
-isolated Claude and Codex profiles, keeps a single writer, and moves the work to the next eligible
+isolated Claude and Codex profiles, keeps exactly one owner per conversation, and moves the work to the next eligible
 profile in one priority order. Claude → Claude continues the same native Claude session; anything
 involving Codex continues from a Relay state bundle in a new session — never the same native
 conversation across the two CLIs.
@@ -33,9 +33,9 @@ relay claude                # start a new managed conversation with Claude ...
 relay codex                 # ... or with Codex (peer entry points — use whichever you want)
 
 relay claude --resume       # adopt an OLD Claude conversation (pick it in Claude's own picker)
-relay resume                # continue whoever currently owns the conversation
+relay resume                # reopen a closed conversation of this project
 relay switch                # choose a profile from a list ...
-relay switch <profile>      # ... or name it: move ownership to another profile
+relay switch <profile>      # ... or name it: move a conversation to another profile
 
 relay status                # what is going on in this project
 relay profiles              # your profiles, their order and login state
@@ -54,8 +54,8 @@ The mental model is simple:
 relay claude = Claude + Relay supervision     (new managed conversation)
 relay codex  = Codex  + Relay supervision     (new managed conversation)
 relay claude --resume = bring an existing Claude conversation under Relay (same session, in place)
-relay resume = continue whoever currently owns the conversation
-relay switch [<profile>] = explicitly move ownership (bare: pick from a list)
+relay resume = reopen a closed (dormant) conversation of this project
+relay switch [<profile>] = explicitly move a conversation (bare: pick from a list)
 ```
 
 **Start through Relay, or bring an existing conversation under Relay later.** Switch accounts and
@@ -73,17 +73,22 @@ providers without leaving your coding workflow:
   for a `/relay` command and Relay cannot yet verify a live Codex thread's identity, so live Codex
   adoption is not offered — use `relay codex` to start through Relay.)
 
-- `relay claude` always starts a **new** conversation under your highest-priority Claude profile,
+- **Relay supervises conversations, not repositories.** A project can hold many *Relay sessions*
+  — each one a conversation with its own stable id, running on one profile at a time. Two sessions
+  may run on the same profile; one may be Claude and another Codex; some may be closed. Each *live*
+  session has exactly one owner; a closed one has none (it is remembered, not owned).
+  Relay does not serialize edits to your files: two agents in one working tree can touch the same
+  files, so it is your call when running several at once makes sense.
+- `relay claude` always starts a **new** Relay session under your highest-priority Claude profile,
   tracked by Relay from the start; Relay drops you straight into Claude (you type the first message
-  there — Relay never prompts for it). If a Relay-managed session is already active for the project, it refuses
-  rather than silently reattaching or replacing it — run `relay resume` to continue that one, or
-  `relay claude --new` to explicitly stop it and start fresh.
-- `relay codex` is the same thing for Codex: a new Relay-managed Codex conversation under your
-  highest-priority configured *Codex* profile (`relay claude` likewise picks the highest-priority
-  Claude profile; neither ever prompts). `--profile <name>` overrides the choice and must name a
-  profile of that provider; `--new` and `--no-attach` behave exactly as they do for `relay claude`.
-- `relay resume` continues the project's existing Relay-managed session, under whichever profile
-  actually owns it right now (you never need to know or type a profile name for the normal case).
+  there — Relay never prompts for it). Other sessions of the project, active or not, are none of its
+  business: it never stops, replaces or blocks on them (`--new` is a deprecated no-op).
+- `relay codex` is the same thing for Codex: a new Relay session under your highest-priority
+  configured *Codex* profile. `--profile <name>` overrides the choice and must name a profile of
+  that provider; `--no-attach` behaves as it does for `relay claude`.
+- `relay resume` reopens a **closed** session of this project on the profile it last ran on. With
+  one it just opens it; with several you choose from a list (or pass `--session <id>`); one that
+  is active in another terminal is shown as active and never started a second time.
 - Once a session is running, Relay still does the thing this project exists for: if the account
   genuinely runs out of quota, it hands the work to the next eligible profile in your priority order
   automatically — Claude profile A → Claude profile B → Codex → back to Claude A once it has reset,
@@ -145,13 +150,12 @@ brew update && brew upgrade agent-relay
 | Command | What it does |
 |---|---|
 | `relay setup` | First-run wizard; safe to re-run any time (detects and reuses what's already there). |
-| `relay claude [message]` | Start a **new** Relay-managed Claude conversation in the current project and open Claude directly (an optional message is passed to Claude as the opening prompt). Refuses if one is already active. |
-| `relay codex [message]` | Start a **new** Relay-managed Codex conversation and open Codex directly — the peer of `relay claude`, with the same rules (single writer, `--new`, `--profile`, supervised terminal). |
-| `relay claude --new [message]` | Explicitly stop the active managed session (safely, with the same authoritative stop-and-verify machinery `relay switch`/recovery use) and start a fresh one. |
-| `relay resume [profile]` | Continue the project's active Relay-managed session — resolves the current owner automatically; the profile argument is only needed for the advanced explicit form. |
-| `relay switch <profile>` | Explicitly hand the *current* conversation to a different profile/provider (state continuation across providers). Refuses an exhausted or unverifiable Codex target rather than rerouting your choice. |
+| `relay claude [message]` | Start a **new** Relay session (Claude) in the current project and open Claude directly (an optional message is passed to Claude as the opening prompt). Other sessions in the project are left alone. |
+| `relay codex [message]` | Start a **new** Relay session (Codex) and open Codex directly — the peer of `relay claude` (`--profile`, supervised terminal). |
+| `relay resume [profile] [--session ID]` | Reopen a closed Relay session of this project (a picker when there are several; the profile is only a filter). |
+| `relay switch [profile] [--session ID]` | Explicitly hand a conversation to a different profile/provider (state continuation across providers). With several active sessions you choose which; refuses an exhausted or unverifiable Codex target rather than rerouting your choice. |
 | `relay claude -- …` / `relay codex -- …` | Arguments after `--` go straight to that provider's CLI and stay provider-scoped (see below). |
-| `relay status` | Plain-language summary: project, whether the current owner's session is live (judged by that owner's own provider), current profile, fallback order, automatic-handoff status, Herdr. |
+| `relay status` | Plain-language summary: the project's active and dormant Relay sessions (provider, profile, ids), primary/fallback order, automatic-handoff status, Herdr. |
 | `relay profiles` | List registered profiles and which is primary/fallback. |
 | `relay login <name>` / `relay logout <name>` | Friendly wrappers around the provider's own official login/logout (Claude or Codex) for one isolated profile. |
 
@@ -295,10 +299,9 @@ relay handoff run --from claude-primary --to claude-backup --project ~/repos/foo
 
 ## Limitations
 
-- One writer per project; Relay never silently creates a second one — `relay claude` refuses
-  outright while a managed session is already active (`relay resume` to continue it, `relay claude
-  --new` to explicitly replace it), and a handoff is refused while the source profile has any live
-  session process of its provider.
+- One active owner per Relay session — not one writer per project. Several sessions of a project
+  (even on one profile) run side by side and Relay does not serialize edits to your working tree.
+  A handoff is refused only while another live process serves the very conversation being moved.
 - The statusline usage snapshot only refreshes in interactive sessions; headless sessions leave it
   stale, and stale means `UNKNOWN` (no handoff).
 - No automatic fail-back or quota pooling.

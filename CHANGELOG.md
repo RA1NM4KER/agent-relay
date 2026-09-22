@@ -4,6 +4,23 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+- **Relay supervises conversations, not repositories.** A project can now hold many Relay Sessions
+  (each with a stable Relay id, its own lease, journals, provider arguments and control endpoint);
+  the invariant is one active owner per Relay Session, not one writer per project. Two sessions may
+  run on the same profile, on different profiles or providers, side by side. A session is ACTIVE
+  while Relay supervises a live provider process and DORMANT afterwards (its last profile is
+  history, not an owner); a provider that exits before any conversation existed leaves nothing
+  behind. `relay claude` / `relay codex` always start a new session and never stop or block on
+  another (`--new` is a deprecated no-op); `relay claude --resume` works while other sessions are
+  active and only refuses a conversation that is already active; `relay resume` reopens a dormant
+  session (a picker with several, `--session <id>` for scripts); `relay switch` and `/relay switch`
+  act on one session (`--session <id>`, or a picker) and never touch another; `relay status` lists
+  active and dormant sessions. Hooks, the status-line badge, automatic handoff and Herdr resolve the
+  session from the exact provider conversation, never from "the project's lease". The old
+  one-lease-per-project state is migrated automatically into one Relay Session. The Claude process
+  check for handoffs is now conversation-scoped: only another process serving *the same
+  conversation* blocks.
+
 - **More precise switch safety.** The check before a Claude → Claude move no longer refuses because
   *some* Claude process runs under the source profile (background daemons, helpers and sessions in other
   projects did): each process is classified by pid + start time, Claude's session registry and working

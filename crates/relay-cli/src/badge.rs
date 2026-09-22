@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 use relay_core::{
     ProfileName, RelayPaths,
-    handoff::{JournalStore, LeaseStore, ProjectId, TransactionId},
+    handoff::{JournalStore, ProjectId, TransactionId},
 };
 use serde_json::Value;
 
@@ -54,10 +54,15 @@ pub fn parse_input(stdin: &[u8]) -> Option<(String, PathBuf)> {
 pub fn badge_for(paths: &RelayPaths, stdin: &[u8]) -> Option<String> {
     let (session_id, dir) = parse_input(stdin)?;
     let project = std::fs::canonicalize(dir).ok()?;
-    let project_state_dir = paths.project_state_dir(&ProjectId::for_canonical_path(&project).ok()?);
-    let lease = LeaseStore::at_path(project_state_dir.join("lease.json"))
-        .load()
-        .ok()??;
+    // The Relay session holding THIS provider conversation — never "the project's lease": with
+    // several active sessions in one project each shows its own owner.
+    let store = relay_core::handoff::SessionStore::new(
+        paths,
+        ProjectId::for_canonical_path(&project).ok()?,
+    );
+    let view = store.find_by_native(&session_id).ok()??;
+    let project_state_dir = store.session_dir(&view.record.relay_session_id);
+    let lease = view.lease?;
     if lease.session_id != session_id {
         return None;
     }
@@ -123,19 +128,45 @@ mod tests {
             RelayPaths::new(root.path().join("config"), root.path().join("state")).expect("paths");
         let canonical = std::fs::canonicalize(project.path()).expect("canonical");
         let project_id = ProjectId::for_canonical_path(&canonical).expect("id");
-        let state_dir = paths.project_state_dir(&project_id);
-        std::fs::create_dir_all(state_dir.join("handoffs")).expect("dirs");
         let name = |value: &str| ProfileName::new(value).expect("name");
-        LeaseStore::at_path(state_dir.join("lease.json"))
-            .save(&WriterLease::new(
+        let sessions = relay_core::handoff::SessionStore::new(&paths, project_id.clone());
+        let create = |profile: &str, native: &str| {
+            let record = relay_core::handoff::RelaySessionRecord::new(
+                relay_core::handoff::RelaySessionId::generate().expect("id"),
                 project_id.clone(),
-                name("claude-primary"),
-                ProcessIdentity::current(),
-                "sess-1".to_owned(),
-                TransactionId::generate(),
+                name(profile),
+                None,
+                Some(native.to_owned()),
+                false,
                 1,
-            ))
-            .expect("lease");
+            );
+            sessions
+                .create_active(
+                    &record,
+                    &WriterLease::new(
+                        project_id.clone(),
+                        name(profile),
+                        ProcessIdentity::current(),
+                        native.to_owned(),
+                        TransactionId::generate(),
+                        1,
+                    ),
+                )
+                .expect("session");
+            sessions.session_dir(&record.relay_session_id)
+        };
+        let state_dir = create("claude-primary", "sess-1");
+        std::fs::create_dir_all(state_dir.join("handoffs")).expect("dirs");
+        // A second active session in the same project shows ITS OWN owner, never the first's.
+        create("claude-other", "sess-2");
+        let other = format!(
+            r#"{{"session_id":"sess-2","workspace":{{"project_dir":"{}"}}}}"#,
+            canonical.display()
+        );
+        assert_eq!(
+            badge_for(&paths, other.as_bytes()).as_deref(),
+            Some("[Relay · claude-other]")
+        );
         let input = format!(
             r#"{{"session_id":"sess-1","workspace":{{"project_dir":"{}"}}}}"#,
             canonical.display()

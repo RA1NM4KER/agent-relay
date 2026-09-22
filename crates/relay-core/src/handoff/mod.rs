@@ -11,6 +11,7 @@ mod journal;
 mod lease;
 mod lock;
 mod project;
+mod session;
 mod state;
 
 pub use continuity::{
@@ -29,4 +30,7 @@ pub use journal::{
 pub use lease::{LeaseStore, WriterLease};
 pub use lock::{OrchestrationLock, ProcessIdentity};
 pub use project::ProjectId;
+pub use session::{
+    RelaySessionId, RelaySessionRecord, RelaySessionView, SessionState, SessionStore,
+};
 pub use state::{FailedPhase, HandoffState, TransactionId};

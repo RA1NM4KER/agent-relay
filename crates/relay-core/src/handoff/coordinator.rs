@@ -209,6 +209,9 @@ pub struct HandoffRequest {
     pub target_config_dir: PathBuf,
     pub session_id: String,
     pub continuity_type: ContinuityType,
+    /// The Relay Session's own state directory (lease, journals, lock). `None` keeps the legacy
+    /// project-level directory (used only by low-level tests).
+    pub state_dir: Option<PathBuf>,
 }
 
 pub struct HandoffCoordinator<'a> {
@@ -255,7 +258,10 @@ impl HandoffCoordinator<'_> {
             source,
         })?;
         let project_id = ProjectId::for_canonical_path(&project_dir)?;
-        let project_state_dir = self.paths.project_state_dir(&project_id);
+        let project_state_dir = request
+            .state_dir
+            .clone()
+            .unwrap_or_else(|| self.paths.project_state_dir(&project_id));
         fs::create_dir_all(&project_state_dir).map_err(|source| Error::Io {
             path: project_state_dir.clone(),
             source,

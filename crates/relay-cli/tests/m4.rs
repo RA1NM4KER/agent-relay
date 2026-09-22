@@ -132,22 +132,6 @@ impl FakeClaude {
         Self::build(root, auth_json, bg_id, session_id, pid, true)
     }
 
-    /// Like [`Self::new`], but `stop <id>` "succeeds" (exit 0, as the real `claude stop` would
-    /// for a hung/unresponsive session) without ever making `agents --json` stop listing the
-    /// session — i.e. the authoritative stop is issued but quiescence never actually arrives.
-    /// Exists to prove `--new`'s stop-and-verify step fails closed (`StopNotVerified`) rather
-    /// than trusting the stop command's own exit code, and that a failed stop never launches a
-    /// second writer.
-    fn new_with_ineffective_stop(
-        root: &Path,
-        auth_json: &str,
-        bg_id: &str,
-        session_id: &str,
-        pid: u32,
-    ) -> Self {
-        Self::build(root, auth_json, bg_id, session_id, pid, false)
-    }
-
     fn build(
         root: &Path,
         auth_json: &str,
@@ -178,7 +162,10 @@ printf '{{"args":"%s","config_dir":"%s"}}\n' "$*" "$CLAUDE_CONFIG_DIR" >> "$LOG"
 STOPPED="{marker}"
 # A fresh interactive session (`claude [prompt] --session-id <uuid> ...`): the user's terminal
 # session; it simply ends.
-case " $* " in *" --session-id "*) exit 0 ;; esac
+case " $* " in *" --session-id "*)
+  PREV=""; SID=""; for a in "$@"; do [ "$PREV" = "--session-id" ] && SID="$a"; PREV="$a"; done
+  mkdir -p "$CLAUDE_CONFIG_DIR/projects/-fake" && echo '{{}}' > "$CLAUDE_CONFIG_DIR/projects/-fake/$SID.jsonl"
+  exit 0 ;; esac
 case "$1" in
   --version) printf '%s\n' "2.1.276 (Claude Code)" ;;
   auth)
@@ -612,19 +599,8 @@ fn claude_entrypoint_launches_and_captures_session_id_automatically() {
 
     // The user never had to supply this session id anywhere: it flows straight from the fake
     // `--bg`/`agents --json` responses into the lease Relay itself created.
-    let lease = std::fs::read_to_string(
-        root.path()
-            .join("state")
-            .join("projects")
-            .read_dir()
-            .expect("projects dir")
-            .next()
-            .expect("one project")
-            .expect("entry")
-            .path()
-            .join("lease.json"),
-    )
-    .expect("lease file");
+    let lease =
+        std::fs::read_to_string(session_dir(root.path()).join("lease.json")).expect("lease file");
     assert!(lease.contains("11111111-1111-4111-8111-111111111111"));
 }
 
@@ -750,7 +726,7 @@ fn status_json_shape_is_stable_after_setup() {
     let data = json_stdout(&output)["data"].clone();
     for field in [
         "configured",
-        "session_state",
+        "sessions",
         "primary_profile",
         "primary_authenticated",
         "fallback_profiles",
@@ -926,30 +902,17 @@ fn claude_refuses_when_a_live_managed_session_already_exists() {
             "--no-attach",
             "--claude-executable",
             &claude.path_text(),
+            "hello again",
         ],
     );
+    // The fake's `--bg` answers with the SAME native session id both times: that exact
+    // conversation is already active under Relay, so it is never given a second owner (another
+    // conversation in the same project would have been fine).
     assert!(!second.status.success());
     let error = json_stderr(&second)["error"].clone();
-    assert_eq!(error["code"], "managed_session_active");
-    assert!(error["message"].as_str().unwrap().contains("alice"));
-    assert!(error["message"].as_str().unwrap().contains("relay resume"));
-    assert!(
-        error["message"]
-            .as_str()
-            .unwrap()
-            .contains("relay claude --new")
-    );
-
-    // No second writer was ever attempted: exactly the one `--bg` launch from `first`.
-    assert_eq!(bg_invocation_count(&claude), 1);
+    assert_eq!(error["code"], "native_session_already_active");
 }
 
-/// Dogfood-found bug (M6): `relay claude`'s final `claude attach <id>` step must run under the
-/// isolated profile's own `CLAUDE_CONFIG_DIR`. Before this fix `exec_claude_attach` set no
-/// `CLAUDE_CONFIG_DIR` at all, so `claude attach` searched whatever config dir this process's
-/// *parent shell* happened to have (or the real default account's, if none) instead of the
-/// profile Relay itself just launched the background job under — `claude attach` then reported
-/// "No job matching '<id>'" even though the session was live under the correct profile.
 #[test]
 fn claude_attach_execs_under_the_lease_owners_isolated_config_dir() {
     let root = tempdir().expect("tempdir");
@@ -1014,20 +977,17 @@ fn claude_attach_execs_under_the_lease_owners_isolated_config_dir() {
                 .to_owned()
         })
         .expect("session id argument");
-    let lease_path = std::fs::read_dir(root.path().join("state").join("projects"))
-        .expect("projects dir")
-        .next()
-        .expect("one project")
-        .expect("entry")
-        .path()
-        .join("lease.json");
-    let lease: Value =
-        serde_json::from_str(&std::fs::read_to_string(lease_path).expect("lease")).expect("json");
-    assert_eq!(lease["session_id"], session_id.as_str());
-    assert_eq!(lease["owner_profile"], "alice");
-    assert_ne!(
-        lease["owner_process"]["pid"], 0,
-        "the real process was recorded"
+    // Relay chose the session id, and it is exactly what the Relay session remembers. The
+    // provider exited normally, so the session is dormant: history, not an active lease.
+    let dir = session_dir(root.path());
+    let record: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).expect("record"))
+            .expect("json");
+    assert_eq!(record["native_session_id"], session_id.as_str());
+    assert_eq!(record["last_profile"], "alice");
+    assert!(
+        !dir.join("lease.json").exists(),
+        "a closed conversation has no owner"
     );
     assert!(
         !String::from_utf8_lossy(&output.stdout).contains("What would you like"),
@@ -1436,143 +1396,37 @@ fn resume_with_no_active_session_says_so_clearly() {
     assert!(!output.status.success());
     assert_eq!(
         json_stderr(&output)["error"]["code"],
-        "no_active_writer_for_project"
+        "no_resumable_session"
     );
 }
 
-/// Core `--new` behavior: an active managed session is safely stopped (via the same
-/// stop-and-verify machinery `relay switch`/recovery use) and confirmed gone before a genuinely
-/// fresh one is launched — proven by the invocation log's exact ordering, never by internal state
-/// alone.
-///
-/// Uses a real OS process's pid rather than a synthetic number: Relay's own liveness/quiescence
-/// checks fall back to an authoritative pid+start-time-fingerprint comparison whenever a session
-/// drops out of `claude agents --json`'s listing (see `ClaudeSourceLiveness::check`'s
-/// "unestablishable identity fails closed" note), and that fallback can only ever resolve to a
-/// genuine "confirmed gone" (`Some(false)`) — as opposed to an indeterminate reading it must
-/// conservatively treat as still active — for a pid that was really alive when Relay first
-/// recorded it. The process is killed and reaped the moment the fake `stop` case actually fires
-/// (watched via its marker file) rather than after a fixed sleep: this machine's own per-`relay`-
-/// invocation subprocess overhead varies (observed ~1.5s for a single call), so timing the real
-/// process's death off wall-clock elapsed time would be flaky; tying it to the actual stop event
-/// is not.
-#[test]
-fn claude_new_stops_the_existing_writer_and_starts_a_fresh_one() {
-    let root = tempdir().expect("tempdir");
-    let project = tempdir().expect("project dir");
-    // Long-lived on purpose: it only needs to survive until the real `stop` event fires, which
-    // the reaper thread below watches for directly.
-    let mut long_lived = std::process::Command::new("sleep")
-        .arg("300")
-        .spawn()
-        .expect("spawn long-lived process");
-    let long_lived_pid = long_lived.id();
-    let claude = FakeClaude::new(
-        root.path(),
-        &auth_json_for("alice"),
-        "aaaa1111",
-        "11111111-1111-4111-8111-111111111111",
-        long_lived_pid,
-    );
-    let marker_path = claude.stopped_marker_path();
-    let reaper = std::thread::spawn(move || {
-        while !marker_path.exists() {
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        let _ = long_lived.kill();
-        let _ = long_lived.wait();
-    });
-
-    adopt_profile(root.path(), "alice", &claude);
-    relay(
-        root.path(),
-        &["setup", "--non-interactive", "--primary", "alice"],
-    );
-
-    let first = relay(
-        root.path(),
-        &[
-            "claude",
-            "--project-dir",
-            &project.path().to_string_lossy(),
-            "--no-attach",
-            "--claude-executable",
-            &claude.path_text(),
-            "hello",
-        ],
-    );
-    assert!(
-        first.status.success(),
-        "{}",
-        String::from_utf8_lossy(&first.stderr)
-    );
-    assert_eq!(bg_invocation_count(&claude), 1);
-    assert_eq!(stop_invocation_count(&claude), 0);
-
-    // The session still lists as active (fake `agents --json`), so a plain `relay claude` here
-    // would refuse (proven separately by `claude_refuses_when_a_live_managed_session_already_exists`).
-    // `--new` must instead stop it (which triggers the reaper thread above, killing the real
-    // process behind the recorded pid), confirm quiescence, then launch a genuinely fresh one —
-    // never two writers coexisting.
-    let second = relay(
-        root.path(),
-        &[
-            "claude",
-            "--new",
-            "--project-dir",
-            &project.path().to_string_lossy(),
-            "--no-attach",
-            "--claude-executable",
-            &claude.path_text(),
-            "hello again",
-        ],
-    );
-    assert!(
-        second.status.success(),
-        "{}",
-        String::from_utf8_lossy(&second.stderr)
-    );
-    assert_eq!(json_stdout(&second)["data"]["new_session"], true);
-
-    assert_eq!(bg_invocation_count(&claude), 2, "exactly one relaunch");
-    assert_eq!(
-        stop_invocation_count(&claude),
-        1,
-        "exactly one stop, for the one prior writer"
-    );
-
-    let invocations = claude.invocations();
-    let bg_indices: Vec<usize> = invocations
-        .iter()
-        .enumerate()
-        .filter(|(_, invocation)| {
-            invocation["args"]
-                .as_str()
-                .is_some_and(|args| args.starts_with("--bg"))
-        })
-        .map(|(index, _)| index)
-        .collect();
-    let stop_index = invocations
-        .iter()
-        .position(|invocation| {
-            invocation["args"]
-                .as_str()
-                .is_some_and(|args| args.starts_with("stop "))
-        })
-        .expect("a stop invocation was logged");
-    assert_eq!(bg_indices.len(), 2);
-    assert!(
-        bg_indices[0] < stop_index && stop_index < bg_indices[1],
-        "stop must happen strictly between the two launches — no window where two writers exist"
-    );
-
-    reaper.join().expect("reaper thread");
+/// `--new` is a deprecated no-op: every `relay claude` starts its own Relay session and no
+/// invocation ever stops another one. (The fake's `--bg` always answers with the same native
+/// session id, so the second launch is refused as a DUPLICATE OF THE SAME CONVERSATION — the
+/// protection that one native conversation never has two active owners — and nothing is stopped.)
+/// The state directory of the first project's first Relay session.
+fn session_dir(root: &Path) -> std::path::PathBuf {
+    let project = root
+        .join("state")
+        .join("projects")
+        .read_dir()
+        .expect("projects dir")
+        .next()
+        .expect("one project")
+        .expect("entry")
+        .path();
+    project
+        .join("sessions")
+        .read_dir()
+        .expect("sessions dir")
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.join("session.json").exists())
+        .expect("one Relay session")
 }
 
-/// Requirement: "If there is no existing session, it [`--new`] should simply behave like `relay
-/// claude`" — in particular, never issuing a stop when there is nothing to stop.
 #[test]
-fn claude_new_behaves_like_claude_when_no_existing_session() {
+fn claude_new_is_a_deprecated_no_op_and_never_stops_anything() {
     let root = tempdir().expect("tempdir");
     let project = tempdir().expect("project dir");
     let claude = FakeClaude::new(
@@ -1587,101 +1441,41 @@ fn claude_new_behaves_like_claude_when_no_existing_session() {
         root.path(),
         &["setup", "--non-interactive", "--primary", "alice"],
     );
-
-    let output = relay(
-        root.path(),
-        &[
-            "claude",
-            "--new",
+    let launch = |extra: &[&str]| {
+        let mut args = vec!["claude"];
+        args.extend_from_slice(extra);
+        args.extend([
             "--project-dir",
-            &project.path().to_string_lossy(),
+            &*Box::leak(
+                project
+                    .path()
+                    .to_string_lossy()
+                    .into_owned()
+                    .into_boxed_str(),
+            ),
             "--no-attach",
             "--claude-executable",
-            &claude.path_text(),
+            &*Box::leak(claude.path_text().into_boxed_str()),
             "hello",
-        ],
-    );
+        ]);
+        relay(root.path(), &args)
+    };
+    let first = launch(&[]);
     assert!(
-        output.status.success(),
+        first.status.success(),
         "{}",
-        String::from_utf8_lossy(&output.stderr)
+        String::from_utf8_lossy(&first.stderr)
     );
-    assert_eq!(json_stdout(&output)["data"]["new_session"], true);
-    assert_eq!(bg_invocation_count(&claude), 1);
-    assert_eq!(
-        stop_invocation_count(&claude),
-        0,
-        "nothing to stop, so stop must never be called"
-    );
-}
-
-/// Safety property: if the authoritative stop can never be verified quiescent (a hung/unresponsive
-/// session), `--new` must fail closed and must never proceed to launch a second writer — the
-/// original lease is left exactly as it was.
-///
-/// Uses this test process's own pid — guaranteed alive for the test's entire duration — as the
-/// recorded owner, so the pid+fingerprint fallback (see the previous test's doc comment) reads a
-/// genuine "still the same process" the whole time and can never spuriously resolve to quiescent.
-#[test]
-fn claude_new_fails_closed_when_stop_cannot_be_verified_and_never_launches_a_second_writer() {
-    let root = tempdir().expect("tempdir");
-    let project = tempdir().expect("project dir");
-    let claude = FakeClaude::new_with_ineffective_stop(
-        root.path(),
-        &auth_json_for("alice"),
-        "aaaa1111",
-        "11111111-1111-4111-8111-111111111111",
-        std::process::id(),
-    );
-    adopt_profile(root.path(), "alice", &claude);
-    relay(
-        root.path(),
-        &["setup", "--non-interactive", "--primary", "alice"],
-    );
-
-    let first = relay(
-        root.path(),
-        &[
-            "claude",
-            "--project-dir",
-            &project.path().to_string_lossy(),
-            "--no-attach",
-            "--claude-executable",
-            &claude.path_text(),
-            "hello",
-        ],
-    );
-    assert!(first.status.success());
-
-    let second = relay(
-        root.path(),
-        &[
-            "claude",
-            "--new",
-            "--project-dir",
-            &project.path().to_string_lossy(),
-            "--no-attach",
-            "--claude-executable",
-            &claude.path_text(),
-            "hello again",
-        ],
-    );
+    let second = launch(&["--new"]);
     assert!(!second.status.success());
-    assert_eq!(json_stderr(&second)["error"]["code"], "stop_not_verified");
-
-    // The failed stop must never be followed by a launch attempt: still just the one `--bg`.
-    assert_eq!(bg_invocation_count(&claude), 1);
-
-    // The original lease is untouched — still alice, still the original session.
-    let projects_dir = root.path().join("state").join("projects");
-    let project_entry = projects_dir
-        .read_dir()
-        .expect("projects dir")
-        .next()
-        .expect("one project")
-        .expect("entry");
+    assert_eq!(
+        json_stderr(&second)["error"]["code"],
+        "native_session_already_active"
+    );
+    assert_eq!(stop_invocation_count(&claude), 0, "`--new` stops nothing");
+    // The first session is exactly as it was.
     let lease =
-        std::fs::read_to_string(project_entry.path().join("lease.json")).expect("lease file");
+        std::fs::read_to_string(session_dir(root.path()).join("lease.json")).expect("lease");
     assert!(lease.contains("11111111-1111-4111-8111-111111111111"));
     assert!(lease.contains("\"alice\""));
 }

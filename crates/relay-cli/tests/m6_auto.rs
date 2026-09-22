@@ -133,7 +133,11 @@ case "$CLAUDE_CONFIG_DIR" in */alice/*) NAME=alice ;; */bob/*) NAME=bob ;; esac
 # A fresh interactive session (`claude [prompt] --session-id <uuid> ...`): the user's terminal
 # session, which may end with a handoff having moved the lease (see attach below).
 case " $* " in *" --session-id "*)
-  if [ -n "$RELAY_TEST_SWAP" ] && [ -f "$RELAY_TEST_SWAP" ]; then mv "$RELAY_TEST_SWAP" "$RELAY_TEST_LEASE"; fi
+  if [ -n "$RELAY_TEST_SWAP" ] && [ -f "$RELAY_TEST_SWAP" ]; then mv "$RELAY_TEST_SWAP" $RELAY_TEST_LEASE; fi
+  if [ -n "$RELAY_TEST_TRANSCRIPT" ]; then
+    PREV=""; SID=""; for a in "$@"; do [ "$PREV" = "--session-id" ] && SID="$a"; PREV="$a"; done
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects/-fake" && echo '{{}}' > "$CLAUDE_CONFIG_DIR/projects/-fake/$SID.jsonl"
+  fi
   [ -n "$RELAY_TEST_INTERACTIVE_SLEEP" ] && sleep "$RELAY_TEST_INTERACTIVE_SLEEP"
   exit "${{RELAY_TEST_ATTACH_EXIT:-0}}" ;;
 esac
@@ -154,7 +158,7 @@ case "$1" in
     fi ;;
   stop) touch "{stopped}"; exit 0 ;;
   attach)
-    if [ -n "$RELAY_TEST_SWAP" ] && [ -f "$RELAY_TEST_SWAP" ]; then mv "$RELAY_TEST_SWAP" "$RELAY_TEST_LEASE"; fi
+    if [ -n "$RELAY_TEST_SWAP" ] && [ -f "$RELAY_TEST_SWAP" ]; then mv "$RELAY_TEST_SWAP" $RELAY_TEST_LEASE; fi
     exit "${{RELAY_TEST_ATTACH_EXIT:-0}}" ;;
   --resume) exit 0 ;;
   -p) cat >/dev/null; printf '{{"session_id":"{SESSION_ID}","is_error":false,"subtype":"success"}}\n' ;;
@@ -221,7 +225,9 @@ case "$1" in
   exec)
     cat >/dev/null
     printf '{{"codex_home":"%s"}}\n' "$CODEX_HOME" >> "{exec_log}"
-    printf '{{"type":"thread.started","thread_id":"01a-auto-thread"}}\n'
+    n=$(wc -l < "{exec_log}" | tr -d ' ')
+    tid="01a-auto-thread"; [ "$n" -gt 1 ] && tid="01a-auto-thread-$n"
+    printf '{{"type":"thread.started","thread_id":"%s"}}\n' "$tid"
     printf '{{"type":"turn.started"}}\n'
     printf '{{"type":"turn.completed"}}\n'
     ;;
@@ -238,7 +244,8 @@ case "$1" in
         *'"method":"initialize"'*) printf '{{"id":%s,"result":{{"codexHome":"%s"}}}}\n' "$id" "$CODEX_HOME" ;;
         *'"method":"thread/read"'*)
           tid=$(printf '%s' "$line" | sed -n 's/.*"threadId":"\([^"]*\)".*/\1/p')
-          if [ "$tid" = "01a-auto-thread" ]; then
+          case "$tid" in 01a-auto-thread*) ok=1 ;; *) ok=0 ;; esac
+          if [ "$ok" = 1 ]; then
             printf '{{"id":%s,"result":{{"thread":{{"id":"%s"}}}}}}\n' "$id" "$tid"
           else
             printf '{{"id":%s,"error":{{"code":-32600,"message":"thread not loaded"}}}}\n' "$id"
@@ -304,7 +311,8 @@ fn path_with_fixtures(root: &Path) -> std::ffi::OsString {
     .expect("joinable PATH")
 }
 
-fn project_state_dir(root: &Path) -> PathBuf {
+/// The project's state directory (holding its Relay sessions and shared logs).
+fn project_root_dir(root: &Path) -> PathBuf {
     root.join("state")
         .join("projects")
         .read_dir()
@@ -315,13 +323,50 @@ fn project_state_dir(root: &Path) -> PathBuf {
         .path()
 }
 
+/// How many Relay sessions the project has (their `session.json` records).
+fn session_count(root: &Path) -> usize {
+    std::fs::read_dir(project_root_dir(root).join("sessions"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().join("session.json").exists())
+        .count()
+}
+
+/// The state directory of the project's one Relay session (these tests use one session per
+/// project); the project directory itself when it has none yet.
+fn project_state_dir(root: &Path) -> PathBuf {
+    let project = project_root_dir(root);
+    let mut sessions = std::fs::read_dir(project.join("sessions"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.join("session.json").exists());
+    match (sessions.next(), sessions.next()) {
+        (Some(only), None) => only,
+        (None, _) => project,
+        (Some(_), Some(_)) => panic!("expected exactly one Relay session"),
+    }
+}
+
+/// The session's active owner — or, once its provider process has exited and the lease was
+/// released, the profile it last ran on (history recorded on the session).
 fn lease_owner(root: &Path) -> String {
-    let lease =
-        std::fs::read_to_string(project_state_dir(root).join("lease.json")).expect("lease file");
-    serde_json::from_str::<Value>(&lease).expect("lease json")["owner_profile"]
-        .as_str()
-        .expect("owner")
-        .to_owned()
+    let dir = project_state_dir(root);
+    match std::fs::read_to_string(dir.join("lease.json")) {
+        Ok(lease) => serde_json::from_str::<Value>(&lease).expect("lease json")["owner_profile"]
+            .as_str()
+            .expect("owner")
+            .to_owned(),
+        Err(_) => {
+            let record = std::fs::read_to_string(dir.join("session.json")).expect("session record");
+            serde_json::from_str::<Value>(&record).expect("record json")["last_profile"]
+                .as_str()
+                .expect("last profile")
+                .to_owned()
+        }
+    }
 }
 
 fn wait_for(what: &str, timeout: Duration, mut condition: impl FnMut() -> bool) {
@@ -499,7 +544,7 @@ fn world_opts(fallback_is_codex: bool, passthrough: &[&str], launch: bool) -> Wo
 }
 
 fn auto_log(root: &Path) -> String {
-    std::fs::read_to_string(project_state_dir(root).join("auto-handoff.log")).unwrap_or_default()
+    std::fs::read_to_string(project_root_dir(root).join("auto-handoff.log")).unwrap_or_default()
 }
 
 /// The lease flips inside the coordinator; the triggered run records the handoff in the ledger and
@@ -675,7 +720,7 @@ fn a_limit_event_for_an_unmanaged_session_never_starts_an_evaluation() {
     );
     std::thread::sleep(Duration::from_secs(3));
     assert!(
-        !project_state_dir(world.root.path())
+        !project_root_dir(world.root.path())
             .join("auto-handoff.log")
             .exists(),
         "no evaluation may be started for a session Relay does not manage"
@@ -702,7 +747,7 @@ fn a_limit_event_with_no_fallback_configured_starts_nothing() {
     );
     std::thread::sleep(Duration::from_secs(3));
     assert!(
-        !project_state_dir(world.root.path())
+        !project_root_dir(world.root.path())
             .join("auto-handoff.log")
             .exists()
     );
@@ -857,6 +902,8 @@ fn claude_follows_the_conversation_onto_the_new_owner_after_a_handoff() {
         .join("state")
         .join("projects")
         .join(project_id.as_str())
+        .join("sessions")
+        .join("*")
         .join("lease.json");
 
     let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
@@ -965,12 +1012,20 @@ fn set_codex_limits(world: &World, allowed: &str, used: u32, resets_at: u64) {
 }
 
 fn lease_session(root: &Path) -> String {
-    let lease =
-        std::fs::read_to_string(project_state_dir(root).join("lease.json")).expect("lease file");
-    serde_json::from_str::<Value>(&lease).expect("lease json")["session_id"]
-        .as_str()
-        .expect("session")
-        .to_owned()
+    let dir = project_state_dir(root);
+    match std::fs::read_to_string(dir.join("lease.json")) {
+        Ok(lease) => serde_json::from_str::<Value>(&lease).expect("lease json")["session_id"]
+            .as_str()
+            .expect("session")
+            .to_owned(),
+        Err(_) => {
+            let record = std::fs::read_to_string(dir.join("session.json")).expect("session record");
+            serde_json::from_str::<Value>(&record).expect("record json")["native_session_id"]
+                .as_str()
+                .expect("native session")
+                .to_owned()
+        }
+    }
 }
 
 fn watch_run_codex(world: &World) -> Command {
@@ -1424,7 +1479,7 @@ fn relay_codex_with_a_first_message_opens_the_supervised_session_with_it_after_d
 }
 
 #[test]
-fn without_new_relay_codex_refuses_to_replace_an_active_session() {
+fn relay_codex_never_replaces_an_active_session_even_without_new() {
     let world = world(true);
     let output = relay(
         world.root.path(),
@@ -1439,11 +1494,13 @@ fn without_new_relay_codex_refuses_to_replace_an_active_session() {
             &codex_exe(&world),
         ],
     );
-    assert!(!output.status.success());
-    let error: Value = serde_json::from_slice(&output.stderr).expect("error json");
-    assert_eq!(error["error"]["code"], "managed_session_active");
-    assert_eq!(lease_owner(world.root.path()), "alice");
-    assert!(argv_starting(world.root.path(), "codex", "exec").is_empty());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(session_count(world.root.path()), 2);
+    assert_eq!(count_starting(world.root.path(), "claude", "--bg"), 1);
 }
 
 #[test]
@@ -1504,7 +1561,11 @@ fn each_entrypoint_picks_the_highest_priority_profile_of_its_own_provider() {
         String::from_utf8_lossy(&claude.stderr)
     );
     assert_eq!(json_stdout(&claude)["data"]["profile"], "alice");
-    assert_eq!(lease_owner(root), "alice", "still exactly one writer");
+    assert_eq!(
+        session_count(root),
+        2,
+        "the Codex session and the Claude one, side by side"
+    );
 }
 
 #[test]
@@ -2358,20 +2419,30 @@ fn an_unverifiable_codex_profile_launches_nothing_and_routes_nowhere() {
 }
 
 #[test]
-fn an_exhausted_fresh_relay_codex_still_refuses_to_create_a_second_writer() {
-    let world = world(true); // alice is a live managed writer
+fn an_exhausted_fresh_relay_codex_routes_to_a_new_claude_session_beside_the_live_one() {
+    let world = world(true); // alice is a live managed session
     let root = world.root.path();
     set_limits_for(&world, "codex-main", "false", 100);
-    let output = relay_codex_no_attach(&world, &[]);
-    assert!(!output.status.success());
-    assert_eq!(error_code(&output), "managed_session_active");
-    assert_eq!(lease_owner(root), "alice");
-    assert!(argv_starting(root, "codex", "exec").is_empty());
-    assert_eq!(
-        argv_starting(root, "claude", "--bg").len(),
-        1,
-        "only the original launch"
+    let output = relay_interactive(
+        &world,
+        &["codex", "--codex-executable", &codex_exe(&world)],
+        "0",
     );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        argv_starting(root, "codex", "exec").is_empty(),
+        "no Codex bootstrap"
+    );
+    assert_eq!(
+        session_count(root),
+        2,
+        "a new session; the live one is untouched"
+    );
+    assert_eq!(count_starting(root, "claude", "--bg"), 1);
 }
 
 #[test]
@@ -2532,18 +2603,29 @@ fn live_process() -> (std::process::Child, Value) {
     (child, identity)
 }
 
+/// The project's one session as `relay status` reports it.
+fn only_session(data: &Value) -> Value {
+    let sessions = data["sessions"].as_array().expect("sessions");
+    assert_eq!(sessions.len(), 1, "{data}");
+    sessions[0].clone()
+}
+
 #[test]
 fn status_reports_a_live_and_a_dead_claude_owner_through_claudes_own_liveness() {
     let world = world(false);
-    assert_eq!(status_data(&world)["session_state"], "active");
-    assert_eq!(status_data(&world)["session_provider"], "claude");
-    // Claude's session registry no longer lists the job, and the recorded pid is long gone.
+    let live = only_session(&status_data(&world));
+    assert_eq!(live["state"], "active");
+    assert_eq!(live["provider"], "claude");
+    // Claude's session registry no longer lists the job, and the recorded pid is long gone: the
+    // conversation is remembered but no longer owned.
     std::fs::write(world.root.path().join("claude.stopped"), "").expect("stop marker");
     edit_lease(&world, |lease| {
         lease["owner_process"] = serde_json::json!({"pid": 999_999, "start_time_fingerprint": "Sat Jan  1 00:00:00 2000"});
     });
-    let data = status_data(&world);
-    assert_eq!(data["session_state"], "idle (last session ended)");
+    let dormant = only_session(&status_data(&world));
+    assert_eq!(dormant["state"], "dormant");
+    assert_eq!(dormant["owner"], Value::Null, "history is not an owner");
+    assert_eq!(dormant["profile"], "alice");
 }
 
 #[test]
@@ -2551,48 +2633,51 @@ fn status_reports_a_live_and_a_dead_codex_owner_through_codexs_own_liveness() {
     skip_without_process_env_scan!();
     let world = codex_writer_world();
     // The recorded process (the short-lived `codex exec` that created the thread) is gone and no
-    // Codex process runs under the profile's home: idle — even though the fake Claude registry
+    // Codex process runs under the profile's home: dormant — even though the fake Claude registry
     // would happily list a session.
-    let dead = status_data(&world);
-    assert_eq!(dead["session_state"], "idle (last session ended)");
-    assert_eq!(dead["session_provider"], "codex");
+    let dead = only_session(&status_data(&world));
+    assert_eq!(dead["state"], "dormant");
+    assert_eq!(dead["provider"], "codex");
+    // A dormant session is re-activated by a lease for a live process (as a resume would).
     let (mut child, identity) = live_process();
-    edit_lease(&world, |lease| lease["owner_process"] = identity);
-    assert_eq!(status_data(&world)["session_state"], "active");
+    let session_dir = project_state_dir(world.root.path());
+    let mut lease = serde_json::json!({
+        "version": 1,
+        "project_id": session_dir.parent().unwrap().parent().unwrap().file_name().unwrap().to_str().unwrap(),
+        "owner_profile": "codex-main",
+        "owner_process": identity,
+        "session_id": dead["native_session_id"],
+        "transaction_id": "ho-test",
+        "acquired_unix_ms": 1,
+        "provider_handle": null
+    });
+    lease["owner_process"] = lease["owner_process"].clone();
+    std::fs::write(session_dir.join("lease.json"), lease.to_string()).expect("lease");
+    assert_eq!(only_session(&status_data(&world))["state"], "active");
     let _ = child.kill();
     let _ = child.wait();
-    assert_eq!(
-        status_data(&world)["session_state"],
-        "idle (last session ended)"
-    );
+    assert_eq!(only_session(&status_data(&world))["state"], "dormant");
 }
 
 #[test]
-fn status_never_claims_active_on_a_provider_mismatch_or_an_unresolvable_owner() {
+fn status_never_claims_active_for_a_provider_mismatch_or_an_unresolvable_owner() {
     skip_without_process_env_scan!();
     let world = codex_writer_world();
-    // A Codex-owned lease whose session id happens to be one Claude's registry lists: the old
-    // Claude-only check would have called this active; the Codex owner's own check says idle.
+    // A Codex-owned lease whose native id happens to be one Claude's registry lists: the Codex
+    // owner's own check (its process is gone) says dormant.
     edit_lease(&world, |lease| {
         lease["session_id"] = Value::String(SESSION_ID.to_owned())
     });
-    assert_eq!(
-        status_data(&world)["session_state"],
-        "idle (last session ended)"
-    );
-    // An owner that is not a registered profile cannot be judged at all: unknown, never active.
+    assert_eq!(only_session(&status_data(&world))["state"], "dormant");
+    // An owner that is not a registered profile has no provider to judge it: never "active".
+    let world = codex_writer_world();
     edit_lease(&world, |lease| {
         lease["owner_profile"] = Value::String("ghost-profile".to_owned())
     });
     let data = status_data(&world);
-    assert!(
-        data["session_state"]
-            .as_str()
-            .unwrap()
-            .starts_with("unknown"),
-        "{data}"
-    );
-    assert_eq!(data["session_provider"], Value::Null);
+    let session = only_session(&data);
+    assert_ne!(session["state"], "active", "{data}");
+    assert_eq!(session["provider"], Value::Null);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2618,93 +2703,77 @@ fn count_starting(root: &Path, provider: &str, first: &str) -> usize {
 }
 
 #[test]
-fn a_plain_relay_codex_with_a_live_writer_fails_at_once_without_touching_codex() {
-    let world = world(true); // alice is a live managed writer; the Codex profile is exhausted
+fn a_relay_codex_beside_a_live_claude_session_starts_its_own_and_touches_nothing_else() {
+    let world = world(true); // alice is a live managed session; the Codex profile has capacity
     let root = world.root.path();
-    set_limits_for(&world, "codex-main", "false", 100);
-    let project = world.project.path().to_string_lossy().into_owned();
-    let output = human_relay(
-        root,
-        &[
-            "codex",
-            "--project-dir",
-            &project,
-            "--no-attach",
-            "--claude-executable",
-            &claude_exe(&world),
-            "--codex-executable",
-            &codex_exe(&world),
-        ],
-    )
-    .output()
-    .expect("relay codex");
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stderr.contains("managed_session_active"), "{stderr}");
-    assert!(stderr.contains("Current profile: alice"), "{stderr}");
-    assert!(stderr.contains("relay resume"), "{stderr}");
+    let output = relay_codex_no_attach(&world, &[]);
     assert!(
-        stderr.contains("relay codex --new"),
-        "the suggestion names the command that was run: {stderr}"
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    assert!(!stderr.contains("relay claude --new"), "{stderr}");
-    // nothing slow or misleading happened first
-    assert!(
-        argv_starting(root, "codex", "app-server").is_empty(),
-        "no Codex usage preflight"
-    );
-    assert!(
-        argv_starting(root, "codex", "exec").is_empty(),
-        "no bootstrap"
-    );
-    for text in [&stdout, &stderr] {
-        assert!(
-            !text.contains("exhausted")
-                && !text.contains("Starting")
-                && !text.contains("Using next"),
-            "{text}"
-        );
-    }
-    assert_eq!(lease_owner(root), "alice");
-}
-
-#[test]
-fn a_plain_relay_claude_with_a_live_writer_fails_before_any_auth_work_and_suggests_its_own_new() {
-    let world = world(false);
-    let root = world.root.path();
-    let auth_before = count_starting(root, "claude", "auth");
-    let project = world.project.path().to_string_lossy().into_owned();
-    let output = human_relay(
-        root,
-        &[
-            "claude",
-            "--project-dir",
-            &project,
-            "--no-attach",
-            "--claude-executable",
-            &claude_exe(&world),
-            "hello",
-        ],
-    )
-    .output()
-    .expect("relay claude");
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("managed_session_active") && stderr.contains("relay claude --new"),
-        "{stderr}"
-    );
-    assert!(stderr.contains("relay resume"), "{stderr}");
+    assert_eq!(session_count(root), 2);
     assert_eq!(
-        count_starting(root, "claude", "auth"),
-        auth_before,
-        "no auth inspection before the fast fail"
+        count_starting(root, "codex", "exec"),
+        1,
+        "one bootstrap for the new thread"
     );
     assert_eq!(
         count_starting(root, "claude", "--bg"),
         1,
+        "alice's session was not replaced"
+    );
+}
+
+#[test]
+fn a_second_relay_claude_starts_its_own_session_beside_a_live_one() {
+    let world = world(false); // alice already has a live (background) managed session
+    let root = world.root.path();
+    let output = relay_interactive(
+        &world,
+        &["claude", "--claude-executable", &claude_exe(&world)],
+        "0",
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stderr);
+    assert!(!text.contains("managed_session_active"), "{text}");
+    // Two Relay sessions of one project, both alice's: the first is untouched and still active.
+    assert_eq!(session_count(root), 2);
+    assert_eq!(
+        count_starting(root, "claude", "--bg"),
+        1,
         "only the original launch"
+    );
+    assert!(
+        argv_log(root, "claude")
+            .iter()
+            .any(|(argv, _)| argv.iter().any(|a| a == "--session-id"))
+    );
+    let status = json_stdout(&relay(
+        root,
+        &[
+            "status",
+            "--project",
+            &world.project.path().to_string_lossy(),
+        ],
+    ));
+    let sessions = status["data"]["sessions"].as_array().expect("sessions");
+    assert_eq!(sessions.len(), 2);
+    assert_eq!(
+        sessions.iter().filter(|s| s["state"] == "active").count(),
+        1
+    );
+    assert_eq!(
+        sessions.iter().filter(|s| s["state"] == "dormant").count(),
+        1
+    );
+    assert!(
+        sessions.iter().all(|s| s["profile"] == "alice"),
+        "the same profile owns both"
     );
 }
 
@@ -2797,9 +2866,8 @@ fn codex_new_keeps_the_existing_writer_alive_until_a_new_conversation_can_actual
 }
 
 #[test]
-fn codex_new_stops_the_old_writer_exactly_when_the_destination_is_known_and_leaves_one_writer() {
+fn codex_new_is_a_deprecated_no_op_that_never_stops_another_session() {
     skip_without_process_env_scan!();
-    // Available: the replacement starts and the old process is gone.
     let (world, pid) = codex_writer_with_live_process();
     let root = world.root.path();
     let execs_before = count_starting(root, "codex", "exec");
@@ -2809,142 +2877,14 @@ fn codex_new_stops_the_old_writer_exactly_when_the_destination_is_known_and_leav
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(!is_alive(pid), "the old writer was stopped and verified");
-    assert_eq!(count_starting(root, "codex", "exec"), execs_before + 1);
-    assert_eq!(lease_owner(root), "codex-main");
-    kill_quietly(pid);
-
-    // Exhausted selected profile + an eligible other Codex profile: pre-launch fallback replaces it.
-    let (world, pid) = codex_writer_with_live_process();
-    let root = world.root.path();
-    login(
-        root,
-        "codex-backup",
-        "codex",
-        "--codex-executable",
-        &root.join("bin").join("codex"),
-    );
-    let setup = relay(
-        root,
-        &[
-            "setup",
-            "--non-interactive",
-            "--primary",
-            "codex-main",
-            "--fallback",
-            "codex-backup",
-            "--claude-executable",
-            &claude_exe(&world),
-        ],
-    );
-    assert!(setup.status.success());
-    set_limits_for(&world, "codex-main", "false", 100);
-    let routed = relay_codex_new(&world, &[]);
-    assert!(
-        routed.status.success(),
-        "{}",
-        String::from_utf8_lossy(&routed.stderr)
-    );
-    assert!(!is_alive(pid));
+    assert!(is_alive(pid), "the other session's process was not stopped");
     assert_eq!(
-        lease_owner(root),
-        "codex-backup",
-        "exactly one writer, the routed profile"
+        count_starting(root, "codex", "exec"),
+        execs_before + 1,
+        "a new session"
     );
-    assert_eq!(
-        json_stdout(&routed)["data"]["prelaunch_fallback"]["handoff"],
-        false
-    );
+    assert_eq!(session_count(root), 2);
     kill_quietly(pid);
-}
-
-#[cfg(target_os = "macos")]
-mod pty {
-    use super::*;
-
-    /// Runs `command` inside a real pseudo-terminal (so stderr *is* a TTY) and returns everything
-    /// it wrote, escape sequences included.
-    fn under_tty(command: Command) -> String {
-        let program = command.get_program().to_owned();
-        let args: Vec<_> = command.get_args().map(ToOwned::to_owned).collect();
-        let envs: Vec<_> = command
-            .get_envs()
-            .filter_map(|(key, value)| value.map(|value| (key.to_owned(), value.to_owned())))
-            .collect();
-        let mut wrapped = Command::new("script");
-        wrapped.args(["-q", "/dev/null"]).arg(program).args(args);
-        for (key, value) in envs {
-            wrapped.env(key, value);
-        }
-        scrub(&mut wrapped);
-        wrapped.env("TERM", "xterm-256color");
-        let output = wrapped.stdin(Stdio::null()).output().expect("script");
-        String::from_utf8_lossy(&output.stdout).into_owned()
-    }
-
-    fn command(world: &World, json: bool, extra: &[&str]) -> Command {
-        let project = world.project.path().to_string_lossy().into_owned();
-        let mut args: Vec<&str> = if json { vec!["--json"] } else { vec![] };
-        args.extend(["codex", "--project-dir", &project, "--no-attach"]);
-        let claude = claude_exe(world);
-        let codex = codex_exe(world);
-        args.extend(["--claude-executable", &claude, "--codex-executable", &codex]);
-        args.extend_from_slice(extra);
-        human_relay(world.root.path(), &args)
-    }
-
-    #[test]
-    fn an_interactive_terminal_sees_progress_at_once_and_it_is_cleared_on_success() {
-        let world = world_opts(true, &[], false);
-        let out = under_tty(command(&world, false, &[]));
-        assert!(out.contains("Checking Codex availability"), "{out:?}");
-        let clear = out
-            .rfind("\u{1b}[2K")
-            .expect("the progress line was cleared");
-        let done = out
-            .find("New Codex session started")
-            .expect("normal success output");
-        assert!(
-            clear < done,
-            "cleared before the result is printed: {out:?}"
-        );
-    }
-
-    #[test]
-    fn the_progress_line_is_cleared_before_an_error_is_printed() {
-        let world = world_opts(true, &[], false);
-        break_app_server(&world, "codex-main");
-        let out = under_tty(command(&world, false, &[]));
-        let clear = out.rfind("\u{1b}[2K").expect("cleared");
-        let error = out.find("codex_usage_unverified").expect("the error");
-        assert!(
-            out.contains("Checking Codex availability") && clear < error,
-            "{out:?}"
-        );
-    }
-
-    #[test]
-    fn json_mode_and_non_terminals_never_get_progress_text_or_escape_sequences() {
-        let world = world_opts(true, &[], false);
-        // --json on a real terminal: still nothing human-facing from the progress layer
-        let json_tty = under_tty(command(&world, true, &[]));
-        assert!(
-            !json_tty.contains("Checking Codex availability"),
-            "{json_tty:?}"
-        );
-        // redirected (piped) human output: no message, no control characters
-        let world = world_opts(true, &[], false);
-        let output = command(&world, false, &[]).output().expect("piped run");
-        let text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(
-            !text.contains("Checking") && !text.contains('\u{1b}') && !text.contains('\r'),
-            "{text:?}"
-        );
-    }
 }
 
 #[test]
@@ -2968,6 +2908,15 @@ fn the_version_names_the_exact_build() {
 // ---------------------------------------------------------------------------------------------
 
 fn relay_interactive(world: &World, args: &[&str], sleep: &str) -> std::process::Output {
+    relay_interactive_env(world, args, sleep, &[])
+}
+
+fn relay_interactive_env(
+    world: &World,
+    args: &[&str],
+    sleep: &str,
+    extra_env: &[(&str, &str)],
+) -> std::process::Output {
     let project = world.project.path().to_string_lossy().into_owned();
     let (claude, codex) = (claude_exe(world), codex_exe(world));
     // `--project-dir` goes right after the subcommand, before any `--` provider arguments.
@@ -2977,8 +2926,12 @@ fn relay_interactive(world: &World, args: &[&str], sleep: &str) -> std::process:
     let _ = (&claude, &codex);
     command
         .env("RELAY_TEST_INTERACTIVE_SLEEP", sleep)
+        .env("RELAY_TEST_TRANSCRIPT", "1")
         .env("RELAY_CODEX_POLL_SECS", "0")
         .stdin(Stdio::null());
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
     command.output().expect("relay")
 }
 
@@ -2987,7 +2940,13 @@ fn a_fresh_relay_claude_lands_directly_in_claude_with_a_relay_assigned_session()
     let world = world_opts(false, &[], false);
     let root = world.root.path();
     let claude = claude_exe(&world);
-    let output = relay_interactive(&world, &["claude", "--claude-executable", &claude], "1");
+    // The (fake) Claude persists a conversation, as a real one does once the user has spoken.
+    let output = relay_interactive_env(
+        &world,
+        &["claude", "--claude-executable", &claude],
+        "1",
+        &[("RELAY_TEST_TRANSCRIPT", "1")],
+    );
     assert!(
         output.status.success(),
         "{}",
@@ -3019,16 +2978,16 @@ fn a_fresh_relay_claude_lands_directly_in_claude_with_a_relay_assigned_session()
         "no prompt: {launches:?}"
     );
     assert!(argv_starting(root, "claude", "--bg").is_empty());
-    // the lease records the native session Relay assigned, this profile and the real process
+    // The provider exited normally: the Relay session is DORMANT — remembered (last profile and
+    // the native session Relay assigned are history) but no active lease or owner remains.
     let session = launches[0][1].clone();
     assert_eq!(session.len(), 36, "a UUID: {session}");
     assert_eq!(lease_session(root), session);
     assert_eq!(lease_owner(root), "alice");
-    let lease: Value = serde_json::from_str(
-        &std::fs::read_to_string(project_state_dir(root).join("lease.json")).unwrap(),
-    )
-    .unwrap();
-    assert_ne!(lease["owner_process"]["pid"], 0);
+    assert!(
+        !project_state_dir(root).join("lease.json").exists(),
+        "a closed conversation has no active owner"
+    );
     // and `relay resume` continues exactly that session natively
     let resumed = relay_resume(&world, &[]);
     assert!(

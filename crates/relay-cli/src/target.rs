@@ -258,18 +258,41 @@ pub enum PickerOutcome {
 
 /// The picker's pure state: which row is highlighted. Unselectable rows are skipped by the
 /// arrows and refuse Enter, so the result can only ever be a selectable row.
-pub struct Picker<'a> {
-    targets: &'a [SwitchTarget],
+pub struct Picker<'a, R: PickRow> {
+    targets: &'a [R],
     cursor: usize,
 }
 
-impl<'a> Picker<'a> {
+/// One line of a picker: what it says, and whether it can be chosen.
+pub trait PickRow {
+    fn selectable(&self) -> bool;
+    fn label(&self) -> String;
+    /// Why the row is shown but not selectable (`current`, `unavailable: …`, `active`).
+    fn note(&self) -> Option<String>;
+}
+
+impl PickRow for SwitchTarget {
+    fn selectable(&self) -> bool {
+        Self::selectable(self)
+    }
+    fn label(&self) -> String {
+        format!("{} {DIM}{}{RESET}", self.name, self.provider_label())
+    }
+    fn note(&self) -> Option<String> {
+        if self.current {
+            Some("current".to_owned())
+        } else {
+            self.unavailable
+                .as_ref()
+                .map(|reason| format!("unavailable: {reason}"))
+        }
+    }
+}
+
+impl<'a, R: PickRow> Picker<'a, R> {
     #[must_use]
-    pub fn new(targets: &'a [SwitchTarget]) -> Self {
-        let cursor = targets
-            .iter()
-            .position(SwitchTarget::selectable)
-            .unwrap_or(0);
+    pub fn new(targets: &'a [R]) -> Self {
+        let cursor = targets.iter().position(PickRow::selectable).unwrap_or(0);
         Self { targets, cursor }
     }
 
@@ -299,10 +322,7 @@ impl<'a> Picker<'a> {
             Key::Down => self.step(true),
             Key::Digit(number) => {
                 if let Some(index) = number.checked_sub(1)
-                    && self
-                        .targets
-                        .get(index)
-                        .is_some_and(SwitchTarget::selectable)
+                    && self.targets.get(index).is_some_and(PickRow::selectable)
                 {
                     self.cursor = index;
                 }
@@ -311,7 +331,7 @@ impl<'a> Picker<'a> {
                 if self
                     .targets
                     .get(self.cursor)
-                    .is_some_and(SwitchTarget::selectable)
+                    .is_some_and(PickRow::selectable)
                 {
                     return PickerOutcome::Chosen(self.cursor);
                 }
@@ -340,23 +360,14 @@ const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
 const BOLD: &str = "\x1b[1m";
 
-fn render(targets: &[SwitchTarget], cursor: usize, from: &ProfileName) -> String {
+fn render<R: PickRow>(targets: &[R], cursor: usize, title: &str) -> String {
     let mut out = String::new();
-    out.push_str(&format!(
-        "{BOLD}Switch this conversation{RESET} {DIM}(from '{from}'){RESET}\r\n\r\n"
-    ));
+    out.push_str(&format!("{BOLD}{title}{RESET}\r\n\r\n"));
     for (index, target) in targets.iter().enumerate() {
         let marker = if index == cursor { "❯" } else { " " };
-        let line = format!(
-            "{marker} {}. {} {DIM}{}{RESET}",
-            index + 1,
-            target.name,
-            target.provider_label()
-        );
-        if target.current {
-            out.push_str(&format!("{DIM}{line} — current{RESET}\r\n"));
-        } else if let Some(reason) = &target.unavailable {
-            out.push_str(&format!("{DIM}{line} — unavailable: {reason}{RESET}\r\n"));
+        let line = format!("{marker} {}. {}", index + 1, target.label());
+        if let Some(note) = target.note() {
+            out.push_str(&format!("{DIM}{line} — {note}{RESET}\r\n"));
         } else if index == cursor {
             out.push_str(&format!("{BOLD}{line}{RESET}\r\n"));
         } else {
@@ -364,7 +375,7 @@ fn render(targets: &[SwitchTarget], cursor: usize, from: &ProfileName) -> String
         }
     }
     out.push_str(&format!(
-        "\r\n{DIM}↑/↓ move · Enter switch · Esc cancel{RESET}\r\n"
+        "\r\n{DIM}↑/↓ move · Enter choose · Esc cancel{RESET}\r\n"
     ));
     out
 }
@@ -424,6 +435,14 @@ pub fn interactive() -> bool {
 
 /// Runs the picker. `Ok(None)` = cancelled. Never mutates anything itself.
 pub fn pick(targets: &[SwitchTarget], from: &ProfileName) -> std::io::Result<Option<usize>> {
+    pick_rows(
+        targets,
+        &format!("Switch this conversation {DIM}(from '{from}'){RESET}"),
+    )
+}
+
+/// The picker for any rows. `Ok(None)` = cancelled.
+pub fn pick_rows<R: PickRow>(targets: &[R], title: &str) -> std::io::Result<Option<usize>> {
     let Some(_raw) = RawMode::enter() else {
         return Err(std::io::Error::other(
             "could not put the terminal in key mode",
@@ -435,7 +454,7 @@ pub fn pick(targets: &[SwitchTarget], from: &ProfileName) -> std::io::Result<Opt
     write!(
         stderr,
         "\x1b[?25l{}",
-        render(targets, picker.cursor(), from)
+        render(targets, picker.cursor(), title)
     )?;
     stderr.flush()?;
     let mut stdin = std::io::stdin();
@@ -455,7 +474,7 @@ pub fn pick(targets: &[SwitchTarget], from: &ProfileName) -> std::io::Result<Opt
                 write!(
                     stderr,
                     "\x1b[{lines}A\x1b[J{}",
-                    render(targets, picker.cursor(), from)
+                    render(targets, picker.cursor(), title)
                 )?;
                 stderr.flush()?;
             }

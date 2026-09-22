@@ -113,7 +113,7 @@ pub struct Tick<'a> {
 /// `expected`.
 pub fn run_watching_lease(
     command: &TerminalCommand,
-    lease_store: &LeaseStore,
+    lease_store: &dyn Fn() -> LeaseStore,
     expected: &LeaseOwner,
     timing: &Timing,
     mut tick: Option<Tick<'_>>,
@@ -137,7 +137,7 @@ pub fn run_watching_lease(
         }
         if last_lease_check.elapsed() >= timing.lease_check_every {
             last_lease_check = Instant::now();
-            if owner_moved(lease_store, expected) {
+            if owner_moved(&lease_store(), expected) {
                 terminate(&mut child, timing.terminate_grace);
                 return Ok(TerminalEnd::OwnerMoved);
             }
@@ -233,7 +233,7 @@ mod tests {
             .expect("save lease");
         let end = run_watching_lease(
             &sh("exit 7"),
-            &store,
+            &|| LeaseStore::at_path(store.path().to_path_buf()),
             &LeaseOwner(ProfileName::new("erika").unwrap()),
             &fast(),
             None,
@@ -260,7 +260,7 @@ mod tests {
         let started = Instant::now();
         let end = run_watching_lease(
             &sh("sleep 30"),
-            &store,
+            &|| LeaseStore::at_path(store.path().to_path_buf()),
             &LeaseOwner(ProfileName::new("erika").unwrap()),
             &fast(),
             None,
@@ -283,7 +283,7 @@ mod tests {
         let mut action = || ticks += 1;
         let end = run_watching_lease(
             &sh("sleep 0.6"),
-            &store,
+            &|| LeaseStore::at_path(store.path().to_path_buf()),
             &LeaseOwner(ProfileName::new("erika").unwrap()),
             &fast(),
             Some(Tick {

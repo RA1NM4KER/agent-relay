@@ -222,6 +222,7 @@ fn request(project_dir: &Path, from: &str, to: &str) -> HandoffRequest {
         target_config_dir: project_dir.join(format!("{to}-config")),
         session_id: SESSION_ID.to_owned(),
         continuity_type: ContinuityType::SessionContinuation,
+        state_dir: None,
     }
 }
 
@@ -1591,6 +1592,7 @@ fn cross_provider_request(project_dir: &Path) -> HandoffRequest {
         target_config_dir: project_dir.join("codex-main-config"),
         session_id: SESSION_ID.to_owned(),
         continuity_type: ContinuityType::StateContinuation,
+        state_dir: None,
     }
 }
 

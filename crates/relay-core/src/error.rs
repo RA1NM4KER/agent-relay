@@ -132,6 +132,32 @@ pub enum Error {
     #[error("switch cancelled; nothing was changed")]
     SwitchCancelled,
     #[error(
+        "Relay session {0} is dormant (no live conversation to move); continue it with \
+         `relay resume --session {0}` first"
+    )]
+    RelaySessionDormant(String),
+    #[error("{0}")]
+    NoResumableSession(String),
+    #[error("no Relay session '{0}' in this project (run `relay status` to list them)")]
+    RelaySessionNotFound(String),
+    #[error("'{0}' matches more than one Relay session; use a longer id")]
+    RelaySessionAmbiguous(String),
+    #[error(
+        "Relay session {0} is already active (a live provider process owns it); it is never \
+         started twice. Use it where it is running, or `relay switch` to move it."
+    )]
+    RelaySessionActive(String),
+    #[error(
+        "that exact conversation is already active in Relay session {0}; the same provider \
+         conversation never gets two active owners"
+    )]
+    NativeSessionAlreadyActive(String),
+    #[error(
+        "this project has {0} Relay sessions and no way to choose between them here; pass \
+         `--session <id>` (see `relay status`)"
+    )]
+    SessionAmbiguous(String),
+    #[error(
         "both Claude Code and Codex are installed, so Relay will not guess which one the new \
          profile is for; pass `--provider claude` or `--provider codex`"
     )]
@@ -264,6 +290,13 @@ impl Error {
             Self::SwitchTargetUnavailable(_) => "switch_target_unavailable",
             Self::SwitchPickerNeedsTerminal(_) => "switch_needs_terminal",
             Self::SwitchCancelled => "switch_cancelled",
+            Self::RelaySessionDormant(_) => "relay_session_dormant",
+            Self::NoResumableSession(_) => "no_resumable_session",
+            Self::RelaySessionNotFound(_) => "relay_session_not_found",
+            Self::RelaySessionAmbiguous(_) => "relay_session_ambiguous",
+            Self::RelaySessionActive(_) => "relay_session_active",
+            Self::NativeSessionAlreadyActive(_) => "native_session_already_active",
+            Self::SessionAmbiguous(_) => "session_ambiguous",
             Self::ProviderChoiceRequired => "provider_choice_required",
             Self::ProviderArgumentRejected(..) => "provider_argument_rejected",
             Self::NoProfileForProvider(_) => "no_profile_for_provider",

@@ -198,8 +198,8 @@ Claude's, with its identity pin checked in a separate process with credential-ov
 Any disagreement refuses adoption and changes nothing; a live Relay writer refuses it too. The lease is
 written once, atomically, under the orchestration lock.
 
-`/relay switch` uses a control directory inside the project's own Relay state (mode 0700, same user
-only — no socket, daemon or network). The supervisor honours a request only if it names the current
+`/relay switch` uses a control directory inside the Relay session's own state (mode 0700, same user
+only — no socket, daemon or network), so one session's request can never reach another's supervisor. The supervisor honours a request only if it names the current
 lease's session and owner and comes from the exact process it launched; stale (older than 60 seconds) or
 mismatched requests are refused, and the transaction itself is the ordinary `relay switch`. The hook
 runs with the user's own privileges, so the trust boundary is unchanged: anything that can write the
@@ -207,18 +207,29 @@ project's Relay state can already write its lease.
 
 ### What counts as a conflicting writer
 
-A handoff must not proceed while anything other than the exact source process could write to the
-project. Relay therefore classifies each Claude process under the source profile instead of treating
-"any Claude process under this profile" as a conflict: the recorded source (pid **and** start time), its
-descendants and processes serving the session being moved are expected; a registered Claude session in a
-*different* project, and unregistered provider infrastructure (daemon, pty host, spare worker) that is
-provably working outside this project, do not block. A registered session in this project (or one
-started above it), an unregistered Claude process inside it, and anything whose project, working
-directory or identity cannot be established **do** block — ambiguity fails closed, and a stale recorded
-pid never shields a live conflicting writer. The same classification serves `relay switch`, `/relay
-switch`, automatic handoff, `relay handoff run`, `relay session stage` and recovery checks. Everything
-foreseeable (this check, the target's login/identity/usage, the source session existing) is verified
-*before* the source is stopped; the authoritative checks run again after the stop.
+Relay's ownership unit is the **conversation** (a Relay Session), not the repository. A project may
+hold many Relay Sessions — on the same profile or different ones — and Relay does not (cannot)
+serialize edits to the working tree, so another session in the same project is not a conflict. What
+must never happen is a second live process for the *same conversation*: the same Claude session
+UUID or Codex thread active in two owners, one Relay Session holding two leases, or a recycled pid
+impersonating an old owner.
+
+A handoff therefore classifies each Claude process under the source profile: the recorded source
+(pid **and** start time), its descendants, registered sessions of *different* conversations
+(any project) and unregistered provider infrastructure provably working outside the project do not
+block; another process serving the conversation being moved, an unregistered Claude process inside
+the project, and anything whose identity cannot be established **do** block — ambiguity about
+*this conversation* fails closed, and a stale recorded pid never shields a live second process for
+it. The same classification serves `relay switch`, `/relay switch`, automatic handoff, `relay
+handoff run`, `relay session stage` and recovery. Everything foreseeable is verified *before* the
+source is stopped; the authoritative checks run again after the stop.
+
+State is per Relay Session (`sessions/<id>/`: record, lease, journals, provider arguments, control
+endpoint); a short-lived registry lock guards only session creation and native-id uniqueness and is
+never held for a provider process's lifetime. An active lease exists only while Relay supervises a
+live provider process; on normal exit it is released and the session becomes dormant. A lease whose
+process is provably gone (pid + start time, or the provider's own registry) is reconciled to
+dormant; a live but unsupervised owner (for example after a Relay crash) is never abandoned.
 
 ### Dangerous automatic handoff
 

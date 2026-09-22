@@ -107,12 +107,10 @@ impl SourceLiveness for ClaudeSourceLiveness {
             .iter()
             .filter(in_this_project)
             .find(|record| record.session_id == expected_session_id);
-        let untracked: Vec<String> = sessions
-            .iter()
-            .filter(in_this_project)
-            .filter(|record| record.session_id != expected_session_id)
-            .map(|record| record.session_id.clone())
-            .collect();
+        // Other conversations — in this project or any other, on this profile or any other — are
+        // legitimate Relay sessions or plain Claude sessions of their own: Relay's ownership unit
+        // is the conversation, not the repository. Only THIS conversation's process matters.
+        let untracked: Vec<String> = Vec::new();
 
         // M2B.75 live finding: Claude's background daemon keeps a session listed (state
         // "working"/"blocked") indefinitely after its worker process dies, until the session is

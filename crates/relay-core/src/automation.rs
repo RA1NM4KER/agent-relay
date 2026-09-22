@@ -287,6 +287,8 @@ pub struct WatchRequest {
     pub source_usage: UsageObservation,
     pub fallbacks: Vec<ProfileCandidate>,
     pub dry_run: bool,
+    /// The Relay Session's own state directory; `None` keeps the legacy project directory.
+    pub state_dir: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -355,7 +357,10 @@ impl WatchCoordinator<'_> {
                 source,
             })?;
         let project_id = ProjectId::for_canonical_path(&canonical_project)?;
-        let project_state_dir = self.paths.project_state_dir(&project_id);
+        let project_state_dir = request
+            .state_dir
+            .clone()
+            .unwrap_or_else(|| self.paths.project_state_dir(&project_id));
         fs::create_dir_all(&project_state_dir).map_err(|source| Error::Io {
             path: project_state_dir.clone(),
             source,
@@ -459,6 +464,7 @@ impl WatchCoordinator<'_> {
                         request.source_provider,
                         target_candidate.provider,
                     ),
+                    state_dir: request.state_dir.clone(),
                 });
                 // Every attempt counts toward the cooldown and the bounded-handoff guard, whether
                 // it completed or failed: a failing target must not be retried in a tight loop

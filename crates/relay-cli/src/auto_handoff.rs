@@ -24,10 +24,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-use relay_core::{
-    ProfileName, ProfileService, ProviderKind, RelayPaths,
-    handoff::{LeaseStore, ProjectId},
-};
+use relay_core::{ProfileName, ProfileService, ProviderKind, RelayPaths, handoff::ProjectId};
 use relay_provider_claude::AUTHENTICATION_OVERRIDE_VARIABLES;
 use serde_json::Value;
 
@@ -88,9 +85,11 @@ pub fn plan(
     let project = std::fs::canonicalize(cwd).ok()?;
     let project_id = ProjectId::for_canonical_path(&project).ok()?;
     let project_state_dir = paths.project_state_dir(&project_id);
-    let lease = LeaseStore::at_path(project_state_dir.join("lease.json"))
-        .load()
-        .ok()??;
+    // Which Relay session? The one holding this exact native conversation — never "the project's
+    // lease", since a project can have many active sessions (even under the same profile).
+    let store = relay_core::handoff::SessionStore::new(paths, project_id.clone());
+    let view = store.find_by_native(session_id).ok()??;
+    let lease = view.lease?;
     if lease.owner_profile != profile.name || lease.session_id != session_id {
         return None;
     }

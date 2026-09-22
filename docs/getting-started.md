@@ -71,7 +71,7 @@ This is a one-time interactive wizard. It walks through six things:
    If Herdr isn't installed, Relay just says so and moves on — it works fine standalone.
 6. **Done.** It prints your primary/fallback and the commands you need day to day — `relay claude`
    and/or `relay codex` to start a new conversation (only the providers you set up are listed) and
-   `relay resume` to continue the current one.
+   `relay resume` to reopen a closed one.
 
 You can re-run `relay setup` any time — to add another account, change the primary, or toggle an
 integration. It's safe: it never re-authenticates something that's already logged in, and it never
@@ -103,9 +103,8 @@ Either command:
 Relay does not ask for a first message: you type it inside Claude or Codex. (You may still give one
 on the command line — `relay claude "let's refactor the auth module"` — and it is passed to the
 provider as the opening prompt. `relay claude --no-attach`, the scripting form, does need a
-message because it starts a background session without a terminal.) Both commands support `--new`
-and `--no-attach`, refuse to create a second writer, and open the supervised terminal, so
-automatic handoff stays active. If the Codex profile you'd start on is already exhausted,
+message because it starts a background session without a terminal.) Both commands support
+`--no-attach` and open the supervised terminal, so automatic handoff stays active. If the Codex profile you'd start on is already exhausted,
 `relay codex` skips it and starts on the next eligible profile in your priority order.
 
 ### Bringing an existing conversation under Relay
@@ -138,9 +137,10 @@ tokens and the model cannot influence which session, profile or project it acts 
 | `/relay switch [profile]` | Moves the conversation to another profile (without a name it lists them). Available in terminals started through `relay claude`/`relay resume`; your terminal reopens the conversation on the new owner. |
 
 `/relay switch` is a request to the Relay process supervising your terminal, which runs the same
-`relay switch` transaction; the agent never switches itself. Foreseeable refusals (another Claude
-session working in this project, an unavailable target) are reported before your session is touched;
-other Claude sessions on the same profile in *other* projects do not block a switch. If a switch
+`relay switch` transaction for *this* Relay session only; the agent never switches itself and other
+sessions (in this project or any other, on any profile) are untouched. Foreseeable refusals (an
+unavailable target, another live process serving this very conversation) are reported before your
+session is touched. If a switch
 fails after your session was stopped but before ownership moved, the terminal reopens the same
 conversation on the same profile automatically (nothing moved); a switch started from another
 terminal (`relay switch`) leaves recovery to `relay resume`.
@@ -170,50 +170,52 @@ stored options (if any), never `--dangerously-skip-permissions`. Flags that woul
 Relay owns — the working directory, the session/thread being resumed, headless/machine-readable
 output, backgrounding — are rejected with a clear error.
 
-If a Relay-managed session is *already* active for this project, `relay claude` (or `relay codex`)
-refuses rather than guessing what you meant:
+### Several conversations in one project
+
+A project can hold many **Relay sessions**. Every `relay claude` / `relay codex` starts a new one,
+even if the project already has active sessions — under the same profile or another:
 
 ```
-A Relay-managed session is already active for this project.
+Active sessions
 
-Current profile: claude-primary
+  8c91a3f0  Claude  megan   native 11fa03bc   just now   ACTIVE
+  c12a77e1  Claude  megan   native 4d20aa19   4m ago     ACTIVE
 
-Run:
-  relay resume
-to continue it.
+Dormant sessions
 
-Or:
-  relay claude --new        (relay codex --new if you ran relay codex)
-to stop the existing managed session and start a fresh one.
+  11fa2c04  Claude  erika   native 9ab34d10   2h ago     DORMANT
 ```
+
+Each live session has exactly one owner; when its provider process exits normally the session
+becomes **dormant** (remembered — last profile and conversation — but with no owner and no active
+lease). A `relay claude` that you close before anything was said leaves nothing behind. Sessions are
+independent: switching, handing off or resuming one never touches another. Relay does not
+serialize edits to your files, so running several agents in one working tree is your call.
 
 ```sh
 relay resume
 ```
 
-This is the command you use to **continue** a conversation later — same project, same session,
-picked back up under whichever profile actually owns it (you don't need to know or type a profile
-name; that's only for the advanced explicit form, `relay resume <profile>`). If nothing is
-running, it says so clearly instead of starting something you didn't ask for.
+Reopens a dormant session on the profile it last ran on — same Relay session, same native
+conversation. With one dormant session it opens directly; with several you get a picker (or use
+`relay resume --session <id>`, an id or unambiguous prefix from `relay status`; a profile name
+filters instead: `relay resume megan`). A session that is active in another terminal is shown as
+active and is never started twice.
 
-```sh
-relay claude --new      # or: relay codex --new
-```
-
-The explicit escape hatch: safely stop the active managed session (the same authoritative
-stop-and-verify machinery `relay switch` and recovery already use — never a raw kill, never two
-writers coexisting even for an instant) and start a genuinely fresh conversation in its place. Use
-this when you actually want a clean slate, not a continuation.
+`relay claude --new` still works for old scripts but does nothing extra: starting a session never
+stops another one.
 
 ## 4. What happens when quota runs out
 
-If the current writer genuinely, verifiably runs out of quota (not a transient rate-limit blip —
-Relay is deliberately conservative about that distinction), Agent Relay:
+If the profile a session is running on genuinely, verifiably runs out of quota (not a transient
+rate-limit blip — Relay is deliberately conservative about that distinction), Agent Relay handles
+**each affected Relay session on its own** (if two sessions share the profile, each gets its own
+independent transaction and may land on the same fallback):
 
-1. safely stops the current session (the conversation itself is preserved, not discarded),
+1. safely stops that session (the conversation itself is preserved, not discarded),
 2. re-checks your one priority order and picks the first eligible profile (profiles still waiting
-   for a reset are skipped; the writer is sticky, so a profile that has reset does not take work
-   back until the current writer blocks),
+   for a reset are skipped; each session is sticky to where it is, so a profile that has reset
+   does not take work back until the session's current profile blocks),
 3. continues there — **Claude → Claude** resumes the same native Claude session under the new
    account; **anything involving Codex** starts a new session on the other provider seeded from a
    Relay state bundle (a continuation, not the same native conversation),
@@ -223,7 +225,7 @@ Relay is deliberately conservative about that distinction), Agent Relay:
    that terminal is supervised — so an already-exhausted Codex profile is handled immediately. Relay
    is not a background daemon, and an unknown reading never moves anything. If you're attached
    through `relay claude`, `relay codex` or `relay resume`, your terminal continues on the new owner
-   on its own ("continuing this conversation on '<profile>'"); Herdr's status event and a manual
+   on its own ("continuing on '<profile>'"); Herdr's status event and a manual
    `relay watch run` are additional triggers.
 
 You are never asked to copy a session id, look up a pane id, or run a lower-level handoff command

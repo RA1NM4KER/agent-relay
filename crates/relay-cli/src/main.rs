@@ -7,6 +7,7 @@ mod preferences;
 mod progress;
 mod provider_args;
 mod providers;
+mod sessions;
 mod target;
 mod terminal;
 
@@ -155,12 +156,14 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         codex_executable: Option<PathBuf>,
     },
-    /// Explicitly move the current conversation to another profile, of the same provider or not.
-    /// Claude → Claude continues the same session; anything involving Codex continues from a
-    /// Relay state bundle in a new session.
+    /// Explicitly move a Relay session (conversation) to another profile, of the same provider or
+    /// not. With no profile you choose from a list; with several active sessions you choose which
+    /// one (or pass `--session`). Claude → Claude continues the same session; anything involving
+    /// Codex continues from a Relay state bundle in a new session.
     Switch(SwitchArgs),
-    /// Continue this project's current Relay-managed conversation, on whichever profile and
-    /// provider owns it now (native resume of the same Claude session / Codex thread).
+    /// Continue a closed (dormant) Relay session of this project on the profile it last ran on
+    /// (native resume of the same Claude session / Codex thread). With several you choose, or pass
+    /// `--session`; an active session is never started twice.
     Resume(ResumeArgs),
 }
 
@@ -169,6 +172,10 @@ struct SwitchArgs {
     /// The profile to move to. Omit it, in a terminal, to choose from a list (current, exhausted
     /// and unavailable profiles are shown but cannot be selected).
     target: Option<ProfileName>,
+    /// Which Relay session to move (an id or unambiguous prefix from `relay status`). Needed
+    /// only when the project has several active sessions and there is no terminal to ask in.
+    #[arg(long, value_name = "ID")]
+    session: Option<String>,
     #[arg(long = "project-dir", value_name = "PATH")]
     project_dir: Option<PathBuf>,
     /// Stop after the transaction completes; print a status summary instead of exec'ing an
@@ -187,9 +194,14 @@ struct SwitchArgs {
 
 #[derive(Debug, Args)]
 struct ResumeArgs {
-    /// Advanced form: resume only if this exact profile already owns the project's writer lease.
-    /// Normally omitted — the owning profile is resolved automatically from the lease.
+    /// Optional filter: only sessions whose current or last profile is this one. Normally omitted.
+    /// With one resumable session it is resumed directly; with several, you choose (or pass
+    /// `--session`).
     profile: Option<ProfileName>,
+    /// Resume exactly this Relay session (an id or unambiguous prefix from `relay status`). With
+    /// several resumable sessions and no terminal to ask in, this is required.
+    #[arg(long, value_name = "ID")]
+    session: Option<String>,
     #[arg(long = "project-dir", value_name = "PATH")]
     project_dir: Option<PathBuf>,
     #[arg(long, value_name = "PATH")]
@@ -251,13 +263,9 @@ struct ClaudeArgs {
     /// environments with no real TTY to attach to.
     #[arg(long)]
     no_attach: bool,
-    /// Explicitly replace an already-active Relay-managed session for this project: safely stop
-    /// it (the same authoritative stop-and-verify machinery `relay switch`/recovery use), confirm
-    /// it is gone, then start a fresh managed conversation. Without this flag, `relay claude`
-    /// never silently replaces or reattaches to an active session — it fails closed instead (use
-    /// `relay resume` to continue it). Has no effect if there is no active session; behaves like
-    /// a plain `relay claude` in that case.
-    #[arg(long)]
+    /// Deprecated and unnecessary: every `relay claude` already starts a NEW Relay session and
+    /// never stops or replaces any other one. Accepted (and ignored) for old scripts.
+    #[arg(long, hide = true)]
     new: bool,
     /// Adopt an EXISTING Claude conversation instead of starting a new one: opens Claude's own
     /// resume picker (or resumes `SESSION_ID` directly), then brings exactly the conversation you
@@ -292,9 +300,9 @@ struct CodexArgs {
     /// interactive session (`relay resume` opens it later).
     #[arg(long)]
     no_attach: bool,
-    /// Explicitly replace an already-active Relay-managed session for this project (safely
-    /// stopped and verified first), like `relay claude --new`.
-    #[arg(long)]
+    /// Deprecated and unnecessary: every `relay codex` already starts a NEW Relay session and
+    /// never stops or replaces any other one. Accepted (and ignored) for old scripts.
+    #[arg(long, hide = true)]
     new: bool,
     #[arg(long, value_name = "PATH")]
     claude_executable: Option<PathBuf>,
@@ -583,6 +591,10 @@ enum LockCommand {
     Status {
         #[arg(long, value_name = "PATH")]
         project_dir: PathBuf,
+        /// Report the top-level lock/lease of the Relay session holding this provider-native
+        /// conversation (used by the Herdr plugin, which knows its pane's conversation).
+        #[arg(long, value_name = "ID")]
+        native_session: Option<String>,
     },
 }
 
@@ -913,6 +925,10 @@ fn run_hook(hook: &HookArgs, cli: &Cli) -> ExitCode {
 const ADOPT_PROFILE_ENV: &str = "RELAY_ADOPT_PROFILE";
 const ADOPT_RESULT_ENV: &str = "RELAY_ADOPT_RESULT";
 const ADOPT_SESSION_ENV: &str = "RELAY_ADOPT_SESSION";
+/// The Relay session id `relay claude --resume` pre-assigned for a conversation Relay does not
+/// know yet, and the user's own provider arguments for the launch (a JSON array).
+const ADOPT_RELAY_SESSION_ENV: &str = "RELAY_ADOPT_RELAY_SESSION";
+const ADOPT_ARGS_ENV: &str = "RELAY_ADOPT_ARGS";
 
 /// The `SessionStart` half of `relay claude --resume`: Claude reports which conversation it just
 /// resumed (picker or explicit id); Relay proves it structurally and adopts exactly that one.
@@ -939,12 +955,21 @@ fn resume_adoption_hook(paths: &RelayPaths, config_dir: &Path, stdin: &[u8]) -> 
             match live::identify(&input, config_dir, &live::HookEnv::from_process()) {
                 Ok(session) => {
                     let service = ProfileService::new(paths.clone());
+                    let preassigned = std::env::var(ADOPT_RELAY_SESSION_ENV)
+                        .ok()
+                        .and_then(|id| relay_core::handoff::RelaySessionId::parse(&id).ok());
+                    let user_args: Vec<String> = std::env::var(ADOPT_ARGS_ENV)
+                        .ok()
+                        .and_then(|text| serde_json::from_str(&text).ok())
+                        .unwrap_or_default();
                     return live::adopt_claude(
                         &service,
                         paths,
                         &session,
                         Some(&expected),
                         &providers::ExecutableOverrides::default(),
+                        preassigned,
+                        user_args,
                     );
                 }
                 Err(error) => last = Some(error),
@@ -953,20 +978,29 @@ fn resume_adoption_hook(paths: &RelayPaths, config_dir: &Path, stdin: &[u8]) -> 
         }
         Err(last.unwrap_or(Error::ProviderUnsupported))
     })();
-    let (ok, message) = match &outcome {
-        Ok(live::AdoptionOutcome::Adopted { profile, .. })
-        | Ok(live::AdoptionOutcome::AlreadyManaged { profile }) => (
+    let (ok, message, relay_session) = match &outcome {
+        Ok(result) => (
             true,
-            format!("Agent Relay: this conversation is now managed (profile {profile})."),
+            format!(
+                "Agent Relay: this conversation is now managed (profile {}, session {}).",
+                match result {
+                    live::AdoptionOutcome::Adopted { profile, .. }
+                    | live::AdoptionOutcome::Reactivated { profile, .. }
+                    | live::AdoptionOutcome::AlreadyManaged { profile, .. } => profile,
+                },
+                result.relay_session_id().short()
+            ),
+            Some(result.relay_session_id().to_string()),
         ),
         Err(error) => (
             false,
             format!("Agent Relay did not adopt this conversation: {error}"),
+            None,
         ),
     };
     let _ignored = std::fs::write(
         &result_path,
-        json!({"ok": ok, "message": message}).to_string(),
+        json!({"ok": ok, "message": message, "relay_session_id": relay_session}).to_string(),
     );
     Some(json!({"systemMessage": message}).to_string())
 }
@@ -1475,37 +1509,85 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             },
         },
         Command::Lock(lock) => match &lock.command {
-            LockCommand::Status { project_dir } => {
+            LockCommand::Status {
+                project_dir,
+                native_session,
+            } => {
                 let canonical = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
                     path: project_dir.clone(),
                     source,
                 })?;
                 let project_id = ProjectId::for_canonical_path(&canonical)?;
-                let project_state_dir = paths.project_state_dir(&project_id);
-                let held = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"))
-                    .is_currently_held();
-                let lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
-                let current_transaction =
-                    std::fs::read_to_string(project_state_dir.join("current_transaction.json"))
-                        .ok();
+                let store = sessions::open_store(&paths, &canonical)?;
+                let views = store.list()?;
+                let mut rows = Vec::new();
+                for view in &views {
+                    let dir = store.session_dir(&view.record.relay_session_id);
+                    let held = OrchestrationLock::at_path(dir.join("orchestration.lock"))
+                        .is_currently_held();
+                    let current_transaction =
+                        std::fs::read_to_string(dir.join("current_transaction.json")).ok();
+                    rows.push(json!({
+                        "relay_session_id": view.record.relay_session_id.as_str(),
+                        "state": view.state(),
+                        "locked": held,
+                        "lease": view.lease,
+                        "current_transaction": current_transaction,
+                    }));
+                }
                 let human = format!(
-                    "Project: {}\nLock held: {}\nCurrent owner: {}\nMost recent transaction: {}",
+                    "Project: {}\n{}",
                     canonical.display(),
-                    held,
-                    lease
-                        .as_ref()
-                        .map(|lease| lease.owner_profile.to_string())
-                        .unwrap_or_else(|| "none yet".to_owned()),
-                    current_transaction.as_deref().unwrap_or("none")
+                    if views.is_empty() {
+                        "No Relay sessions.".to_owned()
+                    } else {
+                        views
+                            .iter()
+                            .zip(&rows)
+                            .map(|(view, row)| {
+                                format!(
+                                    "  {} {:?} owner/last: {} lock held: {}",
+                                    view.record.relay_session_id.short(),
+                                    view.state(),
+                                    view.profile(),
+                                    row["locked"]
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    }
                 );
+                // The top-level `locked` / `lease` / `current_transaction` keep their old shape for
+                // consumers (the Herdr plugin): they describe the session named by
+                // `--native-session`, else the only session, else nothing in particular.
+                let focus = match native_session {
+                    Some(native) => views
+                        .iter()
+                        .position(|view| view.native_session_id() == Some(native.as_str())),
+                    None if views.len() == 1 => Some(0),
+                    None => None,
+                };
+                let (locked, lease, current_transaction) = match focus {
+                    Some(index) => (
+                        rows[index]["locked"].clone(),
+                        rows[index]["lease"].clone(),
+                        rows[index]["current_transaction"].clone(),
+                    ),
+                    None => (
+                        json!(rows.iter().any(|row| row["locked"] == true)),
+                        Value::Null,
+                        Value::Null,
+                    ),
+                };
                 success(
                     "lock.status",
                     human,
                     json!({
                         "project_id": project_id.as_str(),
-                        "locked": held,
+                        "locked": locked,
                         "lease": lease,
                         "current_transaction": current_transaction,
+                        "sessions": rows,
                     }),
                 )
             }
@@ -1553,6 +1635,14 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     target_config_dir: target.config_dir.clone(),
                     session_id: session_id.clone(),
                     continuity_type: relay_core::handoff::ContinuityType::SessionContinuation,
+                    state_dir: {
+                        let canonical =
+                            std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
+                                path: project_dir.clone(),
+                                source,
+                            })?;
+                        session_dir_for_native(&paths, &canonical, session_id)?
+                    },
                 })?;
                 let human = format!(
                     "Handoff {} ({} -> {}): {:?}\nSession: {}\nTransaction: {}",
@@ -1573,9 +1663,8 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     path: project_dir.clone(),
                     source,
                 })?;
-                let project_id = ProjectId::for_canonical_path(&canonical)?;
-                let project_state_dir = paths.project_state_dir(&project_id);
                 let parsed = relay_core::handoff::TransactionId::parse(transaction_id)?;
+                let project_state_dir = find_transaction_dir(&paths, &canonical, &parsed)?;
                 let journal_store = JournalStore::at_path(
                     project_state_dir
                         .join("handoffs")
@@ -1599,9 +1688,8 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 path: project_dir.clone(),
                 source,
             })?;
-            let project_id = ProjectId::for_canonical_path(&canonical)?;
-            let project_state_dir = paths.project_state_dir(&project_id);
             let parsed = relay_core::handoff::TransactionId::parse(transaction_id)?;
+            let project_state_dir = find_transaction_dir(&paths, &canonical, &parsed)?;
             let liveness = ClaudeSourceLiveness::new(claude_executable.clone());
             let stopper = ClaudeSessionStopper::new(claude_executable.clone());
             let stager = ClaudeSessionStager;
@@ -1632,7 +1720,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
             prompt,
             claude_executable,
         } => {
-            let lease = perform_launch(
+            let (session, lease) = perform_launch(
                 &service,
                 &paths,
                 profile,
@@ -1642,14 +1730,18 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                 &[],
             )?;
             let human = format!(
-                "Launched '{}' as writer for {}\nSession: {}\nPid: {}\nBackground job: {}",
+                "Launched '{}' for {} as Relay session {}\nSession: {}\nPid: {}\nBackground job: {}",
                 profile,
                 project_dir.display(),
+                session.id.short(),
                 lease.session_id,
                 lease.owner_process.pid,
                 lease.provider_handle.clone().unwrap_or_default()
             );
-            success("launch", human, lease)
+            // The lease's own fields stay at the top level (as before); the Relay session is added.
+            let mut data = serde_json::to_value(&lease).map_err(|_| Error::SerializationFailed)?;
+            data["relay_session_id"] = json!(session.id.as_str());
+            success("launch", human, data)
         }
         Command::Hook(_) => Err(Error::ProviderUnsupported),
         Command::Integration(integration) => match &integration.command {
@@ -1909,8 +2001,11 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         path: project_dir.clone(),
                         source,
                     })?;
-                let project_id = ProjectId::for_canonical_path(&canonical_project)?;
-                let project_state_dir = paths.project_state_dir(&project_id);
+                // The evaluation belongs to ONE Relay session: the one holding this native
+                // conversation. Its ledger, cooldown, journals and lock are its own.
+                let project_state_dir =
+                    session_dir_for_native(&paths, &canonical_project, session_id)?
+                        .ok_or_else(|| Error::RelaySessionNotFound(session_id.clone()))?;
 
                 // Startup recovery comes first: nothing below (usage detection, and above all a
                 // possible probe request) runs while an earlier transaction is unresolved.
@@ -2014,6 +2109,7 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                         source_usage,
                         fallbacks: fallback_candidates,
                         dry_run: *dry_run,
+                        state_dir: Some(project_state_dir.clone()),
                     },
                     current_unix_ms(),
                 )?;
@@ -2041,34 +2137,47 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     path: project_dir.clone(),
                     source,
                 })?;
-                let project_id = ProjectId::for_canonical_path(&canonical)?;
-                let project_state_dir = paths.project_state_dir(&project_id);
-                let ledger =
-                    LedgerStore::at_path(project_state_dir.join("automation_state.json")).load()?;
-                let lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
-                let human = format!(
-                    "Project: {}\nCurrent owner: {}\nKnown-exhausted profiles: {}\nRecent automatic handoffs: {}",
-                    canonical.display(),
-                    lease
-                        .as_ref()
-                        .map(|lease| lease.owner_profile.to_string())
-                        .unwrap_or_else(|| "none yet".to_owned()),
-                    if ledger.known_exhausted.is_empty() {
-                        "none".to_owned()
-                    } else {
-                        ledger
-                            .known_exhausted
-                            .iter()
-                            .map(|record| record.profile.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    },
-                    ledger.recent_handoffs.len()
-                );
+                let store = sessions::open_store(&paths, &canonical)?;
+                let views = store.list()?;
+                let mut human = format!("Project: {}", canonical.display());
+                let mut rows = Vec::new();
+                for view in &views {
+                    let dir = store.session_dir(&view.record.relay_session_id);
+                    let ledger = LedgerStore::at_path(dir.join("automation_state.json")).load()?;
+                    human.push_str(&format!(
+                        "\nSession {} ({:?}, {}): known-exhausted: {}; recent automatic handoffs: {}",
+                        view.record.relay_session_id.short(),
+                        view.state(),
+                        view.profile(),
+                        if ledger.known_exhausted.is_empty() {
+                            "none".to_owned()
+                        } else {
+                            ledger
+                                .known_exhausted
+                                .iter()
+                                .map(|record| record.profile.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        },
+                        ledger.recent_handoffs.len()
+                    ));
+                    rows.push(json!({
+                        "relay_session_id": view.record.relay_session_id.as_str(),
+                        "state": view.state(),
+                        "lease": view.lease,
+                        "ledger": ledger,
+                    }));
+                }
+                // With exactly one session the old top-level `lease`/`ledger` keys stay populated.
+                let only = (rows.len() == 1).then(|| rows[0].clone());
                 success(
                     "watch.status",
                     human,
-                    json!({ "lease": lease, "ledger": ledger }),
+                    json!({
+                        "lease": only.as_ref().map(|row| row["lease"].clone()),
+                        "ledger": only.as_ref().map(|row| row["ledger"].clone()),
+                        "sessions": rows,
+                    }),
                 )
             }
             WatchCommand::Clear { project_dir } => {
@@ -2077,11 +2186,14 @@ fn run(cli: &Cli) -> Result<CommandOutput, Error> {
                     source,
                 })?;
                 let project_id = ProjectId::for_canonical_path(&canonical)?;
-                let project_state_dir = paths.project_state_dir(&project_id);
-                LedgerStore::at_path(project_state_dir.join("automation_state.json")).clear()?;
+                let store = sessions::open_store(&paths, &canonical)?;
+                for view in store.list()? {
+                    let dir = store.session_dir(&view.record.relay_session_id);
+                    LedgerStore::at_path(dir.join("automation_state.json")).clear()?;
+                }
                 success(
                     "watch.clear",
-                    format!("Cleared automation ledger for {}", canonical.display()),
+                    format!("Cleared automation ledgers for {}", canonical.display()),
                     json!({ "project_id": project_id.as_str() }),
                 )
             }
@@ -2412,6 +2524,37 @@ fn project_display_name(canonical_project: &Path) -> String {
         .unwrap_or_else(|| canonical_project.to_string_lossy().into_owned())
 }
 
+/// The state directory of the Relay session that holds this provider-native conversation.
+fn session_dir_for_native(
+    paths: &RelayPaths,
+    canonical_project: &Path,
+    native: &str,
+) -> Result<Option<PathBuf>, Error> {
+    let store = sessions::open_store(paths, canonical_project)?;
+    Ok(store
+        .find_by_native(native)?
+        .map(|view| store.session_dir(&view.record.relay_session_id)))
+}
+
+/// The state directory of whichever Relay session of the project owns a transaction.
+fn find_transaction_dir(
+    paths: &RelayPaths,
+    canonical_project: &Path,
+    transaction: &relay_core::handoff::TransactionId,
+) -> Result<PathBuf, Error> {
+    let store = sessions::open_store(paths, canonical_project)?;
+    store
+        .list()?
+        .iter()
+        .map(|view| store.session_dir(&view.record.relay_session_id))
+        .find(|dir| {
+            dir.join("handoffs")
+                .join(format!("{transaction}.json"))
+                .exists()
+        })
+        .ok_or_else(|| Error::InvalidTransactionId(transaction.to_string()))
+}
+
 fn current_unix_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -2468,7 +2611,7 @@ fn perform_launch(
     prompt: &str,
     claude_executable: Option<&Path>,
     extra_args: &[String],
-) -> Result<relay_core::handoff::WriterLease, Error> {
+) -> Result<(sessions::SessionCtx, relay_core::handoff::WriterLease), Error> {
     let registered = service.list()?;
     let target = registered
         .iter()
@@ -2478,67 +2621,32 @@ fn perform_launch(
         path: project_dir.to_path_buf(),
         source,
     })?;
-    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
-    let project_state_dir = paths.project_state_dir(&project_id);
-    std::fs::create_dir_all(&project_state_dir).map_err(|source| Error::Io {
-        path: project_state_dir.clone(),
-        source,
-    })?;
-    let lock = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"));
-    let lease_store = LeaseStore::at_path(project_state_dir.join("lease.json"));
-
-    lock.try_with(|| -> Result<relay_core::handoff::WriterLease, Error> {
-        if let Some(existing) = lease_store.load()? {
-            let owner = registered
-                .iter()
-                .find(|candidate| candidate.name == existing.owner_profile);
-            let still_active = match owner {
-                Some(owner) => confirm_not_active(
-                    owner,
-                    &canonical_project,
-                    &existing.session_id,
-                    &existing.owner_process,
-                    &providers::ExecutableOverrides {
-                        claude: claude_executable.map(Path::to_path_buf),
-                        codex: None,
-                    },
-                )
-                .map(|confirmed_inactive| !confirmed_inactive)?,
-                None => true,
-            };
-            if still_active {
-                return Err(Error::WriterAlreadyActive(
-                    existing.owner_profile.to_string(),
-                ));
-            }
-        }
-
-        let launched = relay_provider_claude::launch_background(
-            &target.config_dir,
-            &canonical_project,
-            prompt,
-            claude_executable,
-            extra_args,
-        )?;
-        let owner_process = launched
-            .pid
-            .map(relay_core::handoff::ProcessIdentity::query)
-            .unwrap_or(relay_core::handoff::ProcessIdentity {
-                pid: 0,
-                start_time_fingerprint: None,
-            });
-        let lease = relay_core::handoff::WriterLease::new(
-            project_id.clone(),
-            target.name.clone(),
-            owner_process,
-            launched.session_id.clone(),
-            relay_core::handoff::TransactionId::generate(),
-            current_unix_ms(),
-        )
-        .with_provider_handle(Some(launched.provider_handle.clone()));
-        lease_store.save(&lease)?;
-        Ok(lease)
-    })
+    // A new background conversation is a new Relay session; other sessions of the project are
+    // none of its business.
+    let launched = relay_provider_claude::launch_background(
+        &target.config_dir,
+        &canonical_project,
+        prompt,
+        claude_executable,
+        extra_args,
+    )?;
+    let owner_process = launched
+        .pid
+        .map(relay_core::handoff::ProcessIdentity::query)
+        .unwrap_or(relay_core::handoff::ProcessIdentity {
+            pid: 0,
+            start_time_fingerprint: None,
+        });
+    sessions::create_session(
+        paths,
+        &canonical_project,
+        target,
+        &launched.session_id,
+        owner_process,
+        Some(launched.provider_handle.clone()),
+        false,
+        current_unix_ms(),
+    )
 }
 
 // =================================================================================================
@@ -2880,21 +2988,40 @@ fn run_switch(
         path: project_dir.clone(),
         source,
     })?;
-    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
-    let project_state_dir = paths.project_state_dir(&project_id);
-    let lease = LeaseStore::at_path(project_state_dir.join("lease.json"))
-        .load()?
-        .ok_or(Error::NoActiveWriterForProject)?;
-
     let registered = service.list()?;
-    let source = registered
-        .iter()
-        .find(|profile| profile.name == lease.owner_profile)
-        .ok_or_else(|| Error::ProfileNotFound(lease.owner_profile.to_string()))?;
     let executables = providers::ExecutableOverrides {
         claude: args.claude_executable.clone(),
         codex: args.codex_executable.clone(),
     };
+    // Which conversation is being moved: exactly one active session is used directly; several
+    // ask (terminal) or must be named with `--session`. Other sessions are never touched.
+    let store = sessions::open_store(paths, &canonical_project)?;
+    let views = sessions::reconcile(paths, &canonical_project, &registered, &executables)?;
+    let chosen = sessions::choose_session(
+        &store,
+        &views,
+        &registered,
+        sessions::Want::Switchable,
+        args.session.as_deref(),
+        None,
+        json_mode,
+    )?;
+    let session = sessions::SessionCtx::of(&store, &chosen.record.relay_session_id);
+    let project_state_dir = session.dir.clone();
+    // A dormant conversation has no process to stop: right before the transaction it is given a
+    // lease naming a process that provably no longer exists, so the ordinary transaction (context
+    // capture or session staging, target verification, lease move) re-homes it to the target
+    // profile for its next resume. Nothing is written before the target has been chosen.
+    let dormant = chosen.lease.is_none();
+    let source_owner = chosen.profile().clone();
+    let source_native = chosen
+        .native_session_id()
+        .map(str::to_owned)
+        .ok_or(Error::CorruptedState)?;
+    let source = registered
+        .iter()
+        .find(|profile| profile.name == source_owner)
+        .ok_or_else(|| Error::ProfileNotFound(source_owner.to_string()))?;
     let target_name = match &args.target {
         Some(name) => name.clone(),
         None => choose_switch_target(
@@ -2967,6 +3094,22 @@ fn run_switch(
             source.name, target.name, continuity_type
         );
     }
+    // If the switch does not complete, the conversation goes back to being dormant on its last
+    // profile (this guard runs on every early return and is disarmed once the lease has moved).
+    let mut restore = RunOnDrop(dormant.then_some(|| {
+        sessions::release_after_exit(paths, &canonical_project, &session.id, &registered);
+    }));
+    if dormant {
+        sessions::activate_session(
+            paths,
+            &canonical_project,
+            &session.id,
+            source,
+            &source_native,
+            sessions::gone_process_identity(),
+            current_unix_ms(),
+        )?;
+    }
     let journal = coordinator.run(HandoffRequest {
         project_dir: canonical_project.clone(),
         source_profile: source.name.clone(),
@@ -2975,10 +3118,14 @@ fn run_switch(
         target_profile: target.name.clone(),
         target_provider: target.provider,
         target_config_dir: target.config_dir.clone(),
-        session_id: lease.session_id.clone(),
+        session_id: source_native.clone(),
         continuity_type,
+        state_dir: Some(session.dir.clone()),
     })?;
 
+    if journal.state == relay_core::handoff::HandoffState::Complete {
+        restore.0 = None;
+    }
     let new_session_id = journal
         .verification
         .as_ref()
@@ -3019,6 +3166,7 @@ fn run_switch(
                     service,
                     paths,
                     &canonical_project,
+                    &session,
                     args.claude_executable.clone(),
                     args.codex_executable.clone(),
                     json_mode,
@@ -3033,6 +3181,17 @@ fn run_switch(
             format!("{human}\n\nContinue it with:\n    relay resume"),
             journal,
         ),
+    }
+}
+
+/// Runs its closure when dropped (unless disarmed by setting the field to `None`).
+struct RunOnDrop<F: FnMut()>(Option<F>);
+
+impl<F: FnMut()> Drop for RunOnDrop<F> {
+    fn drop(&mut self) {
+        if let Some(mut action) = self.0.take() {
+            action();
+        }
     }
 }
 
@@ -3114,22 +3273,89 @@ fn run_resume(
         path: project_dir.clone(),
         source,
     })?;
-    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
-    let project_state_dir = paths.project_state_dir(&project_id);
-    let mut lease = LeaseStore::at_path(project_state_dir.join("lease.json"))
-        .load()?
-        .ok_or(Error::NoActiveWriterForProject)?;
-    if let Some(requested) = &args.profile {
-        if &lease.owner_profile != requested {
-            return Err(Error::WriterLeaseOwnedByAnotherProfile(
-                lease.owner_profile.to_string(),
-            ));
-        }
-    }
-    // Bare `relay resume`: the resolved profile is whoever the lease says owns it right now,
-    // never the configured primary.
-    let mut resolved_profile = lease.owner_profile.clone();
     let registered = service.list()?;
+    let executables = providers::ExecutableOverrides {
+        claude: args.claude_executable.clone(),
+        codex: args.codex_executable.clone(),
+    };
+
+    // Which Relay session: the only resumable one directly; several ask (terminal) or must be
+    // named with `--session`. `relay resume <profile>` is a filter on the session's owner/last
+    // owner, never a silent pick. Sessions that are active in another terminal are shown but never
+    // started a second time.
+    let store = sessions::open_store(paths, &canonical_project)?;
+    let views = sessions::reconcile(paths, &canonical_project, &registered, &executables)?;
+    let chosen = sessions::choose_session(
+        &store,
+        &views,
+        &registered,
+        sessions::Want::Resumable,
+        args.session.as_deref(),
+        args.profile.as_ref(),
+        json_mode,
+    )?;
+    let id = chosen.record.relay_session_id.clone();
+
+    // A dormant session gets a fresh active lease on the profile it last ran on (history, not an
+    // owner) before anything is launched; an active background job is attached to as it is.
+    let (session, mut lease) = match chosen.lease.clone() {
+        Some(lease) => (sessions::SessionCtx::of(&store, &id), lease),
+        None => {
+            let last = registered
+                .iter()
+                .find(|profile| profile.name == chosen.record.last_profile)
+                .ok_or_else(|| Error::ProfileNotFound(chosen.record.last_profile.to_string()))?;
+            let native = chosen
+                .record
+                .native_session_id
+                .clone()
+                .ok_or(Error::CorruptedState)?;
+            sessions::activate_session(
+                paths,
+                &canonical_project,
+                &id,
+                last,
+                &native,
+                relay_core::handoff::ProcessIdentity {
+                    pid: 0,
+                    start_time_fingerprint: None,
+                },
+                current_unix_ms(),
+            )?
+        }
+    };
+    let acquired_here = chosen.lease.is_none();
+    let outcome = resume_session(
+        service,
+        paths,
+        args,
+        json_mode,
+        &canonical_project,
+        &registered,
+        &session,
+        &mut lease,
+    );
+    if outcome.is_err() && acquired_here {
+        // Nothing was launched: the session goes back to being dormant.
+        sessions::release_after_exit(paths, &canonical_project, &id, &registered);
+    }
+    outcome
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resume_session(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    args: &ResumeArgs,
+    json_mode: bool,
+    canonical_project: &Path,
+    registered: &[Profile],
+    session: &sessions::SessionCtx,
+    lease: &mut relay_core::handoff::WriterLease,
+) -> Result<CommandOutput, Error> {
+    let project_state_dir = session.dir.clone();
+    let canonical_project = canonical_project.to_path_buf();
+    let mut resolved_profile = lease.owner_profile.clone();
     let mut profile = registered
         .iter()
         .find(|profile| profile.name == resolved_profile)
@@ -3159,6 +3385,17 @@ fn run_resume(
                     );
                 }
             } else {
+                // No process was started for this session, so its source is trivially quiescent:
+                // record that proof (a process that has provably ended) for the transaction.
+                let gone = sessions::gone_process_identity();
+                let store = session.lease_store();
+                session.lock().try_with(|| -> Result<(), Error> {
+                    if let Some(mut current) = store.load()? {
+                        current.owner_process = gone;
+                        store.save(&current)?;
+                    }
+                    Ok(())
+                })?;
                 let outcome = evaluate_handoff_now(
                     paths,
                     &profile.name,
@@ -3170,11 +3407,12 @@ fn run_resume(
                 if !json_mode {
                     println!("{}\n", outcome.human);
                 }
-                if let Some(reloaded) = LeaseStore::at_path(project_state_dir.join("lease.json"))
+                if let Some(reloaded) = session
+                    .lease_store()
                     .load()?
                     .filter(|reloaded| reloaded.owner_profile != profile.name)
                 {
-                    lease = reloaded;
+                    *lease = reloaded;
                     resolved_profile = lease.owner_profile.clone();
                     profile = registered
                         .iter()
@@ -3190,8 +3428,8 @@ fn run_resume(
         }
     }
 
-    // Explicit arguments replace the owner provider's stored ones for this project (the other
-    // provider's are untouched); otherwise the stored ones are reused.
+    // Explicit arguments replace the owner provider's stored ones for this Relay session (the
+    // other provider's are untouched); otherwise the stored ones are reused.
     let mut stored_args = provider_args::ProviderArgs::load(&project_state_dir)?;
     if !args.provider_args.is_empty() {
         provider_args::validate(profile.provider, &args.provider_args)?;
@@ -3202,7 +3440,7 @@ fn run_resume(
     // without ever claiming to be "resuming" a session it then can't safely continue.
     let command = plan_terminal_for_lease(
         profile,
-        &lease,
+        lease,
         &canonical_project,
         args.claude_executable.as_deref(),
         args.codex_executable.as_deref(),
@@ -3218,26 +3456,32 @@ fn run_resume(
             ProviderKind::Claude | ProviderKind::Fake => "Claude",
         };
         println!(
-            "Agent Relay\nProject: {}\nProfile: {}\nResuming managed {provider_label} session...",
+            "Agent Relay\nProject: {}\nProfile: {}\nResuming {provider_label} session {}...",
             project_display_name(&canonical_project),
-            resolved_profile
+            resolved_profile,
+            session.id.short()
         );
         use std::io::Write as _;
         let _ = std::io::stdout().flush();
     }
 
+    let lease_store = session.lease_store();
+    let lock = session.lock();
+    let native = lease.session_id.clone();
+    let record_process = |pid: u32| record_writer_process(&lease_store, &lock, &native, pid);
     run_managed_terminal(
         &ContinuationContext::new(
             service,
             paths,
             &canonical_project,
+            session,
             args.claude_executable.clone(),
             args.codex_executable.clone(),
             json_mode,
         )?,
         command,
         resolved_profile,
-        None,
+        Some(&record_process),
     )
 }
 
@@ -3291,7 +3535,9 @@ fn plan_terminal_for_lease(
 /// owns the project's lease *now*, without re-deriving anything from the configured primary.
 struct ContinuationContext<'a> {
     service: &'a ProfileService,
-    project_state_dir: PathBuf,
+    /// The Relay Session this terminal supervises. Interior mutability because `relay claude
+    /// --resume` learns which session it is only when Claude reports the conversation it resumed.
+    session: std::cell::RefCell<sessions::SessionCtx>,
     canonical_project: PathBuf,
     claude_executable: Option<PathBuf>,
     codex_executable: Option<PathBuf>,
@@ -3313,14 +3559,14 @@ impl<'a> ContinuationContext<'a> {
         service: &'a ProfileService,
         paths: &RelayPaths,
         canonical_project: &Path,
+        session: &sessions::SessionCtx,
         claude_executable: Option<PathBuf>,
         codex_executable: Option<PathBuf>,
         json_mode: bool,
     ) -> Result<Self, Error> {
-        let project_id = ProjectId::for_canonical_path(canonical_project)?;
         Ok(Self {
             service,
-            project_state_dir: paths.project_state_dir(&project_id),
+            session: std::cell::RefCell::new(session.clone()),
             canonical_project: canonical_project.to_path_buf(),
             claude_executable,
             codex_executable,
@@ -3329,6 +3575,55 @@ impl<'a> ContinuationContext<'a> {
             preferences: preferences::Preferences::load(paths.config_root())?.unwrap_or_default(),
             adopt_result: None,
         })
+    }
+}
+
+impl ContinuationContext<'_> {
+    fn session(&self) -> sessions::SessionCtx {
+        self.session.borrow().clone()
+    }
+    /// The Relay Session's own state directory (lease, journals, provider args, control).
+    fn state_dir(&self) -> PathBuf {
+        self.session.borrow().dir.clone()
+    }
+    fn lease_store(&self) -> LeaseStore {
+        self.session.borrow().lease_store()
+    }
+    fn lock(&self) -> OrchestrationLock {
+        self.session.borrow().lock()
+    }
+    fn control(&self) -> control::ControlDir {
+        self.session.borrow().control()
+    }
+
+    /// `relay claude --resume`: once the `SessionStart` hook has reported which Relay session the
+    /// resumed conversation belongs to (a brand-new one, or an existing dormant one), follow it.
+    fn rebind_from_adoption(&self) {
+        let Some(result) = &self.adopt_result else {
+            return;
+        };
+        let Some(id) = std::fs::read(result)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .filter(|value| value["ok"] == true)
+            .and_then(|value| value["relay_session_id"].as_str().map(str::to_owned))
+            .and_then(|id| relay_core::handoff::RelaySessionId::parse(&id).ok())
+        else {
+            return;
+        };
+        if self.session.borrow().id != id {
+            let dir = self
+                .paths
+                .project_state_dir(&self.session.borrow().project_id)
+                .join("sessions")
+                .join(id.as_str());
+            let project_id = self.session.borrow().project_id.clone();
+            *self.session.borrow_mut() = sessions::SessionCtx {
+                id,
+                dir,
+                project_id,
+            };
+        }
     }
 }
 
@@ -3354,9 +3649,20 @@ fn run_managed_terminal(
     first_owner: ProfileName,
     on_first_spawn: Option<&dyn Fn(u32)>,
 ) -> Result<CommandOutput, Error> {
-    let control = control::ControlDir::for_project(&context.project_state_dir);
-    let code = run_managed_terminal_inner(context, first, first_owner, on_first_spawn, &control);
+    let code = run_managed_terminal_inner(context, first, first_owner, on_first_spawn);
+    context.rebind_from_adoption();
+    let control = context.control();
     control.clear_supervisor();
+    // The provider process is gone: this Relay Session no longer has an active owner. (Skipped
+    // when a transaction still holds the session, and for a process that is not provably gone.)
+    if let Ok(registered) = context.service.list() {
+        sessions::release_after_exit(
+            &context.paths,
+            &context.canonical_project,
+            &context.session().id,
+            &registered,
+        );
+    }
     // An in-agent switch that failed after the session was stopped: say why, right here.
     if !context.json_mode
         && let Some(last) = control.last_result()
@@ -3502,7 +3808,9 @@ fn serve_control_request(
         .arg(context.paths.config_root())
         .arg("--state-root")
         .arg(context.paths.state_root())
-        .args(["switch", target.as_str(), "--no-attach", "--project-dir"])
+        .args(["switch", target.as_str(), "--no-attach", "--session"])
+        .arg(context.session().id.as_str())
+        .arg("--project-dir")
         .arg(&context.canonical_project)
         .stdin(std::process::Stdio::null());
     if let Some(claude) = &context.claude_executable {
@@ -3511,9 +3819,9 @@ fn serve_control_request(
     if let Some(codex) = &context.codex_executable {
         command.arg("--codex-executable").arg(codex);
     }
-    let control_dir = control::ControlDir::for_project(&context.project_state_dir);
+    let control_dir = control::ControlDir::for_project(&context.state_dir());
     let target = target.clone();
-    let lease_path = context.project_state_dir.join("lease.json");
+    let lease_path = context.state_dir().join("lease.json");
     let preferences = context.preferences.clone();
     let profile_name = profile.name.clone();
     Some(std::thread::spawn(move || {
@@ -3570,11 +3878,8 @@ fn run_managed_terminal_inner(
     first: terminal::TerminalCommand,
     first_owner: ProfileName,
     on_first_spawn: Option<&dyn Fn(u32)>,
-    control: &control::ControlDir,
 ) -> Result<i32, Error> {
     use std::io::Write as _;
-    let lease_store = LeaseStore::at_path(context.project_state_dir.join("lease.json"));
-    let lock = OrchestrationLock::at_path(context.project_state_dir.join("orchestration.lock"));
     let timing = terminal::Timing::default();
     let mut command = first;
     let mut owner = terminal::LeaseOwner(first_owner);
@@ -3592,7 +3897,7 @@ fn run_managed_terminal_inner(
             .and_then(|value| value.parse().ok())
             .unwrap_or(CODEX_POLL_DEFAULT_SECS);
         let poll_action = || {
-            let Ok(Some(lease)) = lease_store.load() else {
+            let Ok(Some(lease)) = context.lease_store().load() else {
                 return;
             };
             let Ok(registered) = context.service.list() else {
@@ -3627,7 +3932,9 @@ fn run_managed_terminal_inner(
         let mut last_codex_poll = std::time::Instant::now();
         let mut pending_switch: Option<std::thread::JoinHandle<()>> = None;
         let mut tick_action = || {
-            publish_supervisor_record(control, &lease_store, &owner.0);
+            context.rebind_from_adoption();
+            let control = context.control();
+            publish_supervisor_record(&control, &context.lease_store(), &owner.0);
             if pending_switch
                 .as_ref()
                 .is_some_and(std::thread::JoinHandle::is_finished)
@@ -3635,8 +3942,12 @@ fn run_managed_terminal_inner(
                 pending_switch = None;
             }
             if pending_switch.is_none() {
-                pending_switch =
-                    serve_control_request(context, control, &lease_store, child_pid.get());
+                pending_switch = serve_control_request(
+                    context,
+                    &control,
+                    &context.lease_store(),
+                    child_pid.get(),
+                );
             }
             if owner_is_codex
                 && poll_secs > 0
@@ -3652,7 +3963,8 @@ fn run_managed_terminal_inner(
         });
         // The interactive process of a *continuation* is recorded in the lease too, so the next
         // stop-and-verify (and in-agent switch) can identify it exactly.
-        let continuation_session = lease_store
+        let continuation_session = context
+            .lease_store()
             .load()
             .ok()
             .flatten()
@@ -3661,13 +3973,15 @@ fn run_managed_terminal_inner(
             child_pid.set(pid);
             match (continuation, on_first_spawn, &continuation_session) {
                 (0, Some(first), _) => first(pid),
-                (1.., _, Some(session)) => record_writer_process(&lease_store, &lock, session, pid),
+                (1.., _, Some(session)) => {
+                    record_writer_process(&context.lease_store(), &context.lock(), session, pid);
+                }
                 _ => {}
             }
         };
         let end = terminal::run_watching_lease(
             &command,
-            &lease_store,
+            &|| context.lease_store(),
             &owner,
             &timing,
             tick,
@@ -3689,7 +4003,7 @@ fn run_managed_terminal_inner(
         // A handoff stops the source session itself, so the session can end *before* the lease
         // has moved: wait for any in-flight transaction to settle before deciding.
         if !terminal::wait_until_settled(
-            &lock,
+            &context.lock(),
             timing.settle_timeout,
             std::time::Duration::from_millis(500),
         ) {
@@ -3700,7 +4014,7 @@ fn run_managed_terminal_inner(
             }
             return Ok(code);
         }
-        let Ok(Some(lease)) = lease_store.load() else {
+        let Ok(Some(lease)) = context.lease_store().load() else {
             return Ok(code);
         };
         // A switch that failed AFTER the session was deliberately stopped, but before ownership
@@ -3709,19 +4023,19 @@ fn run_managed_terminal_inner(
         // holds the project), so the terminal does that instead of leaving the user stranded.
         if terminal::LeaseOwner::of(&lease) == owner
             && continuation < MAX_CONTINUATIONS
-            && control.last_result().is_some_and(|last| {
+            && context.control().last_result().is_some_and(|last| {
                 !last.ok
                     && current_unix_ms().saturating_sub(last.unix_ms) < 120_000
                     && !restored_after.contains(&last.unix_ms)
             })
-            && let Some(last) = control.last_result()
+            && let Some(last) = context.control().last_result()
         {
             restored_after.push(last.unix_ms);
             let registered = context.service.list()?;
             if let Some(profile) = registered
                 .iter()
                 .find(|candidate| candidate.name == lease.owner_profile)
-                && let Ok(reopened) = provider_args::ProviderArgs::load(&context.project_state_dir)
+                && let Ok(reopened) = provider_args::ProviderArgs::load(&context.state_dir())
                     .and_then(|stored| {
                         plan_terminal_for_lease(
                             profile,
@@ -3765,7 +4079,7 @@ fn run_managed_terminal_inner(
         else {
             return Ok(code);
         };
-        let next = match provider_args::ProviderArgs::load(&context.project_state_dir).and_then(
+        let next = match provider_args::ProviderArgs::load(&context.state_dir()).and_then(
             |stored| {
                 plan_terminal_for_lease(
                     profile,
@@ -4084,61 +4398,59 @@ fn run_status(
         friendly_auth_state(profile, &providers::ExecutableOverrides::default())
     });
 
-    let project_id = ProjectId::for_canonical_path(&canonical)?;
-    let project_state_dir = paths.project_state_dir(&project_id);
-    let lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
-    let locked = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"))
-        .is_currently_held();
-    let current_transaction =
-        std::fs::read_to_string(project_state_dir.join("current_transaction.json")).ok();
-
-    // A lease *record* existing does not mean the process behind it is still running; confirm
-    // with the same liveness check `relay launch`/`watch run` use before calling it "active"
-    // rather than naively trusting the file.
-    let owner_profile = lease.as_ref().and_then(|lease| {
+    // Relay supervises conversations, not repositories: list this project's Relay sessions, each
+    // active one with its owner and each dormant one with its last profile (history, not an owner).
+    let store = sessions::open_store(paths, &canonical)?;
+    let views = sessions::reconcile(
+        paths,
+        &canonical,
+        &registered,
+        &providers::ExecutableOverrides::default(),
+    )?;
+    let now = current_unix_ms();
+    let provider_of = |view: &relay_core::handoff::RelaySessionView| {
         registered
             .iter()
-            .find(|profile| profile.name == lease.owner_profile)
-    });
-    let session_state = if locked {
-        "handoff in progress"
-    } else if let Some(lease) = &lease {
-        match owner_profile {
-            // The lease owner's OWN provider decides liveness — never inferred from the
-            // session/thread shape, never assumed to be Claude.
-            Some(owner) => match owner_is_live(
-                owner,
-                &canonical,
-                &lease.session_id,
-                Some(&lease.owner_process),
-                &providers::ExecutableOverrides::default(),
-            ) {
-                Ok(true) => "active",
-                Ok(false) => "idle (last session ended)",
-                Err(_) => "unknown (could not verify the session)",
-            },
-            None => "unknown (the owning profile is not registered)",
+            .find(|profile| &profile.name == view.profile())
+            .map(|profile| profile.provider)
+    };
+    let mut session_rows = Vec::new();
+    let mut lines_active = Vec::new();
+    let mut lines_dormant = Vec::new();
+    for view in &views {
+        let dir = store.session_dir(&view.record.relay_session_id);
+        let in_transaction =
+            OrchestrationLock::at_path(dir.join("orchestration.lock")).is_currently_held();
+        let state = view.state();
+        let mut line = sessions::describe(view, &registered, now);
+        if in_transaction {
+            line.push_str("  (handoff in progress)");
         }
-    } else {
-        "not started"
-    };
-    let session_label = match owner_profile.map(|profile| profile.provider) {
-        Some(ProviderKind::Codex) => "Codex session",
-        Some(ProviderKind::Claude | ProviderKind::Fake) => "Claude session",
-        None => "Session",
-    };
+        match state {
+            relay_core::handoff::SessionState::Active => {
+                lines_active.push(format!("  {line}  ACTIVE"))
+            }
+            relay_core::handoff::SessionState::Dormant => {
+                lines_dormant.push(format!("  {line}  DORMANT"));
+            }
+        }
+        session_rows.push(json!({
+            "relay_session_id": view.record.relay_session_id.as_str(),
+            "state": state,
+            "provider": provider_of(view).map(|provider| provider.to_string()),
+            "profile": view.profile().as_str(),
+            "owner": (state == relay_core::handoff::SessionState::Active)
+                .then(|| view.profile().as_str()),
+            "native_session_id": view.native_session_id(),
+            "last_activity_unix_ms": view.record.last_activity_unix_ms,
+            "handoff_in_progress": in_transaction,
+        }));
+    }
 
     let herdr_connected =
         std::env::var_os("HERDR_ENV").as_deref() == Some(std::ffi::OsStr::new("1"));
-
-    // The one global priority order, minus whoever is writing right now: the current writer is
-    // never shown as its own fallback, and the primary is a fallback candidate once it is not the
-    // writer (routing considers it first again after its window resets).
-    let current_owner = lease
-        .as_ref()
-        .map_or_else(|| primary.clone(), |lease| lease.owner_profile.clone());
     let fallback_order: Vec<String> =
-        auto_handoff::hierarchy_without(&preferences, &current_owner, |_| true)
+        auto_handoff::hierarchy_without(&preferences, &primary, |_| true)
             .into_iter()
             .map(ToString::to_string)
             .collect();
@@ -4147,15 +4459,22 @@ fn run_status(
     } else {
         fallback_order.join(", ")
     };
+    let listing = |title: &str, lines: &[String]| {
+        if lines.is_empty() {
+            format!("{title}: none")
+        } else {
+            format!("{title}\n{}", lines.join("\n"))
+        }
+    };
 
     let human = format!(
-        "Project: {}\n{}: {}\nCurrent profile: {}\nFallback: {}\nPrimary profile auth: {}\nAutomatic handoff: {}\nHerdr: {}",
+        "Project: {}\n\n{}\n\n{}\n\nPrimary profile: {} ({})\nFallback: {}\nAutomatic handoff: {}\nHerdr: {}",
         canonical.display(),
-        session_label,
-        session_state,
-        current_owner,
-        fallback_display,
+        listing("Active sessions", &lines_active),
+        listing("Dormant sessions", &lines_dormant),
+        primary,
         primary_auth,
+        fallback_display,
         if preferences.usage_integration_enabled == Some(true) {
             "enabled"
         } else {
@@ -4173,13 +4492,10 @@ fn run_status(
         json!({
             "configured": true,
             "project": canonical,
-            "session_state": session_state,
-            "session_provider": owner_profile.map(|profile| profile.provider.to_string()),
+            "sessions": session_rows,
             "primary_profile": primary.as_str(),
             "primary_authenticated": primary_auth,
             "fallback_profiles": fallback_order,
-            "lease_owner": lease.as_ref().map(|lease| lease.owner_profile.to_string()),
-            "current_transaction": current_transaction,
             "usage_integration_enabled": preferences.usage_integration_enabled.unwrap_or(false),
             "herdr_connected": herdr_connected,
         }),
@@ -4241,14 +4557,9 @@ fn plan_claude_attach(
 /// the user a live interactive terminal via `claude attach` (M4.4) — never printing a session UUID
 /// for the user to copy anywhere.
 ///
-/// It never silently reattaches to an already-active session for this project — that changed the
-/// product contract (M4 originally chose silent reattach so a daily `cd && relay claude` worked
-/// regardless of state; the UX cost was that "start fresh" and "resume" were indistinguishable to
-/// the user). A live existing session now fails closed with `Error::ManagedSessionAlreadyActive`,
-/// pointing at `relay resume` (continue it) or `relay claude --new` (the explicit escape hatch:
-/// safely stop it via the same stop-and-verify machinery `relay switch`/recovery use, confirm it
-/// is gone, then start fresh — see the `--new` handling below). A *stale* lease (owner process
-/// confirmed dead) never blocks anything; `perform_launch` already recovers that case on its own.
+/// Every `relay claude` starts its own Relay session (the unit of continuity and handoff), even
+/// when the project already has other active ones — under this profile or any other. It never stops,
+/// replaces or reattaches to another session; `relay resume` continues a dormant one.
 /// The profile a provider-specific entrypoint starts: `--profile` when given (it must belong to
 /// that provider), otherwise the highest-priority configured profile *of that provider* in the one
 /// global order (`primary`, then the fallbacks). Deterministic, never prompts.
@@ -4317,6 +4628,11 @@ fn run_claude(
     })?;
 
     provider_args::validate(ProviderKind::Claude, &args.provider_args)?;
+    if args.new && !json_mode {
+        eprintln!(
+            "Note: `--new` is no longer needed — `relay claude` always starts a new Relay session and never stops another one."
+        );
+    }
     let preferences = preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
     let registered = service.list()?;
     if let Some(session) = &args.resume {
@@ -4351,50 +4667,14 @@ fn run_claude(
         claude: args.claude_executable.clone(),
         codex: None,
     };
-    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
-    let project_state_dir = paths.project_state_dir(&project_id);
-    let existing_lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
-
-    // Everything from here until the provider takes over the terminal can be slow (session
-    // liveness confirmation, `claude auth status`, stopping a previous session). One indicator
-    // covers all of it, so the terminal never looks frozen.
+    // Everything from here until the provider takes over the terminal can be slow (`claude auth
+    // status`, login prompts). One indicator covers all of it, so the terminal never looks frozen.
+    // (Another active Relay session in this project — under any profile, this one included — is
+    // no obstacle: every `relay claude` starts its own Relay session.)
     let mut progress = Some(progress::Progress::start(
         "Preparing Claude profile…",
         json_mode,
     ));
-
-    let still_active_existing = match &existing_lease {
-        Some(existing) => {
-            let owner = registered
-                .iter()
-                .find(|profile| profile.name == existing.owner_profile);
-            match owner {
-                Some(owner) => confirm_not_active(
-                    owner,
-                    &canonical_project,
-                    &existing.session_id,
-                    &existing.owner_process,
-                    &executables,
-                )
-                .map(|confirmed_inactive| !confirmed_inactive)?,
-                None => false,
-            }
-        }
-        None => false,
-    };
-
-    // Cheap, authoritative fast-fail: a live managed writer makes a plain `relay claude` impossible,
-    // so say so before any slow provider work (auth inspection, login prompts). The lock-guarded
-    // recheck inside the launch stays the final authority for races.
-    if still_active_existing && !args.new {
-        let existing = existing_lease
-            .as_ref()
-            .expect("still_active_existing implies Some");
-        return Err(Error::ManagedSessionAlreadyActive {
-            owner: existing.owner_profile.to_string(),
-            entrypoint: "claude",
-        });
-    }
 
     // M4.7: safe reauthentication for the primary; fallback unauthenticated is a warning only.
     let (primary_auth, _) = friendly_auth_state(primary_profile, &executables);
@@ -4445,43 +4725,6 @@ fn run_claude(
         }
     }
 
-    // Product contract (post-M4): `relay claude` ALWAYS starts a new Relay-managed conversation —
-    // it never silently reattaches to a live one (that's `relay resume`'s job now). A genuinely
-    // live existing session blocks a plain `relay claude` outright; `--new` is the explicit,
-    // opt-in escape hatch that safely stops it first. A *stale* lease (owner process confirmed
-    // dead) never blocks anything, with or without `--new`.
-    if still_active_existing {
-        let existing = existing_lease
-            .as_ref()
-            .expect("still_active_existing implies Some");
-        if args.new {
-            if let Some(progress) = &progress {
-                progress.set_label("Stopping the previous session…");
-            }
-            // The explicit escape hatch: authoritatively stop the *current owner's* writer (which
-            // may not be `primary` — a prior handoff can leave a fallback profile holding it) via
-            // the same stop-and-verify machinery `relay switch`/recovery already use, and never
-            // return `Ok` until quiescence is confirmed. A failure here propagates and stops
-            // right here — no launch is attempted, so a failed stop can never leave two writers.
-            let owner_profile = registered
-                .iter()
-                .find(|profile| profile.name == existing.owner_profile)
-                .ok_or_else(|| Error::ProfileNotFound(existing.owner_profile.to_string()))?;
-            let owner_ports = providers::ports_for(owner_profile.provider, &executables);
-            owner_ports.stopper.stop_and_verify(
-                &owner_profile.config_dir,
-                &canonical_project,
-                &existing.session_id,
-                Some(&existing.owner_process),
-            )?;
-        } else {
-            return Err(Error::ManagedSessionAlreadyActive {
-                owner: existing.owner_profile.to_string(),
-                entrypoint: "claude",
-            });
-        }
-    }
-
     let header = format!(
         "Agent Relay\nProject: {}\nProfile: {}\nStarting new managed Claude session...",
         project_display_name(&canonical_project),
@@ -4506,7 +4749,7 @@ fn run_claude(
             None if !json_mode => println!("{header}"),
             None => {}
         }
-        let lease = perform_launch(
+        let (session, lease) = perform_launch(
             service,
             paths,
             &primary,
@@ -4517,7 +4760,7 @@ fn run_claude(
         )?;
         drop(progress.take());
         provider_args::ProviderArgs::fresh_for(ProviderKind::Claude, args.provider_args.clone())
-            .save(&project_state_dir)?;
+            .save(&session.dir)?;
         let herdr_bound = bind_herdr_pane(&primary, &fallback, &lease.session_id);
         let herdr_env = std::env::var_os("HERDR_ENV").as_deref() == Some(std::ffi::OsStr::new("1"));
         let human = format!(
@@ -4537,6 +4780,7 @@ fn run_claude(
             json!({
                 "profile": primary.as_str(),
                 "fallback": fallback.iter().map(ProfileName::to_string).collect::<Vec<_>>(),
+                "relay_session_id": session.id.as_str(),
                 "session_id": lease.session_id,
                 "background_job": lease.provider_handle,
                 "herdr_bound": herdr_bound,
@@ -4560,16 +4804,24 @@ fn run_claude(
         None => {}
     }
     let session_id = new_session_uuid()?;
-    let lease = begin_interactive_claude_lease(
+    // A new Relay session with its first lease (a placeholder process until Claude is spawned).
+    // Provisional: if Claude ends before a conversation was ever persisted, the session is
+    // removed instead of remembered.
+    let (session, lease) = sessions::create_session(
         paths,
-        &registered,
-        primary_profile,
         &canonical_project,
+        primary_profile,
         &session_id,
-        &executables,
+        relay_core::handoff::ProcessIdentity {
+            pid: 0,
+            start_time_fingerprint: None,
+        },
+        None,
+        true,
+        current_unix_ms(),
     )?;
     provider_args::ProviderArgs::fresh_for(ProviderKind::Claude, args.provider_args.clone())
-        .save(&project_state_dir)?;
+        .save(&session.dir)?;
     bind_herdr_pane(&primary, &fallback, &lease.session_id);
 
     let inspector = ClaudeInspector::discover(args.claude_executable.as_deref())?;
@@ -4592,8 +4844,8 @@ fn run_claude(
         current_dir: Some(canonical_project.clone()),
     };
 
-    let lease_store = LeaseStore::at_path(project_state_dir.join("lease.json"));
-    let lock = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"));
+    let lease_store = session.lease_store();
+    let lock = session.lock();
     let record_process = |pid: u32| record_writer_process(&lease_store, &lock, &session_id, pid);
     drop(progress.take());
     let result = run_managed_terminal(
@@ -4601,6 +4853,7 @@ fn run_claude(
             service,
             paths,
             &canonical_project,
+            &session,
             args.claude_executable.clone(),
             None,
             json_mode,
@@ -4610,7 +4863,8 @@ fn run_claude(
         Some(&record_process),
     );
     if result.is_err() {
-        discard_pending_lease(&lease_store, &session_id);
+        // The provider never ran: no ghost session, no lease.
+        sessions::release_after_exit(paths, &canonical_project, &session.id, &registered);
     }
     result
 }
@@ -4648,28 +4902,21 @@ fn run_claude_resume(
         claude: args.claude_executable.clone(),
         codex: None,
     };
-    let project_id = ProjectId::for_canonical_path(canonical_project)?;
-    let project_state_dir = paths.project_state_dir(&project_id);
-
+    let store = sessions::open_store(paths, canonical_project)?;
     let progress = progress::Progress::start("Checking the project's Relay state…", json_mode);
-    // A live Relay writer means there is already a managed conversation: refuse rather than
-    // ever creating a second writer or silently replacing it.
-    if let Some(existing) = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?
-        && let Some(owner) = registered
-            .iter()
-            .find(|candidate| candidate.name == existing.owner_profile)
-        && !confirm_not_active(
-            owner,
-            canonical_project,
-            &existing.session_id,
-            &existing.owner_process,
-            &executables,
-        )?
-    {
-        return Err(Error::ManagedSessionAlreadyActive {
-            owner: existing.owner_profile.to_string(),
-            entrypoint: "claude",
-        });
+    // Other Relay sessions of this project — active or not, on any profile — are irrelevant: this
+    // conversation joins or rejoins its own Relay session. Only an EXACT conversation that is
+    // already active under Relay is refused (one native conversation, one owner).
+    if !session.is_empty() {
+        let views = sessions::reconcile(paths, canonical_project, registered, &executables)?;
+        if let Some(active) = views.iter().find(|view| {
+            view.state() == relay_core::handoff::SessionState::Active
+                && view.native_session_id() == Some(session)
+        }) {
+            return Err(Error::NativeSessionAlreadyActive(
+                active.record.relay_session_id.short().to_owned(),
+            ));
+        }
     }
     if !session.is_empty() && !claude_transcript_exists(&profile.config_dir, session) {
         return Err(Error::AdoptionRefused(format!(
@@ -4699,11 +4946,16 @@ fn run_claude_resume(
         {"type": "command", "command": hook_command, "timeout": 30}
     ]}]}})
     .to_string();
-    std::fs::create_dir_all(&project_state_dir).map_err(|source| Error::Io {
-        path: project_state_dir.clone(),
+    // The Relay session id this launch will use if the conversation turns out to be new to Relay
+    // (a known dormant one is reactivated under its own id, and this terminal follows it).
+    let preassigned = relay_core::handoff::RelaySessionId::generate()?;
+    let placeholder = sessions::SessionCtx::of(&store, &preassigned);
+    let control_root = paths.project_state_dir(&placeholder.project_id);
+    std::fs::create_dir_all(&control_root).map_err(|source| Error::Io {
+        path: control_root.clone(),
         source,
     })?;
-    let result_path = project_state_dir.join(format!("adopt-{}.json", new_session_uuid()?));
+    let result_path = control_root.join(format!("adopt-{}.json", new_session_uuid()?));
 
     let mut command_args: Vec<OsString> = vec!["--resume".into()];
     if !session.is_empty() {
@@ -4718,6 +4970,13 @@ fn run_claude_resume(
         ),
         (ADOPT_PROFILE_ENV.into(), profile.name.as_str().into()),
         (ADOPT_RESULT_ENV.into(), result_path.clone().into()),
+        (ADOPT_RELAY_SESSION_ENV.into(), preassigned.as_str().into()),
+        (
+            ADOPT_ARGS_ENV.into(),
+            serde_json::to_string(&args.provider_args)
+                .unwrap_or_default()
+                .into(),
+        ),
     ];
     if !session.is_empty() {
         envs.push((ADOPT_SESSION_ENV.into(), session.into()));
@@ -4739,13 +4998,12 @@ fn run_claude_resume(
         service,
         paths,
         canonical_project,
+        &placeholder,
         args.claude_executable.clone(),
         None,
         json_mode,
     )?;
     context.adopt_result = Some(result_path);
-    provider_args::ProviderArgs::fresh_for(ProviderKind::Claude, args.provider_args.clone())
-        .save(&project_state_dir)?;
     run_managed_terminal(&context, command, profile.name.clone(), None)
 }
 
@@ -4814,64 +5072,6 @@ fn new_session_uuid() -> Result<String, Error> {
     ))
 }
 
-/// Under the orchestration lock: refuse a still-live writer (the owner provider's own liveness),
-/// then record the new writer lease for a session Relay is about to start interactively. The
-/// process is a placeholder (pid 0, which every liveness check treats as unverifiable, i.e.
-/// active) until [`record_writer_process`] fills in the real one.
-fn begin_interactive_claude_lease(
-    paths: &RelayPaths,
-    registered: &[Profile],
-    profile: &Profile,
-    canonical_project: &Path,
-    session_id: &str,
-    executables: &providers::ExecutableOverrides,
-) -> Result<relay_core::handoff::WriterLease, Error> {
-    let project_id = ProjectId::for_canonical_path(canonical_project)?;
-    let project_state_dir = paths.project_state_dir(&project_id);
-    std::fs::create_dir_all(&project_state_dir).map_err(|source| Error::Io {
-        path: project_state_dir.clone(),
-        source,
-    })?;
-    let lock = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"));
-    let lease_store = LeaseStore::at_path(project_state_dir.join("lease.json"));
-    lock.try_with(|| -> Result<relay_core::handoff::WriterLease, Error> {
-        if let Some(existing) = lease_store.load()? {
-            let still_active = match registered
-                .iter()
-                .find(|candidate| candidate.name == existing.owner_profile)
-            {
-                Some(owner) => confirm_not_active(
-                    owner,
-                    canonical_project,
-                    &existing.session_id,
-                    &existing.owner_process,
-                    executables,
-                )
-                .map(|confirmed_inactive| !confirmed_inactive)?,
-                None => true,
-            };
-            if still_active {
-                return Err(Error::WriterAlreadyActive(
-                    existing.owner_profile.to_string(),
-                ));
-            }
-        }
-        let lease = relay_core::handoff::WriterLease::new(
-            project_id.clone(),
-            profile.name.clone(),
-            relay_core::handoff::ProcessIdentity {
-                pid: 0,
-                start_time_fingerprint: None,
-            },
-            session_id.to_owned(),
-            relay_core::handoff::TransactionId::generate(),
-            current_unix_ms(),
-        );
-        lease_store.save(&lease)?;
-        Ok(lease)
-    })
-}
-
 /// Records the interactive provider's real process in the lease as soon as it exists (identity =
 /// pid + start time, exactly what liveness checks and the verified stop use). Best effort with a
 /// short retry: the lock may briefly be held by an evaluation.
@@ -4895,17 +5095,6 @@ fn record_writer_process(
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-}
-
-/// The interactive provider never started: drop the placeholder lease (only if it is still the
-/// untouched placeholder for this session) so it cannot block the project.
-fn discard_pending_lease(lease_store: &LeaseStore, session_id: &str) {
-    if let Ok(Some(lease)) = lease_store.load()
-        && lease.session_id == session_id
-        && lease.owner_process.pid == 0
-    {
-        let _ignored = lease_store.clear();
     }
 }
 
@@ -5108,69 +5297,36 @@ fn route_exhausted_codex_start(
     Ok(output)
 }
 
-/// The Codex counterpart of [`perform_launch`]: under the project's orchestration lock, refuses a
-/// still-active existing writer (judged by the *owner's* provider), creates a fresh Codex thread
-/// (Relay's own arguments only) and records a new writer lease for it.
+/// The Codex counterpart of [`perform_launch`]: creates a fresh Codex thread (Relay's own
+/// arguments only) and a new Relay session with its lease for it.
 fn perform_codex_launch(
     service: &ProfileService,
     paths: &RelayPaths,
     profile: &Profile,
     canonical_project: &Path,
     executables: &providers::ExecutableOverrides,
-) -> Result<relay_core::handoff::WriterLease, Error> {
-    let registered = service.list()?;
-    let project_id = ProjectId::for_canonical_path(canonical_project)?;
-    let project_state_dir = paths.project_state_dir(&project_id);
-    std::fs::create_dir_all(&project_state_dir).map_err(|source| Error::Io {
-        path: project_state_dir.clone(),
-        source,
-    })?;
-    let lock = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"));
-    let lease_store = LeaseStore::at_path(project_state_dir.join("lease.json"));
-
-    lock.try_with(|| -> Result<relay_core::handoff::WriterLease, Error> {
-        if let Some(existing) = lease_store.load()? {
-            let still_active = match registered
-                .iter()
-                .find(|candidate| candidate.name == existing.owner_profile)
-            {
-                Some(owner) => confirm_not_active(
-                    owner,
-                    canonical_project,
-                    &existing.session_id,
-                    &existing.owner_process,
-                    executables,
-                )
-                .map(|confirmed_inactive| !confirmed_inactive)?,
-                None => true,
-            };
-            if still_active {
-                return Err(Error::WriterAlreadyActive(
-                    existing.owner_profile.to_string(),
-                ));
-            }
-        }
-        let launched = relay_provider_codex::launch_new_thread(
-            &profile.config_dir,
-            canonical_project,
-            executables.codex.as_deref(),
-        )?;
-        let lease = relay_core::handoff::WriterLease::new(
-            project_id.clone(),
-            profile.name.clone(),
-            launched
-                .process
-                .unwrap_or(relay_core::handoff::ProcessIdentity {
-                    pid: 0,
-                    start_time_fingerprint: None,
-                }),
-            launched.thread_id,
-            relay_core::handoff::TransactionId::generate(),
-            current_unix_ms(),
-        );
-        lease_store.save(&lease)?;
-        Ok(lease)
-    })
+) -> Result<(sessions::SessionCtx, relay_core::handoff::WriterLease), Error> {
+    let _ = service;
+    let launched = relay_provider_codex::launch_new_thread(
+        &profile.config_dir,
+        canonical_project,
+        executables.codex.as_deref(),
+    )?;
+    sessions::create_session(
+        paths,
+        canonical_project,
+        profile,
+        &launched.thread_id,
+        launched
+            .process
+            .unwrap_or(relay_core::handoff::ProcessIdentity {
+                pid: 0,
+                start_time_fingerprint: None,
+            }),
+        None,
+        false,
+        current_unix_ms(),
+    )
 }
 
 /// `relay codex`: start a NEW Relay-managed Codex conversation, symmetric with `relay claude`.
@@ -5194,6 +5350,11 @@ fn run_codex_inner(
     allow_reroute: bool,
 ) -> Result<CommandOutput, Error> {
     provider_args::validate(ProviderKind::Codex, &args.provider_args)?;
+    if args.new && allow_reroute && !json_mode {
+        eprintln!(
+            "Note: `--new` is no longer needed — `relay codex` always starts a new Relay session and never stops another one."
+        );
+    }
     let project_dir = match &args.project_dir {
         Some(path) => path.clone(),
         None => std::env::current_dir().map_err(|source| Error::Io {
@@ -5217,59 +5378,15 @@ fn run_codex_inner(
         claude: args.claude_executable.clone(),
         codex: args.codex_executable.clone(),
     };
-    let project_id = ProjectId::for_canonical_path(&canonical_project)?;
-    let project_state_dir = paths.project_state_dir(&project_id);
-    let existing_lease = LeaseStore::at_path(project_state_dir.join("lease.json")).load()?;
+    // From here on every step can be slow (starting `codex app-server`, scanning fallbacks,
+    // creating the thread). ONE indicator lives across all of it — label changes, result lines
+    // print above it — so there is never an unexplained gap. Other Relay sessions of this project
+    // (any provider, any profile) are no obstacle: every `relay codex` starts its own session.
+    let progress = progress::Progress::start("Checking Codex availability…", json_mode);
 
-    // From here on every step can be slow (session-liveness confirmation, starting
-    // `codex app-server`, scanning fallbacks, creating the thread). ONE indicator lives across all
-    // of it — label changes, result lines print above it — so there is never an unexplained gap.
-    let progress = progress::Progress::start(
-        if existing_lease.is_some() {
-            "Checking for an active session…"
-        } else {
-            "Checking Codex availability…"
-        },
-        json_mode,
-    );
-
-    // 1. Cheap, authoritative local invariant first: is a managed writer live for this project?
-    //    (Read from Relay's lease and judged by the OWNER's own provider.) A live writer makes a
-    //    plain `relay codex` impossible, so fail at once — before any Codex app-server round trip,
-    //    before any routing message. The lock-guarded recheck inside `perform_codex_launch` stays
-    //    the final authority for races.
-    let still_active_existing = match &existing_lease {
-        Some(existing) => match registered
-            .iter()
-            .find(|candidate| candidate.name == existing.owner_profile)
-        {
-            Some(owner) => confirm_not_active(
-                owner,
-                &canonical_project,
-                &existing.session_id,
-                &existing.owner_process,
-                &executables,
-            )
-            .map(|confirmed_inactive| !confirmed_inactive)?,
-            None => false,
-        },
-        None => false,
-    };
-    if still_active_existing && !args.new {
-        let existing = existing_lease
-            .as_ref()
-            .expect("still_active_existing implies Some");
-        return Err(Error::ManagedSessionAlreadyActive {
-            owner: existing.owner_profile.to_string(),
-            entrypoint: "codex",
-        });
-    }
-
-    // 2. Immediate structured preflight — before anything is stopped, created or spent. Its
-    //    authenticated rate-limit read also proves the profile is logged in, so the slow
-    //    `codex doctor` inspection is only run afterwards, to explain a failure. With `--new` the
-    //    existing writer is still untouched here: if the route turns out not to be viable it stays
-    //    exactly as it was.
+    // Immediate structured preflight — before anything is created or spent. Its authenticated
+    // rate-limit read also proves the profile is logged in, so the slow `codex doctor` inspection
+    // is only run afterwards, to explain a failure.
     progress.set_label("Checking Codex availability…");
     let usage = codex_usage_now(profile, &executables, &canonical_project);
     if usage.state.is_blocking() {
@@ -5298,38 +5415,18 @@ fn run_codex_inner(
         });
     }
 
-    // 3. Only now that a new conversation can actually start is the old writer (if `--new`)
-    //    stopped, authoritatively and verified, before the replacement is created.
-    if still_active_existing {
-        progress.set_label("Stopping the previous session…");
-        let existing = existing_lease
-            .as_ref()
-            .expect("still_active_existing implies Some");
-        let owner_profile = registered
-            .iter()
-            .find(|candidate| candidate.name == existing.owner_profile)
-            .ok_or_else(|| Error::ProfileNotFound(existing.owner_profile.to_string()))?;
-        providers::ports_for(owner_profile.provider, &executables)
-            .stopper
-            .stop_and_verify(
-                &owner_profile.config_dir,
-                &canonical_project,
-                &existing.session_id,
-                Some(&existing.owner_process),
-            )?;
-    }
-
     progress.say(&format!(
         "Agent Relay\nProject: {}\nProfile: {}\nStarting new managed Codex session...",
         project_display_name(&canonical_project),
         profile.name
     ));
     progress.set_label("Creating the Codex session…");
-    let lease = perform_codex_launch(service, paths, profile, &canonical_project, &executables)?;
+    let (session, lease) =
+        perform_codex_launch(service, paths, profile, &canonical_project, &executables)?;
     progress.finish();
     // A brand-new managed conversation: only Codex's arguments carry over to it.
     provider_args::ProviderArgs::fresh_for(ProviderKind::Codex, args.provider_args.clone())
-        .save(&project_state_dir)?;
+        .save(&session.dir)?;
 
     let fallback: Vec<String> =
         auto_handoff::hierarchy_without(&preferences, &profile.name, |_| true)
@@ -5347,6 +5444,7 @@ fn run_codex_inner(
             json!({
                 "profile": profile.name.as_str(),
                 "fallback": fallback,
+                "relay_session_id": session.id.as_str(),
                 "session_id": lease.session_id,
                 "new_session": true,
             }),
@@ -5362,19 +5460,28 @@ fn run_codex_inner(
         &args.provider_args,
         (!message.trim().is_empty()).then_some(message.as_str()),
     )?;
-    run_managed_terminal(
+    let lease_store = session.lease_store();
+    let lock = session.lock();
+    let native = lease.session_id.clone();
+    let record_process = |pid: u32| record_writer_process(&lease_store, &lock, &native, pid);
+    let result = run_managed_terminal(
         &ContinuationContext::new(
             service,
             paths,
             &canonical_project,
+            &session,
             args.claude_executable.clone(),
             args.codex_executable.clone(),
             json_mode,
         )?,
         command,
         profile.name.clone(),
-        None,
-    )
+        Some(&record_process),
+    );
+    if result.is_err() {
+        sessions::release_after_exit(paths, &canonical_project, &session.id, &registered);
+    }
+    result
 }
 
 /// M4.1: the interactive first-run wizard. Every step reuses existing, already-tested machinery

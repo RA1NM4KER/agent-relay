@@ -69,6 +69,31 @@ pub struct AgentStatus {
     pub lock: LockStatusSummary,
 }
 
+/// `relay lock status` for this pane's own conversation: a project can have several Relay
+/// sessions, so the pane's provider-native session id (when known) selects which one it means.
+fn lock_status<R: CommandRunner>(
+    pane: &HerdrPaneContext,
+    client: &RelayClient<R>,
+    dir: &str,
+) -> Result<RawLockStatus, HerdrIntegrationError> {
+    let native = pane
+        .pane_tokens
+        .get("relay_session_id")
+        .cloned()
+        .or_else(|| pane.agent_session_id.clone());
+    match native {
+        Some(native) => client.run_json(&[
+            "lock",
+            "status",
+            "--project-dir",
+            dir,
+            "--native-session",
+            &native,
+        ]),
+        None => client.run_json(&["lock", "status", "--project-dir", dir]),
+    }
+}
+
 /// Composite, read-only status for the pane's mapped profile: is it healthy, is it currently the
 /// project's writer, and is there a live/pending transaction. Two `relay ... --json` calls, zero
 /// mutation.
@@ -86,7 +111,7 @@ pub fn status<R: CommandRunner>(
     };
 
     let dir = project_dir(pane);
-    let raw_lock: RawLockStatus = client.run_json(&["lock", "status", "--project-dir", &dir])?;
+    let raw_lock = lock_status(pane, client, &dir)?;
     let lock = LockStatusSummary {
         locked: raw_lock.locked,
         lease_owner: raw_lock.lease.map(|lease| lease.owner_profile),
@@ -163,7 +188,7 @@ pub fn recovery_status<R: CommandRunner>(
     client: &RelayClient<R>,
 ) -> Result<RecoveryStatus, HerdrIntegrationError> {
     let dir = project_dir(pane);
-    let lock: RawLockStatus = client.run_json(&["lock", "status", "--project-dir", &dir])?;
+    let lock = lock_status(pane, client, &dir)?;
 
     let (transaction_state, transaction_reason, is_terminal) = match &lock.current_transaction {
         Some(id) => {

@@ -13,9 +13,11 @@ for the session Relay manages for that project, the hook starts one short-lived,
 retrying for about two minutes only while it answers "no action needed" (the statusline snapshot
 that corroborates a limit can land just after the failure). It logs each attempt to
 `<state>/projects/<project>/auto-handoff.log`. Relay is not a daemon and never polls; you can still
-invoke `relay watch run` by hand at any time. Only the exact session named by the project's writer
-lease can trigger it, and every safety rule below (cooldown, per-window cap, known-exhausted
-ledger, single-writer lock) applies unchanged.
+invoke `relay watch run` by hand at any time. Only the exact conversation named by an active Relay
+Session's lease can trigger it, and every safety rule below (cooldown, per-window cap,
+known-exhausted ledger, the session's own lock) applies unchanged — **per Relay Session**: two
+sessions on the same profile each run their own evaluation and transaction (they may land on the
+same fallback), and neither can stop or move the other.
 
 ## One-time setup (per profile)
 

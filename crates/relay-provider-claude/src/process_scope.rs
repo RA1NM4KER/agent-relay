@@ -7,16 +7,20 @@
 //!
 //! Every Claude process running under the profile is classified from the strongest evidence
 //! available (exact pid + start-time fingerprint, then Claude's own session registry
-//! `<config>/sessions/<pid>.json`, then the process's working directory):
+//! `<config>/sessions/<pid>.json`, then the process's working directory).
+//!
+//! Relay's ownership unit is the *conversation* (a Relay Session), not the repository: other Claude
+//! sessions working in the same project — under this profile or any other — are legitimate and never
+//! block a handoff. What must never happen is a second live process for the SAME conversation:
 //!
 //! | role | meaning | blocks? |
 //! |---|---|---|
 //! | `ExpectedSource` | the exact recorded source process (pid *and* start time match) | no |
-//! | `SameSessionHelper` | a descendant of the source, or a process serving the very session being moved | no |
-//! | `OtherProject` | a registered Claude session whose project cannot include this one | no |
+//! | `SameSessionHelper` | a descendant of the source process | no |
+//! | `OtherSession` | a registered Claude session for a *different* conversation (any project) | no |
 //! | `ProviderHelper` | an unregistered Claude helper (daemon, pty host, spare worker) that is provably not in this project | no |
-//! | `ConflictingWriter` | a registered session in this project (or one that contains it), not the source | **yes** |
-//! | `Unclassifiable` | contradictory or missing evidence about a process that might be in this project | **yes** |
+//! | `ConflictingWriter` | another process serving the very conversation being moved | **yes** |
+//! | `Unclassifiable` | contradictory or missing evidence about a process that might be the same conversation | **yes** |
 //!
 //! Anything that cannot be placed fails closed. A process that is not Claude at all (a shell, a
 //! search tool that merely mentions the profile) is not a Claude writer and is not considered.
@@ -29,7 +33,7 @@ use relay_core::handoff::ProcessIdentity;
 pub enum ProcessRole {
     ExpectedSource,
     SameSessionHelper,
-    OtherProject,
+    OtherSession,
     ProviderHelper,
     ConflictingWriter,
     Unclassifiable,
@@ -69,6 +73,9 @@ pub struct RawProcess {
 pub struct RegistryEntry {
     pub pid: u32,
     pub session_id: Option<String>,
+    /// Where the session says it works. Informational: ownership is per conversation, so another
+    /// session's project no longer matters.
+    #[allow(dead_code)]
     pub cwd: Option<PathBuf>,
 }
 
@@ -100,10 +107,6 @@ pub fn is_claude_process(argv: &[String]) -> bool {
         && argv
             .get(1)
             .is_some_and(|entry| entry.contains("claude-code") || basename(entry) == "claude")
-}
-
-fn same_or_nested(left: &Path, right: &Path) -> bool {
-    left.starts_with(right) || right.starts_with(left)
 }
 
 /// Pure classification of every Claude process under `scope.config_dir`.
@@ -215,36 +218,13 @@ fn classify_by_location(
     if let Some(entry) = registered {
         if scope.session_id.is_some() && entry.session_id.as_deref() == scope.session_id {
             return (
-                ProcessRole::SameSessionHelper,
-                "a process serving the session being moved".to_owned(),
-            );
-        }
-        let Some(session_cwd) = entry.cwd.as_deref() else {
-            return (
-                ProcessRole::Unclassifiable,
-                "a registered Claude session with no recorded project".to_owned(),
-            );
-        };
-        if same_or_nested(session_cwd, project) {
-            return (
                 ProcessRole::ConflictingWriter,
-                "a registered Claude session in this project".to_owned(),
-            );
-        }
-        // Registry and reality disagree about where it works: do not trust either.
-        if process
-            .cwd
-            .as_deref()
-            .is_some_and(|cwd| same_or_nested(cwd, project))
-        {
-            return (
-                ProcessRole::Unclassifiable,
-                "its registry entry names another project but it is working in this one".to_owned(),
+                "another process serving the very conversation being moved".to_owned(),
             );
         }
         return (
-            ProcessRole::OtherProject,
-            "a registered Claude session in a different project".to_owned(),
+            ProcessRole::OtherSession,
+            "a registered Claude session for a different conversation".to_owned(),
         );
     }
     // Unregistered: infrastructure (daemon, pty host, spare worker) has no session of its own.
@@ -342,12 +322,25 @@ mod tests {
     }
 
     #[test]
-    fn a_session_in_another_project_on_the_same_profile_does_not_block() {
-        let table = [proc(200, 1, &["claude"], Some("/work/repo-a"))];
-        let registry = [entry(200, "OTHER", "/work/repo-a")];
+    fn other_conversations_never_block_wherever_they_run() {
+        // Another project, and the SAME project, on the same profile: different conversations.
+        let table = [
+            proc(200, 1, &["claude"], Some("/work/repo-a")),
+            proc(201, 1, &["claude"], Some("/work/repo-b")),
+            proc(202, 1, &["claude"], Some("/work")),
+        ];
+        let registry = [
+            entry(200, "OTHER-A", "/work/repo-a"),
+            entry(201, "OTHER-B", "/work/repo-b"),
+            entry(202, "OTHER-C", "/work"),
+        ];
         assert_eq!(
             roles(&table, &registry, Some(&source()), Some(true)),
-            vec![(200, ProcessRole::OtherProject)]
+            vec![
+                (200, ProcessRole::OtherSession),
+                (201, ProcessRole::OtherSession),
+                (202, ProcessRole::OtherSession)
+            ]
         );
     }
 
@@ -368,32 +361,23 @@ mod tests {
     }
 
     #[test]
-    fn a_second_interactive_session_in_the_same_project_blocks() {
+    fn a_second_process_for_the_same_conversation_blocks() {
+        // pid 100 is the recorded source of S1; pid 400 is ANOTHER process serving S1.
         let table = [
             proc(100, 1, &["claude"], Some("/work/repo-b")),
             proc(400, 1, &["claude"], Some("/work/repo-b")),
         ];
         let registry = [
             entry(100, "S1", "/work/repo-b"),
-            entry(400, "S2", "/work/repo-b"),
+            entry(400, "S1", "/work/repo-b"),
         ];
         let got = roles(&table, &registry, Some(&source()), Some(true));
+        assert_eq!(got[0], (100, ProcessRole::ExpectedSource));
         assert_eq!(got[1], (400, ProcessRole::ConflictingWriter));
-        // A session started above the project could write into it too.
-        let above = [proc(401, 1, &["claude"], Some("/work"))];
-        assert_eq!(
-            roles(
-                &above,
-                &[entry(401, "S3", "/work")],
-                Some(&source()),
-                Some(true)
-            ),
-            vec![(401, ProcessRole::ConflictingWriter)]
-        );
     }
 
     #[test]
-    fn ambiguous_or_contradictory_evidence_fails_closed() {
+    fn ambiguous_evidence_about_the_source_or_an_unregistered_process_fails_closed() {
         // Unregistered, working directory unreadable.
         let mut unreadable = proc(500, 1, &["claude"], None);
         unreadable.cwd = None;
@@ -401,12 +385,6 @@ mod tests {
         assert_eq!(
             roles(&[unreadable], &[], None, None),
             vec![(500, ProcessRole::Unclassifiable)]
-        );
-        // Registry says elsewhere, reality says this project.
-        let liar = proc(501, 1, &["claude"], Some("/work/repo-b"));
-        assert_eq!(
-            roles(&[liar], &[entry(501, "S9", "/work/repo-a")], None, None),
-            vec![(501, ProcessRole::Unclassifiable)]
         );
         // The recorded pid is running but its identity cannot be established.
         let unsure = proc(100, 1, &["claude"], Some("/work/repo-b"));
@@ -422,30 +400,41 @@ mod tests {
     }
 
     #[test]
-    fn a_stale_recorded_pid_never_shields_a_live_conflicting_writer() {
-        // The recorded source is gone; a different live session in the project still blocks.
+    fn a_stale_recorded_pid_never_shields_a_live_process_for_the_same_conversation() {
+        // The recorded source is gone; a different live process still serves S1.
         let table = [proc(600, 1, &["claude"], Some("/work/repo-b"))];
-        let registry = [entry(600, "S7", "/work/repo-b")];
+        let registry = [entry(600, "S1", "/work/repo-b")];
         let got = roles(&table, &registry, Some(&source()), Some(false));
         assert_eq!(got, vec![(600, ProcessRole::ConflictingWriter)]);
     }
 
     #[test]
     fn a_recycled_pid_is_not_trusted_as_the_source() {
-        // pid 100 now belongs to an unrelated session in the project: the start time differs.
+        // pid 100 now serves S1 but its start time differs from the recorded source's: it is
+        // NOT the expected source, so it is a second process for the conversation.
         let table = [proc(100, 1, &["claude"], Some("/work/repo-b"))];
-        let registry = [entry(100, "OTHER", "/work/repo-b")];
+        let registry = [entry(100, "S1", "/work/repo-b")];
         assert_eq!(
             roles(&table, &registry, Some(&source()), Some(false)),
             vec![(100, ProcessRole::ConflictingWriter)]
         );
-        // …and its "descendants" are not helpers of anything.
+        // If it serves some OTHER conversation it is merely another session.
+        assert_eq!(
+            roles(
+                &table,
+                &[entry(100, "OTHER", "/work/repo-b")],
+                Some(&source()),
+                Some(false)
+            ),
+            vec![(100, ProcessRole::OtherSession)]
+        );
+        // …and its child is nobody's helper (the source was never confirmed).
         let child = proc(101, 100, &["claude"], Some("/work/repo-b"));
         let got = roles(
             &[table[0].clone(), child],
             &[
-                entry(100, "OTHER", "/work/repo-b"),
-                entry(101, "X", "/work/repo-b"),
+                entry(100, "S1", "/work/repo-b"),
+                entry(101, "S1", "/work/repo-b"),
             ],
             Some(&source()),
             Some(false),

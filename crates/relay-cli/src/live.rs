@@ -16,9 +16,7 @@ use std::path::{Path, PathBuf};
 
 use relay_core::{
     Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
-    handoff::{
-        LeaseStore, OrchestrationLock, ProcessIdentity, ProjectId, TransactionId, WriterLease,
-    },
+    handoff::{ProcessIdentity, RelaySessionId, RelaySessionRecord, TransactionId, WriterLease},
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -197,13 +195,39 @@ pub fn identify(input: &HookInput, config_dir: &Path, env: &HookEnv) -> Result<L
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum AdoptionOutcome {
+    /// A new Relay session was created for the conversation.
     Adopted {
         profile: ProfileName,
+        relay_session_id: RelaySessionId,
+        automatic_handoff: bool,
+    },
+    /// The conversation was already a (dormant) Relay session: the same session is active again.
+    Reactivated {
+        profile: ProfileName,
+        relay_session_id: RelaySessionId,
         automatic_handoff: bool,
     },
     AlreadyManaged {
         profile: ProfileName,
+        relay_session_id: RelaySessionId,
     },
+}
+
+impl AdoptionOutcome {
+    #[must_use]
+    pub fn relay_session_id(&self) -> &RelaySessionId {
+        match self {
+            Self::Adopted {
+                relay_session_id, ..
+            }
+            | Self::Reactivated {
+                relay_session_id, ..
+            }
+            | Self::AlreadyManaged {
+                relay_session_id, ..
+            } => relay_session_id,
+        }
+    }
 }
 
 /// The registered Claude profile whose config directory *is* `config_dir`: exactly one, or a
@@ -235,6 +259,8 @@ pub fn adopt_claude(
     live: &LiveSession,
     expect_profile: Option<&ProfileName>,
     executables: &providers::ExecutableOverrides,
+    preassigned: Option<RelaySessionId>,
+    user_args: Vec<String>,
 ) -> Result<AdoptionOutcome, Error> {
     let registered = service.list()?;
     let profile = resolve_profile(&registered, &live.config_dir)?;
@@ -248,84 +274,100 @@ pub fn adopt_claude(
         return Err(refuse(reason));
     }
 
-    let project_id = ProjectId::for_canonical_path(&live.project)?;
-    let state_dir = paths.project_state_dir(&project_id);
-    std::fs::create_dir_all(&state_dir).map_err(|source| Error::Io {
-        path: state_dir.clone(),
-        source,
-    })?;
-    let lock = OrchestrationLock::at_path(state_dir.join("orchestration.lock"));
-    let store = LeaseStore::at_path(state_dir.join("lease.json"));
-
-    let outcome = lock.try_with(|| -> Result<AdoptionOutcome, Error> {
-        if let Some(existing) = store.load()? {
-            let same_conversation =
-                existing.session_id == live.session_id && existing.owner_profile == profile.name;
-            if same_conversation && existing.owner_process.pid == live.pid {
-                return Ok(AdoptionOutcome::AlreadyManaged {
-                    profile: profile.name.clone(),
-                });
-            }
-            // The same conversation on the same profile whose recorded process is *proven gone*
-            // (or was only ever a placeholder) is simply re-bound to the live process now running
-            // it: Relay already managed this conversation, its terminal just ended.
-            let rebinding = same_conversation
-                && (existing.owner_process.pid == 0
-                    || existing.owner_process.is_still_the_same_process() == Some(false));
-            if !rebinding {
-                // Any other Relay writer that is (or cannot be proven not) still running blocks.
-                let owner = registered
-                    .iter()
-                    .find(|candidate| candidate.name == existing.owner_profile);
-                let still_active = match owner {
-                    Some(owner) => crate::confirm_not_active(
-                        owner,
-                        &live.project,
-                        &existing.session_id,
-                        &existing.owner_process,
-                        executables,
-                    )
-                    .map(|inactive| !inactive)?,
-                    None => true,
-                };
-                if still_active {
-                    return Err(Error::WriterAlreadyActive(
-                        existing.owner_profile.to_string(),
-                    ));
-                }
-            }
+    // The unit of ownership is the conversation, not the repository: other Relay sessions in this
+    // project (under any profile, this one included) are irrelevant. What must never happen is the
+    // SAME native conversation having two active owners.
+    let store = crate::sessions::open_store(paths, &live.project)?;
+    let now = crate::current_unix_ms();
+    let automatic_handoff = relay_provider_claude::integration_status(&live.config_dir)
+        .is_ok_and(|status| status.installed);
+    let lease = WriterLease::new(
+        store.project_id().clone(),
+        profile.name.clone(),
+        ProcessIdentity::query(live.pid),
+        live.session_id.clone(),
+        TransactionId::generate(),
+        now,
+    );
+    let mut existing = store.find_by_native(&live.session_id)?;
+    if let Some(view) = &existing
+        && let Some(held) = &view.lease
+    {
+        let same_process = held.owner_process.pid == live.pid
+            && held.owner_process.is_still_the_same_process() != Some(false);
+        if same_process && held.owner_profile == profile.name {
+            return Ok(AdoptionOutcome::AlreadyManaged {
+                profile: profile.name.clone(),
+                relay_session_id: view.record.relay_session_id.clone(),
+            });
         }
-        let lease = WriterLease::new(
-            project_id.clone(),
-            profile.name.clone(),
-            ProcessIdentity::query(live.pid),
-            live.session_id.clone(),
-            TransactionId::generate(),
-            crate::current_unix_ms(),
-        );
-        store.save(&lease)?;
-        Ok(AdoptionOutcome::Adopted {
-            profile: profile.name.clone(),
-            automatic_handoff: relay_provider_claude::integration_status(&live.config_dir)
-                .is_ok_and(|status| status.installed),
-        })
-    })?;
-
-    if matches!(outcome, AdoptionOutcome::Adopted { .. }) {
-        // Adoption starts a Relay-managed conversation: no provider arguments are known for it.
-        let _ignored = provider_args::ProviderArgs::fresh_for(ProviderKind::Claude, Vec::new())
-            .save(&state_dir);
-        let preferences = Preferences::load(paths.config_root())
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        let fallback: Vec<ProfileName> =
-            auto_handoff::hierarchy_without(&preferences, &profile.name, |_| true)
-                .into_iter()
-                .cloned()
-                .collect();
-        crate::bind_herdr_pane(&profile.name, &fallback, &live.session_id);
+        // Another process holds it — unless that owner is provably gone (the terminal that
+        // managed it ended), in which case the conversation is simply re-bound below.
+        let owner = registered
+            .iter()
+            .find(|candidate| candidate.name == held.owner_profile);
+        if crate::sessions::lease_is_stale(held, owner, &live.project, executables, now) {
+            crate::sessions::release_session(&store, view, &registered, now)?;
+            existing = store.find_by_native(&live.session_id)?;
+        } else {
+            return Err(Error::NativeSessionAlreadyActive(
+                view.record.relay_session_id.short().to_owned(),
+            ));
+        }
     }
+    let (outcome, session_dir) = match existing {
+        Some(view) => {
+            let id = view.record.relay_session_id.clone();
+            store.activate(&id, &lease)?;
+            (
+                AdoptionOutcome::Reactivated {
+                    profile: profile.name.clone(),
+                    relay_session_id: id.clone(),
+                    automatic_handoff,
+                },
+                store.session_dir(&id),
+            )
+        }
+        None => {
+            let id = match preassigned {
+                Some(id) => id,
+                None => RelaySessionId::generate()?,
+            };
+            let record = RelaySessionRecord::new(
+                id.clone(),
+                store.project_id().clone(),
+                profile.name.clone(),
+                Some("claude".to_owned()),
+                Some(live.session_id.clone()),
+                false,
+                now,
+            );
+            store.create_active(&record, &lease)?;
+            (
+                AdoptionOutcome::Adopted {
+                    profile: profile.name.clone(),
+                    relay_session_id: id.clone(),
+                    automatic_handoff,
+                },
+                store.session_dir(&id),
+            )
+        }
+    };
+
+    // Only the arguments the user asked for on this launch belong to the session; Relay's own
+    // launch flags (the adoption hook) are never stored.
+    let _ignored =
+        provider_args::ProviderArgs::fresh_for(ProviderKind::Claude, user_args).save(&session_dir);
+    let preferences = Preferences::load(paths.config_root())
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let fallback: Vec<ProfileName> =
+        auto_handoff::hierarchy_without(&preferences, &profile.name, |_| true)
+            .into_iter()
+            .cloned()
+            .collect();
+    crate::bind_herdr_pane(&profile.name, &fallback, &live.session_id);
     Ok(outcome)
 }
 

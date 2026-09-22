@@ -211,6 +211,7 @@ impl Fixture {
                 source_usage,
                 fallbacks,
                 dry_run,
+                state_dir: None,
             },
             now,
         )
