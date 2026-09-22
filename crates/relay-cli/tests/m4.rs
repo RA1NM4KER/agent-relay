@@ -404,7 +404,10 @@ fn setup_interactive_detects_and_reuses_existing_profiles() {
     assert!(human.contains("Existing profiles found"));
     assert!(human.contains("alice"));
     assert!(human.contains("bob"));
-    assert!(human.contains("Agent Relay is ready"));
+    // Usage detection was declined ("n" above), so automatic handoff is honestly not ready yet
+    // (see `relay doctor`'s shared readiness model) rather than a blanket "ready" claim.
+    assert!(human.contains("Setup finished, but automatic handoff is not ready yet"));
+    assert!(human.contains("Run `relay doctor`"));
 
     let preferences =
         std::fs::read_to_string(root.path().join("config/preferences.toml")).expect("prefs");

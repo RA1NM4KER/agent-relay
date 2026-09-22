@@ -107,6 +107,7 @@ impl FakeClaude {
             r#"#!/bin/sh
 case "$1" in
   --version) printf '%s\n' "2.1.276 (Claude Code)" ;;
+  --help) printf -- '--output-format stream-json --verbose\n' ;;
   auth)
     case "$2" in
       status) printf '%s\n' '{auth_json}' ;;
@@ -704,6 +705,15 @@ fn run_setup_wizard(
     if let Some(codex) = codex {
         command.arg("--codex-executable").arg(codex.path_text());
     }
+    // `relay doctor`'s shared readiness model (now also run at the end of an interactive
+    // `relay setup`) makes its own fresh `auth status` calls, so this child process needs the
+    // same override-free environment `relay()` already gives every other invocation in this file.
+    for variable in CLAUDE_AUTH_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    for variable in CODEX_AUTH_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
     let mut child = command.spawn().expect("spawn relay setup");
     child
         .stdin
@@ -764,8 +774,9 @@ fn setup_works_with_only_claude_installed_and_offers_only_relay_claude() {
         4242,
     );
     login_claude(root.path(), "alice", &claude);
-    // "Use these?" yes, "add another?" no, "enable automatic quota detection?" no.
-    let output = run_setup_wizard(root.path(), Some(&claude), None, "y\nn\nn\n");
+    // "Use these?" yes, "add another?" no, "enable automatic quota detection?" yes — reaching the
+    // fully-ready completion screen, which is the only one that lists start commands at all.
+    let output = run_setup_wizard(root.path(), Some(&claude), None, "y\nn\ny\n");
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     assert!(
         output.status.success(),
@@ -776,8 +787,9 @@ fn setup_works_with_only_claude_installed_and_offers_only_relay_claude() {
         stdout.contains("Codex CLI          (not installed)"),
         "{stdout}"
     );
+    assert!(stdout.contains("Agent Relay is ready."), "{stdout}");
     assert!(
-        stdout.contains("relay claude") && !stdout.contains("relay codex"),
+        stdout.contains("Start with:\n  relay claude") && !stdout.contains("relay codex"),
         "{stdout}"
     );
 }
@@ -796,12 +808,13 @@ fn setup_with_both_providers_shows_both_start_commands_as_peers() {
     let codex = FakeCodex::new(root.path(), "codex-main", "01a-setup-thread");
     login_codex(root.path(), "codex-main", &codex);
     // use existing: yes; add another: no; primary: codex-main (a Codex primary is fine);
-    // fallback order: default; automatic quota detection: no.
+    // fallback order: default; automatic quota detection: yes — reaching the fully-ready
+    // completion screen, which is the only one that lists start commands at all.
     let output = run_setup_wizard(
         root.path(),
         Some(&claude),
         Some(&codex),
-        "y\nn\ncodex-main\n\nn\n",
+        "y\nn\ncodex-main\n\ny\n",
     );
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     assert!(
@@ -809,12 +822,12 @@ fn setup_with_both_providers_shows_both_start_commands_as_peers() {
         "stdout: {stdout}\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert!(stdout.contains("Agent Relay is ready."), "{stdout}");
     assert!(
-        stdout.contains("Start a new managed conversation with:\n\n    relay claude\n    relay codex\n\nContinue the current conversation with:\n\n    relay resume"),
+        stdout.contains("Start with:\n  relay claude\n  relay codex\n\nContinue the current conversation with:\n  relay resume"),
         "{stdout}"
     );
-    assert!(stdout.contains("Primary:  codex-main"), "{stdout}");
-    assert!(!stdout.contains("Start working with"), "{stdout}");
+    assert!(stdout.contains("Primary\n  codex-main"), "{stdout}");
 }
 
 #[test]
