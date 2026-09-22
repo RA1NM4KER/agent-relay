@@ -10,7 +10,9 @@
 pub(crate) mod adopt;
 pub(crate) mod claude;
 pub(crate) mod codex;
+pub(crate) mod doctor;
 pub(crate) mod handoff;
+pub(crate) mod history;
 pub(crate) mod integration;
 pub(crate) mod launch;
 pub(crate) mod lock;
@@ -22,6 +24,7 @@ pub(crate) mod setup;
 pub(crate) mod status;
 pub(crate) mod switch;
 pub(crate) mod watch;
+pub(crate) mod why;
 
 use relay_core::{Error, ProfileService, RelayPaths};
 use relay_testkit::FakeProvider;
@@ -118,5 +121,8 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
         Command::Switch(args) => self::switch::run(&service, &paths, args, cli.json),
         Command::Resume(args) => self::resume::run(&service, &paths, args, cli.json),
         Command::Adopt(args) => self::adopt::run(&service, &paths, args),
+        Command::Doctor(args) => self::doctor::run(&service, &paths, args),
+        Command::Why(args) => self::why::run(&service, &paths, args, cli.json),
+        Command::History(args) => self::history::run(&service, &paths, args),
     }
 }

@@ -29,6 +29,7 @@ mod preferences;
 mod progress;
 mod provider_args;
 mod providers;
+mod readiness;
 mod sessions;
 mod target;
 mod terminal;
@@ -46,5 +47,20 @@ fn main() -> ExitCode {
     if let Command::Hook(hook) = &cli.command {
         return hook::run_hook(hook, &cli);
     }
-    output::print_result(commands::dispatch(&cli), cli.json)
+    let is_doctor = matches!(cli.command, Command::Doctor(_));
+    let result = commands::dispatch(&cli);
+    if is_doctor {
+        // `relay doctor` exits non-zero only when it is genuinely not ready (never for harmless
+        // warnings), without ever reporting that diagnosis as a command *error* — the JSON
+        // envelope stays the rich success shape either way.
+        return output::print_result_with_exit(result, cli.json, |output| {
+            let ready = output.json["data"]["ready"].as_bool().unwrap_or(false);
+            if ready {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        });
+    }
+    output::print_result(result, cli.json)
 }

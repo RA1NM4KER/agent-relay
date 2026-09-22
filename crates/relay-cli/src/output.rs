@@ -41,6 +41,19 @@ pub(crate) fn success<T: Serialize>(
 /// terminal line) and converts it to the process exit code: success is always `0`; any [`Error`]
 /// is `1`, after printing the stable JSON error envelope (`--json`) or a one-line message.
 pub(crate) fn print_result(result: Result<CommandOutput, Error>, json_mode: bool) -> ExitCode {
+    print_result_with_exit(result, json_mode, |_| ExitCode::SUCCESS)
+}
+
+/// Like [`print_result`], but a successful result's exit code is decided by `exit_for_ok` instead
+/// of always being `0` — for a command like `relay doctor` whose *successful* diagnosis can still
+/// mean "not ready", which callers (CI, scripts) need to see as a non-zero exit without that
+/// diagnosis being reported as a command *error* (the JSON envelope stays the rich success shape,
+/// not the error one).
+pub(crate) fn print_result_with_exit(
+    result: Result<CommandOutput, Error>,
+    json_mode: bool,
+    exit_for_ok: impl FnOnce(&CommandOutput) -> ExitCode,
+) -> ExitCode {
     match result {
         Ok(output) => {
             if json_mode {
@@ -50,7 +63,7 @@ pub(crate) fn print_result(result: Result<CommandOutput, Error>, json_mode: bool
             } else {
                 println!("{}", output.human);
             }
-            ExitCode::SUCCESS
+            exit_for_ok(&output)
         }
         Err(error) => {
             if json_mode {

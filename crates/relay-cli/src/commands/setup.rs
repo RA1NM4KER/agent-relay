@@ -17,7 +17,7 @@ use crate::{
     },
     cli::SetupArgs,
     output::{CommandOutput, success},
-    preferences, providers,
+    preferences, providers, readiness,
     util::{current_unix_ms, prompt_line, prompt_yes_no},
 };
 
@@ -322,25 +322,24 @@ pub(crate) fn run(
             .filter_map(|name| registered.iter().find(|profile| &profile.name == name))
             .map(|profile| profile.provider),
     );
-    let human = format!(
-        "Agent Relay is ready.\n\nPrimary:  {}\nFallback: {}\n\nAutomatic usage detection: {}\nHerdr integration: {}\n\nStart a new managed conversation with:\n\n{}\n\nContinue the current conversation with:\n\n    relay resume",
-        primary,
-        if fallback.is_empty() {
-            "(none)".to_owned()
-        } else {
-            fallback
-                .iter()
-                .map(ProfileName::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
+    // Reuses `relay doctor`'s exact readiness model so setup's completion screen and `relay
+    // doctor` never give two different answers to "is automatic handoff actually ready".
+    let refreshed = service.list()?;
+    let readiness = readiness::assess(
+        service,
+        &refreshed,
+        &preferences,
+        &providers::ExecutableOverrides {
+            claude: claude_executable.map(std::path::Path::to_path_buf),
+            codex: codex_executable.map(std::path::Path::to_path_buf),
         },
-        if enable_usage { "enabled" } else { "disabled" },
-        if enable_herdr { "enabled" } else { "disabled" },
-        start_commands
-            .iter()
-            .map(|command| format!("    {command}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
+    );
+    let human = render_completion(
+        &primary,
+        &fallback,
+        &readiness,
+        enable_herdr,
+        &start_commands,
     );
     success(
         "setup",
@@ -351,8 +350,64 @@ pub(crate) fn run(
             "usage_integration_enabled": enable_usage,
             "herdr_enabled": enable_herdr,
             "start_commands": start_commands,
+            "ready": readiness.ready(),
+            "readiness_checks": readiness.checks,
         }),
     )
+}
+
+fn render_completion(
+    primary: &ProfileName,
+    fallback: &[ProfileName],
+    readiness: &readiness::Readiness,
+    herdr_enabled: bool,
+    start_commands: &[&str],
+) -> String {
+    let fallback_lines = if fallback.is_empty() {
+        "  (none)".to_owned()
+    } else {
+        fallback
+            .iter()
+            .enumerate()
+            .map(|(index, name)| format!("  {}. {name}", index + 1))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    if readiness.ready() {
+        format!(
+            "Agent Relay is ready.\n\nPrimary\n  {primary}\n\nFallbacks\n{fallback_lines}\n\n\
+             Automatic handoff\n  Ready\n\nHerdr\n  {}\n\nStart with:\n{}\n\nContinue the current \
+             conversation with:\n  relay resume",
+            if herdr_enabled {
+                "Connected"
+            } else {
+                "Not enabled"
+            },
+            start_commands
+                .iter()
+                .map(|command| format!("  {command}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    } else {
+        let problems = readiness
+            .checks
+            .iter()
+            .filter(|check| check.level == readiness::Level::Blocking)
+            .map(|check| {
+                let detail = check.detail.as_deref().unwrap_or(&check.label);
+                check.remedy.as_ref().map_or_else(
+                    || format!("{detail}."),
+                    |remedy| format!("{detail}.\nRun:\n  {remedy}"),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        format!(
+            "Setup finished, but automatic handoff is not ready yet.\n\n{problems}\n\n\
+             Run `relay doctor` any time to re-check."
+        )
+    }
 }
 
 fn run_setup_non_interactive(
@@ -421,6 +476,15 @@ fn run_setup_non_interactive(
 
     preferences.save(paths.config_root())?;
     let _ = primary_profile;
+    let readiness = readiness::assess(
+        service,
+        &registered,
+        &preferences,
+        &providers::ExecutableOverrides {
+            claude: args.claude_executable.clone(),
+            codex: args.codex_executable.clone(),
+        },
+    );
     success(
         "setup",
         format!("Configured. Primary: {primary}"),
@@ -435,6 +499,9 @@ fn run_setup_non_interactive(
                     .filter_map(|name| registered.iter().find(|profile| &profile.name == name))
                     .map(|profile| profile.provider),
             ),
+            // Additive (M-UX): same shared readiness model `relay doctor` uses.
+            "ready": readiness.ready(),
+            "readiness_checks": readiness.checks,
         }),
     )
 }

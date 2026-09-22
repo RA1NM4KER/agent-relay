@@ -135,6 +135,54 @@ pub(crate) enum Command {
     /// the in-session adoption hook requires — never a guess from a profile name. Refuses (leaves
     /// everything untouched) on any ambiguity; never restarts or stops the Claude process.
     Adopt(AdoptArgs),
+    /// Is Agent Relay actually ready to save you when your current account runs out? Checks every
+    /// configured profile's authentication, the Claude usage integration, provider CLI version
+    /// support, and the automatic-handoff preference — the same facts `relay setup`'s completion
+    /// screen and `relay status`'s "Automatic handoff" line report, kept in one place so they can
+    /// never disagree.
+    Doctor(DoctorArgs),
+    /// Explain, in plain language, what Relay's automatic-handoff decision currently is and why —
+    /// from the same durable state (usage, ledger, target eligibility) automatic handoff itself
+    /// reads. Never guesses beyond what that state actually shows.
+    Why(WhyArgs),
+    /// A readable timeline of recent Relay activity for this project (session starts, exhaustion,
+    /// handoffs, recoveries) — derived entirely from existing durable state, never a new log.
+    History(HistoryArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct DoctorArgs {
+    #[arg(long, value_name = "PATH")]
+    pub(crate) claude_executable: Option<PathBuf>,
+    #[arg(long, value_name = "PATH")]
+    pub(crate) codex_executable: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct WhyArgs {
+    #[arg(long = "project", value_name = "PATH")]
+    pub(crate) project_dir: Option<PathBuf>,
+    /// Which Relay session to explain (an id or unambiguous prefix from `relay status`). Needed
+    /// only when the project has several active sessions and there is no terminal to ask in.
+    #[arg(long, value_name = "ID")]
+    pub(crate) session: Option<String>,
+    #[arg(long, value_name = "PATH")]
+    pub(crate) claude_executable: Option<PathBuf>,
+    #[arg(long, value_name = "PATH")]
+    pub(crate) codex_executable: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct HistoryArgs {
+    #[arg(long = "project", value_name = "PATH")]
+    pub(crate) project_dir: Option<PathBuf>,
+    /// Which Relay session's history to show. Needed only when the project has several sessions
+    /// and there is no terminal to ask in.
+    #[arg(long, value_name = "ID")]
+    pub(crate) session: Option<String>,
+    /// How many recent events to show.
+    #[arg(long, default_value_t = 10)]
+    pub(crate) limit: usize,
 }
 
 #[derive(Debug, Args)]
