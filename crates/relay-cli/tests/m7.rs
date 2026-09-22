@@ -261,7 +261,14 @@ fn doctor_a_logged_out_fallback_is_blocking_and_exits_nonzero() {
     // just as `relay doctor` should actually be able to catch.
     bob.log_out();
 
-    let output = relay(root.path(), &["doctor"]);
+    // `relay doctor` has one global `--claude-executable` override applied to every configured
+    // Claude profile (a real install has exactly one `claude` binary for all of them); point it
+    // at bob's own fixture so bob's check reflects bob's own (now logged-out) state rather than
+    // whatever a bare `claude` on this machine's PATH would report.
+    let output = relay(
+        root.path(),
+        &["doctor", "--claude-executable", &bob.path_text()],
+    );
     assert!(
         !output.status.success(),
         "doctor must exit non-zero when genuinely not ready"
@@ -321,7 +328,10 @@ fn doctor_missing_usage_integration_for_a_fallback_is_blocking() {
     );
     assert!(setup2.status.success());
 
-    let output = relay(root.path(), &["doctor"]);
+    let output = relay(
+        root.path(),
+        &["doctor", "--claude-executable", &alice.path_text()],
+    );
     assert!(!output.status.success());
     let data = json_stdout(&output)["data"].clone();
     assert_eq!(data["ready"], false);
@@ -372,7 +382,10 @@ fn doctor_automatic_handoff_disabled_in_preferences_is_blocking() {
     );
     assert!(disable.status.success());
 
-    let output = relay(root.path(), &["doctor"]);
+    let output = relay(
+        root.path(),
+        &["doctor", "--claude-executable", &claude.path_text()],
+    );
     assert!(!output.status.success());
     let data = json_stdout(&output)["data"].clone();
     let handoff_check = data["checks"]
