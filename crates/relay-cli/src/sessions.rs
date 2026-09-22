@@ -65,6 +65,19 @@ pub fn open_store<'a>(
     ))
 }
 
+/// The state directory of the Relay session that holds this provider-native conversation, if any
+/// is currently registered for it.
+pub fn session_dir_for_native(
+    paths: &RelayPaths,
+    canonical_project: &Path,
+    native: &str,
+) -> Result<Option<PathBuf>, Error> {
+    let store = open_store(paths, canonical_project)?;
+    Ok(store
+        .find_by_native(native)?
+        .map(|view| store.session_dir(&view.record.relay_session_id)))
+}
+
 fn provider_label(provider: ProviderKind) -> &'static str {
     match provider {
         ProviderKind::Codex => "codex",
@@ -156,7 +169,7 @@ pub fn activate_session(
 
 /// Whether Claude has persisted this conversation (the transcript exists in the profile).
 fn claude_transcript_exists(config_dir: &Path, session_id: &str) -> bool {
-    crate::claude_transcript_exists(config_dir, session_id)
+    crate::commands::claude::claude_transcript_exists(config_dir, session_id)
 }
 
 /// Whether the lease's owner is provably gone. Anything uncertain is *not* stale.
@@ -169,7 +182,7 @@ pub fn lease_is_stale(
 ) -> bool {
     let provider_says_gone = || {
         owner.is_some_and(|owner| {
-            crate::confirm_not_active(
+            crate::launch::confirm_not_active(
                 owner,
                 canonical_project,
                 &lease.session_id,
@@ -236,7 +249,7 @@ pub fn reconcile(
     executables: &providers::ExecutableOverrides,
 ) -> Result<Vec<RelaySessionView>, Error> {
     let store = open_store(paths, canonical_project)?;
-    let now = crate::current_unix_ms();
+    let now = crate::util::current_unix_ms();
     for view in store.list()? {
         let Some(lease) = &view.lease else {
             continue;
@@ -308,7 +321,7 @@ pub fn release_after_exit(
     let gone = lease.owner_process.pid == 0
         || lease.owner_process.is_still_the_same_process() == Some(false);
     if gone {
-        let _ignored = release_session(&store, &view, registered, crate::current_unix_ms());
+        let _ignored = release_session(&store, &view, registered, crate::util::current_unix_ms());
     }
 }
 
@@ -410,7 +423,7 @@ pub fn describe(view: &RelaySessionView, registered: &[Profile], now_unix_ms: u6
 }
 
 fn rows_for(views: &[&RelaySessionView], registered: &[Profile], want: Want) -> Vec<SessionRow> {
-    let now = crate::current_unix_ms();
+    let now = crate::util::current_unix_ms();
     views
         .iter()
         .map(|view| {
@@ -517,7 +530,7 @@ pub fn choose_session(
     }
     // Ambiguous: show every session in the project so the state of each is visible.
     let shown: Vec<&RelaySessionView> = views.iter().filter(on_profile).collect();
-    let now = crate::current_unix_ms();
+    let now = crate::util::current_unix_ms();
     if json_mode || !target::interactive() {
         let listing = candidates
             .iter()

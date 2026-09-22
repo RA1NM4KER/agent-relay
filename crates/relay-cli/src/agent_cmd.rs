@@ -132,7 +132,7 @@ fn run_subcommand(paths: &RelayPaths, session: &LiveSession, sub: &str, args: &[
                     profile,
                     &session.session_id,
                     ProcessIdentity::query(session.pid),
-                    crate::current_unix_ms(),
+                    crate::util::current_unix_ms(),
                 )
                 .ok()
             })
@@ -387,7 +387,7 @@ fn switch(context: &Context<'_>, args: &[String]) -> String {
              run `relay switch {name}`."
         );
     }
-    let id = crate::new_session_uuid().unwrap_or_else(|_| "req".to_owned());
+    let id = crate::util::new_session_uuid().unwrap_or_else(|_| "req".to_owned());
     let request = control::request(
         id.clone(),
         RequestKind::Switch {

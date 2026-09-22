@@ -345,7 +345,7 @@ pub fn adopt_claude(
     // project (under any profile, this one included) are irrelevant. What must never happen is the
     // SAME native conversation having two active owners.
     let store = crate::sessions::open_store(paths, &live.project)?;
-    let now = crate::current_unix_ms();
+    let now = crate::util::current_unix_ms();
     let automatic_handoff = relay_provider_claude::integration_status(&live.config_dir)
         .is_ok_and(|status| status.installed);
     let lease = WriterLease::new(
@@ -434,7 +434,7 @@ pub fn adopt_claude(
             .into_iter()
             .cloned()
             .collect();
-    crate::bind_herdr_pane(&profile.name, &fallback, &live.session_id);
+    crate::util::bind_herdr_pane(&profile.name, &fallback, &live.session_id);
     Ok(outcome)
 }
 
