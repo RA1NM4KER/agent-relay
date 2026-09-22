@@ -189,13 +189,23 @@ pub struct SessionTransferReport {
     pub artifacts: Vec<StagedArtifact>,
 }
 
-/// Mirrors the escaping Claude Code itself uses for `projects/<key>` directory names: every
-/// path separator becomes `-`. Observed directly against Claude Code 2.1.276 (e.g.
-/// `/Users/x/repos/y` -> `-Users-x-repos-y`); not documented upstream, so this is a versioned
-/// assumption gated the same way as the auth-status schema.
+/// Mirrors the escaping Claude Code itself uses for `projects/<key>` directory names. Observed
+/// directly against Claude Code 2.1.276: `/Users/x/repos/y` -> `-Users-x-repos-y` (path
+/// separators), a live `Golden Cakes` project directory -> `Golden-Cakes` (spaces), and a
+/// `.claude-worktrees` directory -> `-claude-worktrees` (the leading `.`, producing a doubled
+/// `--` next to the preceding path separator) all took the *same* treatment — so the rule Claude
+/// actually applies is "replace every non-alphanumeric character with `-`", not merely the path
+/// separator. This is still a versioned assumption, not a documented contract, so
+/// [`discover_session`] never trusts it alone: a predicted-key miss falls back to scanning every
+/// `projects/<key>` directory for the exact session id and verifying it against the `cwd` Claude
+/// itself recorded inside the transcript.
 #[must_use]
 pub fn escape_project_path(project_dir: &Path) -> String {
-    project_dir.to_string_lossy().replace('/', "-")
+    project_dir
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
 }
 
 fn require_absolute(path: &Path) -> Result<&Path> {
@@ -248,9 +258,64 @@ fn reject_symlink(path: &Path) -> Result<()> {
     }
 }
 
+/// Reads a transcript's own recorded `cwd` (present on most Claude Code JSONL record types) and
+/// reports whether any of its first lines match `expected_project_dir` verbatim. Bounded to the
+/// first 500 lines: real transcripts record `cwd` within their first handful of records, and this
+/// only ever runs as a fallback over a small number of candidate directories.
+fn transcript_cwd_matches(path: &Path, expected_project_dir: &str) -> bool {
+    let Ok(bytes) = fs::read(path) else {
+        return false;
+    };
+    String::from_utf8_lossy(&bytes)
+        .lines()
+        .take(500)
+        .any(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .and_then(|value| value.get("cwd")?.as_str().map(str::to_owned))
+                .is_some_and(|cwd| cwd == expected_project_dir)
+        })
+}
+
+/// A last-resort discovery path used only when the predicted project key does not exist on disk:
+/// rather than trusting a second guess, this scans every `projects/<key>` directory in
+/// `config_dir` for the exact `<session_id>.jsonl` and accepts only the one whose own transcript
+/// records `cwd` == `project_dir` verbatim — Claude's own ground truth, not a re-derived guess.
+/// A predicted-key miss (an escaping rule Relay has never observed, a future Claude version)
+/// therefore degrades to a slower but still exact search, never to a weaker match: a candidate
+/// that is a symlink is skipped (never trusted), and if more than one directory's transcript
+/// claims the same session id with a matching `cwd`, that is treated as unresolvable ambiguity
+/// rather than an arbitrary pick, so exact-session ownership is never loosened for convenience.
+fn discover_by_scanning_projects(
+    config_dir: &Path,
+    project_dir: &Path,
+    session_id: &str,
+) -> Result<PathBuf> {
+    let project_dir_text = project_dir.to_string_lossy();
+    let entries = fs::read_dir(config_dir.join("projects")).map_err(|_| Error::SessionNotFound)?;
+    let mut found: Option<PathBuf> = None;
+    for entry in entries.flatten() {
+        let candidate = entry.path().join(format!("{session_id}.jsonl"));
+        if !candidate.is_file() || reject_symlink(&candidate).is_err() {
+            continue;
+        }
+        if transcript_cwd_matches(&candidate, &project_dir_text) {
+            if found.is_some() {
+                return Err(Error::SessionNotFound);
+            }
+            found = Some(candidate);
+        }
+    }
+    found.ok_or(Error::SessionNotFound)
+}
+
 /// Discovers the primary transcript plus any subagent sidecar transcripts (files named
 /// `<session_id>-*.jsonl` in the same directory) for one project+session under one config dir.
 /// Read-only; makes no filesystem changes.
+///
+/// The project directory is first predicted with [`escape_project_path`]; if nothing exists
+/// there, discovery falls back to [`discover_by_scanning_projects`], which never relies on the
+/// predicted encoding being right — see that function's docs.
 pub fn discover_session(
     config_dir: &Path,
     project_dir: &Path,
@@ -259,12 +324,19 @@ pub fn discover_session(
     validate_session_id(session_id)?;
     let project_dir = require_absolute(project_dir)?;
     let key = escape_project_path(project_dir);
-    let project_session_dir = config_dir.join("projects").join(&key);
-    let primary = project_session_dir.join(format!("{session_id}.jsonl"));
-    reject_symlink(&primary)?;
-    if !primary.is_file() {
-        return Err(Error::SessionNotFound);
-    }
+    let predicted_dir = config_dir.join("projects").join(&key);
+    let predicted_primary = predicted_dir.join(format!("{session_id}.jsonl"));
+    reject_symlink(&predicted_primary)?;
+    let (project_session_dir, primary) = if predicted_primary.is_file() {
+        (predicted_dir, predicted_primary)
+    } else {
+        let discovered = discover_by_scanning_projects(config_dir, project_dir, session_id)?;
+        let parent = discovered
+            .parent()
+            .expect("a discovered <session_id>.jsonl always has a parent directory")
+            .to_path_buf();
+        (parent, discovered)
+    };
     let mut artifacts = vec![primary];
     let sidecar_prefix = format!("{session_id}-");
     if let Ok(entries) = fs::read_dir(&project_session_dir) {
@@ -491,6 +563,26 @@ mod tests {
     }
 
     #[test]
+    fn escaping_handles_spaces_and_dots_like_claude_does() {
+        // Live production evidence (see the module docs on `escape_project_path`): Claude
+        // Code turned a real `.../Golden Cakes/goldencakes/goldencakes` project directory into
+        // `-Users-...-Golden-Cakes-goldencakes-goldencakes`, and a `.claude-worktrees` directory
+        // into `...--claude-worktrees...` — both the space and the leading dot became `-`.
+        assert_eq!(
+            escape_project_path(std::path::Path::new(
+                "/Users/example/repos/Golden Cakes/goldencakes"
+            )),
+            "-Users-example-repos-Golden-Cakes-goldencakes"
+        );
+        assert_eq!(
+            escape_project_path(std::path::Path::new(
+                "/Users/x/repos/proj/.claude-worktrees/token"
+            )),
+            "-Users-x-repos-proj--claude-worktrees-token"
+        );
+    }
+
+    #[test]
     fn session_id_validation_rejects_malformed_input() {
         assert!(validate_session_id(SESSION_ID).is_ok());
         assert!(validate_session_id("not-a-uuid").is_err());
@@ -695,6 +787,113 @@ mod tests {
 
         // The right project still resolves.
         assert!(discover_session(&config_dir, &project, SESSION_ID).is_ok());
+    }
+
+    /// Regression for the production incident: an automatic handoff for a project under
+    /// `.../Golden Cakes/goldencakes/goldencakes` failed with `session_not_found` because the old
+    /// escaping only ever turned `/` into `-`, leaving the space untouched, so Relay looked for a
+    /// directory that never existed. The directory name here is the literal, hand-written string
+    /// Claude Code itself was observed to produce — not derived from `escape_project_path` — so a
+    /// regression in the escaping rule would still be caught even if this test file were not
+    /// touched.
+    #[test]
+    fn discover_session_finds_a_project_path_containing_a_space() {
+        let root = tempdir().expect("temp dir");
+        let config_dir = root.path().join("config");
+        let project = std::path::Path::new("/Users/example/repos/Golden Cakes/goldencakes");
+        let session_dir = config_dir
+            .join("projects")
+            .join("-Users-example-repos-Golden-Cakes-goldencakes");
+        std::fs::create_dir_all(&session_dir).expect("session dir");
+        std::fs::write(
+            session_dir.join(format!("{SESSION_ID}.jsonl")),
+            format!("{{\"type\":\"user\",\"cwd\":\"{}\"}}\n", project.display()),
+        )
+        .expect("transcript");
+
+        let artifacts =
+            discover_session(&config_dir, project, SESSION_ID).expect("must find the session");
+        assert_eq!(
+            artifacts,
+            vec![session_dir.join(format!("{SESSION_ID}.jsonl"))]
+        );
+    }
+
+    /// Even if a future Claude version escapes some character in a way `escape_project_path`
+    /// does not predict, discovery must not simply fail: it falls back to scanning every
+    /// `projects/<key>` directory and trusting only the transcript whose own recorded `cwd`
+    /// matches, never a directory-name guess.
+    #[test]
+    fn discover_session_falls_back_to_scanning_when_the_predicted_key_is_wrong() {
+        let root = tempdir().expect("temp dir");
+        let config_dir = root.path().join("config");
+        let project = root.path().join("proj-with-a-surprising-escape");
+        // Deliberately NOT the key `escape_project_path` would predict.
+        let unpredicted_dir = config_dir.join("projects").join("totally-unpredicted-key");
+        std::fs::create_dir_all(&unpredicted_dir).expect("session dir");
+        std::fs::write(
+            unpredicted_dir.join(format!("{SESSION_ID}.jsonl")),
+            format!("{{\"type\":\"user\",\"cwd\":\"{}\"}}\n", project.display()),
+        )
+        .expect("transcript");
+
+        let artifacts = discover_session(&config_dir, &project, SESSION_ID)
+            .expect("scanning fallback must find the session");
+        assert_eq!(
+            artifacts,
+            vec![unpredicted_dir.join(format!("{SESSION_ID}.jsonl"))]
+        );
+    }
+
+    /// The scanning fallback must never trust a symlinked candidate, even when its `cwd` would
+    /// otherwise match: a session artifact is never discovered through a symlink anywhere in
+    /// this module.
+    #[cfg(unix)]
+    #[test]
+    fn discover_session_scan_fallback_skips_a_symlinked_candidate() {
+        let root = tempdir().expect("temp dir");
+        let config_dir = root.path().join("config");
+        let project = root.path().join("proj");
+        let real_target = root.path().join("outside-config-dir.jsonl");
+        std::fs::write(
+            &real_target,
+            format!("{{\"type\":\"user\",\"cwd\":\"{}\"}}\n", project.display()),
+        )
+        .expect("real transcript");
+        let unpredicted_dir = config_dir.join("projects").join("totally-unpredicted-key");
+        std::fs::create_dir_all(&unpredicted_dir).expect("session dir");
+        std::os::unix::fs::symlink(
+            &real_target,
+            unpredicted_dir.join(format!("{SESSION_ID}.jsonl")),
+        )
+        .expect("symlink");
+
+        let error = discover_session(&config_dir, &project, SESSION_ID)
+            .expect_err("a symlinked candidate must never be discovered");
+        assert_eq!(error.code(), "session_not_found");
+    }
+
+    /// If more than one project-key directory's transcript claims the same session id with a
+    /// matching `cwd`, that is unresolvable ambiguity, not a pick-one convenience: exact-session
+    /// ownership must stay exact.
+    #[test]
+    fn discover_session_scan_fallback_rejects_an_ambiguous_match() {
+        let root = tempdir().expect("temp dir");
+        let config_dir = root.path().join("config");
+        let project = root.path().join("proj");
+        for name in ["decoy-key-one", "decoy-key-two"] {
+            let dir = config_dir.join("projects").join(name);
+            std::fs::create_dir_all(&dir).expect("session dir");
+            std::fs::write(
+                dir.join(format!("{SESSION_ID}.jsonl")),
+                format!("{{\"type\":\"user\",\"cwd\":\"{}\"}}\n", project.display()),
+            )
+            .expect("transcript");
+        }
+
+        let error = discover_session(&config_dir, &project, SESSION_ID)
+            .expect_err("an ambiguous match must not be silently resolved");
+        assert_eq!(error.code(), "session_not_found");
     }
 
     #[test]
