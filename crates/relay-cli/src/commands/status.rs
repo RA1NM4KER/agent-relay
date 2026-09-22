@@ -161,7 +161,13 @@ pub(crate) fn run_status(
         }
     };
 
-    let readiness = readiness::assess(service, &registered, &preferences, &executables);
+    let readiness = readiness::assess_for_project(
+        service,
+        &registered,
+        &preferences,
+        &executables,
+        Some(&canonical),
+    );
     let (handoff_ready, handoff_message, handoff_next, handoff_then) = automatic_handoff_summary(
         &registered,
         &preferences,
@@ -283,12 +289,18 @@ fn automatic_handoff_summary(
     readiness: &readiness::Readiness,
 ) -> (bool, String, Option<String>, Option<String>) {
     let Some(view) = focus else {
-        return (
-            true,
-            "No active session to evaluate.".to_owned(),
-            None,
-            None,
-        );
+        let message = if readiness.ready() {
+            "No active session to evaluate.".to_owned()
+        } else {
+            let reason = readiness
+                .checks
+                .iter()
+                .find(|check| check.level == readiness::Level::Blocking)
+                .map(|check| check.detail.as_deref().unwrap_or(&check.label))
+                .unwrap_or("see relay doctor");
+            format!("Not ready — {reason}")
+        };
+        return (readiness.ready(), message, None, None);
     };
     let owner = view.profile().clone();
     let targets = target::build_targets(

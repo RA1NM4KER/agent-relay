@@ -27,6 +27,52 @@ pub(crate) fn run(
     integration: &IntegrationArgs,
 ) -> Result<CommandOutput, Error> {
     match &integration.command {
+        IntegrationCommand::Codex(codex) => {
+            use crate::cli::CodexIntegrationCommand;
+            let (CodexIntegrationCommand::Install { profile: name }
+            | CodexIntegrationCommand::Status { profile: name }
+            | CodexIntegrationCommand::Uninstall { profile: name }) = &codex.command;
+            let profile = service
+                .list()?
+                .into_iter()
+                .find(|profile| &profile.name == name)
+                .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+            if profile.provider != ProviderKind::Codex {
+                return Err(Error::ProviderMismatch {
+                    expected: "codex".to_owned(),
+                    observed: profile.provider.to_string(),
+                });
+            }
+            let action = match &codex.command {
+                CodexIntegrationCommand::Install { .. } => {
+                    crate::codex_integration::install(&profile.config_dir)?;
+                    "integration.codex.install"
+                }
+                CodexIntegrationCommand::Uninstall { .. } => {
+                    crate::codex_integration::uninstall(&profile.config_dir)?;
+                    "integration.codex.uninstall"
+                }
+                CodexIntegrationCommand::Status { .. } => "integration.codex.status",
+            };
+            let installed = crate::codex_integration::installed(&profile.config_dir);
+            success(
+                action,
+                format!(
+                    "Codex Relay skill for {name}: {}.{}",
+                    if installed {
+                        "installed"
+                    } else {
+                        "not installed"
+                    },
+                    if installed {
+                        " In a fresh Relay-managed Codex session, use $relay doctor (not /relay)."
+                    } else {
+                        ""
+                    }
+                ),
+                json!({ "profile": name, "installed": installed, "skill_path": crate::codex_integration::skill_path(&profile.config_dir), "invocation": "$relay" }),
+            )
+        }
         IntegrationCommand::Herdr(herdr) => run_herdr_integration(herdr, paths),
         IntegrationCommand::Claude(claude) => {
             let resolve =

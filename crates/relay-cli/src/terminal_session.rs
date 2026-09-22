@@ -429,6 +429,59 @@ fn run_managed_terminal_inner(
                 .iter()
                 .any(|profile| profile.name == owner.0 && profile.provider == ProviderKind::Codex)
         });
+        if owner_is_codex {
+            let profile = context
+                .service
+                .list()?
+                .into_iter()
+                .find(|profile| profile.name == owner.0)
+                .ok_or_else(|| Error::ProfileNotFound(owner.0.to_string()))?;
+            let skill = crate::codex_integration::install(&profile.config_dir);
+            // Scope every skill invocation to this supervisor's roots and conversation. Replaced
+            // on every attach, including a Claude -> Codex handoff and same-profile resume.
+            command.envs.extend([
+                (
+                    "RELAY_EXECUTABLE".into(),
+                    std::env::current_exe()
+                        .map_err(|source| Error::Io {
+                            path: "relay".into(),
+                            source,
+                        })?
+                        .into_os_string(),
+                ),
+                (
+                    "RELAY_CONFIG_ROOT".into(),
+                    context.paths.config_root().as_os_str().to_owned(),
+                ),
+                (
+                    "RELAY_STATE_ROOT".into(),
+                    context.paths.state_root().as_os_str().to_owned(),
+                ),
+                (
+                    "RELAY_PROJECT_DIR".into(),
+                    context.canonical_project.as_os_str().to_owned(),
+                ),
+                (
+                    "RELAY_SESSION_ID".into(),
+                    context.session().id.as_str().into(),
+                ),
+            ]);
+            if !context.json_mode {
+                eprintln!(
+                    "{} Codex · session {}",
+                    crate::badge::styled(&format!("[Relay · {}]", owner.0)),
+                    context.session().id.short()
+                );
+                match skill {
+                    Ok(()) => eprintln!(
+                        "Relay commands: $relay status · $relay doctor · $relay why · $relay history"
+                    ),
+                    Err(error) => eprintln!(
+                        "Relay skill unavailable: {error}. Run `relay doctor` in another terminal."
+                    ),
+                }
+            }
+        }
         // One 300ms tick serves both duties, each on its own cadence: the in-agent control
         // channel (a request is answered within a fraction of a second) and, for Codex only, the
         // periodic usage evaluation.

@@ -114,12 +114,29 @@ fn role_label(profile: &Profile) -> String {
 /// Assesses whether Relay is ready to save the user automatically: every configured profile is
 /// authenticated, every configured Claude profile has the usage integration installed, the
 /// installed provider CLIs are at least an unverified match for a version Relay has validated,
-/// automatic handoff is actually enabled in preferences, and (informational only) git and Herdr.
+/// automatic handoff is actually enabled in preferences, project trust is recorded for each
+/// profile, and (informational only) git and Herdr.
 pub fn assess(
     service: &ProfileService,
     registered: &[Profile],
     preferences: &Preferences,
     executables: &providers::ExecutableOverrides,
+) -> Readiness {
+    assess_for_project(
+        service,
+        registered,
+        preferences,
+        executables,
+        std::env::current_dir().ok().as_deref(),
+    )
+}
+
+pub fn assess_for_project(
+    service: &ProfileService,
+    registered: &[Profile],
+    preferences: &Preferences,
+    executables: &providers::ExecutableOverrides,
+    project: Option<&Path>,
 ) -> Readiness {
     let mut readiness = Readiness::default();
     let profiles = configured_profiles(registered, preferences);
@@ -140,6 +157,7 @@ pub fn assess(
         if profile.provider == ProviderKind::Claude {
             integration_check(&mut readiness, profile, &label);
         }
+        trust_check(&mut readiness, profile, &label, project);
     }
 
     version_checks(&mut readiness, &profiles, executables);
@@ -159,6 +177,43 @@ pub fn assess(
     herdr_check(&mut readiness);
 
     readiness
+}
+
+fn trust_check(readiness: &mut Readiness, profile: &Profile, label: &str, project: Option<&Path>) {
+    use crate::project_trust::{self, Trust};
+    let trust = project.map_or(Trust::Unknown, |project| {
+        project_trust::check(profile, project)
+    });
+    let label = format!("{label} project trust accepted");
+    if trust == Trust::Accepted {
+        readiness.push(label, Level::Ok, None, None);
+        return;
+    }
+    let detail = if trust == Trust::Missing {
+        "project trust is not recorded for this exact directory; an interactive handoff may stop at a trust prompt"
+    } else {
+        "project trust could not be verified; unattended handoff readiness cannot be confirmed"
+    };
+    let remedy = project.map(|project| {
+        let config = crate::util::shell_quote(&profile.config_dir.to_string_lossy());
+        let launch = if profile.provider == ProviderKind::Codex {
+            format!("env CODEX_HOME={config} codex")
+        } else if profile.effective_claude_config_mode()
+            == relay_core::ClaudeConfigMode::NativeDefault
+        {
+            "env -u CLAUDE_CONFIG_DIR claude".to_owned()
+        } else {
+            format!("env CLAUDE_CONFIG_DIR={config} claude")
+        };
+        // Open this exact profile directly: `relay claude` can reroute an exhausted profile,
+        // which would accept trust for the wrong account and leave the original blocker intact.
+        format!(
+            "cd {} && {launch}",
+            crate::util::shell_quote(&project.to_string_lossy())
+        )
+    });
+    readiness.push(label, Level::Blocking,
+        Some(format!("{}: {detail}. Open this profile in the project and review the provider's trust prompt, then rerun relay doctor.", profile.name)), remedy);
 }
 
 fn auth_check(

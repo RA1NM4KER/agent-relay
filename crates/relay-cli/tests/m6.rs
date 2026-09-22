@@ -171,6 +171,7 @@ case "$1" in
     ;;
   resume)
     printf '%s %s\n' "$2" "$CODEX_HOME" >> "{resume_log}"
+    python3 -c 'import os,json; print(json.dumps(dict((k,os.environ.get(k)) for k in ["RELAY_EXECUTABLE","RELAY_CONFIG_ROOT","RELAY_STATE_ROOT","RELAY_PROJECT_DIR","RELAY_SESSION_ID"])))' > "{resume_log}.context"
     ;;
   app-server)
     while IFS= read -r line; do
@@ -676,6 +677,45 @@ fn resume_execs_codex_resume_under_the_profiles_own_codex_home() {
     let resumed = codex.resume_invocations();
     assert_eq!(resumed.len(), 1);
     assert!(resumed[0].starts_with("01a-resume-me"));
+    let context: Value = serde_json::from_slice(
+        &std::fs::read(format!("{}.context", codex.resume_log_path.display())).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(context["RELAY_EXECUTABLE"], env!("CARGO_BIN_EXE_relay"));
+    assert_eq!(
+        context["RELAY_CONFIG_ROOT"],
+        std::fs::canonicalize(root.path().join("config"))
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+    assert_eq!(
+        context["RELAY_STATE_ROOT"],
+        std::fs::canonicalize(root.path().join("state"))
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+    assert_eq!(
+        context["RELAY_PROJECT_DIR"],
+        std::fs::canonicalize(project.path())
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+    assert!(
+        context["RELAY_SESSION_ID"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty())
+    );
+    assert!(
+        root.path()
+            .join("config/profiles/codex-main/codex/skills/relay/SKILL.md")
+            .exists()
+    );
+    let banner = String::from_utf8_lossy(&output.stderr);
+    assert!(banner.contains("[Relay · codex-main]"));
+    assert!(banner.contains("$relay doctor"));
 }
 
 /// Runs the real interactive `relay setup` with the given fake provider CLIs (a provider left out
@@ -725,7 +765,7 @@ fn run_setup_wizard(
 }
 
 #[test]
-fn setup_works_with_only_codex_installed_and_offers_only_relay_codex() {
+fn setup_with_only_codex_reports_missing_project_trust_without_claude_remedies() {
     let root = tempdir().expect("tempdir");
     let codex = FakeCodex::new(root.path(), "codex-main", "01a-setup-thread");
     // No Claude Code at all. Answers: profile name (the provider is implied), then "add another?" no.
@@ -741,7 +781,9 @@ fn setup_works_with_only_codex_installed_and_offers_only_relay_codex() {
         "{stdout}"
     );
     assert!(
-        stdout.contains("relay codex") && stdout.contains("relay resume"),
+        stdout.contains("automatic handoff is not ready yet")
+            && stdout.contains("env CODEX_HOME=")
+            && stdout.contains("trust prompt"),
         "{stdout}"
     );
     assert!(
@@ -774,6 +816,9 @@ fn setup_works_with_only_claude_installed_and_offers_only_relay_claude() {
         4242,
     );
     login_claude(root.path(), "alice", &claude);
+    let cwd = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+    std::fs::write(root.path().join("config/profiles/alice/claude/.claude.json"),
+        serde_json::to_vec(&serde_json::json!({"projects": {cwd.to_str().unwrap(): {"hasTrustDialogAccepted": true}}})).unwrap()).unwrap();
     // "Use these?" yes, "add another?" no, "enable automatic quota detection?" yes — reaching the
     // fully-ready completion screen, which is the only one that lists start commands at all.
     let output = run_setup_wizard(root.path(), Some(&claude), None, "y\nn\ny\n");
@@ -807,6 +852,18 @@ fn setup_with_both_providers_shows_both_start_commands_as_peers() {
     login_claude(root.path(), "alice", &claude);
     let codex = FakeCodex::new(root.path(), "codex-main", "01a-setup-thread");
     login_codex(root.path(), "codex-main", &codex);
+    let cwd = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+    std::fs::write(root.path().join("config/profiles/alice/claude/.claude.json"),
+        serde_json::to_vec(&serde_json::json!({"projects": {cwd.to_str().unwrap(): {"hasTrustDialogAccepted": true}}})).unwrap()).unwrap();
+    std::fs::write(
+        root.path()
+            .join("config/profiles/codex-main/codex/config.toml"),
+        toml::to_string(
+            &serde_json::json!({"projects": {cwd.to_str().unwrap(): {"trust_level": "trusted"}}}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     // use existing: yes; add another: no; primary: codex-main (a Codex primary is fine);
     // fallback order: default; automatic quota detection: yes — reaching the fully-ready
     // completion screen, which is the only one that lists start commands at all.
@@ -906,4 +963,95 @@ fn resume_refuses_a_codex_thread_the_profile_cannot_confirm() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(stale.resume_invocations().is_empty(), "never resumed");
+}
+
+#[test]
+fn codex_skill_can_be_installed_inspected_and_removed_without_touching_config() {
+    let root = tempdir().unwrap();
+    let codex = FakeCodex::new(root.path(), "codex-main", "thread-skill");
+    login_codex(root.path(), "codex-main", &codex);
+    let home = root.path().join("config/profiles/codex-main/codex");
+    let config = home.join("config.toml");
+    std::fs::write(&config, "# user config\n").unwrap();
+    for action in ["install", "install", "status"] {
+        let output = relay(
+            root.path(),
+            &["integration", "codex", action, "--profile", "codex-main"],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(json_stdout(&output)["data"]["installed"], true);
+    }
+    let output = relay(
+        root.path(),
+        &[
+            "integration",
+            "codex",
+            "uninstall",
+            "--profile",
+            "codex-main",
+        ],
+    );
+    assert!(output.status.success());
+    assert_eq!(json_stdout(&output)["data"]["installed"], false);
+    assert_eq!(std::fs::read_to_string(config).unwrap(), "# user config\n");
+}
+
+#[test]
+fn codex_doctor_blocks_untrusted_projects_and_passes_after_explicit_trust() {
+    let root = tempdir().unwrap();
+    let project = tempdir().unwrap();
+    let codex = FakeCodex::new(root.path(), "codex-main", "thread-trust");
+    login_codex(root.path(), "codex-main", &codex);
+    let setup = relay(
+        root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "codex-main",
+            "--usage-integration",
+            "true",
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(setup.status.success());
+    let doctor = || {
+        relay(
+            root.path(),
+            &[
+                "doctor",
+                "--project",
+                project.path().to_str().unwrap(),
+                "--codex-executable",
+                &codex.path_text(),
+            ],
+        )
+    };
+    assert_eq!(doctor().status.code(), Some(1));
+    let config = root
+        .path()
+        .join("config/profiles/codex-main/codex/config.toml");
+    let canonical = std::fs::canonicalize(project.path()).unwrap();
+    for (level, ready) in [("untrusted", false), ("trusted", true)] {
+        std::fs::write(
+            &config,
+            toml::to_string(&serde_json::json!({"projects": {
+            canonical.to_str().unwrap(): {"trust_level": level}}}))
+            .unwrap(),
+        )
+        .unwrap();
+        let output = doctor();
+        assert_eq!(
+            output.status.success(),
+            ready,
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(json_stdout(&output)["data"]["ready"], ready);
+    }
 }

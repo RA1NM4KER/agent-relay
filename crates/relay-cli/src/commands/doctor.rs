@@ -23,7 +23,14 @@ pub(crate) fn run(
         claude: args.claude_executable.clone(),
         codex: args.codex_executable.clone(),
     };
-    let readiness = readiness::assess(service, &registered, &preferences, &executables);
+    let cwd = std::env::current_dir().ok();
+    let readiness = readiness::assess_for_project(
+        service,
+        &registered,
+        &preferences,
+        &executables,
+        args.project_dir.as_deref().or(cwd.as_deref()),
+    );
     success("doctor", render_human(&readiness), render_json(&readiness))
 }
 

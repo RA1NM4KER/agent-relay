@@ -892,6 +892,53 @@ fn status_is_read_only_and_says_when_a_conversation_is_not_managed() {
     assert!(world.lease().is_none(), "status cannot create anything");
 }
 
+fn accept_project_trust(root: &Path, name: &str, project: &Path) {
+    let path = root
+        .join("config/profiles")
+        .join(name)
+        .join("claude/.claude.json");
+    let mut value: Value = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_else(|| serde_json::json!({"projects": {}}));
+    let project = std::fs::canonicalize(project).expect("canonicalize project");
+    value["projects"][project.to_str().expect("utf8 path")] =
+        serde_json::json!({"hasTrustDialogAccepted": true});
+    std::fs::write(path, serde_json::to_vec(&value).expect("serialize")).expect("write trust");
+}
+
+/// `/relay:doctor` (in-agent) uses the exact same shared readiness model `relay doctor` does —
+/// this exercises it through the real hook path, not just the CLI, so a project's own trust state
+/// genuinely blocks (and, once accepted, unblocks) the *in-chat* command too. `world()`'s fallback
+/// profile (`bob`) starts without project trust recorded (unlike the primary, `alice`, which the
+/// setup flow already trusts for its own onboarding project) — a real gap `relay doctor` must
+/// still catch, since an untrusted *fallback* is exactly what could stall an unattended handoff.
+#[test]
+fn relay_doctor_blocks_on_missing_project_trust_and_recovers_after_acceptance() {
+    let world = world();
+    world.write_transcript(&world.alice, SESSION);
+    let agent = LiveAgent::start(&world, &world.alice, SESSION);
+
+    let blocked = reason(&agent.type_into(&world, &world.alice, SESSION, "/relay doctor"));
+    assert!(
+        blocked.contains("**✗ bob (Claude) project trust accepted**"),
+        "an untrusted fallback profile's project trust must block, in bold: {blocked}"
+    );
+    assert!(blocked.contains("trust prompt"), "{blocked}");
+
+    accept_project_trust(world.root.path(), "bob", &world.canonical_project());
+
+    let after = reason(&agent.type_into(&world, &world.alice, SESSION, "/relay doctor"));
+    assert!(
+        !after.contains("**✗ bob (Claude) project trust accepted**"),
+        "trust is no longer bob's blocker: {after}"
+    );
+    assert!(
+        after.contains("✓ bob (Claude) project trust accepted"),
+        "the same check now reports accepted: {after}"
+    );
+}
+
 #[test]
 fn adopt_brings_the_live_conversation_under_relay_without_restarting_it() {
     let world = world();

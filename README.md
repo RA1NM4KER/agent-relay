@@ -71,9 +71,13 @@ providers without leaving your coding workflow:
 - Inside a running Claude session, `/relay status`, `/relay switch [profile]` and `/relay adopt`
   are answered by Relay itself (no model turn, nothing typed into the conversation).
   `/relay adopt` brings a **live** unmanaged Claude conversation under Relay without restarting it;
-  `/relay switch` moves the conversation and your terminal follows it. (Codex has no extension point
-  for a `/relay` command and Relay cannot yet verify a live Codex thread's identity, so live Codex
-  adoption is not offered — use `relay codex` to start through Relay.)
+  `/relay switch` moves the conversation and your terminal follows it.
+- Inside a Relay-managed Codex session, use **`$relay status`**, **`$relay doctor`**,
+  **`$relay why`**, or **`$relay history`**. Relay installs a profile-local skill when attaching
+  Codex; Codex executes the CLI through a model/tool turn. `/relay` and `/relay:doctor` are not
+  Codex slash commands. The skill scopes queries to the supervisor's project and session; a
+  switch request gives you the exact command to run from another terminal. Live Codex adoption
+  is not offered — use `relay codex` to start through Relay.
 
 - **Relay supervises conversations, not repositories.** A project can hold many *Relay sessions*
   — each one a conversation with its own stable id, running on one profile at a time. Two sessions
@@ -158,6 +162,7 @@ brew update && brew upgrade agent-relay
 | `relay switch [profile] [--session ID]` | Explicitly hand a conversation to a different profile/provider (state continuation across providers). With several active sessions you choose which; refuses an exhausted or unverifiable Codex target rather than rerouting your choice. |
 | `relay claude -- …` / `relay codex -- …` | Arguments after `--` go straight to that provider's CLI and stay provider-scoped (see below). |
 | `relay status` | Plain-language summary: the project's active and dormant Relay sessions (provider, profile, ids), primary/fallback order, automatic-handoff status, Herdr. |
+| `relay doctor [--project PATH]` | Check automatic-handoff readiness, including each configured profile's recorded trust for the project. Missing or unverifiable trust is blocking (exit 1). |
 | `relay profiles` | List registered profiles and which is primary/fallback. |
 | `relay login <name>` / `relay logout <name>` | Friendly wrappers around the provider's own official login/logout (Claude or Codex) for one isolated profile. |
 
@@ -171,9 +176,37 @@ every refresh, so it changes owner after a handoff without a new terminal, and i
 ordinary Claude session, or in one whose conversation has since moved to another provider. It rides on
 the status line the usage integration already installs, which wraps — never replaces — your own
 status line (your command's output is kept byte for byte and the badge is appended to its last
-line; `relay integration claude uninstall` restores your original settings). Codex has no equivalent:
-its status line only accepts a fixed set of built-in items, with no supported way to show custom
-text, so Relay leaves Codex's interface alone.
+line; `relay integration claude uninstall` restores your original settings).
+
+Codex gets the same amber owner badge plus the Relay session id and `$relay` command hints in
+the terminal on each attach, including resume and handoff. This is a launch banner, not a live
+footer: Codex's status line accepts built-in items rather than a custom status-line command.
+Use `$relay status` for current ownership. The skill can also be managed explicitly:
+
+```sh
+relay integration codex install --profile codex-work
+relay integration codex status --profile codex-work
+relay integration codex uninstall --profile codex-work
+```
+
+Existing or edited `skills/relay/SKILL.md` files are preserved. A new managed Codex attach installs
+the skill again if absent. Already-running Codex sessions need a fresh managed attach to discover
+the skill and receive its session context.
+
+### Project trust before unattended use
+
+Run `relay doctor` in the project before relying on unattended handoffs. Doctor, setup's completion
+screen, and status share the same readiness checks: a configured Claude or Codex profile without
+verified project trust makes the verdict **not ready**, even when login and usage hooks are healthy.
+Doctor reads Claude's `hasTrustDialogAccepted` or Codex's `projects.<path>.trust_level` for the exact
+canonical project directory. It conservatively requires an explicit record for that directory;
+it does not infer inherited trust. Missing, unreadable, or malformed state cannot pass.
+
+Use the command printed beside each blocker to open that exact profile in the project, review
+the provider's trust prompt, then rerun doctor. Relay never writes trust acceptance. This is a
+readiness preflight, not a change to the handoff transaction or a guarantee against other runtime
+approval prompts. `/relay:doctor` checks the Claude conversation's project; the Codex skill uses
+the managed terminal's project, even if the agent has changed its working directory.
 
 ### Provider options: `--` separates Relay's options from the provider's
 

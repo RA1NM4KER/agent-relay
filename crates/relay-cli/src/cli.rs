@@ -70,8 +70,7 @@ pub(crate) enum Command {
     /// Advanced: run one automatic-handoff evaluation by hand (Relay never runs a background
     /// monitor).
     Watch(WatchArgs),
-    /// Claude usage integration (StopFailure hook + status line) and the optional Herdr plugin.
-    /// Codex needs no installed integration.
+    /// Claude usage hooks, the Codex Relay skill, and the optional Herdr plugin.
     Integration(IntegrationArgs),
     /// Internal: commands Claude Code runs on behalf of an installed integration. Never fails the
     /// calling Claude session.
@@ -136,7 +135,7 @@ pub(crate) enum Command {
     /// everything untouched) on any ambiguity; never restarts or stops the Claude process.
     Adopt(AdoptArgs),
     /// Is Agent Relay actually ready to save you when your current account runs out? Checks every
-    /// configured profile's authentication, the Claude usage integration, provider CLI version
+    /// configured profile's authentication and project trust, the Claude usage integration, provider CLI version
     /// support, and the automatic-handoff preference — the same facts `relay setup`'s completion
     /// screen and `relay status`'s "Automatic handoff" line report, kept in one place so they can
     /// never disagree.
@@ -152,6 +151,9 @@ pub(crate) enum Command {
 
 #[derive(Debug, Args)]
 pub(crate) struct DoctorArgs {
+    /// Project whose unattended handoff readiness to check (defaults to the current directory).
+    #[arg(long = "project", value_name = "PATH")]
+    pub(crate) project_dir: Option<PathBuf>,
     #[arg(long, value_name = "PATH")]
     pub(crate) claude_executable: Option<PathBuf>,
     #[arg(long, value_name = "PATH")]
@@ -356,8 +358,35 @@ pub(crate) struct IntegrationArgs {
 pub(crate) enum IntegrationCommand {
     /// Claude Code usage integration.
     Claude(ClaudeIntegrationArgs),
+    /// Codex `$relay` skill (usage polling works independently).
+    Codex(CodexIntegrationArgs),
     /// Herdr plugin integration.
     Herdr(HerdrIntegrationArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct CodexIntegrationArgs {
+    #[command(subcommand)]
+    pub(crate) command: CodexIntegrationCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum CodexIntegrationCommand {
+    /// Install the `$relay` skill in this profile; restart Codex to discover it.
+    Install {
+        #[arg(long)]
+        profile: ProfileName,
+    },
+    /// Show whether this profile has the Relay skill.
+    Status {
+        #[arg(long)]
+        profile: ProfileName,
+    },
+    /// Remove the unmodified Relay skill; preserve user edits.
+    Uninstall {
+        #[arg(long)]
+        profile: ProfileName,
+    },
 }
 
 #[derive(Debug, Args)]

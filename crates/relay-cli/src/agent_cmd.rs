@@ -436,11 +436,12 @@ fn switch(context: &Context<'_>, args: &[String]) -> String {
 /// `/relay:doctor`: the exact same shared readiness model `relay doctor` and `relay setup`'s
 /// completion screen use, so the answer can never disagree with either.
 fn doctor(context: &Context<'_>) -> String {
-    let readiness = crate::readiness::assess(
+    let readiness = crate::readiness::assess_for_project(
         &context.service,
         &context.registered,
         &context.preferences,
         &providers::ExecutableOverrides::default(),
+        Some(&context.session.project),
     );
     crate::commands::doctor::render_human_markdown(&readiness)
 }

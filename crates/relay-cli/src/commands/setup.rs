@@ -395,7 +395,11 @@ fn render_completion(
             .iter()
             .filter(|check| check.level == readiness::Level::Blocking)
             .map(|check| {
-                let detail = check.detail.as_deref().unwrap_or(&check.label);
+                let detail = check
+                    .detail
+                    .as_deref()
+                    .unwrap_or(&check.label)
+                    .trim_end_matches('.');
                 check.remedy.as_ref().map_or_else(
                     || format!("{detail}."),
                     |remedy| format!("{detail}.\nRun:\n  {remedy}"),

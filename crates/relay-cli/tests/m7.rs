@@ -177,10 +177,26 @@ esac
     }
 }
 
+fn accept_project_trust(root: &Path, name: &str, project: &Path) {
+    let path = root
+        .join("config/profiles")
+        .join(name)
+        .join("claude/.claude.json");
+    let mut value: Value = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_else(|| serde_json::json!({"projects": {}}));
+    let project = std::fs::canonicalize(project).unwrap();
+    value["projects"][project.to_str().unwrap()] =
+        serde_json::json!({"hasTrustDialogAccepted": true});
+    std::fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+}
+
 fn adopt_profile(root: &Path, name: &str, claude: &FakeClaude) {
     let profile_dir = root.join("config/profiles").join(name).join("claude");
     create_private_dir(&profile_dir);
     secure_relay_config_ancestors(root);
+    accept_project_trust(root, name, &std::env::current_dir().unwrap());
     let profile_text = profile_dir.to_string_lossy().to_string();
     let adopt = relay(
         root,
@@ -621,6 +637,7 @@ fn live_session(root: &Path) -> (std::path::PathBuf, FakeClaude) {
         "11111111-1111-4111-8111-111111111111",
     );
     adopt_profile(root, "alice", &claude);
+    accept_project_trust(root, "alice", &project);
     // `relay status` has no `--claude-executable` flag; it looks for a plain `claude` on PATH,
     // same as a real install, which `relay()`'s PATH-with-`root/bin` prepend picks up.
     let bin_dir = root.join("bin");
@@ -787,4 +804,163 @@ fn status_reports_current_owner_and_automatic_handoff_readiness() {
     assert!(human.contains("Current"));
     assert!(human.contains("alice"));
     assert!(human.contains("Automatic handoff"));
+}
+
+#[test]
+fn trust_blocks_readiness_per_profile_and_project_and_recovers_after_acceptance() {
+    let root = tempdir().unwrap();
+    let project = tempdir().unwrap();
+    let other_project = tempdir().unwrap();
+    let claude = FakeClaude::new(root.path(), "alice", "2.1.276", "aaaa1111", "s1");
+    adopt_profile(root.path(), "alice", &claude);
+    let setup = relay(
+        root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "alice",
+            "--usage-integration",
+            "true",
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(setup.status.success());
+    let doctor = |dir: &Path| {
+        relay(
+            root.path(),
+            &[
+                "doctor",
+                "--project",
+                dir.to_str().unwrap(),
+                "--claude-executable",
+                &claude.path_text(),
+            ],
+        )
+    };
+    let output = doctor(project.path());
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(json_stdout(&output)["data"]["ready"], false);
+    let payload = json_stdout(&output);
+    let check = payload["data"]["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["label"] == "alice (Claude) project trust accepted")
+        .unwrap();
+    assert_eq!(check["level"], "blocking");
+    assert!(check["detail"].as_str().unwrap().contains("trust prompt"));
+    assert!(
+        check["remedy"]
+            .as_str()
+            .unwrap()
+            .contains("config/profiles/alice/claude")
+    );
+    accept_project_trust(root.path(), "alice", project.path());
+    assert!(doctor(project.path()).status.success());
+    assert_eq!(doctor(other_project.path()).status.code(), Some(1));
+    // Authentication/integration stay valid; corrupt trust state alone must fail closed.
+    std::fs::write(
+        root.path()
+            .join("config/profiles/alice/claude/.claude.json"),
+        "corrupt",
+    )
+    .unwrap();
+    let output = doctor(project.path());
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(json_stdout(&output)["data"]["ready"], false);
+}
+
+#[test]
+fn status_uses_its_explicit_project_for_trust_not_the_shell_cwd() {
+    let root = tempdir().unwrap();
+    let (project, _) = live_session(root.path());
+    let path = root
+        .path()
+        .join("config/profiles/alice/claude/.claude.json");
+    std::fs::remove_file(path).unwrap();
+    // Only the shell cwd is trusted, not the active session's project.
+    accept_project_trust(root.path(), "alice", &std::env::current_dir().unwrap());
+    let output = relay(
+        root.path(),
+        &["status", "--project", project.to_str().unwrap()],
+    );
+    assert!(output.status.success());
+    assert_eq!(
+        json_stdout(&output)["data"]["automatic_handoff_ready"],
+        false
+    );
+    accept_project_trust(root.path(), "alice", &project);
+    let output = relay(
+        root.path(),
+        &["status", "--project", project.to_str().unwrap()],
+    );
+    assert_eq!(
+        json_stdout(&output)["data"]["automatic_handoff_ready"],
+        true
+    );
+}
+
+#[test]
+fn a_missing_fallback_trust_blocks_doctor_and_status_even_before_a_session_starts() {
+    let root = tempdir().unwrap();
+    let project = tempdir().unwrap();
+    let alice = FakeClaude::new(root.path(), "alice", "2.1.276", "aaaa1111", "s1");
+    let bob = FakeClaude::new(root.path(), "bob", "2.1.276", "bbbb2222", "s2");
+    adopt_profile(root.path(), "alice", &alice);
+    adopt_profile(root.path(), "bob", &bob);
+    accept_project_trust(root.path(), "alice", project.path());
+    std::fs::create_dir(root.path().join("bin")).unwrap();
+    std::fs::copy(&alice.executable, root.path().join("bin/claude")).unwrap();
+    let setup = relay(
+        root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "alice",
+            "--fallback",
+            "bob",
+            "--usage-integration",
+            "true",
+            "--claude-executable",
+            &alice.path_text(),
+        ],
+    );
+    assert!(setup.status.success());
+    let doctor = || {
+        relay(
+            root.path(),
+            &[
+                "doctor",
+                "--project",
+                project.path().to_str().unwrap(),
+                "--claude-executable",
+                &alice.path_text(),
+            ],
+        )
+    };
+    let output = doctor();
+    assert_eq!(output.status.code(), Some(1));
+    let data = json_stdout(&output);
+    let checks = data["data"]["checks"].as_array().unwrap();
+    assert!(checks.iter().any(
+        |check| check["label"] == "alice (Claude) project trust accepted" && check["level"] == "ok"
+    ));
+    assert!(checks.iter().any(
+        |check| check["label"] == "bob (Claude) project trust accepted"
+            && check["level"] == "blocking"
+    ));
+    let status = relay(
+        root.path(),
+        &["status", "--project", project.path().to_str().unwrap()],
+    );
+    assert!(status.status.success());
+    assert_eq!(
+        json_stdout(&status)["data"]["automatic_handoff_ready"],
+        false
+    );
+    accept_project_trust(root.path(), "bob", project.path());
+    assert!(doctor().status.success());
 }
