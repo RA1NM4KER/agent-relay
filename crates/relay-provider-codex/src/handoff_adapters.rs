@@ -515,7 +515,8 @@ mod tests {
             .env("CODEX_HOME", config_dir.path())
             .spawn()
             .expect("spawn a stand-in codex process");
-        if !wait_for_codex_home_scan_to_find(config_dir.path(), child.id()) {
+        let pid = child.id();
+        if !wait_for_codex_home_scan_to_find(config_dir.path(), pid) {
             eprintln!(
                 "skipping: this environment's CODEX_HOME scan cannot find a freshly spawned child"
             );
@@ -523,28 +524,30 @@ mod tests {
             let _ignored = child.wait();
             return;
         }
+        // `stop_and_verify` kills via an external `kill <pid>`, not through this `Child` handle,
+        // so the process becomes a zombie the moment it dies — visible to `ps`, but not gone from
+        // it — until *something* reaps it. Left unreaped, that ambiguity could persist for the
+        // whole run and starve `is_still_the_same_process`'s own polling of a clean confirmation.
+        // Reap concurrently, on another thread, rather than only after `stop_and_verify` returns.
+        let reaper = thread::spawn(move || child.wait());
         // The exact shape record_writer_process would have persisted had the pid already been
         // gone (or unreadable) at the moment it queried `ps` — an identity `stop_and_verify` can
         // never confirm on its own, by construction.
         let ambiguous = ProcessIdentity {
-            pid: child.id(),
+            pid,
             start_time_fingerprint: None,
         };
-        CodexSessionStopper
-            .stop_and_verify(
-                config_dir.path(),
-                project_dir.path(),
-                "session",
-                Some(&ambiguous),
-            )
-            .expect("the CODEX_HOME scan alone must be enough to establish quiescence");
-        for _ in 0..50 {
-            if matches!(child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-        panic!("the real process, found only via the CODEX_HOME scan, was never stopped");
+        let result = CodexSessionStopper.stop_and_verify(
+            config_dir.path(),
+            project_dir.path(),
+            "session",
+            Some(&ambiguous),
+        );
+        reaper
+            .join()
+            .expect("reaper thread")
+            .expect("wait on the stand-in process");
+        result.expect("the CODEX_HOME scan alone must be enough to establish quiescence");
     }
 
     /// No recorded owner at all (the `stop_unrecorded_targets` case in miniature): the CODEX_HOME
