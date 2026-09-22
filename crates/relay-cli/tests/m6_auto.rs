@@ -133,7 +133,7 @@ case "$CLAUDE_CONFIG_DIR" in */alice/*) NAME=alice ;; */bob/*) NAME=bob ;; esac
 # A fresh interactive session (`claude [prompt] --session-id <uuid> ...`): the user's terminal
 # session, which may end with a handoff having moved the lease (see attach below).
 case " $* " in *" --session-id "*)
-  if [ -n "$RELAY_TEST_SWAP" ] && [ -f "$RELAY_TEST_SWAP" ]; then mv "$RELAY_TEST_SWAP" $RELAY_TEST_LEASE; fi
+  if [ -n "$RELAY_TEST_SWAP" ] && [ -f "$RELAY_TEST_SWAP" ]; then sleep 1; mv "$RELAY_TEST_SWAP" $RELAY_TEST_LEASE; fi
   if [ -n "$RELAY_TEST_TRANSCRIPT" ]; then
     PREV=""; SID=""; for a in "$@"; do [ "$PREV" = "--session-id" ] && SID="$a"; PREV="$a"; done
     mkdir -p "$CLAUDE_CONFIG_DIR/projects/-fake" && echo '{{}}' > "$CLAUDE_CONFIG_DIR/projects/-fake/$SID.jsonl"
@@ -158,7 +158,7 @@ case "$1" in
     fi ;;
   stop) touch "{stopped}"; exit 0 ;;
   attach)
-    if [ -n "$RELAY_TEST_SWAP" ] && [ -f "$RELAY_TEST_SWAP" ]; then mv "$RELAY_TEST_SWAP" $RELAY_TEST_LEASE; fi
+    if [ -n "$RELAY_TEST_SWAP" ] && [ -f "$RELAY_TEST_SWAP" ]; then sleep 1; mv "$RELAY_TEST_SWAP" $RELAY_TEST_LEASE; fi
     exit "${{RELAY_TEST_ATTACH_EXIT:-0}}" ;;
   --resume) exit 0 ;;
   -p) cat >/dev/null; printf '{{"session_id":"{SESSION_ID}","is_error":false,"subtype":"success"}}\n' ;;
