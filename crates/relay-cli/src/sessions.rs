@@ -223,7 +223,12 @@ pub fn release_session(
     }
 }
 
-/// Every session of the project with stale leases folded into dormancy first.
+/// Every session of the project with stale leases reconciled first: a lease whose recorded
+/// process is confirmed gone is only folded to dormant if the exact same native conversation
+/// cannot be found running under a NEW process right now (see [`providers::discover_live_owner`]);
+/// when it can, the lease is rebound to that process in place and the session STAYS active. A
+/// session must never be marked dormant merely because Relay itself lost track of its process —
+/// only because the conversation is genuinely not running anywhere.
 pub fn reconcile(
     paths: &RelayPaths,
     canonical_project: &Path,
@@ -232,7 +237,6 @@ pub fn reconcile(
 ) -> Result<Vec<RelaySessionView>, Error> {
     let store = open_store(paths, canonical_project)?;
     let now = crate::current_unix_ms();
-    let mut changed = false;
     for view in store.list()? {
         let Some(lease) = &view.lease else {
             continue;
@@ -240,14 +244,47 @@ pub fn reconcile(
         let owner = registered
             .iter()
             .find(|profile| profile.name == lease.owner_profile);
-        if lease_is_stale(lease, owner, canonical_project, executables, now)
-            && release_session(&store, &view, registered, now)?
-        {
-            changed = true;
+        if !lease_is_stale(lease, owner, canonical_project, executables, now) {
+            continue;
         }
+        let rebound = owner.and_then(|owner| {
+            providers::discover_live_owner(
+                owner.provider,
+                executables,
+                &owner.config_dir,
+                &lease.session_id,
+            )
+        });
+        rebind_or_release(&store, &view, lease, rebound, registered, now)?;
     }
-    let _ = changed;
     store.list()
+}
+
+/// The two outcomes a stale-looking lease can have: reconnected to the process now genuinely
+/// serving its conversation, or (nothing found) released to dormant as before. Best-effort under
+/// the session's own lock: skipped (left as-is for the next reconciliation) if it is held.
+fn rebind_or_release(
+    store: &SessionStore<'_>,
+    view: &RelaySessionView,
+    lease: &WriterLease,
+    rebound: Option<ProcessIdentity>,
+    registered: &[Profile],
+    now_unix_ms: u64,
+) -> Result<(), Error> {
+    let Some(identity) = rebound else {
+        release_session(store, view, registered, now_unix_ms)?;
+        return Ok(());
+    };
+    let id = &view.record.relay_session_id;
+    let mut updated = lease.clone();
+    updated.owner_process = identity;
+    match store
+        .session_lock(id)
+        .try_with(|| store.lease_store(id).save(&updated))
+    {
+        Ok(()) | Err(Error::OrchestrationLockHeld) => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 /// The supervised provider process ended: release the session's lease if (and only if) its

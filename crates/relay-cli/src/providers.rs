@@ -83,6 +83,35 @@ pub fn usage_signal_for(
     }
 }
 
+/// Discovers whether `native_session_id` is CURRENTLY running under a NEW process for `provider`,
+/// straight from the provider's own structured session listing — never a filesystem-newest-file
+/// guess. Used only to correct a Relay Session's lease whose recorded process is confirmed gone
+/// while the exact same native conversation is genuinely still (or again) running — e.g. it has no
+/// supervising Relay parent process, or an operator resumed it outside Relay. A session must never
+/// be folded to dormant merely because Relay itself lost track of its process.
+///
+/// Codex has no structural per-thread liveness signal (no equivalent of `claude agents --json`),
+/// so this always returns `None` for it: a Codex session whose recorded process is gone stays
+/// dormant rather than being guessed back into activity.
+#[must_use]
+pub fn discover_live_owner(
+    provider: ProviderKind,
+    executables: &ExecutableOverrides,
+    config_dir: &Path,
+    native_session_id: &str,
+) -> Option<relay_core::handoff::ProcessIdentity> {
+    match provider {
+        ProviderKind::Claude | ProviderKind::Fake => {
+            relay_provider_claude::find_live_pid_for_session(
+                config_dir,
+                executables.claude.as_deref(),
+                native_session_id,
+            )
+        }
+        ProviderKind::Codex => None,
+    }
+}
+
 /// Resolves the provider executable to use for launching/inspecting a profile whose provider is
 /// already known, from the pair of possibly-set CLI override flags.
 #[must_use]

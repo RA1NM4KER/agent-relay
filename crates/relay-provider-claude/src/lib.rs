@@ -57,7 +57,7 @@ pub use integration::{
     plan_uninstall,
 };
 pub use process_scope::{ClassifiedProcess, ProcessRole, WriterScope};
-pub use session_registry::{AgentSessionRecord, query_active_sessions};
+pub use session_registry::{AgentSessionRecord, find_live_pid_for_session, query_active_sessions};
 pub use session_transfer::{
     ProcessLister, SessionTransferReport, StagedArtifact, SystemProcessLister, discover_session,
     ensure_supported_claude_version, escape_project_path, require_no_conflicting_writer,

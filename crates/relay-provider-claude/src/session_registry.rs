@@ -14,7 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use relay_core::{Error, Result};
+use relay_core::{Error, Result, handoff::ProcessIdentity};
 use serde::Deserialize;
 
 use crate::{AUTHENTICATION_OVERRIDE_VARIABLES, ClaudeInspector};
@@ -64,6 +64,34 @@ pub fn query_active_sessions(
 
     let stdout = run_bounded(command, QUERY_TIMEOUT, QUERY_OUTPUT_LIMIT)?;
     serde_json::from_slice(&stdout).map_err(|_| Error::MalformedProviderOutput)
+}
+
+/// Whether `session_id` is CURRENTLY running under some pid, straight from Claude's own
+/// structured session listing (which lists interactive sessions too, not only background jobs —
+/// see this module's doc comment) — never a filesystem/newest-file guess.
+///
+/// Used only to correct a lease whose previously recorded process is confirmed gone while the
+/// exact same native conversation is genuinely still (or again) running under a new pid: for
+/// example a session with no supervising Relay parent process, or one an operator resumed outside
+/// Relay. It never decides *which* conversation is meant — only whether this exact, already-known
+/// session id currently has a live process, and if so, which one. `None` on any doubt (the
+/// listing failed, no match, or the matched pid cannot itself be confirmed alive) — never guessed.
+#[must_use]
+pub fn find_live_pid_for_session(
+    config_dir: &Path,
+    claude_executable: Option<&Path>,
+    session_id: &str,
+) -> Option<ProcessIdentity> {
+    let sessions = query_active_sessions(config_dir, claude_executable).ok()?;
+    let pid = sessions
+        .into_iter()
+        .find(|record| record.session_id == session_id)?
+        .pid?;
+    let identity = ProcessIdentity::query(pid);
+    identity
+        .start_time_fingerprint
+        .is_some()
+        .then_some(identity)
 }
 
 fn run_bounded(
@@ -160,5 +188,56 @@ mod tests {
         )
         .expect("parse");
         assert_eq!(records[0].pid, None);
+    }
+
+    fn fake_claude(dir: &std::path::Path, listing: &str) -> std::path::PathBuf {
+        let executable = dir.join("claude");
+        std::fs::write(&executable, format!("#!/bin/sh\nprintf '%s' '{listing}'\n"))
+            .expect("write fake claude");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+                .expect("permissions");
+        }
+        executable
+    }
+
+    #[test]
+    fn finds_the_live_pid_for_an_exact_session_id_and_nothing_else() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let this_pid = std::process::id();
+        let listing = format!(
+            r#"[{{"pid":{this_pid},"cwd":"/tmp/proj","kind":"interactive","startedAt":1,"sessionId":"11111111-2222-3333-4444-555555555555","name":"x","status":"busy"}}]"#
+        );
+        let claude = fake_claude(root.path(), &listing);
+        let found = super::find_live_pid_for_session(
+            root.path(),
+            Some(&claude),
+            "11111111-2222-3333-4444-555555555555",
+        )
+        .expect("a live match");
+        assert_eq!(found.pid, this_pid);
+        // A different session id in the same listing is never matched.
+        assert!(
+            super::find_live_pid_for_session(root.path(), Some(&claude), "no-such-session")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_listed_pid_that_is_not_actually_running_is_never_returned() {
+        let root = tempfile::tempdir().expect("tempdir");
+        // A pid essentially guaranteed not to exist.
+        let listing = r#"[{"pid":999999,"cwd":"/tmp/proj","kind":"interactive","startedAt":1,"sessionId":"11111111-2222-3333-4444-555555555555","name":"x","status":"busy"}]"#;
+        let claude = fake_claude(root.path(), listing);
+        assert!(
+            super::find_live_pid_for_session(
+                root.path(),
+                Some(&claude),
+                "11111111-2222-3333-4444-555555555555"
+            )
+            .is_none()
+        );
     }
 }

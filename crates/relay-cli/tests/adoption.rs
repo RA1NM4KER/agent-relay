@@ -168,7 +168,24 @@ case "$1" in
     fi
     [ -n "$RELAY_TEST_SLEEP" ] && exec sleep "$RELAY_TEST_SLEEP"
     exit 0 ;;
-  agents) printf '[]\n' ;;
+  agents)
+    # Truthfully reflects the registry entries `LiveAgent`/a resumed session already writes into
+    # `sessions/*.json`: real ones for pids that are actually alive right now, nothing for ones
+    # that have died — exactly the structured signal real Claude Code's `agents --json` gives.
+    {{
+      printf '['
+      first=1
+      for f in "$CLAUDE_CONFIG_DIR"/sessions/*.json; do
+        [ -f "$f" ] || continue
+        pid=$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$f")
+        [ -z "$pid" ] && continue
+        kill -0 "$pid" 2>/dev/null || continue
+        [ "$first" = 1 ] || printf ','
+        first=0
+        cat "$f"
+      done
+      printf ']\n'
+    }} ;;
   stop) exit 0 ;;
   -p) cat >/dev/null
       RID="{SESSION}"; PREV=""; for a in "$@"; do [ "$PREV" = "--resume" ] && RID="$a"; PREV="$a"; done
@@ -621,23 +638,31 @@ fn resume_is_a_real_option_and_the_passthrough_form_explains_the_difference() {
 // ---- /relay inside a running (unmanaged) Claude ------------------------------------------------
 
 struct LiveAgent {
-    child: std::process::Child,
+    pid: u32,
 }
 
 impl LiveAgent {
     /// A long-running stand-in for a Claude process, registered the way Claude registers itself.
+    /// Orphaned deliberately (parented by init once the spawning shell exits immediately) rather
+    /// than kept as a direct child of this test process: a direct child left as a zombie after an
+    /// external kill still answers `kill -0`/a stop-and-verify as "alive", which would make any
+    /// test that needs a REAL verified stop (not just presence/absence) unreliable.
     fn start(world: &World, config: &Path, session: &str) -> Self {
-        let child = Command::new("sleep")
-            .arg("120")
-            .stdin(Stdio::null())
-            .spawn()
-            .expect("sleep");
+        let output = Command::new("sh")
+            .args(["-c", "sleep 120 >/dev/null 2>&1 & echo $!"])
+            .output()
+            .expect("spawn orphan");
+        let pid: u32 = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .expect("pid");
+        std::thread::sleep(Duration::from_millis(150));
         let sessions = config.join("sessions");
         std::fs::create_dir_all(&sessions).expect("sessions");
         std::fs::write(
-            sessions.join(format!("{}.json", child.id())),
+            sessions.join(format!("{pid}.json")),
             serde_json::json!({
-                "pid": child.id(),
+                "pid": pid,
                 "sessionId": session,
                 "cwd": world.canonical_project(),
                 "kind": "interactive"
@@ -645,11 +670,11 @@ impl LiveAgent {
             .to_string(),
         )
         .expect("registry");
-        Self { child }
+        Self { pid }
     }
 
     fn pid(&self) -> u32 {
-        self.child.id()
+        self.pid
     }
 
     fn type_into(
@@ -721,8 +746,11 @@ impl LiveAgent {
 
 impl Drop for LiveAgent {
     fn drop(&mut self) {
-        let _ignored = self.child.kill();
-        let _ignored = self.child.wait();
+        // Best effort; already-orphaned, so nothing of ours needs to reap it.
+        let _ignored = Command::new("kill")
+            .args(["-TERM", &self.pid.to_string()])
+            .stderr(Stdio::null())
+            .status();
     }
 }
 
@@ -910,6 +938,152 @@ fn switch_from_an_unmanaged_or_unsupervised_conversation_never_moves_anything() 
         "{listing}"
     );
     assert!(listing.contains("current"), "{listing}");
+}
+
+// ---- ACTIVE vs DORMANT: a live conversation with no Relay parent process ------------------------
+//
+// A conversation Relay adopted keeps its lease pointing at the exact pid it was adopted under. If
+// that pid later dies for any reason (its own crash, or simply because there was never a
+// supervising `relay` terminal wrapping it — adoption never creates one) while the SAME native
+// conversation genuinely keeps running — resumed again by hand, or under a fresh pid Relay never
+// saw — the session must never be reported DORMANT merely because Relay lost track of the specific
+// process. `relay status`, `/relay status` and `relay switch --session <id>` must all agree, and an
+// external switch must be able to move it.
+
+fn is_alive(pid: u32) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+#[test]
+fn a_conversation_still_alive_under_a_new_pid_is_rebound_not_marked_dormant_and_relay_status_agrees()
+ {
+    let world = world();
+    world.write_transcript(&world.alice, SESSION);
+    let first = LiveAgent::start(&world, &world.alice, SESSION);
+    assert!(
+        reason(&first.type_into(&world, &world.alice, SESSION, "/relay adopt")).contains("adopted")
+    );
+    assert_eq!(
+        world.lease().expect("lease")["owner_process"]["pid"],
+        first.pid()
+    );
+
+    // The recorded process dies (no Relay parent supervises an adopted conversation) — but the
+    // exact same native conversation is resumed again under a NEW pid, entirely outside Relay.
+    let old_pid = first.pid();
+    drop(first);
+    wait_for(
+        "the old process to be gone",
+        Duration::from_secs(10),
+        || !is_alive(old_pid),
+    );
+    let second = LiveAgent::start(&world, &world.alice, SESSION);
+
+    // `relay status` (CLI) must see it as ACTIVE, under the new pid — never DORMANT.
+    let sessions = status_sessions(&world);
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    assert_eq!(sessions[0]["state"], "active", "{sessions:?}");
+    assert_eq!(
+        world.lease().expect("lease")["owner_process"]["pid"],
+        second.pid()
+    );
+
+    // `/relay status`, run from inside that very process, must agree: managed.
+    let status = reason(&second.type_into(&world, &world.alice, SESSION, "/relay status"));
+    assert!(status.contains("Agent Relay: managed"), "{status}");
+}
+
+#[test]
+fn relay_status_self_heals_its_own_conversation_even_before_anything_else_reconciles() {
+    let world = world();
+    world.write_transcript(&world.alice, SESSION);
+    let first = LiveAgent::start(&world, &world.alice, SESSION);
+    assert!(
+        reason(&first.type_into(&world, &world.alice, SESSION, "/relay adopt")).contains("adopted")
+    );
+    let old_pid = first.pid();
+    drop(first);
+    wait_for(
+        "the old process to be gone",
+        Duration::from_secs(10),
+        || !is_alive(old_pid),
+    );
+
+    // A new process takes over the SAME conversation, and no other Relay command has run yet —
+    // the very first thing to happen is `/relay status`, from inside the new process itself. It
+    // must not depend on some earlier `relay status`/`relay switch` having already reconciled the
+    // project: the hook proves its own liveness directly (it IS the process in question) and self-
+    // heals on the spot, exactly as a fresh external reconciliation would.
+    let second = LiveAgent::start(&world, &world.alice, SESSION);
+    let status = reason(&second.type_into(&world, &world.alice, SESSION, "/relay status"));
+    assert!(status.contains("Agent Relay: managed"), "{status}");
+    assert_eq!(
+        world.lease().expect("lease")["owner_process"]["pid"],
+        second.pid()
+    );
+}
+
+#[test]
+fn external_relay_switch_can_move_a_conversation_that_outlived_its_recorded_process() {
+    skip_without_process_env_scan!();
+    let world = world();
+    world.write_transcript(&world.alice, SESSION);
+    let first = LiveAgent::start(&world, &world.alice, SESSION);
+    assert!(
+        reason(&first.type_into(&world, &world.alice, SESSION, "/relay adopt")).contains("adopted")
+    );
+    let old_pid = first.pid();
+    drop(first);
+    wait_for(
+        "the old process to be gone",
+        Duration::from_secs(10),
+        || !is_alive(old_pid),
+    );
+    let second = LiveAgent::start(&world, &world.alice, SESSION);
+
+    // An external `relay switch` (not in-agent) for this exact session: it must rebind to the
+    // real live process first, then genuinely stop it and move ownership — not treat this as a
+    // dormant session with nothing to stop (which is what produced the spurious
+    // `source_profile_active` refusal this test guards against).
+    let id = world.record_of(&world.session_dirs()[0])["relay_session_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let output = json_relay(
+        &world,
+        &[
+            "switch",
+            "bob",
+            "--session",
+            &id[..8],
+            "--project-dir",
+            world.project.path().to_str().unwrap(),
+            "--no-attach",
+            "--claude-executable",
+            world.claude.to_str().unwrap(),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lease = world.lease().expect("lease");
+    assert_eq!(lease["owner_profile"], "bob");
+    assert_eq!(lease["session_id"], SESSION, "the same native conversation");
+    assert!(
+        !is_alive(second.pid()),
+        "the real live process was actually stopped"
+    );
+    assert_eq!(
+        world.session_dirs().len(),
+        1,
+        "one writer, no duplicate session"
+    );
 }
 
 // ---- the supervised terminal ------------------------------------------------------------------

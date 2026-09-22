@@ -15,7 +15,7 @@ use std::{path::Path, time::Duration};
 
 use relay_core::{
     Error, Profile, ProfileService, ProviderKind, RelayPaths,
-    handoff::{ProjectId, SessionStore, WriterLease},
+    handoff::{ProcessIdentity, WriterLease},
 };
 use serde_json::json;
 
@@ -23,7 +23,7 @@ use crate::{
     control::{self, ControlDir, RequestKind},
     live::{self, AdoptionOutcome, HookEnv, HookInput, LiveSession},
     preferences::Preferences,
-    providers,
+    providers, sessions,
     target::{self, SwitchTarget},
 };
 
@@ -95,14 +95,52 @@ fn run_subcommand(paths: &RelayPaths, session: &LiveSession, sub: &str, args: &[
     let Ok(registered) = service.list() else {
         return "Agent Relay could not read its profiles.".to_owned();
     };
-    let Ok(project_id) = ProjectId::for_canonical_path(&session.project) else {
+    let Ok(store) = sessions::open_store(paths, &session.project) else {
         return "Agent Relay could not identify this project.".to_owned();
     };
-    // This conversation's own Relay session (found by its native id), if it has one.
-    let store = SessionStore::new(paths, project_id.clone());
-    let found = store.find_by_native(&session.session_id).ok().flatten();
+    // Reconciled first, exactly like `relay status`/`relay switch`, so this never disagrees with
+    // them: a lease whose recorded process died is only folded to dormant if the same native
+    // conversation cannot be found running under a new process right now.
+    let executables = providers::ExecutableOverrides::default();
+    let found = sessions::reconcile(paths, &session.project, &registered, &executables)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|view| view.record.native_session_id.as_deref() == Some(session.session_id.as_str()));
+    // Reconciliation can only reason from a provider's OWN structured listing. This hook, though,
+    // is proof stronger than any of that: it is running *inside* the exact process `session.pid`,
+    // which `live::identify` just verified against Claude's live-session registry. If our own
+    // conversation is still on record as dormant, self-heal it right here — it is never actually
+    // dormant merely because Relay lost track of its process, and the alternative is `/relay
+    // status`/`/relay switch` reporting "not managed" from inside a conversation that plainly is.
+    let found = found.map(|view| {
+        if view.lease.is_some() {
+            return view;
+        }
+        let id = view.record.relay_session_id.clone();
+        let healed = registered
+            .iter()
+            .find(|profile| {
+                profile.name == view.record.last_profile
+                    && std::fs::canonicalize(&profile.config_dir).ok().as_deref()
+                        == Some(session.config_dir.as_path())
+            })
+            .and_then(|profile| {
+                sessions::activate_session(
+                    paths,
+                    &session.project,
+                    &id,
+                    profile,
+                    &session.session_id,
+                    ProcessIdentity::query(session.pid),
+                    crate::current_unix_ms(),
+                )
+                .ok()
+            })
+            .and_then(|_| store.view(&id).ok().flatten());
+        healed.unwrap_or(view)
+    });
     let state_dir = found.as_ref().map_or_else(
-        || paths.project_state_dir(&project_id),
+        || store.project_dir(),
         |view| store.session_dir(&view.record.relay_session_id),
     );
     let lease = found.and_then(|view| view.lease);
