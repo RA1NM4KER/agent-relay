@@ -1,21 +1,33 @@
 # Architecture
 
-Status: M0 decision record, awaiting approval before M1 implementation.
+Status: this is the original M0 design record, kept for its rationale (major decisions, rejected
+alternatives, the M1/M1.5 exit criteria that were actually built against). It has not been
+rewritten to track every later milestone; for what the system *currently* does, see `STATUS.md`
+and `README.md`. Two statements below are now superseded and corrected inline: the single-writer
+guarantee (Relay Sessions since replaced "one writer per project" with "one active owner per
+conversation, many conversations per project") and "automatic handoff remains disabled" (automatic
+handoff has since shipped and is live-validated in both directions; see `docs/automatic-handoff.md`).
 
 ## Product boundary
 
 Agent Relay coordinates one explicit coding-agent handoff at a time. It is not a credential vault, transparent proxy, quota pool, request router, or multi-agent scheduler.
 
-The core guarantee is stronger than session continuity:
+The core guarantee, as originally stated here, was:
 
 > At most one Relay-managed agent has write authority for a canonical project, and every handoff either reaches a verified terminal state or remains durably recoverable.
+
+**Superseded**: the unit of ownership is now the *conversation* (a Relay Session), not the
+project. A project may hold many Relay Sessions, each on the same profile or different ones; the
+invariant that still holds unconditionally is *one active owner per Relay Session*, and every
+handoff still either reaches a verified terminal state or remains durably recoverable. See
+`STATUS.md`.
 
 Native conversation preservation is a capability layered beneath that guarantee. It may be unavailable without making the transaction unsafe.
 
 ## Major decisions
 
 1. **Self-contained correctness.** No Herdr plugin or third-party switcher is required to acquire locks, journal a transition, stop a writer, or recover.
-2. **Official profile isolation.** A Claude profile is an absolute, dedicated `CLAUDE_CONFIG_DIR`; Relay never swaps credentials into a shared directory.
+2. **Official profile isolation.** A Claude profile is an absolute, dedicated `CLAUDE_CONFIG_DIR` — or, for Claude's own native-default account, an absolute commitment to *never* setting `CLAUDE_CONFIG_DIR` (the two are not interchangeable; Claude's own auth lookup differs by mode). Relay never swaps credentials into a shared directory either way.
 3. **No credential custody.** Relay invokes normal provider authentication and stores only profile references and non-secret identity metadata.
 4. **Versioned native transfer.** Claude transcript copying lives entirely in `relay-provider-claude`, behind capability detection and a tested version matrix.
 5. **Truthful continuity classes.** `SESSION_CONTINUATION` means a verified native resume. `STATE_CONTINUATION` means a fresh session bootstrapped from a concise packet.
@@ -23,27 +35,32 @@ Native conversation preservation is a capability layered beneath that guarantee.
 7. **Durable transition first.** Every externally visible mutation is preceded by a journal state that tells `relay recover` what is safe to do next.
 8. **Fake provider first.** The state machine, failures, cancellation, locks, and recovery are proven without real accounts before the Claude adapter is allowed to mutate a session store.
 9. **Herdr as an adapter.** Herdr contributes pane/session identity and lifecycle operations through documented CLI/plugin APIs. It does not own the transaction.
-10. **Manual first.** M1–M3 implement explicit selection. Automatic handoff remains disabled.
+10. **Manual first, then automatic on top of the same machinery.** M1–M3 implemented explicit
+    selection only. Automatic handoff (structured usage signals triggering the identical
+    transactional `HandoffCoordinator` path) shipped afterward and is live-validated in both
+    directions; see `docs/automatic-handoff.md`.
 
-## Proposed workspace
+## Workspace
+
+The actual current layout (see `README.md`'s "Repository structure" for the maintained version of
+this map, including where each `relay-cli` command lives):
 
 ```text
 agent-relay/
 ├── crates/
-│   ├── relay-cli/               command parsing and human/JSON presentation
-│   ├── relay-core/              domain, state machine, policy, ports
-│   ├── relay-provider-claude/   Claude process/session/profile adapter
-│   ├── relay-herdr/             optional Herdr CLI adapter
-│   └── relay-testkit/           FakeProvider, fault injection, fixtures
-├── fixtures/
-│   ├── fake-claude/
-│   └── sessions/
+│   ├── relay-cli/               command parsing, dispatch, and human/JSON presentation
+│   ├── relay-core/               domain, state machine, policy, ports
+│   ├── relay-provider-claude/    Claude process/session/profile/usage adapter
+│   ├── relay-provider-codex/     Codex process/session/profile/usage adapter
+│   ├── relay-herdr/              optional Herdr CLI adapter
+│   └── relay-testkit/            FakeProvider, fault injection, fixtures
 ├── plugins/herdr/
 │   └── herdr-plugin.toml
+├── scripts/                      dogfood/release tooling
 └── docs/
 ```
 
-Dependencies point inward. `relay-core` does not know Claude paths, Herdr pane IDs, terminal escape sequences, or OS Keychain behavior.
+Dependencies point inward. `relay-core` does not know Claude/Codex paths, Herdr pane IDs, terminal escape sequences, or OS Keychain behavior.
 
 ## Components
 

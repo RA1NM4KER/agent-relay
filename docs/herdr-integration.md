@@ -287,7 +287,7 @@ choice, not a default: whatever Herdr's own plugin execution model turns out to 
 platform (a native binary today; Herdr's manifest schema does not preclude a different one later),
 a compiled adapter that shells out to a stable CLI works underneath it, and it keeps `relay-herdr`
 from ever needing to track `relay-core`'s internal types. It also means adding this integration
-required **zero changes** to `relay-core` or `relay-provider-claude` — see M3_OVERNIGHT_REPORT.md.
+required **zero changes** to `relay-core` or `relay-provider-claude` — see docs/history/M3_OVERNIGHT_REPORT.md.
 
 **Profile mapping** (`relay-herdr::mapping::resolve_profile`) follows Strategy 2 above exactly:
 
@@ -447,7 +447,7 @@ something this integration introduced. It resolved itself on retry both times, c
 kind of live-only race M2B.5/M2B.75 each already documented in `STATUS.md` for the same subsystem.
 Per the M3 core-freeze rule, this was **not** patched blind — it could not be reproduced
 deterministically enough to trust a regression test for it, so it is recorded here as an observed
-characteristic for a future dedicated investigation instead. See `M3_FINAL_REPORT.md`.
+characteristic for a future dedicated investigation instead. See `docs/history/M3_FINAL_REPORT.md`.
 
 **Automatic orchestration — `[[events]]` on `pane.agent_status_changed`.** Confirmed live to carry
 the identical flat `HERDR_PLUGIN_CONTEXT_JSON` shape actions get, so no separate parsing path was

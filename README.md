@@ -375,12 +375,48 @@ writes are atomic, journals and logs hold only states, ids and filenames (never 
 or provider error bodies), and the usage integration records only closed structured metadata.
 Every mutating step is opt-in and previewable. Details: [docs/security.md](docs/security.md).
 
+## Repository structure
+
+```text
+crates/
+├── relay-core/             provider-neutral domain/safety primitives: Profile, ClaudeConfigMode,
+│                            RelaySessionId, ContinuityType, HandoffState, ProcessIdentity, the
+│                            HandoffCoordinator state machine, typed errors.
+├── relay-provider-claude/  Claude-specific capabilities: session/process inspection, usage
+│                            detection, the settings.json/statusline integration.
+├── relay-provider-codex/   Codex-specific capabilities: structured usage, state continuation.
+├── relay-cli/              the `relay` binary — user-facing orchestration only; owns no domain
+│                            invariant that belongs in relay-core.
+│   └── src/
+│       ├── main.rs           parse CLI, dispatch, exit code — nothing else.
+│       ├── cli.rs            every clap argument type (`Cli`, `Command`, each subcommand's args).
+│       ├── commands/         one module per command family — this is where `relay <name>`
+│       │                      behavior lives (e.g. `commands/adopt.rs` is `relay adopt`,
+│       │                      `commands/profile.rs` is `relay profile *` and `relay login/logout`,
+│       │                      `commands/resume.rs` is `relay resume`).
+│       ├── auth.rs           profile authentication/inspection shared by several commands.
+│       ├── launch.rs         writer-lease creation shared by `relay launch` and `relay claude`.
+│       ├── terminal_session.rs  supervising an interactive terminal across a mid-session handoff.
+│       ├── hook.rs           internal hook entry points a live Claude session invokes.
+│       ├── output.rs         the human/JSON result envelope every command returns.
+│       └── sessions.rs, target.rs, live.rs, providers.rs, control.rs, terminal.rs, …
+│                              provider-neutral supporting modules, each scoped to one concern.
+├── relay-herdr/             thin, optional Herdr adapter (a different wire contract from
+│                            relay-cli's own provider clients — not merged with them).
+└── relay-testkit/           reusable deterministic testing support (FakeProvider, fixtures).
+```
+
+To find where a command lives: `relay-cli/src/commands/<name>.rs` almost always matches the
+command name directly (`relay switch` → `commands/switch.rs`, `relay watch run` →
+`commands/watch.rs`). `cli.rs` has every flag; `commands/mod.rs` has the one dispatch match.
+
 ## More
 
 [Getting started](docs/getting-started.md) · [Automatic handoff](docs/automatic-handoff.md) ·
 [Herdr integration](docs/herdr-integration.md) · [architecture](docs/architecture.md) ·
 [threat model](docs/security.md) · [research](docs/research.md) · [status](STATUS.md) ·
-[changelog](CHANGELOG.md) · [maintainer dogfooding](docs/maintainer-dogfood.md)
+[changelog](CHANGELOG.md) · [maintainer dogfooding](docs/maintainer-dogfood.md) ·
+[past milestone reports](docs/history/)
 
 ## License
 

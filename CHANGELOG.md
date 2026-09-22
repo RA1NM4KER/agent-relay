@@ -146,19 +146,19 @@ day rather than only correct.
   `git clone` required. The Herdr plugin manifest is now embedded in the `relay` binary and
   materialized into a Relay-owned directory at install time, so `relay integration herdr install`
   (and `relay setup`'s Herdr step) work from a packaged install with no `agent-relay` source
-  checkout nearby — a known gap M3 left open. See `M5_FINAL_REPORT.md`.
+  checkout nearby — a known gap M3 left open. See `docs/history/M5_FINAL_REPORT.md`.
 - **Daily UX (M4):** `relay setup` (interactive first-run wizard; `--non-interactive` for
   scripting), `relay claude` (the daily entry point: resolves project/profile/fallback
   automatically, launches or reattaches, hands you a real interactive terminal via
   `claude attach`, auto-writes Herdr metadata when applicable), `relay status`/`relay profiles`
   (plain-language summaries), `relay login`/`relay logout` (friendly wrappers around Claude's own
   official `auth login`/`auth logout`). A new Relay-owned `preferences.toml` stores only profile
-  names and booleans, never credentials. See `docs/getting-started.md` and `M4_FINAL_REPORT.md`.
+  names and booleans, never credentials. See `docs/getting-started.md` and `docs/history/M4_FINAL_REPORT.md`.
 - **Herdr integration (M3):** optional Herdr plugin (`plugins/herdr/herdr-plugin.toml`) exposing
   status/doctor/recovery/watch/manual-handoff behind Herdr actions and an automatic
   `pane.agent_status_changed` event, plus `relay integration herdr install|status|doctor|uninstall`;
   live-validated against a real Herdr 0.9.0 server including a full controlled bidirectional
-  handoff between real adopted profiles — see `docs/herdr-integration.md` and `M3_FINAL_REPORT.md`.
+  handoff between real adopted profiles — see `docs/herdr-integration.md` and `docs/history/M3_FINAL_REPORT.md`.
   Profile↔pane binding is now written automatically by `relay claude` (M4) instead of requiring a
   manual `herdr pane report-metadata` call.
 - M2C.1: structured Claude usage detection (StopFailure hook, statusline `rate_limits`, stream-json `rate_limit_event`), `relay integration claude install|status|uninstall`, automatic startup recovery in `relay watch run`, `--workload-model`, and Claude Code version/capability gating; see `docs/automatic-handoff.md`.
