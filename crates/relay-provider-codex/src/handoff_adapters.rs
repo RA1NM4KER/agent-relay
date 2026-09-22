@@ -481,75 +481,44 @@ mod tests {
         assert!(verification.started_successfully);
     }
 
-    /// `ps -E` (whole-environment listing) isn't available in every sandboxed CI environment,
-    /// and even where the command itself succeeds it can still fail to show a just-spawned
-    /// child's own environment (observed in at least one sandboxed dev shell). Probe for that
-    /// directly with a throwaway marker rather than trusting the command's exit code alone (same
-    /// policy as the `relay-cli` integration tests' `skip_without_process_env_scan!`).
-    fn process_env_scan_can_see_children() -> bool {
-        let Ok(mut probe) = Command::new("sleep")
-            .arg("2")
-            .env("RELAY_TEST_ENV_SCAN_PROBE", "1")
-            .spawn()
-        else {
+    /// `ps -E` (whole-environment listing) isn't available in every sandboxed CI environment; the
+    /// broad `-Eww -ax` listing and the *targeted* `ps -p <pid> -o lstart=` query
+    /// `ProcessIdentity`/`terminate_verified_process` actually rely on have shown different
+    /// reliability on GitHub's `macos-latest` runner — a freshly spawned child can be visible in
+    /// the former while never confirmable via the latter (observed: 5/5 retries of the full
+    /// scenario below still failed there). Probe the *exact* mechanism the test needs, not a
+    /// merely-correlated one (same policy as the `relay-cli` integration tests'
+    /// `skip_without_process_env_scan!`).
+    fn process_env_scan_can_confirm_a_fresh_child() -> bool {
+        let Ok(mut probe) = Command::new("sleep").arg("2").spawn() else {
             return false;
         };
-        let visible = (0..20).any(|_| {
-            thread::sleep(Duration::from_millis(50));
-            Command::new("ps")
-                .args(["-Eww", "-axo", "pid=,command="])
-                .output()
-                .is_ok_and(|output| {
-                    String::from_utf8_lossy(&output.stdout).contains("RELAY_TEST_ENV_SCAN_PROBE=1")
-                })
+        let confirmed = (0..20).any(|_| {
+            if ProcessIdentity::query(probe.id())
+                .start_time_fingerprint
+                .is_some()
+            {
+                true
+            } else {
+                thread::sleep(Duration::from_millis(50));
+                false
+            }
         });
         let _ignored = probe.kill();
         let _ignored = probe.wait();
-        visible
+        confirmed
     }
 
     /// Regression for the incident where `stop_and_verify` aborted on an ambiguous *recorded*
     /// pid (no captured start-time fingerprint — exactly what `is_still_the_same_process` reports
     /// `None` for) without ever reaching the CODEX_HOME scan below it, leaving the real process
     /// running and the handoff `StopNotVerified`. The scan must get its chance regardless.
-    ///
-    /// GitHub's `macos-latest` CI runner (3 vCPUs) has shown this specific `sleep` stand-in
-    /// disappear between a broad `ps -Eww` scan confirming it and the CODEX_HOME scan moments
-    /// later confirming it again — most likely macOS reclaiming a low-priority, unprotected
-    /// background process under real memory pressure during a full parallel `cargo test
-    /// --workspace` (not something either a "wait for visibility first" or a "retry a `ps` that
-    /// fails to even run" fix can address, since both tried this already and neither held). Each
-    /// full attempt below (fresh process, fresh confirmation) is independent, so retrying the
-    /// whole scenario a bounded number of times absorbs that pressure-induced loss without
-    /// weakening what a single successful attempt actually proves.
     #[test]
     fn an_ambiguous_recorded_pid_still_stops_via_the_codex_home_scan() {
-        if !process_env_scan_can_see_children() {
-            eprintln!("skipping: this environment's `ps -E` cannot see a child's environment");
+        if !process_env_scan_can_confirm_a_fresh_child() {
+            eprintln!("skipping: this environment cannot confirm a child's identity via `ps`");
             return;
         }
-        let mut last_error = None;
-        for attempt in 0..5 {
-            if attempt > 0 {
-                thread::sleep(Duration::from_millis(200));
-            }
-            match one_attempt_at_stopping_an_ambiguous_pid_via_the_codex_home_scan() {
-                Ok(()) => return,
-                Err(error) => last_error = Some(error),
-            }
-        }
-        panic!(
-            "the CODEX_HOME scan never established quiescence in 5 attempts; last failure: {}",
-            last_error.expect("at least one attempt ran")
-        );
-    }
-
-    /// One full attempt: spawn a fresh stand-in process, wait for it to become visible via the
-    /// CODEX_HOME scan, ask `stop_and_verify` to stop it using only an ambiguous recorded
-    /// identity, and confirm the real process actually died. Returns why, rather than panicking,
-    /// so the caller can retry with a clean slate.
-    fn one_attempt_at_stopping_an_ambiguous_pid_via_the_codex_home_scan()
-    -> std::result::Result<(), String> {
         let config_dir = tempfile::tempdir().expect("config dir");
         let project_dir = tempfile::tempdir().expect("project dir");
         let mut child = Command::new("sleep")
@@ -557,25 +526,25 @@ mod tests {
             .env("CODEX_HOME", config_dir.path())
             .spawn()
             .expect("spawn a stand-in codex process");
-        // `process_env_scan_can_see_children` only proved *some* freshly spawned child's
-        // environment is observable in general; a loaded CI runner can still lag before *this
-        // specific* child shows up in a `ps -E` snapshot. Wait for it, the same way production
-        // code never has to (a real supervised process is alive for minutes, not milliseconds) —
-        // otherwise the scan below can race the child's own environment becoming visible and
-        // fail for a reason that has nothing to do with the fix under test.
-        let visible = (0..40).any(|_| {
-            if codex_pids_for(config_dir.path()).is_ok_and(|pids| pids.contains(&child.id())) {
+        // The guard above only proved *some* freshly spawned child's identity is confirmable in
+        // general; wait for *this specific* child the same way, via the same mechanism
+        // `terminate_verified_process` actually uses — not the broader `-Eww` listing, which has
+        // shown different (and here, insufficient) reliability on at least one CI runner.
+        let confirmed = (0..40).any(|_| {
+            if ProcessIdentity::query(child.id())
+                .start_time_fingerprint
+                .is_some()
+            {
                 true
             } else {
                 thread::sleep(Duration::from_millis(50));
                 false
             }
         });
-        if !visible {
-            let _ignored = child.kill();
-            let _ignored = child.wait();
-            return Err("the spawned child never became visible via the CODEX_HOME scan".into());
-        }
+        assert!(
+            confirmed,
+            "the spawned child's identity was never confirmable via `ps`"
+        );
         // The exact shape record_writer_process would have persisted had the pid already been
         // gone (or unreadable) at the moment it queried `ps` — an identity `stop_and_verify` can
         // never confirm on its own, by construction.
@@ -583,35 +552,27 @@ mod tests {
             pid: child.id(),
             start_time_fingerprint: None,
         };
-        if let Err(error) = CodexSessionStopper.stop_and_verify(
-            config_dir.path(),
-            project_dir.path(),
-            "session",
-            Some(&ambiguous),
-        ) {
-            let _ignored = child.kill();
-            let _ignored = child.wait();
-            return Err(error.to_string());
-        }
+        CodexSessionStopper
+            .stop_and_verify(
+                config_dir.path(),
+                project_dir.path(),
+                "session",
+                Some(&ambiguous),
+            )
+            .expect("the CODEX_HOME scan alone must be enough to establish quiescence");
         for _ in 0..50 {
             if matches!(child.try_wait(), Ok(Some(_))) {
-                return Ok(());
+                return;
             }
             thread::sleep(Duration::from_millis(100));
         }
-        let _ignored = child.kill();
-        let _ignored = child.wait();
-        Err("the real process, found only via the CODEX_HOME scan, was never stopped".into())
+        panic!("the real process, found only via the CODEX_HOME scan, was never stopped");
     }
 
     /// No recorded owner at all (the `stop_unrecorded_targets` case in miniature): the CODEX_HOME
     /// scan is the only signal, and an empty scan is itself a clean pass.
     #[test]
     fn no_recorded_owner_and_an_empty_scan_is_a_clean_stop() {
-        if !process_env_scan_can_see_children() {
-            eprintln!("skipping: this environment's `ps -E` cannot see a child's environment");
-            return;
-        }
         let config_dir = tempfile::tempdir().expect("config dir");
         let project_dir = tempfile::tempdir().expect("project dir");
         CodexSessionStopper
