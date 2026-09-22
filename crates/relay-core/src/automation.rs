@@ -60,7 +60,8 @@ impl Default for AutomationPolicy {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AutomationDecision {
     NoActionNeeded,
     Handoff { target: ProfileName },
@@ -276,6 +277,157 @@ pub fn decide(
                      share the source's identity"
                 .to_owned(),
         },
+    }
+}
+
+/// Stable, `relay why`-facing reason categories. Each is grounded in durable state `explain`
+/// actually inspected — never an invented narrative. Serialized as the exact strings the request
+/// for this feature specified, so `relay why --json` is a stable automation surface.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WhyCategory {
+    /// The source is not exhausted (Available/NearLimit/ResetPending): nothing to hand off yet.
+    SourceNotExhausted,
+    /// The source's usage could not be determined at all: fails closed, never treated as a match.
+    SourceUsageUnknown,
+    /// A prior automatic handoff happened recently enough that the cooldown window is still open.
+    CooldownActive,
+    /// Every fallback was checked and none is currently eligible.
+    NoEligibleFallback,
+    /// This specific candidate is recorded exhausted (or its own usage is itself blocking).
+    TargetExhausted,
+    /// This specific candidate is disabled or unhealthy (failed `relay profile doctor`-style
+    /// checks).
+    TargetUnhealthy,
+    /// This specific candidate shares the source's own provider identity (would be an alias, not
+    /// a real second account).
+    TargetIdentityConflict,
+    /// The most recent automatic handoff attempt did not complete successfully.
+    HandoffFailed,
+    /// A prior handoff transaction is still unresolved; `relay recover` must run before another
+    /// can start.
+    RecoveryRequired,
+    /// The source has capacity again (or always did); Relay never fails back on its own, so the
+    /// current owner stays the owner until another handoff is actually needed or you switch by
+    /// hand.
+    StickyCurrentOwner,
+    /// The usage integration / automatic handoff preference is not enabled for this profile.
+    AutomaticHandoffDisabled,
+    /// Nothing is blocking a handoff; if the source were exhausted right now, it would proceed.
+    ReadyToHandoff,
+}
+
+/// Why one specific fallback candidate is or is not eligible right now.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CandidateExplanation {
+    pub name: ProfileName,
+    pub eligible: bool,
+    pub reason: Option<WhyCategory>,
+    pub detail: String,
+}
+
+/// The full explanation `relay why` renders: the same [`AutomationDecision`] `decide` would reach
+/// right now, a single top-level category summarizing it in `relay why`'s vocabulary, and (when
+/// relevant) a per-candidate breakdown of every configured fallback.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Explanation {
+    pub decision: AutomationDecision,
+    pub category: WhyCategory,
+    pub candidates: Vec<CandidateExplanation>,
+}
+
+/// Pure, read-only counterpart to [`decide`]: same eligibility logic, but never collapses *why*
+/// down to one aggregate string. Never mutates the ledger and never performs a handoff.
+#[must_use]
+pub fn explain(
+    now_unix_ms: u64,
+    source: &ProfileCandidate,
+    fallbacks: &[ProfileCandidate],
+    ledger: &AutomationLedger,
+    policy: &AutomationPolicy,
+) -> Explanation {
+    let decision = decide(now_unix_ms, source, fallbacks, ledger, policy);
+
+    let candidates: Vec<CandidateExplanation> = fallbacks
+        .iter()
+        .filter(|candidate| candidate.name != source.name)
+        .map(|candidate| explain_candidate(candidate, source, ledger, now_unix_ms))
+        .collect();
+
+    let category = match &decision {
+        AutomationDecision::Handoff { .. } => WhyCategory::ReadyToHandoff,
+        AutomationDecision::CooldownActive { .. } => WhyCategory::CooldownActive,
+        AutomationDecision::LoopPrevented { .. } => WhyCategory::CooldownActive,
+        AutomationDecision::WaitingForCapacity { .. } => WhyCategory::NoEligibleFallback,
+        AutomationDecision::NoActionNeeded => {
+            if source.usage.state == UsageState::Unknown {
+                WhyCategory::SourceUsageUnknown
+            } else if ledger.last_handoff_unix_ms().is_some() {
+                // A handoff has happened in this project before and the source is not exhausted
+                // now: staying here is stickiness, not "nothing has ever happened".
+                WhyCategory::StickyCurrentOwner
+            } else {
+                WhyCategory::SourceNotExhausted
+            }
+        }
+    };
+
+    Explanation {
+        decision,
+        category,
+        candidates,
+    }
+}
+
+fn explain_candidate(
+    candidate: &ProfileCandidate,
+    source: &ProfileCandidate,
+    ledger: &AutomationLedger,
+    now_unix_ms: u64,
+) -> CandidateExplanation {
+    let name = candidate.name.clone();
+    if !candidate.enabled {
+        return CandidateExplanation {
+            name,
+            eligible: false,
+            reason: Some(WhyCategory::TargetUnhealthy),
+            detail: "disabled".to_owned(),
+        };
+    }
+    if !candidate.healthy {
+        return CandidateExplanation {
+            name,
+            eligible: false,
+            reason: Some(WhyCategory::TargetUnhealthy),
+            detail: "failed a profile health check".to_owned(),
+        };
+    }
+    if candidate.usage.state.is_blocking()
+        || ledger.is_known_exhausted(&candidate.name, now_unix_ms)
+    {
+        return CandidateExplanation {
+            name,
+            eligible: false,
+            reason: Some(WhyCategory::TargetExhausted),
+            detail: "exhausted".to_owned(),
+        };
+    }
+    if let (Some(candidate_id), Some(source_id)) =
+        (&candidate.identity_stable_id, &source.identity_stable_id)
+        && candidate_id == source_id
+    {
+        return CandidateExplanation {
+            name,
+            eligible: false,
+            reason: Some(WhyCategory::TargetIdentityConflict),
+            detail: "same account as the current owner".to_owned(),
+        };
+    }
+    CandidateExplanation {
+        name,
+        eligible: true,
+        reason: None,
+        detail: "eligible".to_owned(),
     }
 }
 
@@ -509,55 +661,16 @@ impl WatchCoordinator<'_> {
         project_state_dir: &Path,
         dry_run: bool,
     ) -> Result<Option<WatchOutcome>> {
-        let handoffs_dir = project_state_dir.join("handoffs");
-        let Ok(entries) = fs::read_dir(&handoffs_dir) else {
-            return Ok(None);
+        let pending = match scan_pending_transactions(project_state_dir) {
+            PendingScan::None => return Ok(None),
+            PendingScan::Unreadable { id, reason } => {
+                return Ok(Some(WatchOutcome::RecoveryRequired {
+                    transaction_id: id.to_string(),
+                    reason,
+                }));
+            }
+            PendingScan::Some(pending) => pending,
         };
-        // Only the transaction the project's current pointer names (and anything newer, from a
-        // crash between the first journal write and the pointer write) can still be live. Older
-        // non-terminal journals were superseded by later transactions and are history, not
-        // work: treating them as pending would block a project forever on a stale record.
-        let current = fs::read_to_string(project_state_dir.join("current_transaction.json"))
-            .ok()
-            .and_then(|text| TransactionId::parse(text.trim()).ok());
-        let mut pending = Vec::new();
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Some(stem) = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .and_then(|name| name.strip_suffix(".json"))
-            else {
-                continue;
-            };
-            let Ok(id) = TransactionId::parse(stem) else {
-                continue;
-            };
-            if current.as_ref().is_none_or(|current| id < *current) {
-                continue;
-            }
-            match JournalStore::at_path(path.clone()).load() {
-                Ok(journal) if journal.state.is_terminal() => {}
-                Ok(journal) => {
-                    pending.push((id, journal.source_profile, journal.target_profile));
-                }
-                Err(error) => {
-                    // A journal written by an older Relay may not match today's schema; if its
-                    // raw state is terminal it is history, otherwise it is ambiguous.
-                    if raw_state_is_terminal(&path) {
-                        continue;
-                    }
-                    return Ok(Some(WatchOutcome::RecoveryRequired {
-                        transaction_id: id.to_string(),
-                        reason: format!("journal could not be read ({})", error.code()),
-                    }));
-                }
-            }
-        }
-        if pending.is_empty() {
-            return Ok(None);
-        }
-        pending.sort_by(|left, right| left.0.cmp(&right.0));
         if dry_run {
             return Ok(Some(WatchOutcome::RecoveryRequired {
                 transaction_id: pending[0].0.to_string(),
@@ -600,6 +713,84 @@ impl WatchCoordinator<'_> {
             transactions: recovered,
         }))
     }
+}
+
+/// What a read-only scan of `<project_state_dir>/handoffs` for still-open transactions found.
+enum PendingScan {
+    /// Nothing pending.
+    None,
+    /// One or more journals not yet in a terminal state, oldest first.
+    Some(Vec<(TransactionId, ProfileName, ProfileName)>),
+    /// A journal exists but could not be parsed, and its raw `state.state` field is not terminal
+    /// either — recovery must be run by hand.
+    Unreadable { id: TransactionId, reason: String },
+}
+
+/// Read-only counterpart to the scan [`WatchCoordinator::recover_pending`] performs before it acts
+/// — shared so `relay why`'s `RecoveryRequired` explanation can never disagree with what a real
+/// recovery pass would find, without duplicating the journal-reading logic.
+fn scan_pending_transactions(project_state_dir: &Path) -> PendingScan {
+    let handoffs_dir = project_state_dir.join("handoffs");
+    let Ok(entries) = fs::read_dir(&handoffs_dir) else {
+        return PendingScan::None;
+    };
+    // Only the transaction the project's current pointer names (and anything newer, from a
+    // crash between the first journal write and the pointer write) can still be live. Older
+    // non-terminal journals were superseded by later transactions and are history, not work:
+    // treating them as pending would block a project forever on a stale record.
+    let current = fs::read_to_string(project_state_dir.join("current_transaction.json"))
+        .ok()
+        .and_then(|text| TransactionId::parse(text.trim()).ok());
+    let mut pending = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(stem) = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_suffix(".json"))
+        else {
+            continue;
+        };
+        let Ok(id) = TransactionId::parse(stem) else {
+            continue;
+        };
+        if current.as_ref().is_none_or(|current| id < *current) {
+            continue;
+        }
+        match JournalStore::at_path(path.clone()).load() {
+            Ok(journal) if journal.state.is_terminal() => {}
+            Ok(journal) => {
+                pending.push((id, journal.source_profile, journal.target_profile));
+            }
+            Err(error) => {
+                // A journal written by an older Relay may not match today's schema; if its raw
+                // state is terminal it is history, otherwise it is ambiguous.
+                if raw_state_is_terminal(&path) {
+                    continue;
+                }
+                return PendingScan::Unreadable {
+                    id,
+                    reason: format!("journal could not be read ({})", error.code()),
+                };
+            }
+        }
+    }
+    if pending.is_empty() {
+        return PendingScan::None;
+    }
+    pending.sort_by(|left, right| left.0.cmp(&right.0));
+    PendingScan::Some(pending)
+}
+
+/// Whether an incomplete handoff transaction is waiting on `relay recover`, without attempting to
+/// recover it. `relay why`'s `RecoveryRequired` category is grounded in this, the same durable
+/// state a real recovery pass reads.
+#[must_use]
+pub fn recovery_pending(project_state_dir: &Path) -> bool {
+    !matches!(
+        scan_pending_transactions(project_state_dir),
+        PendingScan::None
+    )
 }
 
 fn raw_state_is_terminal(path: &Path) -> bool {
@@ -1057,5 +1248,156 @@ mod tests {
         let profile = ProfileName::new("megan").expect("name");
         ledger.mark_exhausted(profile.clone(), &observation(UsageState::Exhausted));
         assert!(ledger.is_known_exhausted(&profile, u64::MAX));
+    }
+
+    // =============================================================================================
+    // `explain` (`relay why`'s pure engine) — one test per stable `WhyCategory` it can itself
+    // reach. `HandoffFailed`/`RecoveryRequired` are grounded in state `explain` doesn't see (the
+    // ledger's last event, and the handoffs directory); those are covered by
+    // `relay-cli`'s `commands::why::resolve_category`, not here.
+    // =============================================================================================
+
+    use super::{Explanation, WhyCategory, explain};
+
+    #[test]
+    fn near_limit_source_explains_as_not_exhausted() {
+        let source = candidate("erika", UsageState::NearLimit);
+        let fallback = candidate("megan", UsageState::Available);
+        let explanation = explain(
+            10_000,
+            &source,
+            &[fallback],
+            &AutomationLedger::default(),
+            &AutomationPolicy::default(),
+        );
+        assert_eq!(explanation.category, WhyCategory::SourceNotExhausted);
+    }
+
+    #[test]
+    fn exhausted_source_with_an_eligible_fallback_explains_as_ready() {
+        let source = candidate("erika", UsageState::Exhausted);
+        let fallback = candidate("megan", UsageState::Available);
+        let Explanation {
+            category,
+            candidates,
+            ..
+        } = explain(
+            10_000,
+            &source,
+            &[fallback],
+            &AutomationLedger::default(),
+            &AutomationPolicy::default(),
+        );
+        assert_eq!(category, WhyCategory::ReadyToHandoff);
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].eligible);
+    }
+
+    #[test]
+    fn unknown_source_explains_as_usage_unknown() {
+        let source = candidate("erika", UsageState::Unknown);
+        let fallback = candidate("megan", UsageState::Available);
+        let explanation = explain(
+            10_000,
+            &source,
+            &[fallback],
+            &AutomationLedger::default(),
+            &AutomationPolicy::default(),
+        );
+        assert_eq!(explanation.category, WhyCategory::SourceUsageUnknown);
+    }
+
+    #[test]
+    fn a_live_cooldown_explains_as_cooldown_active() {
+        let source = candidate("erika", UsageState::Exhausted);
+        let fallback = candidate("megan", UsageState::Available);
+        let mut ledger = AutomationLedger::default();
+        ledger.record_handoff(super::AutomationEvent {
+            unix_ms: 10_000,
+            source: source.name.clone(),
+            target: fallback.name.clone(),
+            transaction_id: Some("ho-1".to_owned()),
+        });
+        let policy = AutomationPolicy {
+            cooldown_ms: 30_000,
+            ..AutomationPolicy::default()
+        };
+        let explanation = explain(10_500, &source, &[fallback], &ledger, &policy);
+        assert_eq!(explanation.category, WhyCategory::CooldownActive);
+    }
+
+    #[test]
+    fn no_eligible_fallback_lists_why_each_candidate_was_skipped() {
+        let source = candidate("erika", UsageState::Exhausted);
+        let mut unhealthy = candidate("megan", UsageState::Available);
+        unhealthy.healthy = false;
+        let exhausted_fallback = candidate("codex", UsageState::Exhausted);
+        let Explanation {
+            category,
+            candidates,
+            ..
+        } = explain(
+            10_000,
+            &source,
+            &[unhealthy, exhausted_fallback],
+            &AutomationLedger::default(),
+            &AutomationPolicy::default(),
+        );
+        assert_eq!(category, WhyCategory::NoEligibleFallback);
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().all(|candidate| !candidate.eligible));
+        assert_eq!(candidates[0].reason, Some(WhyCategory::TargetUnhealthy));
+        assert_eq!(candidates[1].reason, Some(WhyCategory::TargetExhausted));
+    }
+
+    #[test]
+    fn source_with_capacity_after_a_prior_handoff_explains_as_sticky_not_never_happened() {
+        let source = candidate("erika", UsageState::Available);
+        let fallback = candidate("megan", UsageState::Available);
+        let mut ledger = AutomationLedger::default();
+        ledger.record_handoff(super::AutomationEvent {
+            unix_ms: 1_000,
+            source: fallback.name.clone(),
+            target: source.name.clone(),
+            transaction_id: Some("ho-1".to_owned()),
+        });
+        let explanation = explain(
+            50_000,
+            &source,
+            &[fallback],
+            &ledger,
+            &AutomationPolicy::default(),
+        );
+        assert_eq!(explanation.category, WhyCategory::StickyCurrentOwner);
+    }
+
+    #[test]
+    fn recovery_pending_is_false_with_no_handoffs_directory_and_true_for_a_non_terminal_journal() {
+        use crate::handoff::{
+            ContinuityType, HandoffJournal, JournalStore, ProjectId, TransactionId,
+        };
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(!super::recovery_pending(dir.path()));
+
+        let journal = HandoffJournal::new(
+            TransactionId::generate(),
+            ProjectId::for_canonical_path(dir.path()).expect("project id"),
+            dir.path().to_path_buf(),
+            ProfileName::new("erika").expect("name"),
+            ProfileName::new("megan").expect("name"),
+            dir.path().join("megan-config"),
+            "s1".to_owned(),
+            ContinuityType::SessionContinuation,
+        );
+        let id = journal.transaction_id.clone();
+        std::fs::create_dir_all(dir.path().join("handoffs")).expect("handoffs dir");
+        JournalStore::at_path(dir.path().join("handoffs").join(format!("{id}.json")))
+            .save(&journal)
+            .expect("save journal");
+        std::fs::write(dir.path().join("current_transaction.json"), id.to_string())
+            .expect("current transaction pointer");
+
+        assert!(super::recovery_pending(dir.path()));
     }
 }
