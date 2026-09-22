@@ -442,7 +442,7 @@ fn doctor(context: &Context<'_>) -> String {
         &context.preferences,
         &providers::ExecutableOverrides::default(),
     );
-    crate::commands::doctor::render_human(&readiness)
+    crate::commands::doctor::render_human_markdown(&readiness)
 }
 
 /// `/relay:why`: the exact same shared explanation model `relay why` uses, evaluated for this

@@ -27,12 +27,28 @@ pub(crate) fn run(
     success("doctor", render_human(&readiness), render_json(&readiness))
 }
 
-/// Also used by the in-agent `/relay:doctor` (and legacy `/relay doctor`) hook, so the terminal
-/// and in-session answers can never read differently for the same readiness.
+/// Plain-text rendering for a real terminal (`relay doctor`), which does not interpret Markdown.
 pub(crate) fn render_human(readiness: &readiness::Readiness) -> String {
-    let mut lines = vec!["Agent Relay health".to_owned(), String::new()];
+    render(readiness, |text| text.to_owned())
+}
+
+/// Markdown-emphasis rendering for the in-agent `/relay:doctor` (and legacy `/relay doctor`)
+/// hook: Claude's own "blocked by hook" panel shows every line in one flat colour with no
+/// symbol/text-weight distinction, so the only lever left to separate "problem" from "fine" is
+/// **bold** on the title, on any blocking check's own label, and on the final verdict.
+pub(crate) fn render_human_markdown(readiness: &readiness::Readiness) -> String {
+    render(readiness, |text| format!("**{text}**"))
+}
+
+fn render(readiness: &readiness::Readiness, emphasize: impl Fn(&str) -> String) -> String {
+    let mut lines = vec![emphasize("Agent Relay health"), String::new()];
     for check in &readiness.checks {
-        lines.push(format!("{} {}", check.level.symbol(), check.label));
+        let label = format!("{} {}", check.level.symbol(), check.label);
+        lines.push(if check.level == Level::Blocking {
+            emphasize(&label)
+        } else {
+            label
+        });
         if check.level != Level::Ok
             && let Some(detail) = &check.detail
         {
@@ -43,11 +59,11 @@ pub(crate) fn render_human(readiness: &readiness::Readiness) -> String {
         }
     }
     lines.push(String::new());
-    lines.push(match readiness.overall() {
-        Level::Ok => "Ready for automatic handoff.".to_owned(),
-        Level::Warning => "Ready for automatic handoff (with warnings above).".to_owned(),
-        Level::Blocking => "Not ready for automatic handoff — see above.".to_owned(),
-    });
+    lines.push(emphasize(match readiness.overall() {
+        Level::Ok => "Ready for automatic handoff.",
+        Level::Warning => "Ready for automatic handoff (with warnings above).",
+        Level::Blocking => "Not ready for automatic handoff — see above.",
+    }));
     lines.join("\n")
 }
 
