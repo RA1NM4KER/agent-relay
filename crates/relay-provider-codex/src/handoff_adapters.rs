@@ -548,7 +548,8 @@ mod tests {
     /// CODEX_HOME scan, ask `stop_and_verify` to stop it using only an ambiguous recorded
     /// identity, and confirm the real process actually died. Returns why, rather than panicking,
     /// so the caller can retry with a clean slate.
-    fn one_attempt_at_stopping_an_ambiguous_pid_via_the_codex_home_scan() -> std::result::Result<(), String> {
+    fn one_attempt_at_stopping_an_ambiguous_pid_via_the_codex_home_scan()
+    -> std::result::Result<(), String> {
         let config_dir = tempfile::tempdir().expect("config dir");
         let project_dir = tempfile::tempdir().expect("project dir");
         let mut child = Command::new("sleep")
