@@ -512,12 +512,43 @@ mod tests {
     /// pid (no captured start-time fingerprint — exactly what `is_still_the_same_process` reports
     /// `None` for) without ever reaching the CODEX_HOME scan below it, leaving the real process
     /// running and the handoff `StopNotVerified`. The scan must get its chance regardless.
+    ///
+    /// GitHub's `macos-latest` CI runner (3 vCPUs) has shown this specific `sleep` stand-in
+    /// disappear between a broad `ps -Eww` scan confirming it and the CODEX_HOME scan moments
+    /// later confirming it again — most likely macOS reclaiming a low-priority, unprotected
+    /// background process under real memory pressure during a full parallel `cargo test
+    /// --workspace` (not something either a "wait for visibility first" or a "retry a `ps` that
+    /// fails to even run" fix can address, since both tried this already and neither held). Each
+    /// full attempt below (fresh process, fresh confirmation) is independent, so retrying the
+    /// whole scenario a bounded number of times absorbs that pressure-induced loss without
+    /// weakening what a single successful attempt actually proves.
     #[test]
     fn an_ambiguous_recorded_pid_still_stops_via_the_codex_home_scan() {
         if !process_env_scan_can_see_children() {
             eprintln!("skipping: this environment's `ps -E` cannot see a child's environment");
             return;
         }
+        let mut last_error = None;
+        for attempt in 0..5 {
+            if attempt > 0 {
+                thread::sleep(Duration::from_millis(200));
+            }
+            match one_attempt_at_stopping_an_ambiguous_pid_via_the_codex_home_scan() {
+                Ok(()) => return,
+                Err(error) => last_error = Some(error),
+            }
+        }
+        panic!(
+            "the CODEX_HOME scan never established quiescence in 5 attempts; last failure: {}",
+            last_error.expect("at least one attempt ran")
+        );
+    }
+
+    /// One full attempt: spawn a fresh stand-in process, wait for it to become visible via the
+    /// CODEX_HOME scan, ask `stop_and_verify` to stop it using only an ambiguous recorded
+    /// identity, and confirm the real process actually died. Returns why, rather than panicking,
+    /// so the caller can retry with a clean slate.
+    fn one_attempt_at_stopping_an_ambiguous_pid_via_the_codex_home_scan() -> std::result::Result<(), String> {
         let config_dir = tempfile::tempdir().expect("config dir");
         let project_dir = tempfile::tempdir().expect("project dir");
         let mut child = Command::new("sleep")
@@ -539,10 +570,11 @@ mod tests {
                 false
             }
         });
-        assert!(
-            visible,
-            "the spawned child never became visible via the CODEX_HOME scan"
-        );
+        if !visible {
+            let _ignored = child.kill();
+            let _ignored = child.wait();
+            return Err("the spawned child never became visible via the CODEX_HOME scan".into());
+        }
         // The exact shape record_writer_process would have persisted had the pid already been
         // gone (or unreadable) at the moment it queried `ps` — an identity `stop_and_verify` can
         // never confirm on its own, by construction.
@@ -550,21 +582,25 @@ mod tests {
             pid: child.id(),
             start_time_fingerprint: None,
         };
-        CodexSessionStopper
-            .stop_and_verify(
-                config_dir.path(),
-                project_dir.path(),
-                "session",
-                Some(&ambiguous),
-            )
-            .expect("the CODEX_HOME scan alone must be enough to establish quiescence");
+        if let Err(error) = CodexSessionStopper.stop_and_verify(
+            config_dir.path(),
+            project_dir.path(),
+            "session",
+            Some(&ambiguous),
+        ) {
+            let _ignored = child.kill();
+            let _ignored = child.wait();
+            return Err(error.to_string());
+        }
         for _ in 0..50 {
             if matches!(child.try_wait(), Ok(Some(_))) {
-                return;
+                return Ok(());
             }
             thread::sleep(Duration::from_millis(100));
         }
-        panic!("the real process, found only via the CODEX_HOME scan, was never stopped");
+        let _ignored = child.kill();
+        let _ignored = child.wait();
+        Err("the real process, found only via the CODEX_HOME scan, was never stopped".into())
     }
 
     /// No recorded owner at all (the `stop_unrecorded_targets` case in miniature): the CODEX_HOME
