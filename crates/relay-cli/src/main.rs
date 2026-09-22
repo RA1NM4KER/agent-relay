@@ -3691,10 +3691,11 @@ fn publish_supervisor_record(
         && &lease.owner_profile == owner
     {
         let current = control.live_supervisor();
-        if current
-            .as_ref()
-            .is_none_or(|record| record.session_id != lease.session_id)
-        {
+        // Republish whenever the conversation or its owner changed (a Claude → Claude switch keeps
+        // the native session but changes the profile), so the record always names the current owner.
+        if current.as_ref().is_none_or(|record| {
+            record.session_id != lease.session_id || record.owner_profile != owner.as_str()
+        }) {
             control.publish_supervisor(owner.as_str(), &lease.session_id);
         }
     }
@@ -6108,7 +6109,44 @@ fn success<T: Serialize>(
 
 #[cfg(test)]
 mod tests {
-    use super::{Error, ProviderKind, choose_provider};
+    use super::{Error, ProviderKind, choose_provider, publish_supervisor_record};
+    use relay_core::{
+        ProfileName,
+        handoff::{LeaseStore, ProcessIdentity, ProjectId, TransactionId, WriterLease},
+    };
+
+    #[test]
+    fn the_supervisor_record_follows_a_conversation_across_a_same_session_owner_change() {
+        let dir = tempfile::tempdir().expect("dir");
+        let control = crate::control::ControlDir::for_project(dir.path());
+        let store = LeaseStore::at_path(dir.path().join("lease.json"));
+        let project = ProjectId::for_canonical_path(std::path::Path::new("/work/x")).expect("id");
+        let lease_for = |owner: &str| {
+            WriterLease::new(
+                project.clone(),
+                ProfileName::new(owner).expect("name"),
+                ProcessIdentity::current(),
+                "native-1".to_owned(),
+                TransactionId::generate(),
+                1,
+            )
+        };
+        let megan = ProfileName::new("megan").expect("name");
+        let erika = ProfileName::new("erika").expect("name");
+        store.save(&lease_for("megan")).expect("lease");
+        publish_supervisor_record(&control, &store, &megan);
+        assert_eq!(
+            control.live_supervisor().expect("record").owner_profile,
+            "megan"
+        );
+        // A Claude → Claude switch keeps the native session and changes the owner.
+        store.save(&lease_for("erika")).expect("lease");
+        publish_supervisor_record(&control, &store, &erika);
+        assert_eq!(
+            control.live_supervisor().expect("record").owner_profile,
+            "erika"
+        );
+    }
 
     #[test]
     fn a_new_profile_provider_is_implied_by_the_only_installed_cli() {
