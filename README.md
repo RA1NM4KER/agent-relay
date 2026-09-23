@@ -196,6 +196,13 @@ Existing or edited `skills/relay/SKILL.md` files are preserved. A new managed Co
 the skill again if absent. Already-running Codex sessions need a fresh managed attach to discover
 the skill and receive its session context.
 
+Because of that same preservation guarantee, upgrading Relay does **not** retroactively update an
+already-installed skill — Relay cannot tell "you edited it" apart from "an older Relay version
+wrote this," so both `relay integration codex install` and `... uninstall` refuse rather than guess.
+To pick up a newer skill (for example, after upgrading to a Relay version with a behavior change
+like this one), remove the file yourself first: `rm <profile config dir>/skills/relay/SKILL.md`,
+then `relay integration codex install --profile <name>`.
+
 ### Project trust before unattended use
 
 Run `relay doctor` in the project before relying on unattended handoffs. Doctor, setup's completion
