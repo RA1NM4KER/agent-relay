@@ -314,6 +314,12 @@ fn run_codex_inner(
         });
     }
 
+    // Deliberately one-shot, unlike Claude's live `[Relay · <profile>]` badge (`crate::badge`):
+    // Codex's TUI status line only accepts a fixed set of built-in items (no custom-command item
+    // the way Claude's `statusLine` hook works), and its hook system fires on lifecycle events
+    // (SessionStart, PreToolUse, ...), never on a render tick — there is nowhere to plug in a live
+    // indicator that stays honest across a handoff. See `docs/codex-status-line.md` for the full,
+    // live-verified investigation before attempting this again.
     progress.say(&format!(
         "Agent Relay\nProject: {}\nProfile: {}\nStarting new managed Codex session...",
         project_display_name(&canonical_project),
