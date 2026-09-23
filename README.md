@@ -6,13 +6,15 @@ profile in one priority order. Claude → Claude continues the same native Claud
 involving Codex continues from a Relay state bundle in a new session — never the same native
 conversation across the two CLIs.
 
-Status: **v0.3.0, macOS-first.** The handoff, recovery,
-usage-detection, and Herdr integration paths are validated live on macOS with Claude Code
-2.1.276–2.1.278; Codex support was checked live against Codex CLI 0.155.0 (structured usage reads,
-thread verification, Codex → Claude handoff by hand, pre-launch fallback from an exhausted Codex
-profile) — automatic handoff *from a real Codex exhaustion mid-session* is covered by fake-provider
-tests and has not yet been observed live. Linux builds and passes the tests in CI but is not yet
-live-supported or validated (some process-scan code is macOS-specific).
+Status: **v0.3.0, macOS-first.** The handoff, recovery, and usage-detection paths are validated
+live on macOS with Claude Code 2.1.276–2.1.278; Codex support was checked live against Codex CLI
+0.155.0 (structured usage reads, thread verification, Codex → Claude handoff by hand, pre-launch
+fallback from an exhausted Codex profile) — automatic handoff *from a real Codex exhaustion
+mid-session* is covered by fake-provider tests and has not yet been observed live. Linux builds and
+passes the tests in CI but is not yet live-supported or validated (some process-scan code is
+macOS-specific). Relay runs entirely standalone — no separate tool required; an optional
+[Herdr](https://herdr.dev) integration exists for people already using Herdr (see
+["Is Herdr required?"](#is-herdr-required)), also validated live.
 
 ## Install
 
@@ -44,10 +46,12 @@ relay profiles              # your profiles, their order and login state
 ```
 
 `relay setup` is a one-time wizard: it detects the coding-agent CLIs you have (Claude Code and/or
-the Codex CLI — either one is enough) and, optionally, [Herdr](https://herdr.dev), walks you through
-logging in to one or more **isolated** profiles (Relay opens each provider's own official login — it
-never sees your password or token), and asks for **one global priority order**: which profile is
-primary and which are fallbacks. Any provider can be primary; a Codex primary with a Claude
+the Codex CLI — either one is enough), walks you through logging in to one or more **isolated**
+profiles (Relay opens each provider's own official login — it never sees your password or token),
+and asks for **one global priority order**: which profile is primary and which are fallbacks.
+(If you already use [Herdr](https://herdr.dev), setup also offers to wire in that optional
+integration — see ["Is Herdr required?"](#is-herdr-required); most people don't need it.)
+Any provider can be primary; a Codex primary with a Claude
 fallback is as natural as the reverse.
 
 The mental model is simple:
@@ -192,16 +196,13 @@ relay integration codex status --profile codex-work
 relay integration codex uninstall --profile codex-work
 ```
 
-Existing or edited `skills/relay/SKILL.md` files are preserved. A new managed Codex attach installs
-the skill again if absent. Already-running Codex sessions need a fresh managed attach to discover
-the skill and receive its session context.
-
-Because of that same preservation guarantee, upgrading Relay does **not** retroactively update an
-already-installed skill — Relay cannot tell "you edited it" apart from "an older Relay version
-wrote this," so both `relay integration codex install` and `... uninstall` refuse rather than guess.
-To pick up a newer skill (for example, after upgrading to a Relay version with a behavior change
-like this one), remove the file yourself first: `rm <profile config dir>/skills/relay/SKILL.md`,
-then `relay integration codex install --profile <name>`.
+Existing or user-edited `skills/relay/SKILL.md` files are preserved — Relay tracks a hash of
+exactly what it last wrote (`skills/relay/.relay-managed.json`, next to the skill itself), so a
+plain `relay integration codex install` (also run automatically on a new managed Codex attach)
+upgrades an older, *unmodified* Relay-installed skill to the current one on its own; anything else
+(no marker, or a hash that no longer matches) is left untouched and reported, never guessed past.
+Already-running Codex sessions need a fresh managed attach to discover an upgraded skill and
+receive its session context.
 
 ### Project trust before unattended use
 

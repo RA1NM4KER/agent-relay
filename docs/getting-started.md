@@ -65,10 +65,12 @@ This is a one-time interactive wizard. It walks through six things:
    says so and asks before installing anyway — it never does this silently. Codex profiles need
    nothing installed: Relay reads Codex's own quota state directly, so a Codex-only setup skips this
    step.
-5. **Herdr** (if installed, recommended, default yes). Wires the same status/doctor/watch/handoff
-   behavior into Herdr so a Claude pane inside Herdr can trigger them without a separate terminal
-   (the Herdr adapter recognises Claude panes today; Codex panes are not integrated yet).
-   If Herdr isn't installed, Relay just says so and moves on — it works fine standalone.
+5. **Herdr, only if you already use it** (skipped entirely if it isn't installed — Relay works
+   completely standalone either way). If you have it, this step offers to wire the same
+   status/doctor/watch/handoff behavior into Herdr so a Claude pane inside Herdr can trigger them
+   without a separate terminal (the Herdr adapter recognises Claude panes today; Codex panes are
+   not integrated yet). Not something to go install for Relay's sake — see
+   ["Is Herdr required?"](../README.md#is-herdr-required).
 6. **Done.** It prints your primary/fallback and the commands you need day to day — `relay claude`
    and/or `relay codex` to start a new conversation (only the providers you set up are listed) and
    `relay resume` to reopen a closed one.
