@@ -905,7 +905,12 @@ fn resume_follows_the_conversation_onto_the_new_owner_after_a_handoff() {
         "attach on alice, then continue on bob: {tail:?}"
     );
     assert_eq!(tail[0].0, format!("attach {BG_ID}"));
-    assert_eq!(tail[1].0, format!("--resume {SESSION_ID}"));
+    assert_eq!(
+        tail[1].0,
+        format!(
+            "--resume {SESSION_ID} Continue the transferred task now. Use the handoff context already recorded in this session, inspect the repository as needed, and do not redo work that is already complete."
+        )
+    );
     let canonical = |path: &str| std::fs::canonicalize(path).expect("canonical");
     assert_eq!(
         canonical(&tail[0].1),

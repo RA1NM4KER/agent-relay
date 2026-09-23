@@ -150,12 +150,14 @@ pub(crate) fn run(
         launcher: target_ports.launcher.as_ref(),
     };
 
-    if !json_mode {
-        println!(
-            "Switching '{}' -> '{}' ({:?})...",
-            source.name, target.name, continuity_type
-        );
-    }
+    let switch_progress = progress::Progress::start(
+        &format!("Switching '{}' → '{}'…", source.name, target.name),
+        json_mode,
+    );
+    switch_progress.say(&format!(
+        "Switching '{}' -> '{}' ({:?})...",
+        source.name, target.name, continuity_type
+    ));
     // If the switch does not complete, the conversation goes back to being dormant on its last
     // profile (this guard runs on every early return and is disarmed once the lease has moved).
     let mut restore = RunOnDrop(dormant.then_some(|| {
@@ -186,6 +188,7 @@ pub(crate) fn run(
         target_claude_mode: target.effective_claude_config_mode(),
         state_dir: Some(session.dir.clone()),
     })?;
+    switch_progress.finish();
 
     if journal.state == relay_core::handoff::HandoffState::Complete {
         restore.0 = None;
@@ -223,7 +226,7 @@ pub(crate) fn run(
                 &canonical_project,
                 &new_session_id,
                 stored_args.for_provider(ProviderKind::Codex),
-                None,
+                Some(crate::terminal_session::HANDOFF_CONTINUE_PROMPT),
             )?;
             run_managed_terminal(
                 &ContinuationContext::new(

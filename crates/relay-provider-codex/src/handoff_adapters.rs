@@ -34,6 +34,10 @@ use serde_json::Value;
 use crate::{AUTHENTICATION_OVERRIDE_VARIABLES, CodexInspector};
 
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(300);
+/// A handoff bootstrap is deliberately a tool-free READY acknowledgement, not a task turn. Give
+/// provider startup ample room, but never leave an interactive switch looking frozen for the
+/// five-minute timeout used by ordinary fresh-session creation.
+const HANDOFF_BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(60);
 const LAUNCH_OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 const ORPHAN_TERM_GRACE: Duration = Duration::from_secs(5);
 const ORPHAN_POLL_DELAY: Duration = Duration::from_millis(100);
@@ -272,7 +276,7 @@ impl TargetLauncher for CodexTargetLauncher {
 
         let stdout = run_with_timeout(
             command,
-            LAUNCH_TIMEOUT,
+            HANDOFF_BOOTSTRAP_TIMEOUT,
             LAUNCH_OUTPUT_LIMIT,
             prompt.as_bytes(),
             on_started,

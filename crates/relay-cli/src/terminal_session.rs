@@ -28,6 +28,11 @@ use crate::{
     util::{bind_herdr_pane, current_unix_ms},
 };
 
+/// Sent only after a STATE_CONTINUATION bootstrap has completed and Relay has attached the real
+/// interactive target. Keeping the task execution here (rather than in the headless verification
+/// turn) makes startup bounded and lets the user see the continued work as it happens.
+pub(crate) const HANDOFF_CONTINUE_PROMPT: &str = "Continue the transferred task now. Use the handoff context already recorded in this session, inspect the repository as needed, and do not redo work that is already complete.";
+
 /// How often a supervised *Codex* session asks Codex's structured usage interface whether it is
 /// exhausted (Codex has no limit event to hook). Seconds; `RELAY_CODEX_POLL_SECS=0` disables.
 const CODEX_POLL_DEFAULT_SECS: u64 = 120;
@@ -331,6 +336,8 @@ fn serve_control_request(
     let lease_path = context.state_dir().join("lease.json");
     let preferences = context.preferences.clone();
     let profile_name = profile.name.clone();
+    let switch_progress =
+        crate::progress::Progress::start(&format!("Switching to '{target}'…"), context.json_mode);
     Some(std::thread::spawn(move || {
         let output = command.output();
         let succeeded = output.as_ref().is_ok_and(|output| output.status.success());
@@ -354,6 +361,7 @@ fn serve_control_request(
                     .collect();
             bind_herdr_pane(&profile_name, &fallback, &lease.session_id);
         }
+        switch_progress.finish();
     }))
 }
 
@@ -632,6 +640,7 @@ fn run_managed_terminal_inner(
                             context.claude_executable.as_deref(),
                             context.codex_executable.as_deref(),
                             &stored,
+                            None,
                         )
                     })
             {
@@ -676,6 +685,7 @@ fn run_managed_terminal_inner(
                     context.claude_executable.as_deref(),
                     context.codex_executable.as_deref(),
                     &stored,
+                    Some(HANDOFF_CONTINUE_PROMPT),
                 )
             },
         ) {
@@ -864,6 +874,7 @@ pub(crate) fn plan_terminal_for_lease(
     claude_executable: Option<&Path>,
     codex_executable: Option<&Path>,
     stored_args: &provider_args::ProviderArgs,
+    initial_message: Option<&str>,
 ) -> Result<terminal::TerminalCommand, Error> {
     // Only the OWNER's provider's arguments are ever used here; the other provider's stay unread.
     let provider_args = stored_args.for_provider(profile.provider);
@@ -874,7 +885,7 @@ pub(crate) fn plan_terminal_for_lease(
             canonical_project,
             &lease.session_id,
             provider_args,
-            None,
+            initial_message,
         ),
         ProviderKind::Claude | ProviderKind::Fake => {
             match resolve_claude_resume_action(
@@ -892,14 +903,20 @@ pub(crate) fn plan_terminal_for_lease(
                         &short_id,
                     ))
                 }
-                ClaudeResumeAction::NativeResume => plan_claude_resume(
-                    claude_executable,
-                    &profile.config_dir,
-                    profile.effective_claude_config_mode(),
-                    canonical_project,
-                    &lease.session_id,
-                    provider_args,
-                ),
+                ClaudeResumeAction::NativeResume => {
+                    let mut command = plan_claude_resume(
+                        claude_executable,
+                        &profile.config_dir,
+                        profile.effective_claude_config_mode(),
+                        canonical_project,
+                        &lease.session_id,
+                        provider_args,
+                    )?;
+                    if let Some(message) = initial_message {
+                        command.args.push(message.into());
+                    }
+                    Ok(command)
+                }
             }
         }
     }

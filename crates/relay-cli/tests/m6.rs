@@ -404,6 +404,8 @@ fn switch_claude_to_codex_is_state_continuation_and_moves_the_lease() {
     let prompt = invocations[0]["prompt"].as_str().unwrap_or_default();
     assert!(prompt.contains("STATE_CONTINUATION"));
     assert!(prompt.contains("main")); // branch name from the seeded git repo
+    assert!(prompt.contains("single word READY"));
+    assert!(prompt.contains("Do not continue the task yet"));
 }
 
 #[test]

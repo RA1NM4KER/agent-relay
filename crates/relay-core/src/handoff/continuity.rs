@@ -212,11 +212,9 @@ pub fn render_bootstrap_prompt(bundle: &ContinuationBundle) -> String {
         }
     }
     prompt.push_str(
-        "\nContinue from the existing repository state. Inspect the repository before \
-         assuming work is incomplete. Do not redo completed work unless verification shows it \
-         is necessary. The prior agent's internal plan or reasoning is not available beyond \
-         what is written above — reconstruct current intent from the repository and the excerpt \
-         if anything is unclear.",
+        "\nThis is Relay's bounded bootstrap turn. Do not continue the task yet and do not use \
+         any tools in this turn. Record the context above by replying with the single word READY. \
+         Relay will then reopen this new session interactively and explicitly tell you to continue.",
     );
     prompt
 }
@@ -319,6 +317,8 @@ mod tests {
         assert!(prompt.contains("STATE_CONTINUATION"));
         assert!(prompt.contains("claude-main"));
         assert!(prompt.contains("src/health.rs"));
+        assert!(prompt.contains("single word READY"));
+        assert!(prompt.contains("Do not continue the task yet"));
     }
 
     #[test]

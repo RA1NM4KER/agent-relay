@@ -228,6 +228,7 @@ fn resume_session(
         args.claude_executable.as_deref(),
         args.codex_executable.as_deref(),
         &stored_args,
+        None,
     )?;
     if !args.provider_args.is_empty() {
         stored_args.save(&project_state_dir)?;
