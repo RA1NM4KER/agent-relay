@@ -19,8 +19,8 @@ pub use continuity::{
     RECENT_CONTEXT_BYTE_BUDGET, RepoFacts, bound_recent_context, render_bootstrap_prompt,
 };
 pub use coordinator::{
-    ContextCapturer, HandoffCoordinator, HandoffRequest, LaunchDirective, LaunchOutcome,
-    LivenessVerdict, SessionStager, SessionStopper, SourceLiveness, TargetLauncher,
+    ContextCapturer, HandoffCoordinator, HandoffFailure, HandoffRequest, LaunchDirective,
+    LaunchOutcome, LivenessVerdict, SessionStager, SessionStopper, SourceLiveness, TargetLauncher,
     TargetVerification, TransferOutcome, TransferredArtifact,
 };
 pub use journal::{

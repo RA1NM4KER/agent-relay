@@ -161,7 +161,10 @@ case "$1" in
     if [ -n "$RELAY_TEST_SWAP" ] && [ -f "$RELAY_TEST_SWAP" ]; then sleep 1; mv "$RELAY_TEST_SWAP" $RELAY_TEST_LEASE; fi
     exit "${{RELAY_TEST_ATTACH_EXIT:-0}}" ;;
   --resume) exit 0 ;;
-  -p) cat >/dev/null; printf '{{"session_id":"{SESSION_ID}","is_error":false,"subtype":"success"}}\n' ;;
+  -p)
+    [ -f "$CLAUDE_CONFIG_DIR/launch_fail" ] && exit 1
+    cat >/dev/null
+    printf '{{"session_id":"{SESSION_ID}","is_error":false,"subtype":"success"}}\n' ;;
   *) exit 2 ;;
 esac
 "#,
@@ -685,6 +688,73 @@ fn a_real_limit_event_hands_off_to_a_claude_fallback_despite_the_ambient_claude_
                 .map(|dir| dir == bob_dir)
                 .unwrap_or(false)
     }));
+}
+
+/// A destination can pass authentication/usage preflight and still fail when its real provider
+/// command starts. The source is already stopped at that point, so automatic handoff must keep
+/// walking the bounded fallback chain instead of dropping the user back at a shell prompt.
+#[test]
+fn a_failed_claude_target_start_cascades_to_the_next_codex_fallback() {
+    skip_without_process_env_scan!();
+    let world = world(false);
+    let codex = codex_exe(&world);
+    login(
+        world.root.path(),
+        "codex-main",
+        "codex",
+        "--codex-executable",
+        Path::new(&codex),
+    );
+    let setup = relay(
+        world.root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "alice",
+            "--fallback",
+            "bob",
+            "--fallback",
+            "codex-main",
+            "--claude-executable",
+            &claude_exe(&world),
+        ],
+    );
+    assert!(
+        setup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&setup.stderr)
+    );
+    write_source_transcript(&world);
+    std::fs::write(
+        profile_dir(world.root.path(), "bob", "claude").join("launch_fail"),
+        "",
+    )
+    .expect("failed-launch marker");
+
+    statusline_at_100(world.root.path(), &world.alice_dir);
+    stop_failure(
+        world.root.path(),
+        &world.alice_dir,
+        SESSION_ID,
+        world.project.path(),
+        &[],
+    );
+    wait_for(
+        "the failed bob launch to cascade to codex-main",
+        Duration::from_secs(90),
+        || lease_owner(world.root.path()) == "codex-main",
+    );
+
+    let log = wait_for_handoff_summary(world.root.path(), "codex-main");
+    assert!(
+        claude_log(world.root.path())
+            .iter()
+            .any(|(args, dir)| { args.starts_with("-p ") && dir.contains("/bob/claude") }),
+        "the first fallback really reached its launch command"
+    );
+    assert!(log.contains("Automatic handoff to 'codex-main'"));
+    assert_eq!(lease_owner(world.root.path()), "codex-main");
 }
 
 /// The corroborating statusline snapshot can land just after the failure itself. The triggered

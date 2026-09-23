@@ -249,40 +249,84 @@ pub struct HandoffCoordinator<'a> {
     pub launcher: &'a dyn TargetLauncher,
 }
 
+/// A failed handoff together with the durable journal written before the transaction lock was
+/// released. Automation uses the journal to distinguish a safely-dead launch target from an
+/// ambiguous failure; ordinary callers can continue using [`HandoffCoordinator::run`] and see
+/// the original [`Error`].
+pub struct HandoffFailure {
+    pub error: Error,
+    pub journal: Option<Box<HandoffJournal>>,
+}
+
 impl HandoffCoordinator<'_> {
     /// Runs one complete transaction end to end, inside a single orchestration-lock acquisition
     /// so there is never an unlock/relock gap between source verification and target
     /// verification. Returns the final journal (which may describe a `Failed` transaction —
     /// that is a normal, fully-reported outcome, not a panic).
     pub fn run(&self, request: HandoffRequest) -> Result<HandoffJournal> {
+        self.run_detailed(request).map_err(|failure| failure.error)
+    }
+
+    /// Runs the same transaction as [`Self::run`], but preserves the failed journal while the
+    /// orchestration lock is still held. This makes a bounded automatic fallback cascade safe:
+    /// the caller never has to race another transaction while rediscovering how far this one got.
+    pub fn run_detailed(
+        &self,
+        request: HandoffRequest,
+    ) -> std::result::Result<HandoffJournal, HandoffFailure> {
         if request.source_profile == request.target_profile {
-            return Err(Error::ProviderMismatch {
-                expected: "distinct source and target profiles".to_owned(),
-                observed: request.source_profile.to_string(),
+            return Err(HandoffFailure {
+                error: Error::ProviderMismatch {
+                    expected: "distinct source and target profiles".to_owned(),
+                    observed: request.source_profile.to_string(),
+                },
+                journal: None,
             });
         }
         // Canonicalize before deriving the project id: two spellings (a symlink, `..`, a
         // trailing slash) of the same project must never produce two different ids, and a
         // symlink must never be able to alias one project's lock/lease onto another's.
-        require_absolute(&request.project_dir)?;
-        let project_dir = fs::canonicalize(&request.project_dir).map_err(|source| Error::Io {
-            path: request.project_dir.clone(),
-            source,
+        require_absolute(&request.project_dir).map_err(|error| HandoffFailure {
+            error,
+            journal: None,
         })?;
-        let project_id = ProjectId::for_canonical_path(&project_dir)?;
+        let project_dir = fs::canonicalize(&request.project_dir)
+            .map_err(|source| Error::Io {
+                path: request.project_dir.clone(),
+                source,
+            })
+            .map_err(|error| HandoffFailure {
+                error,
+                journal: None,
+            })?;
+        let project_id =
+            ProjectId::for_canonical_path(&project_dir).map_err(|error| HandoffFailure {
+                error,
+                journal: None,
+            })?;
         let project_state_dir = request
             .state_dir
             .clone()
             .unwrap_or_else(|| self.paths.project_state_dir(&project_id));
-        fs::create_dir_all(&project_state_dir).map_err(|source| Error::Io {
-            path: project_state_dir.clone(),
-            source,
-        })?;
+        fs::create_dir_all(&project_state_dir)
+            .map_err(|source| Error::Io {
+                path: project_state_dir.clone(),
+                source,
+            })
+            .map_err(|error| HandoffFailure {
+                error,
+                journal: None,
+            })?;
         let handoffs_dir = project_state_dir.join("handoffs");
-        fs::create_dir_all(&handoffs_dir).map_err(|source| Error::Io {
-            path: handoffs_dir.clone(),
-            source,
-        })?;
+        fs::create_dir_all(&handoffs_dir)
+            .map_err(|source| Error::Io {
+                path: handoffs_dir.clone(),
+                source,
+            })
+            .map_err(|error| HandoffFailure {
+                error,
+                journal: None,
+            })?;
 
         let lock = OrchestrationLock::at_path(project_state_dir.join("orchestration.lock"));
         let lease_store = LeaseStore::at_path(project_state_dir.join("lease.json"));
@@ -291,8 +335,8 @@ impl HandoffCoordinator<'_> {
             JournalStore::at_path(handoffs_dir.join(format!("{transaction_id}.json")));
         let current_pointer = project_state_dir.join("current_transaction.json");
 
-        lock.try_with(|| {
-            self.run_locked(
+        match lock.try_with(|| {
+            let result = self.run_locked(
                 &request,
                 project_id,
                 &project_dir,
@@ -300,8 +344,21 @@ impl HandoffCoordinator<'_> {
                 &journal_store,
                 &lease_store,
                 &current_pointer,
-            )
-        })
+            );
+            Ok(match result {
+                Ok(journal) => Ok(journal),
+                Err(error) => Err(HandoffFailure {
+                    error,
+                    journal: journal_store.load().ok().map(Box::new),
+                }),
+            })
+        }) {
+            Ok(result) => result,
+            Err(error) => Err(HandoffFailure {
+                error,
+                journal: None,
+            }),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

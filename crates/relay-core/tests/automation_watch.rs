@@ -586,6 +586,81 @@ fn a_failed_automatic_handoff_still_starts_the_cooldown_so_it_is_not_retried_in_
     );
 }
 
+#[test]
+fn a_failed_target_start_cascades_to_the_next_eligible_fallback() {
+    let fixture = Fixture::new();
+    let first_calls = Arc::new(Calls::default());
+    first_calls.fail_launch.store(true, Ordering::SeqCst);
+    let second_calls = Arc::new(Calls::default());
+    let first_ports = Ports(Arc::clone(&first_calls));
+    let second_ports = Ports(Arc::clone(&second_calls));
+    let first_handoff = HandoffCoordinator {
+        paths: &fixture.paths,
+        liveness: &first_ports,
+        source_stopper: &first_ports,
+        target_stopper: &first_ports,
+        stager: Some(&first_ports),
+        context_capturer: None,
+        launcher: &first_ports,
+    };
+    let second_handoff = HandoffCoordinator {
+        paths: &fixture.paths,
+        liveness: &second_ports,
+        source_stopper: &second_ports,
+        target_stopper: &second_ports,
+        stager: Some(&second_ports),
+        context_capturer: None,
+        launcher: &second_ports,
+    };
+    let handoff_for = |_: &ProfileName, target: &ProfileName| {
+        if target == &name("megan") {
+            &first_handoff
+        } else {
+            &second_handoff
+        }
+    };
+    let watch = WatchCoordinator {
+        paths: &fixture.paths,
+        handoff_for: &handoff_for,
+        policy: AutomationPolicy::default(),
+    };
+    let outcome = watch
+        .evaluate(
+            WatchRequest {
+                project_dir: fixture.project.clone(),
+                source_profile: name("erika"),
+                source_provider: ProviderKind::Claude,
+                source_config_dir: PathBuf::from("/tmp/relay-watch-test/erika"),
+                source_identity_stable_id: Some("identity-erika".to_owned()),
+                session_id: SESSION_ID.to_owned(),
+                source_usage: observation(UsageState::Exhausted, None),
+                fallbacks: vec![
+                    candidate("megan", UsageState::Available, None),
+                    candidate("backup-two", UsageState::Available, None),
+                ],
+                dry_run: false,
+                state_dir: None,
+                source_claude_mode: None,
+            },
+            10_000,
+        )
+        .expect("the second fallback succeeds");
+
+    assert!(matches!(
+        outcome,
+        WatchOutcome::Handoff { target, .. } if target == name("backup-two")
+    ));
+    assert_eq!(first_calls.launches.load(Ordering::SeqCst), 1);
+    assert_eq!(second_calls.launches.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.lease_owner().as_deref(), Some("backup-two"));
+    let ledger = LedgerStore::at_path(fixture.state_dir().join("automation_state.json"))
+        .load()
+        .expect("ledger");
+    assert_eq!(ledger.recent_handoffs.len(), 2);
+    assert_eq!(ledger.recent_handoffs[0].target, name("megan"));
+    assert_eq!(ledger.recent_handoffs[1].target, name("backup-two"));
+}
+
 // ---- M2C.1: startup recovery, RESET_PENDING ----
 
 impl Fixture {

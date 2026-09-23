@@ -242,11 +242,7 @@ pub fn decide(
         }
     }
 
-    let recent_count = ledger
-        .recent_handoffs
-        .iter()
-        .filter(|event| event.unix_ms + policy.window_ms >= now_unix_ms)
-        .count();
+    let recent_count = recent_handoff_count(ledger, now_unix_ms, policy.window_ms);
     if recent_count >= policy.max_handoffs_per_window {
         return AutomationDecision::LoopPrevented {
             reason: format!(
@@ -256,17 +252,9 @@ pub fn decide(
         };
     }
 
-    let eligible = fallbacks.iter().find(|candidate| {
-        candidate.name != source.name
-            && candidate.enabled
-            && candidate.healthy
-            && !candidate.usage.state.is_blocking()
-            && !ledger.is_known_exhausted(&candidate.name, now_unix_ms)
-            && match (&candidate.identity_stable_id, &source.identity_stable_id) {
-                (Some(candidate_id), Some(source_id)) => candidate_id != source_id,
-                _ => true,
-            }
-    });
+    let eligible = fallbacks
+        .iter()
+        .find(|candidate| candidate_is_eligible(candidate, source, ledger, now_unix_ms));
 
     match eligible {
         Some(candidate) => AutomationDecision::Handoff {
@@ -278,6 +266,31 @@ pub fn decide(
                 .to_owned(),
         },
     }
+}
+
+fn recent_handoff_count(ledger: &AutomationLedger, now_unix_ms: u64, window_ms: u64) -> usize {
+    ledger
+        .recent_handoffs
+        .iter()
+        .filter(|event| event.unix_ms + window_ms >= now_unix_ms)
+        .count()
+}
+
+fn candidate_is_eligible(
+    candidate: &ProfileCandidate,
+    source: &ProfileCandidate,
+    ledger: &AutomationLedger,
+    now_unix_ms: u64,
+) -> bool {
+    candidate.name != source.name
+        && candidate.enabled
+        && candidate.healthy
+        && !candidate.usage.state.is_blocking()
+        && !ledger.is_known_exhausted(&candidate.name, now_unix_ms)
+        && match (&candidate.identity_stable_id, &source.identity_stable_id) {
+            (Some(candidate_id), Some(source_id)) => candidate_id != source_id,
+            _ => true,
+        }
 }
 
 /// Stable, `relay why`-facing reason categories. Each is grounded in durable state `explain`
@@ -542,7 +555,7 @@ impl WatchCoordinator<'_> {
         };
 
         let mut fallbacks = request.fallbacks.clone();
-        let decision = lock.try_with(|| {
+        let (decision, eligible_targets) = lock.try_with(|| {
             let mut ledger = ledger_store.load()?;
             for candidate in std::iter::once(&source_candidate).chain(fallbacks.iter()) {
                 if candidate.usage.state.is_blocking() {
@@ -578,10 +591,30 @@ impl WatchCoordinator<'_> {
                 &ledger,
                 &self.policy,
             );
+            // Preserve the complete ordered candidate chain from this one decision snapshot.
+            // If the first target's provider command fails after the source has already stopped,
+            // automation may continue to the next one without re-entering `decide` (the failed
+            // attempt deliberately starts cooldown protection).
+            let eligible_targets = fallbacks
+                .iter()
+                .filter(|candidate| {
+                    candidate_is_eligible(candidate, &source_candidate, &ledger, now_unix_ms)
+                })
+                .map(|candidate| candidate.name.clone())
+                .take(
+                    self.policy
+                        .max_handoffs_per_window
+                        .saturating_sub(recent_handoff_count(
+                            &ledger,
+                            now_unix_ms,
+                            self.policy.window_ms,
+                        )),
+                )
+                .collect::<Vec<_>>();
             if !request.dry_run {
                 ledger_store.save(&ledger)?;
             }
-            Ok(decision)
+            Ok((decision, eligible_targets))
         })?;
 
         match decision {
@@ -603,50 +636,76 @@ impl WatchCoordinator<'_> {
                 if request.dry_run {
                     return Ok(WatchOutcome::DryRunWouldHandoff { target });
                 }
-                let target_candidate = fallbacks
-                    .iter()
-                    .find(|candidate| candidate.name == target)
-                    .expect("decide() only selects a name present in fallbacks");
-                let coordinator = (self.handoff_for)(&request.source_profile, &target);
-                let result = coordinator.run(HandoffRequest {
-                    project_dir: canonical_project.clone(),
-                    source_profile: request.source_profile.clone(),
-                    source_provider: request.source_provider,
-                    source_config_dir: request.source_config_dir.clone(),
-                    source_claude_mode: request.source_claude_mode.unwrap_or_default(),
-                    target_claude_mode: target_candidate.claude_config_mode.unwrap_or_default(),
-                    target_profile: target.clone(),
-                    target_provider: target_candidate.provider,
-                    target_config_dir: target_candidate.config_dir.clone(),
-                    session_id: request.session_id.clone(),
-                    continuity_type: ContinuityType::for_transition(
-                        request.source_provider,
-                        target_candidate.provider,
-                    ),
-                    state_dir: request.state_dir.clone(),
-                });
-                // Every attempt counts toward the cooldown and the bounded-handoff guard, whether
-                // it completed or failed: a failing target must not be retried in a tight loop
-                // (each retry can spend real API usage).
-                lock.try_with(|| {
-                    let mut ledger = ledger_store.load()?;
-                    ledger.record_handoff(AutomationEvent {
-                        unix_ms: now_unix_ms,
-                        source: request.source_profile.clone(),
-                        target: target.clone(),
-                        transaction_id: result
-                            .as_ref()
-                            .ok()
-                            .map(|journal| journal.transaction_id.to_string()),
+                debug_assert_eq!(eligible_targets.first(), Some(&target));
+                let mut last_error = None;
+                for target in eligible_targets {
+                    let target_candidate = fallbacks
+                        .iter()
+                        .find(|candidate| candidate.name == target)
+                        .expect("eligible target came from fallbacks");
+                    let coordinator = (self.handoff_for)(&request.source_profile, &target);
+                    let result = coordinator.run_detailed(HandoffRequest {
+                        project_dir: canonical_project.clone(),
+                        source_profile: request.source_profile.clone(),
+                        source_provider: request.source_provider,
+                        source_config_dir: request.source_config_dir.clone(),
+                        source_claude_mode: request.source_claude_mode.unwrap_or_default(),
+                        target_claude_mode: target_candidate.claude_config_mode.unwrap_or_default(),
+                        target_profile: target.clone(),
+                        target_provider: target_candidate.provider,
+                        target_config_dir: target_candidate.config_dir.clone(),
+                        session_id: request.session_id.clone(),
+                        continuity_type: ContinuityType::for_transition(
+                            request.source_provider,
+                            target_candidate.provider,
+                        ),
+                        state_dir: request.state_dir.clone(),
                     });
-                    ledger.prune_older_than(now_unix_ms, self.policy.window_ms);
-                    ledger_store.save(&ledger)
-                })?;
-                let journal = result?;
-                Ok(WatchOutcome::Handoff {
-                    journal: Box::new(journal),
-                    target,
-                })
+                    // Every attempted destination counts toward the cooldown and bounded-handoff
+                    // guard, including a failed one. The remaining candidates in this already-
+                    // bounded cascade are the sole exception to that cooldown.
+                    lock.try_with(|| {
+                        let mut ledger = ledger_store.load()?;
+                        ledger.record_handoff(AutomationEvent {
+                            unix_ms: now_unix_ms,
+                            source: request.source_profile.clone(),
+                            target: target.clone(),
+                            transaction_id: result
+                                .as_ref()
+                                .ok()
+                                .map(|journal| journal.transaction_id.to_string()),
+                        });
+                        ledger.prune_older_than(now_unix_ms, self.policy.window_ms);
+                        ledger_store.save(&ledger)
+                    })?;
+                    match result {
+                        Ok(journal) => {
+                            return Ok(WatchOutcome::Handoff {
+                                journal: Box::new(journal),
+                                target,
+                            });
+                        }
+                        Err(failure) => {
+                            let safe_to_continue =
+                                failure.journal.as_ref().is_some_and(|journal| {
+                                    matches!(
+                                        journal.state,
+                                        HandoffState::Failed {
+                                            phase: crate::handoff::FailedPhase::TargetStart,
+                                            ..
+                                        }
+                                    ) && journal.target_launch.as_ref().is_none_or(|launch| {
+                                        launch.process.is_still_the_same_process() == Some(false)
+                                    })
+                                });
+                            last_error = Some(failure.error);
+                            if !safe_to_continue {
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(last_error.expect("at least the selected target was attempted"))
             }
         }
     }
