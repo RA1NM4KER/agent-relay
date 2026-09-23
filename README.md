@@ -73,11 +73,14 @@ providers without leaving your coding workflow:
   `/relay adopt` brings a **live** unmanaged Claude conversation under Relay without restarting it;
   `/relay switch` moves the conversation and your terminal follows it.
 - Inside a Relay-managed Codex session, use **`$relay status`**, **`$relay doctor`**,
-  **`$relay why`**, or **`$relay history`**. Relay installs a profile-local skill when attaching
-  Codex; Codex executes the CLI through a model/tool turn. `/relay` and `/relay:doctor` are not
-  Codex slash commands. The skill scopes queries to the supervisor's project and session; a
-  switch request gives you the exact command to run from another terminal. Live Codex adoption
-  is not offered — use `relay codex` to start through Relay.
+  **`$relay why`**, **`$relay history`**, or **`$relay switch <profile>`**. Relay installs a
+  profile-local skill when attaching Codex; Codex executes the CLI through a model/tool turn.
+  `/relay` and `/relay:doctor` are not Codex slash commands. The skill scopes queries to the
+  supervisor's project and session; `$relay switch <profile>` asks the supervising Relay process
+  itself, over the same control channel Claude's in-agent switch uses, to safely stop Codex and
+  continue the conversation on the new profile — no copy-pasting a command into another terminal.
+  It falls back to printing that manual command only when no verified Relay supervisor can be
+  reached. Live Codex adoption is not offered — use `relay codex` to start through Relay.
 
 - **Relay supervises conversations, not repositories.** A project can hold many *Relay sessions*
   — each one a conversation with its own stable id, running on one profile at a time. Two sessions

@@ -72,8 +72,9 @@ All notable changes to Agent Relay will be documented here.
   supervising `relay`, which runs the ordinary switch transaction and follows the conversation. Bare
   `relay switch` opens a terminal picker (shared target model: current/exhausted/disabled/unverifiable
   profiles shown but not selectable). `relay login <new-name>` no longer silently defaults to Claude. Live
-  Codex adoption and a Codex `/relay` command are not offered (no way to verify a live thread's identity or
-  register the command).
+  Codex adoption is still not offered (no way to verify a live thread's identity); Codex now has its own
+  in-agent mechanism instead — `$relay status|doctor|why|history|switch`, an installed skill executed
+  through a model/tool turn rather than a hook (see the entries below).
 
 - `relay setup` works with Claude Code and/or Codex (either alone is enough), asks which provider a new
   profile is for only when both are installed, installs the usage hook only for Claude profiles, and ends
@@ -84,6 +85,35 @@ All notable changes to Agent Relay will be documented here.
   your terminal (Relay assigns and records the session) and a handoff can stop that interactive session by
   its verified process. One progress indicator now covers every slow provider phase of `relay claude` /
   `relay codex` (no blank gaps); `relay codex` no longer runs the slow `codex doctor` before its usage check.
+
+- **`$relay switch <profile>` now performs the switch itself**, instead of only printing a command
+  for another terminal. It asks the Relay process supervising the Codex terminal to do it, over the
+  same private control channel Claude's `/relay switch` already uses (`switch-request`) — the
+  requesting Codex tool shell is never the same process as the one Relay supervises, so the request
+  is verified by process ancestry (a bounded parent-chain walk from the supervised Codex process to
+  the requester) plus a matching Relay session id, owner profile, live supervisor identity and an
+  active lease, failing closed on any ambiguity; only the supervisor itself ever executes the
+  switch. Falls back to printing the manual command only when no verified supervisor can be reached
+  (`no_supervisor`, `stale_session`, `unreachable`, `timeout`). Claude's own switch path is
+  unchanged.
+- **Codex → \* handoffs can now capture real recent conversation context**, not just repository
+  facts, for the `STATE_CONTINUATION` bundle a target profile bootstraps from. Sourced from
+  `codex app-server`'s official `thread/items/list` method (the same structured, schema-generated
+  protocol Relay already uses for rate limits and thread identity) — never Codex's undocumented,
+  version-fragile local rollout storage. Best-effort like every other app-server read: a missing
+  thread, an old server, or any protocol error degrades to no captured context rather than failing
+  the handoff.
+- **Investigated whether Codex can show a live Relay-ownership indicator** the way Claude's
+  status-line badge does. It cannot today: Codex's TUI status line only accepts a fixed set of
+  built-in items (no custom-command item type), and its hook system fires on lifecycle events
+  (`SessionStart`, `PreToolUse`, ...) rather than on a render tick, so nothing can keep a footer
+  honest across a handoff. The existing one-shot launch banner stays; see
+  `docs/codex-status-line.md` for the live-verified findings.
+- **Tasteful progress indicators for slow, previously-silent phases** of `relay resume`, `relay
+  doctor`, `relay setup`, `relay integration claude/herdr install|status|doctor`, and `relay watch
+  run`'s usage/fallback evaluation — provider/auth verification, usage checks and handoff
+  evaluation no longer appear to hang with no feedback. TTY-only, `--json`-silent, delayed ~250ms
+  so a fast path never flickers a spinner on and off.
 
 ## v0.3.0 — 2026-09-21
 

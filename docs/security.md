@@ -198,11 +198,19 @@ Claude's, with its identity pin checked in a separate process with credential-ov
 Any disagreement refuses adoption and changes nothing; a live Relay writer refuses it too. The lease is
 written once, atomically, under the orchestration lock.
 
-`/relay switch` uses a control directory inside the Relay session's own state (mode 0700, same user
-only — no socket, daemon or network), so one session's request can never reach another's supervisor. The supervisor honours a request only if it names the current
-lease's session and owner and comes from the exact process it launched; stale (older than 60 seconds) or
-mismatched requests are refused, and the transaction itself is the ordinary `relay switch`. The hook
-runs with the user's own privileges, so the trust boundary is unchanged: anything that can write the
+`/relay switch` (Claude) and `$relay switch`/`switch-request` (Codex) use a control directory inside
+the Relay session's own state (mode 0700, same user only — no socket, daemon or network), so one
+session's request can never reach another's supervisor. For Claude, the hook process *is* the
+process Relay launched, so the supervisor honours a request only if it names the current lease's
+session and owner and comes from that exact process (pid + start-time fingerprint). Codex's model/
+tool-turn shell is structurally never that same process, so equality would either always fail
+(useless) or have to be weakened (unsafe); instead the supervisor walks the requester's process
+ancestry (a bounded parent-chain lookup, failing closed on any gap or ambiguity) to confirm the
+request genuinely descends from the Codex process it supervises, on top of the same session/owner/
+freshness checks Claude's path uses. Either way, stale (older than 60 seconds) or mismatched
+requests are refused, only the supervisor itself ever executes the switch (never the requesting
+child process), and the transaction itself is the ordinary `relay switch`. The hook/skill runs with
+the user's own privileges, so the trust boundary is unchanged: anything that can write the
 project's Relay state can already write its lease.
 
 ### What counts as a conflicting writer

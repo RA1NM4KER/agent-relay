@@ -27,8 +27,12 @@ For what each past milestone actually delivered and how it was live-validated, s
   --session <id>` (bring an already-running conversation under Relay from outside it — for a
   process that predates `/relay` being installed), `relay resume` (reopen a dormant session),
   `relay switch` (manual handoff, terminal picker or `--session`), `relay status` / `relay
-  profiles` (read-only summaries), `/relay status|switch|adopt` (in-agent, answered by a hook, no
-  model turn).
+  profiles` (read-only summaries), `/relay status|switch|adopt` (in-agent Claude, answered by a
+  hook, no model turn). A Relay-managed Codex session gets the equivalent `$relay
+  status|doctor|why|history|switch [profile]` through an installed skill (a model/tool turn, not a
+  hook — Codex has no hook-free slash-command mechanism); `$relay switch` asks the supervising
+  Relay process to perform the switch over the same control channel Claude's `/relay switch` uses,
+  falling back to printing the manual command only when no verified supervisor can be reached.
 - **Handoff**: same-profile and cross-profile Claude → Claude is SESSION_CONTINUATION (the same
   native conversation, no fork); anything touching Codex is STATE_CONTINUATION (a new session
   seeded from a captured state bundle, never presented as the same native conversation). Every

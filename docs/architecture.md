@@ -95,10 +95,14 @@ Owns command routing, project discovery, interactive confirmation, rendering, an
 
 Session adoption and in-agent control live here too: `live` (structural identification of a running Claude
 session and the adoption contract), `agent_cmd` (`/relay status|switch|adopt`, answered by the
-`UserPromptSubmit` hook), `control` (the per-project control directory between that hook and the
-supervising terminal), and `target` (the one switch-target model behind both the `relay switch` picker
-and the in-agent listing). None of them can move ownership by themselves: adoption writes the lease
-only after every proof holds, and every switch is the ordinary `HandoffCoordinator` transaction.
+`UserPromptSubmit` hook), `control` (the per-project control directory between a requester and the
+supervising terminal — Claude's hook or the Codex skill's `switch-request` subcommand, both verified
+through the same `caller_is_verified` check, process-equality for Claude and bounded ancestry for
+Codex's structurally-different requesting process), `commands::switch_request` (the Codex side of
+that request, dispatched from the skill), and `target` (the one switch-target model behind both the
+`relay switch` picker and the in-agent listing). None of them can move ownership by themselves:
+adoption writes the lease only after every proof holds, and every switch is the ordinary
+`HandoffCoordinator` transaction.
 
 ### relay-herdr
 

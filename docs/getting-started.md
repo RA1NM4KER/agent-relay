@@ -153,6 +153,24 @@ disabled, exhausted or (for Codex) unverifiable are shown as unavailable. It the
 `relay switch <profile>` runs. Without a terminal, or with `--json`, it prints the choices and
 exits instead of prompting.
 
+### Inside Codex: `$relay status`, `$relay doctor`, `$relay why`, `$relay history`, `$relay switch`
+
+A Relay-managed Codex terminal (started with `relay codex` or `relay resume`) installs a
+profile-local skill; type `$relay` (or `$relay doctor`, `$relay status`,
+`$relay why`, `$relay history`, `$relay switch [profile]`) and Codex runs the installed `relay` CLI
+through a model/tool turn, scoped to that exact supervisor's project and session — `/relay` and
+`/relay:doctor` are Claude commands, not Codex ones. An existing or edited `skills/relay/SKILL.md`
+is left alone; a new managed attach installs it again only if absent.
+
+`$relay switch <profile>` asks the Relay process supervising your terminal to perform the switch —
+the same control channel Claude's `/relay switch` uses — never by running `relay switch` directly
+inside the Codex shell (that process is not the one Relay supervises, and would end up running the
+switch's own kill target on itself). The supervisor safely stops Codex and continues the
+conversation on the new profile automatically, the same way `/relay switch` does for Claude. It
+falls back to printing the manual `relay switch ... --no-attach` command for another terminal only
+when no verified Relay supervisor can be reached (for example, a Codex session that was not started
+through `relay codex`/`relay resume`). There is no interactive picker inside Codex; name the profile.
+
 ### Passing options to Claude or Codex
 
 Options for the provider CLI go after `--`; everything before it is Relay's:
