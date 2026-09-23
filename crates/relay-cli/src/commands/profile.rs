@@ -2,11 +2,11 @@
 //! inspect/adopt an existing Claude directory by reference (`inspect-existing`/`adopt`,
 //! including `--native-default` for Claude's own default account).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use relay_core::{
-    AddProfileRequest, AuthenticationState, Error, IdentityMetadata, ProfileName, ProfileService,
-    ProfileSetupMode, Provider, ProviderKind, RelayPaths,
+    AddProfileRequest, AtomicWrite, AuthenticationState, Error, FsAtomicWriter, IdentityMetadata,
+    ProfileName, ProfileService, ProfileSetupMode, Provider, ProviderKind, RelayPaths,
 };
 use relay_provider_claude::{ClaudeAdoptionProvider, ClaudeIdentityPin, EnvironmentOverrideStatus};
 use relay_testkit::FakeProvider;
@@ -22,7 +22,7 @@ use crate::{
     },
     cli::{ExistingProvider, ProfileArgs, ProfileCommand},
     output::{CommandOutput, success},
-    providers,
+    preferences, providers,
 };
 
 #[derive(Serialize)]
@@ -139,6 +139,9 @@ pub(crate) fn run(
                 human,
                 json!({ "profile": profile, "directory_retained": true }),
             )
+        }
+        ProfileCommand::Rename { old_name, new_name } => {
+            rename_profile(service, paths, old_name, new_name)
         }
         ProfileCommand::Doctor {
             name,
@@ -469,4 +472,202 @@ pub(crate) fn run_logout(
         ),
         json!({ "profile": name.as_str() }),
     )
+}
+
+/// Keys that hold a profile name in Relay's own JSON state — never a generic `name` or path-like
+/// key, so this only ever touches what it is meant to. A generic key-targeted walk was chosen
+/// over one typed struct per file because the real on-disk layout under `state_root/projects/`
+/// mixes a legacy (pre-multi-session) project-level shape with the current per-session shape —
+/// this covers both without having to enumerate every historical shape by hand.
+const PROFILE_NAME_JSON_KEYS: &[&str] = &[
+    "owner_profile",
+    "last_profile",
+    "source_profile",
+    "target_profile",
+    "profile",
+    "source",
+    "target",
+];
+
+/// Renames a profile's registered label everywhere Relay keeps a durable reference to it —
+/// registry, preferences, and every session/ledger/handoff-journal file under the state root —
+/// without touching authentication, identity pins, or the provider's own config directory.
+///
+/// Refuses outright if the profile currently owns any lease anywhere, live or not yet reconciled:
+/// a running `relay claude`/`relay codex` terminal re-reads its own lease on every tick and would
+/// treat the label changing underneath it as an external handoff, which is exactly the kind of
+/// surprise this must never cause. Once nothing references the profile as a current lease owner,
+/// every other file is a plain historical record (`last_profile`, journal entries, the automation
+/// ledger) and is safe to relabel in place.
+fn rename_profile(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    old: &ProfileName,
+    new: &ProfileName,
+) -> Result<CommandOutput, Error> {
+    let registered = service.list()?;
+    if !registered.iter().any(|profile| &profile.name == old) {
+        return Err(Error::ProfileNotFound(old.to_string()));
+    }
+    if let Some(active) = find_lease_owner(paths, old) {
+        return Err(Error::ProfileHasActiveSession(format!(
+            "{old} (see {})",
+            active.display()
+        )));
+    }
+
+    let renamed = service.rename(old, new)?;
+
+    let mut preferences_updated = false;
+    if let Some(mut prefs) = preferences::Preferences::load(paths.config_root())? {
+        let mut changed = false;
+        if prefs.primary_profile.as_ref() == Some(old) {
+            prefs.primary_profile = Some(new.clone());
+            changed = true;
+        }
+        for fallback in &mut prefs.fallback_profiles {
+            if fallback == old {
+                *fallback = new.clone();
+                changed = true;
+            }
+        }
+        if changed {
+            prefs.save(paths.config_root())?;
+            preferences_updated = true;
+        }
+    }
+
+    let files_updated = rename_in_state_files(paths, old, new)?;
+
+    success(
+        "profile.rename",
+        format!(
+            "Renamed profile '{old}' to '{new}'. Preferences updated: {preferences_updated}. \
+             {files_updated} historical state file(s) updated. Authentication, identity pin and \
+             provider config directory ({}) were not touched.",
+            renamed.config_dir.display()
+        ),
+        json!({
+            "profile": renamed,
+            "preferences_updated": preferences_updated,
+            "state_files_updated": files_updated,
+        }),
+    )
+}
+
+/// The first `lease.json` anywhere under the state root whose `owner_profile` is `name`, if any —
+/// regardless of whether that lease's own process is still actually alive: a stale, not-yet-
+/// reconciled lease is exactly as unsafe to relabel underneath as a genuinely live one, since
+/// reconciliation itself still trusts the label until it runs.
+///
+/// A lease whose recorded process is *confirmed dead* (`is_still_the_same_process() ==
+/// Some(false)`) does not block: it is stale, not live, and the profile label it names is a
+/// historical fact at that point, exactly like `last_profile` elsewhere. Anything else — genuinely
+/// alive, or ambiguous (`None`, the same "cannot prove either way" case every other liveness check
+/// in this codebase fails closed on) — blocks.
+fn find_lease_owner(paths: &RelayPaths, name: &ProfileName) -> Option<PathBuf> {
+    for path in walk_json_files(&paths.projects_state_root()) {
+        if path.file_name().and_then(|n| n.to_str()) != Some("lease.json") {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        if let Ok(lease) = serde_json::from_slice::<relay_core::handoff::WriterLease>(&bytes)
+            && &lease.owner_profile == name
+            && lease.owner_process.is_still_the_same_process() != Some(false)
+        {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Renames `old` to `new` in every JSON file's profile-name-bearing fields (see
+/// [`PROFILE_NAME_JSON_KEYS`]) under the state root, except `supervisor.json` (a live process's
+/// own heartbeat file, rewritten by it on every tick, never Relay's durable history). By the time
+/// this runs, [`find_lease_owner`] has already refused the whole rename if any lease confirmed-live
+/// or ambiguous still names `old` as owner — so a `lease.json` reached here can only be a
+/// confirmed-dead, stale one, and is re-checked (defense in depth, not trust in the earlier
+/// refusal alone) before being relabeled like any other historical record; still-live is skipped
+/// rather than touched. Returns how many files were actually changed.
+fn rename_in_state_files(
+    paths: &RelayPaths,
+    old: &ProfileName,
+    new: &ProfileName,
+) -> Result<usize, Error> {
+    let mut updated = 0usize;
+    for path in walk_json_files(&paths.projects_state_root()) {
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if file_name == "supervisor.json" {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        if file_name == "lease.json"
+            && let Ok(lease) = serde_json::from_slice::<relay_core::handoff::WriterLease>(&bytes)
+            && lease.owner_process.is_still_the_same_process() != Some(false)
+        {
+            continue;
+        }
+        let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            continue;
+        };
+        if !rename_profile_fields(&mut value, old.as_str(), new.as_str()) {
+            continue;
+        }
+        let text = serde_json::to_string_pretty(&value).map_err(|_| Error::SerializationFailed)?;
+        FsAtomicWriter.write_atomic(&path, text.as_bytes())?;
+        updated += 1;
+    }
+    Ok(updated)
+}
+
+fn rename_profile_fields(value: &mut serde_json::Value, old: &str, new: &str) -> bool {
+    let mut changed = false;
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, entry) in map.iter_mut() {
+                if PROFILE_NAME_JSON_KEYS.contains(&key.as_str())
+                    && let serde_json::Value::String(text) = entry
+                    && text == old
+                {
+                    *text = new.to_owned();
+                    changed = true;
+                    continue;
+                }
+                changed |= rename_profile_fields(entry, old, new);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                changed |= rename_profile_fields(item, old, new);
+            }
+        }
+        _ => {}
+    }
+    changed
+}
+
+/// Every `.json` file anywhere under `root`, depth-first — the on-disk layout has both a legacy
+/// (pre-multi-session) project-level shape and the current per-session shape side by side on a
+/// real dogfood machine, so this walks structurally rather than assuming one fixed depth.
+fn walk_json_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+                files.push(path);
+            }
+        }
+    }
+    files
 }

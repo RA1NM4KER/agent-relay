@@ -117,6 +117,33 @@ impl<W: AtomicWrite> ProfileService<W> {
         Ok(self.store.load()?.profiles)
     }
 
+    /// Renames a profile's registered label only — never its `config_dir`, authentication, or
+    /// identity pin, so the provider-owned config home this profile references is untouched.
+    /// Callers own everything else a rename must also update (preferences, session/ledger/journal
+    /// history referencing the old name) — this only makes the label change atomically in the
+    /// profile registry itself, the one piece of state this crate is authoritative for.
+    pub fn rename(&self, old: &ProfileName, new: &ProfileName) -> Result<Profile> {
+        let mut state = self.store.load()?;
+        if state.profiles.iter().any(|profile| &profile.name == new) {
+            return Err(Error::DuplicateProfile(new.to_string()));
+        }
+        let index = state
+            .profiles
+            .iter()
+            .position(|profile| &profile.name == old)
+            .ok_or_else(|| Error::ProfileNotFound(old.to_string()))?;
+        state.profiles[index].name = new.clone();
+        state
+            .profiles
+            .sort_by(|left, right| left.name.cmp(&right.name));
+        self.store.save(&state)?;
+        Ok(state
+            .profiles
+            .into_iter()
+            .find(|profile| &profile.name == new)
+            .expect("just inserted"))
+    }
+
     pub fn status(&self, name: &ProfileName, provider: &dyn Provider) -> Result<ProfileStatus> {
         let profile = self.find(name)?;
         validate_provider(&profile, provider)?;

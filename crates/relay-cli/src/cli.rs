@@ -834,6 +834,13 @@ pub(crate) enum ProfileCommand {
     },
     /// Unregister a profile while retaining its provider-owned directory.
     Remove { name: ProfileName },
+    /// Rename a profile's registered label everywhere Relay references it (registry,
+    /// preferences, session/ledger/handoff history) — never its authentication, identity pin, or
+    /// provider config directory. Refuses if the profile currently has a live active session.
+    Rename {
+        old_name: ProfileName,
+        new_name: ProfileName,
+    },
     /// Run directory, authentication, and identity safety checks.
     Doctor {
         name: ProfileName,

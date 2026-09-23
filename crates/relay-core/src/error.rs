@@ -11,6 +11,8 @@ pub enum Error {
     DuplicateIdentity,
     #[error("profile was not found: {0}")]
     ProfileNotFound(String),
+    #[error("profile '{0}' has a live active session and cannot be renamed until it is dormant")]
+    ProfileHasActiveSession(String),
     #[error("provider mismatch: expected {expected}, observed {observed}")]
     ProviderMismatch { expected: String, observed: String },
     #[error("profile authentication is required")]
@@ -252,6 +254,7 @@ impl Error {
             Self::DuplicateProfile(_) => "duplicate_profile",
             Self::DuplicateIdentity => "duplicate_identity",
             Self::ProfileNotFound(_) => "profile_not_found",
+            Self::ProfileHasActiveSession(_) => "profile_has_active_session",
             Self::ProviderMismatch { .. } => "provider_mismatch",
             Self::AuthenticationRequired => "authentication_required",
             Self::AuthenticationInspectionFailed => "authentication_inspection_failed",
