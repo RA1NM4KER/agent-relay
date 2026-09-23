@@ -1,16 +1,16 @@
-//! M6: builds a provider-neutral `ContinuationBundle` from Codex's own local state, for a
+//! M6/M11: builds a provider-neutral `ContinuationBundle` from Codex's own local state, for a
 //! `STATE_CONTINUATION` transaction where Codex is the SOURCE.
 //!
-//! Deliberately does NOT attempt to read Codex's session/thread history: it lives in
-//! `CODEX_HOME/thread_history_*.sqlite`, an undocumented, version-fragile internal schema
-//! (observed directly, not published upstream). Parsing it would mean either bundling a sqlite
-//! dependency to reverse-engineer an internal format, or hand-parsing the SQLite file format —
-//! exactly the "no silent assumptions about session layout" the M6 spec warns against. Repo
-//! facts (deterministic, provider-independent) are still captured; `last_user_request` and
-//! `recent_context` are left empty/`None` rather than guessed — the target is explicitly told to
-//! inspect the repository itself (see `render_bootstrap_prompt`). This is a known, documented M6
-//! limitation for the Codex -> * direction (Claude -> Codex is unaffected: Claude's own
-//! transcript extraction is unrelated to this).
+//! Repo facts (deterministic, provider-independent) are always captured. Conversation content
+//! (`last_user_request`, `recent_context`) comes from `codex app-server`'s `thread/items/list` —
+//! the same official, typed, schema-generated protocol Relay already uses for rate limits and
+//! thread identity (see `crate::app_server`), never Codex's undocumented, version-fragile local
+//! storage (`CODEX_HOME/thread_history_*.sqlite`, rollout JSONL files): parsing those would mean
+//! reverse-engineering an internal format Codex has never published, exactly the "no silent
+//! assumptions about session layout" the M6 spec warns against. Best effort like every other
+//! app-server read: a missing thread, an old server, or any protocol error degrades to
+//! `(None, [])` rather than failing the whole capture — the target is always still told to
+//! inspect the repository itself either way (see `render_bootstrap_prompt`).
 
 use std::{
     path::Path,
@@ -20,8 +20,14 @@ use std::{
 
 use relay_core::{
     Error, ProfileName, ProviderKind, Result,
-    handoff::{ContextCapturer, ContinuationBundle, RepoFacts},
+    handoff::{ContextCapturer, ContinuationBundle, ConversationExcerpt, ExcerptRole, RepoFacts},
 };
+
+use crate::{app_server, inspection::CodexInspector};
+
+/// Mirrors `relay_provider_claude`'s own `MAX_RECENT_TURNS` bound — the two providers keep the
+/// same shape of recent-context budget, even though they source it differently.
+const MAX_RECENT_TURNS: usize = 12;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CodexContextCapturer;
@@ -29,7 +35,7 @@ pub struct CodexContextCapturer;
 impl ContextCapturer for CodexContextCapturer {
     fn capture(
         &self,
-        _source_config_dir: &Path,
+        source_config_dir: &Path,
         project_dir: &Path,
         source_session_id: &str,
         source_profile: &ProfileName,
@@ -37,6 +43,8 @@ impl ContextCapturer for CodexContextCapturer {
         target_provider: ProviderKind,
     ) -> Result<ContinuationBundle> {
         let repo = capture_repo_facts(project_dir)?;
+        let (last_user_request, recent_context) =
+            extract_recent_context(source_config_dir, source_session_id);
         Ok(ContinuationBundle {
             version: ContinuationBundle::CURRENT_VERSION,
             source_provider,
@@ -45,11 +53,37 @@ impl ContextCapturer for CodexContextCapturer {
             target_provider,
             canonical_project_path: project_dir.to_path_buf(),
             generated_unix_ms: now_unix_ms(),
-            last_user_request: None,
+            last_user_request,
             repo,
-            recent_context: Vec::new(),
+            recent_context,
         })
     }
+}
+
+/// Best-effort, exactly like `relay_provider_claude::extract_recent_context`: no installed/
+/// discoverable Codex CLI, no reachable app-server, or no matching thread all degrade to
+/// `(None, [])` rather than failing the whole capture.
+fn extract_recent_context(
+    config_dir: &Path,
+    thread_id: &str,
+) -> (Option<String>, Vec<ConversationExcerpt>) {
+    let Ok(inspector) = CodexInspector::discover(None) else {
+        return (None, Vec::new());
+    };
+    let mut excerpts =
+        app_server::recent_conversation_excerpts(inspector.executable(), config_dir, thread_id);
+    let last_user_request = excerpts
+        .iter()
+        .rev()
+        .find(|excerpt| excerpt.role == ExcerptRole::User)
+        .map(|excerpt| excerpt.text.clone());
+    if excerpts.len() > MAX_RECENT_TURNS {
+        excerpts = excerpts.split_off(excerpts.len() - MAX_RECENT_TURNS);
+    }
+    (
+        last_user_request,
+        relay_core::handoff::bound_recent_context(excerpts),
+    )
 }
 
 fn capture_repo_facts(project_dir: &Path) -> Result<RepoFacts> {

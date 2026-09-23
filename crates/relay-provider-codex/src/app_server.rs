@@ -3,14 +3,18 @@
 //!
 //! Why this and not `codex exec --json`: the exec stream's terminal errors are English prose
 //! (arbitrary API-client wording), which Relay never builds automatic behavior on. The app-server
-//! protocol has typed methods instead. Relay uses exactly three, all read-only:
+//! protocol has typed methods instead. Relay uses exactly four, all read-only:
 //!
 //! * `initialize` — capability handshake; its response names the `codexHome` the server actually
 //!   resolved, which Relay compares to the profile directory it asked for (isolation check);
 //! * `account/rateLimits/read` — backend usage windows and the authoritative
 //!   `ordinaryUsageAllowed` flag (see [`crate::usage`]);
 //! * `thread/read` — metadata-only lookup used to prove a thread exists (and where) before a
-//!   same-profile resume is launched.
+//!   same-profile resume is launched;
+//! * `thread/items/list` — a bounded, paginated page of a thread's own user/agent message text,
+//!   used to build a real (not repo-facts-only) `STATE_CONTINUATION` context bundle (see
+//!   [`crate::context_capture`]). Not `thread/read`'s own `includeTurns: true`: the schema
+//!   documents that as deprecated for paginated threads in favour of this call.
 //!
 //! Relay never reads `auth.json` or any token: the server process reads its own `CODEX_HOME`, and
 //! only the typed, non-secret response fields below ever reach Relay. Every failure — spawn,
@@ -26,6 +30,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use relay_core::handoff::{ConversationExcerpt, ExcerptRole};
 use serde_json::{Value, json};
 
 use crate::AUTHENTICATION_OVERRIDE_VARIABLES;
@@ -338,6 +343,86 @@ pub fn read_thread(
     })
 }
 
+/// How many raw thread items to request per page before filtering — deliberately larger than the
+/// excerpt count actually kept, since most items on a real thread are tool calls and other
+/// non-conversational entries this never surfaces (only verbatim user/agent message text ever
+/// leaves this function, exactly as `relay_provider_claude`'s transcript extraction excludes tool
+/// use, tool results and reasoning).
+const ITEM_PAGE_LIMIT: u32 = 60;
+
+/// Real, verbatim recent conversation text for a thread, oldest first — user and agent messages
+/// only. Uses `thread/items/list` (paginated, newest-first, a bounded `limit`) rather than
+/// `thread/read`'s own `includeTurns: true`: the app-server's own schema documents that flag as
+/// deprecated for paginated threads, in favour of this call and `thread/turns/list`. Best effort,
+/// like every other app-server read Relay makes: any failure (old server, unreadable thread, a
+/// malformed page) degrades to an empty list rather than failing the caller's whole capture — the
+/// M6 spec's "no fabricated project state" rule extends to "no fabricated conversation state."
+pub fn recent_conversation_excerpts(
+    executable: &Path,
+    config_dir: &Path,
+    thread_id: &str,
+) -> Vec<ConversationExcerpt> {
+    fetch_recent_conversation_excerpts(executable, config_dir, thread_id).unwrap_or_default()
+}
+
+fn fetch_recent_conversation_excerpts(
+    executable: &Path,
+    config_dir: &Path,
+    thread_id: &str,
+) -> Result<Vec<ConversationExcerpt>, AppServerError> {
+    let mut session = Session::open(executable, config_dir)?;
+    session.handshake(config_dir)?;
+    let result = session.request(
+        "thread/items/list",
+        json!({ "threadId": thread_id, "limit": ITEM_PAGE_LIMIT, "sortDirection": "desc" }),
+    )?;
+    let data = result
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| AppServerError::Protocol("thread/items/list returned no data".to_owned()))?;
+    let mut excerpts = Vec::new();
+    for entry in data {
+        let Some(item) = entry.get("item") else {
+            continue;
+        };
+        match item.get("type").and_then(Value::as_str) {
+            Some("agentMessage") => {
+                if let Some(text) = item.get("text").and_then(Value::as_str)
+                    && !text.trim().is_empty()
+                {
+                    excerpts.push(ConversationExcerpt {
+                        role: ExcerptRole::Assistant,
+                        text: text.to_owned(),
+                    });
+                }
+            }
+            Some("userMessage") => {
+                let text = item
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
+                    .filter_map(|part| part.get("text").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !text.trim().is_empty() {
+                    excerpts.push(ConversationExcerpt {
+                        role: ExcerptRole::User,
+                        text,
+                    });
+                }
+            }
+            // Every other item type (tool calls, tool outputs, hook prompts, reasoning, ...) is
+            // deliberately not conversation text and is skipped, not stringified.
+            _ => {}
+        }
+    }
+    // The page was requested newest-first; `ConversationExcerpt` lists are oldest-first.
+    excerpts.reverse();
+    Ok(excerpts)
+}
+
 #[cfg(test)]
 pub(crate) mod fake {
     //! A scripted `codex app-server` for tests: answers from fixture files inside the profile
@@ -345,8 +430,8 @@ pub(crate) mod fake {
     use std::{os::unix::fs::PermissionsExt as _, path::Path};
 
     /// Fixture files (all optional): `mode` = `hang` | `garbage` | `exit` | `wronghome`;
-    /// `account.json`, `limits.json`, `thread.json` = the `result` bodies to return;
-    /// `thread_error` = present → `thread/read` answers a JSON-RPC error.
+    /// `account.json`, `limits.json`, `thread.json`, `items.json` = the `result` bodies to
+    /// return; `thread_error` / `items_error` = present → that method answers a JSON-RPC error.
     pub fn install(dir: &Path) -> std::path::PathBuf {
         let path = dir.join("fake-codex");
         std::fs::write(
@@ -375,6 +460,12 @@ while IFS= read -r line; do
         printf '{"id":%s,"error":{"code":-32600,"message":"thread not loaded"}}\n' "$id"
       else
         printf '{"id":%s,"result":%s}\n' "$id" "$(cat "$CODEX_HOME/thread.json")"
+      fi;;
+    *'"method":"thread/items/list"'*)
+      if [ -f "$CODEX_HOME/items_error" ]; then
+        printf '{"id":%s,"error":{"code":-32600,"message":"items not loaded"}}\n' "$id"
+      else
+        printf '{"id":%s,"result":%s}\n' "$id" "$(cat "$CODEX_HOME/items.json")"
       fi;;
     *) printf '{"id":%s,"error":{"code":-32601,"message":"method not found"}}\n' "$id";;
   esac
@@ -454,6 +545,54 @@ mod tests {
             read_thread(&exe, dir.path(), "t-1"),
             Err(AppServerError::Rpc { .. })
         ));
+    }
+
+    #[test]
+    fn recent_conversation_excerpts_extracts_only_message_text_oldest_first() {
+        let dir = home();
+        // Newest-first, as the real server would answer a `sortDirection: "desc"` page — and
+        // deliberately includes non-message item types, which must be skipped, not stringified.
+        // One line: the fixture is `cat`'d straight into a JSON-RPC response, which is
+        // one-message-per-line framing (see this module's own doc comment).
+        std::fs::write(
+            dir.path().join("items.json"),
+            r#"{"data":[{"turnId":"t3","item":{"type":"agentMessage","id":"3","text":"third"}},{"turnId":"t3","item":{"type":"functionCallOutput","id":"x","name":"ls","output":{}}},{"turnId":"t2","item":{"type":"userMessage","id":"2","content":[{"type":"text","text":"second"},{"type":"image","url":"x"}]}},{"turnId":"t1","item":{"type":"agentMessage","id":"1","text":"  "}},{"turnId":"t0","item":{"type":"userMessage","id":"0","content":[{"type":"text","text":"first"}]}}]}"#,
+        )
+        .unwrap();
+        let exe = fake::install(dir.path());
+        let excerpts = recent_conversation_excerpts(&exe, dir.path(), "t-1");
+        assert_eq!(
+            excerpts,
+            vec![
+                ConversationExcerpt {
+                    role: ExcerptRole::User,
+                    text: "first".to_owned(),
+                },
+                ConversationExcerpt {
+                    role: ExcerptRole::User,
+                    text: "second".to_owned(),
+                },
+                ConversationExcerpt {
+                    role: ExcerptRole::Assistant,
+                    text: "third".to_owned(),
+                },
+            ],
+            "must skip non-message items and blank-text messages, oldest first"
+        );
+    }
+
+    #[test]
+    fn recent_conversation_excerpts_degrades_to_empty_on_any_failure() {
+        let dir = home();
+        std::fs::write(dir.path().join("items_error"), "").unwrap();
+        let exe = fake::install(dir.path());
+        assert_eq!(recent_conversation_excerpts(&exe, dir.path(), "t-1"), []);
+
+        let missing_executable = dir.path().join("does-not-exist");
+        assert_eq!(
+            recent_conversation_excerpts(&missing_executable, dir.path(), "t-1"),
+            []
+        );
     }
 
     #[test]
