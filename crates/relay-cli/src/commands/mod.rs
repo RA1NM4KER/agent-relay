@@ -82,9 +82,11 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
             claude_executable,
         ),
         Command::Hook(_) => Err(Error::ProviderUnsupported),
-        Command::Integration(integration) => self::integration::run(&service, &paths, integration),
+        Command::Integration(integration) => {
+            self::integration::run(&service, &paths, integration, cli.json)
+        }
         Command::Watch(watch) => self::watch::run(&service, &paths, watch, cli),
-        Command::Setup(args) => self::setup::run(&service, &paths, args),
+        Command::Setup(args) => self::setup::run(&service, &paths, args, cli.json),
         Command::Claude(args) => self::claude::run(&service, &paths, args, cli.json),
         Command::Codex(args) => self::codex::run(&service, &paths, args, cli.json),
         Command::Status { project_dir } => {
@@ -123,7 +125,7 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
         Command::SwitchRequest(args) => self::switch_request::run(&paths, args),
         Command::Resume(args) => self::resume::run(&service, &paths, args, cli.json),
         Command::Adopt(args) => self::adopt::run(&service, &paths, args),
-        Command::Doctor(args) => self::doctor::run(&service, &paths, args),
+        Command::Doctor(args) => self::doctor::run(&service, &paths, args, cli.json),
         Command::Why(args) => self::why::run(&service, &paths, args, cli.json),
         Command::History(args) => self::history::run(&service, &paths, args),
     }

@@ -16,7 +16,7 @@ use crate::{
     commands::codex::codex_preflight,
     launch::record_writer_process,
     output::CommandOutput,
-    preferences, provider_args, providers, sessions,
+    preferences, progress, provider_args, providers, sessions,
     terminal_session::{ContinuationContext, plan_terminal_for_lease, run_managed_terminal},
     util::{current_unix_ms, project_display_name},
 };
@@ -51,6 +51,7 @@ pub(crate) fn run(
         path: project_dir.clone(),
         source,
     })?;
+    let progress = progress::Progress::start("Finding the conversation to resume…", json_mode);
     let registered = service.list()?;
     let executables = providers::ExecutableOverrides {
         claude: args.claude_executable.clone(),
@@ -62,7 +63,11 @@ pub(crate) fn run(
     // owner, never a silent pick. Sessions that are active in another terminal are shown but never
     // started a second time.
     let store = sessions::open_store(paths, &canonical_project)?;
+    progress.set_label("Checking session liveness…");
     let views = sessions::reconcile(paths, &canonical_project, &registered, &executables)?;
+    // Finished before `choose_session`, which can prompt interactively in a real terminal when
+    // several sessions are resumable — the spinner must never still be animating underneath that.
+    progress.finish();
     let chosen = sessions::choose_session(
         &store,
         &views,

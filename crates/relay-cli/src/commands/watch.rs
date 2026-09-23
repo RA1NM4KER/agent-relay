@@ -22,7 +22,7 @@ use crate::{
     auth::doctor_is_healthy,
     cli::{Cli, WatchArgs, WatchCommand},
     output::{CommandOutput, success},
-    providers, sessions,
+    progress, providers, sessions,
     util::current_unix_ms,
 };
 
@@ -218,6 +218,8 @@ pub(crate) fn run(
                 None => signal_for(source),
             };
 
+            let usage_progress =
+                progress::Progress::start("Checking usage and fallbacks…", cli.json);
             let source_usage =
                 source_usage_signal.detect(&source.config_dir, project_dir, session_id)?;
             let fallback_candidates = fallback_profiles
@@ -241,6 +243,7 @@ pub(crate) fn run(
                     })
                 })
                 .collect::<Result<Vec<_>, Error>>()?;
+            usage_progress.set_label("Evaluating handoff…");
 
             let outcome = watch.evaluate(
                 WatchRequest {
@@ -258,6 +261,7 @@ pub(crate) fn run(
                 },
                 current_unix_ms(),
             )?;
+            usage_progress.finish();
 
             watch_run_output(outcome)
         }

@@ -8,7 +8,7 @@ use relay_core::{Error, ProfileService, RelayPaths};
 use crate::{
     cli::DoctorArgs,
     output::{CommandOutput, success},
-    preferences, providers,
+    preferences, progress, providers,
     readiness::{self, Level},
 };
 
@@ -16,7 +16,9 @@ pub(crate) fn run(
     service: &ProfileService,
     paths: &RelayPaths,
     args: &DoctorArgs,
+    json_mode: bool,
 ) -> Result<CommandOutput, Error> {
+    let progress = progress::Progress::start("Checking provider readiness…", json_mode);
     let registered = service.list()?;
     let preferences = preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
     let executables = providers::ExecutableOverrides {
@@ -31,6 +33,7 @@ pub(crate) fn run(
         &executables,
         args.project_dir.as_deref().or(cwd.as_deref()),
     );
+    progress.finish();
     success("doctor", render_human(&readiness), render_json(&readiness))
 }
 

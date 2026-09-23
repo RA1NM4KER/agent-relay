@@ -18,6 +18,7 @@ use crate::{
         IntegrationCommand, IntegrationTarget,
     },
     output::{CommandOutput, success},
+    progress,
     util::current_unix_ms,
 };
 
@@ -25,6 +26,7 @@ pub(crate) fn run(
     service: &ProfileService,
     paths: &RelayPaths,
     integration: &IntegrationArgs,
+    json_mode: bool,
 ) -> Result<CommandOutput, Error> {
     match &integration.command {
         IntegrationCommand::Codex(codex) => {
@@ -73,7 +75,7 @@ pub(crate) fn run(
                 json!({ "profile": name, "installed": installed, "skill_path": crate::codex_integration::skill_path(&profile.config_dir), "invocation": "$relay" }),
             )
         }
-        IntegrationCommand::Herdr(herdr) => run_herdr_integration(herdr, paths),
+        IntegrationCommand::Herdr(herdr) => run_herdr_integration(herdr, paths, json_mode),
         IntegrationCommand::Claude(claude) => {
             let resolve =
                 |target: &IntegrationTarget| -> Result<(PathBuf, ClaudeConfigMode), Error> {
@@ -110,8 +112,11 @@ pub(crate) fn run(
                     claude_executable,
                 } => {
                     let (config_dir, mode) = resolve(target)?;
+                    let install_progress =
+                        progress::Progress::start("Checking Claude Code version…", json_mode);
                     let capabilities =
                         assess_installed(claude_executable.as_deref(), &config_dir, mode)?;
+                    install_progress.finish();
                     capabilities
                         .usage_integration_ready(*allow_unverified_version)
                         .map_err(Error::IntegrationRefused)?;
@@ -163,9 +168,12 @@ pub(crate) fn run(
                     claude_executable,
                 } => {
                     let (config_dir, mode) = resolve(target)?;
+                    let status_progress =
+                        progress::Progress::start("Checking integration status…", json_mode);
                     let status = integration_status(&config_dir)?;
                     let capabilities =
                         assess_installed(claude_executable.as_deref(), &config_dir, mode).ok();
+                    status_progress.finish();
                     let human = format!(
                         "Config dir: {}\nInstalled: {}\nStopFailure hook: {}\nStatusLine: {}\n\
                          Settings changed since install: {}\nHooks disabled: {}\n\
@@ -233,6 +241,7 @@ pub(crate) fn run(
 fn run_herdr_integration(
     herdr: &HerdrIntegrationArgs,
     paths: &RelayPaths,
+    json_mode: bool,
 ) -> Result<CommandOutput, Error> {
     let refused =
         |error: relay_herdr::HerdrIntegrationError| Error::IntegrationRefused(error.to_string());
@@ -242,11 +251,13 @@ fn run_herdr_integration(
             dry_run,
             herdr_executable,
         } => {
+            let install_progress = progress::Progress::start("Contacting Herdr…", json_mode);
             let client = HerdrCliClient::discover(herdr_executable.as_deref()).map_err(refused)?;
             let resolved_path =
                 herdr_install::resolve_plugin_path(plugin_path.as_deref(), paths.config_root())
                     .map_err(refused)?;
             let plan = herdr_install::plan_install(&client, &resolved_path).map_err(refused)?;
+            install_progress.finish();
             if *dry_run {
                 let human = format!(
                     "Dry run (nothing linked): would link {} (already_linked={})",
@@ -274,8 +285,10 @@ fn run_herdr_integration(
             )
         }
         HerdrIntegrationCommand::Status { herdr_executable } => {
+            let status_progress = progress::Progress::start("Contacting Herdr…", json_mode);
             let client = HerdrCliClient::discover(herdr_executable.as_deref()).map_err(refused)?;
             let report = herdr_install::status(&client).map_err(refused)?;
+            status_progress.finish();
             let human = format!(
                 "Herdr: client {}, server running={} version={} compatible={}\nPlugin: {}",
                 report.herdr_client_version,
@@ -300,8 +313,11 @@ fn run_herdr_integration(
             )
         }
         HerdrIntegrationCommand::Doctor { herdr_executable } => {
+            let doctor_progress =
+                progress::Progress::start("Running Herdr diagnostics…", json_mode);
             let client = HerdrCliClient::discover(herdr_executable.as_deref()).map_err(refused)?;
             let report = herdr_install::doctor(&client).map_err(refused)?;
+            doctor_progress.finish();
             let mut lines = vec![format!(
                 "Herdr integration is {}",
                 if report.healthy {

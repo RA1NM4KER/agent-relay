@@ -17,7 +17,7 @@ use crate::{
     },
     cli::SetupArgs,
     output::{CommandOutput, success},
-    preferences, providers, readiness,
+    preferences, progress, providers, readiness,
     util::{current_unix_ms, prompt_line, prompt_yes_no},
 };
 
@@ -30,21 +30,24 @@ pub(crate) fn run(
     service: &ProfileService,
     paths: &RelayPaths,
     args: &SetupArgs,
+    json_mode: bool,
 ) -> Result<CommandOutput, Error> {
     if args.non_interactive {
-        return run_setup_non_interactive(service, paths, args);
+        return run_setup_non_interactive(service, paths, args, json_mode);
     }
 
     println!("Agent Relay setup\n");
 
     // --- Step 1: environment ---
     println!("Checking your environment...");
+    let env_progress = progress::Progress::start("Checking installed CLIs…", json_mode);
     let claude_executable = args.claude_executable.as_deref();
     let claude_version = ClaudeInspector::discover(claude_executable)
         .and_then(|inspector| inspector.inspect_version());
     let codex_executable = args.codex_executable.as_deref();
     let codex_version = relay_provider_codex::CodexInspector::discover(codex_executable)
         .and_then(|inspector| inspector.inspect_version());
+    env_progress.finish();
     // Either provider is enough on its own; neither is privileged.
     match &claude_version {
         Ok(version) => println!("  Claude Code        \u{2713} ({version})"),
@@ -325,6 +328,8 @@ pub(crate) fn run(
     // Reuses `relay doctor`'s exact readiness model so setup's completion screen and `relay
     // doctor` never give two different answers to "is automatic handoff actually ready".
     let refreshed = service.list()?;
+    let readiness_progress =
+        progress::Progress::start("Confirming automatic handoff readiness…", json_mode);
     let readiness = readiness::assess(
         service,
         &refreshed,
@@ -334,6 +339,7 @@ pub(crate) fn run(
             codex: codex_executable.map(std::path::Path::to_path_buf),
         },
     );
+    readiness_progress.finish();
     let human = render_completion(
         &primary,
         &fallback,
@@ -418,6 +424,7 @@ fn run_setup_non_interactive(
     service: &ProfileService,
     paths: &RelayPaths,
     args: &SetupArgs,
+    json_mode: bool,
 ) -> Result<CommandOutput, Error> {
     let primary = args
         .primary
@@ -480,6 +487,8 @@ fn run_setup_non_interactive(
 
     preferences.save(paths.config_root())?;
     let _ = primary_profile;
+    let readiness_progress =
+        progress::Progress::start("Confirming automatic handoff readiness…", json_mode);
     let readiness = readiness::assess(
         service,
         &registered,
@@ -489,6 +498,7 @@ fn run_setup_non_interactive(
             codex: args.codex_executable.clone(),
         },
     );
+    readiness_progress.finish();
     success(
         "setup",
         format!("Configured. Primary: {primary}"),
