@@ -602,4 +602,44 @@ mod tests {
         assert_eq!(report.ordinary_usage_allowed, None);
         assert!(report.windows.is_empty());
     }
+
+    /// Benchmark, not a correctness test (see `relay-cli/tests/benchmark.rs`'s module doc for the
+    /// same convention): real, timed round trips against the actually-installed `codex` CLI and a
+    /// real, already-authenticated `CODEX_HOME` — the periodic-supervision-poll cost
+    /// `RELAY_CODEX_POLL_SECS` pays every interval, contrasted against `relay-cli/src/auth.rs`'s
+    /// `codex doctor --json`-based readiness check (see `docs/benchmarks.md`: the two Codex checks
+    /// have very different costs and this is why). Read-only, spends no quota. Set
+    /// `RELAY_BENCH_CODEX_HOME` to a real profile's `CODEX_HOME` and `RELAY_BENCH_CODEX_EXE` to the
+    /// `codex` executable (defaults to `codex` on `PATH`) to run it:
+    /// `RELAY_BENCH_CODEX_HOME=~/.config/agent-relay/profiles/<name>/codex cargo test --release -p
+    /// relay-provider-codex --lib app_server::tests::bench_real_read_rate_limits -- --ignored --nocapture`
+    #[test]
+    #[ignore = "benchmark against a real, already-authenticated Codex profile — see the doc comment"]
+    fn bench_real_read_rate_limits() {
+        let Ok(home) = std::env::var("RELAY_BENCH_CODEX_HOME") else {
+            eprintln!("skipped: set RELAY_BENCH_CODEX_HOME to a real, authenticated CODEX_HOME");
+            return;
+        };
+        let exe = std::env::var("RELAY_BENCH_CODEX_EXE").unwrap_or_else(|_| "codex".to_owned());
+        let exe = std::path::PathBuf::from(exe);
+        let home = std::path::PathBuf::from(home);
+
+        const ROUNDS: u32 = 5;
+        let mut millis = Vec::new();
+        for _ in 0..ROUNDS {
+            let start = std::time::Instant::now();
+            let report = read_rate_limits(&exe, &home).expect("real read_rate_limits");
+            millis.push(start.elapsed().as_secs_f64() * 1000.0);
+            assert!(report.account_identified || report.ordinary_usage_allowed.is_some());
+        }
+        millis.sort_by(|a, b| a.partial_cmp(b).expect("no NaNs"));
+        let n = millis.len();
+        eprintln!(
+            "BENCHMARK codex_app_server_read_rate_limits: n={n} min_ms={:.1} median_ms={:.1} max_ms={:.1} all_ms={:?}",
+            millis[0],
+            millis[n / 2],
+            millis[n - 1],
+            millis
+        );
+    }
 }
