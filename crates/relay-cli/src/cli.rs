@@ -122,6 +122,13 @@ pub(crate) enum Command {
     /// one (or pass `--session`). Claude → Claude continues the same session; anything involving
     /// Codex continues from a Relay state bundle in a new session.
     Switch(SwitchArgs),
+    /// Internal: the `$relay switch` Codex skill's own side-channel to the Relay process already
+    /// supervising this session (see `crate::control`) — never invoked directly by a user, and
+    /// never itself performs the switch. Reports whether a verified supervisor exists and, if so,
+    /// its answer; the skill falls back to the manual `relay switch --no-attach` instructions only
+    /// when it does not.
+    #[command(hide = true)]
+    SwitchRequest(SwitchRequestArgs),
     /// Continue a closed (dormant) Relay session of this project on the profile it last ran on
     /// (native resume of the same Claude session / Codex thread). With several you choose, or pass
     /// `--session`; an active session is never started twice.
@@ -224,6 +231,19 @@ pub(crate) struct SwitchArgs {
     /// to its interactive session (never translated between providers).
     #[arg(last = true, allow_hyphen_values = true, value_name = "PROVIDER_ARGS")]
     pub(crate) provider_args: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct SwitchRequestArgs {
+    /// The profile to request a switch to. Unlike `relay switch`, this always names a profile —
+    /// the interactive picker has no meaning over this non-interactive, machine-answered channel.
+    pub(crate) target: ProfileName,
+    #[arg(long = "project", value_name = "PATH")]
+    pub(crate) project_dir: PathBuf,
+    /// The exact Relay session this request is on behalf of (from `RELAY_SESSION_ID`) — cross-
+    /// checked against the live supervisor's own record, never merely trusted.
+    #[arg(long)]
+    pub(crate) session: String,
 }
 
 #[derive(Debug, Args)]

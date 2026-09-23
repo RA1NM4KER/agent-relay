@@ -234,6 +234,16 @@ case "$1" in
   resume)
     [ -f "$CODEX_HOME/resume_sleep" ] && sleep 30
     [ -f "$CODEX_HOME/resume_exit_soon" ] && sleep 0.5
+    if [ -f "$CODEX_HOME/resume_request_switch" ]; then
+      target=$(cat "$CODEX_HOME/resume_request_switch")
+      sleep 2
+      # A genuine descendant of this exact Codex process — the ancestry chain the skill's own
+      # tool-use shell would produce (Codex -> shell -> relay switch-request).
+      "$RELAY_EXECUTABLE" --json --config-root "$RELAY_CONFIG_ROOT" --state-root "$RELAY_STATE_ROOT" \
+        switch-request "$target" --project "$RELAY_PROJECT_DIR" --session "$RELAY_SESSION_ID" \
+        > "$CODEX_HOME/switch_request_result.json" 2>&1
+      sleep 30
+    fi
     exit 0 ;;
   app-server)
     [ -f "$CODEX_HOME/app_server_fail" ] && exit 1
@@ -332,6 +342,17 @@ fn session_count(root: &Path) -> usize {
         .flatten()
         .filter(|entry| entry.path().join("session.json").exists())
         .count()
+}
+
+/// The Relay session's own id (the directory name it lives under) — distinct from
+/// `lease_session`'s *native provider* session/thread id: `RELAY_SESSION_ID`, which
+/// `switch-request` expects, is this one.
+fn relay_session_id(root: &Path) -> String {
+    project_state_dir(root)
+        .file_name()
+        .expect("session dir has a name")
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// The state directory of the project's one Relay session (these tests use one session per
@@ -1263,6 +1284,321 @@ fn a_codex_session_that_exits_exhausted_between_polls_still_hands_off() {
         1
     );
     assert_eq!(ledger["known_exhausted"][0]["profile"], "codex-main");
+}
+
+// ---------------------------------------------------------------------------------------------
+// `$relay switch`'s supervisor side-channel: Codex's own shell tool-use can never be the same
+// pid as the supervised Codex process, so the supervisor verifies it by ancestry instead of
+// exact match (see `control::caller_is_verified`). Claude's in-agent `/relay switch` path is
+// unchanged (exact-pid match, exercised by the existing `adoption.rs` suite); these cover the
+// new Codex path specifically. "failed target preflight leaves source alive" and "no duplicate
+// owner/lease" are properties of the unchanged `HandoffCoordinator` transaction underneath this
+// channel, already covered by `crates/relay-core/tests/handoff_coordinator.rs` and
+// `duplicate_triggers_for_an_exhausted_codex_writer_create_one_handoff` above.
+// ---------------------------------------------------------------------------------------------
+
+/// Spawns a supervised `relay resume` on a healthy Codex writer and returns it still running,
+/// with the fake codex having been told (via `marker`) what to do on `resume`.
+fn spawn_supervised_codex(world: &World, marker: impl FnOnce(&Path)) -> std::process::Child {
+    let root = world.root.path();
+    set_codex_limits(world, "true", 5, 4_000_000_000);
+    marker(&codex_home(world));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(["resume", "--project-dir"])
+        .arg(world.project.path())
+        .arg("--claude-executable")
+        .arg(root.join("bin").join("claude"))
+        .arg("--codex-executable")
+        .arg(root.join("bin").join("codex"))
+        .env("PATH", path_with_fixtures(root))
+        .env("RELAY_CODEX_POLL_SECS", "0")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    scrub(&mut command);
+    let mut child = command.spawn().expect("relay resume");
+    let started = Instant::now();
+    loop {
+        if project_state_dir(root)
+            .join("control/supervisor.json")
+            .exists()
+        {
+            break;
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            panic!(
+                "relay resume exited early with {status:?} before recording a supervisor \
+                 (argv log: {:?})",
+                std::fs::read_to_string(root.join("codex.argv")).unwrap_or_default()
+            );
+        }
+        if started.elapsed() > Duration::from_secs(30) {
+            panic!("timed out waiting for the supervisor to record the Codex process");
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    child
+}
+
+/// The happy path: the fake Codex process's own `resume` case runs `relay switch-request` as a
+/// genuine child of itself — exactly the ancestry shape the skill's shell tool-use produces —
+/// and the supervisor honours it, stopping Codex and following the conversation to Claude.
+#[test]
+fn a_codex_switch_request_via_the_real_supervisor_succeeds_and_the_terminal_follows() {
+    skip_without_process_env_scan!();
+    let world = codex_writer_world();
+    let root = world.root.path();
+    let child = spawn_supervised_codex(&world, |home| {
+        std::fs::write(home.join("resume_request_switch"), "alice").expect("marker");
+    });
+    let started = Instant::now();
+    while lease_owner(root) != "alice" {
+        if started.elapsed() > Duration::from_secs(15) {
+            panic!(
+                "timed out; lease_owner={} switch_request_result={:?}",
+                lease_owner(root),
+                std::fs::read_to_string(codex_home(&world).join("switch_request_result.json"))
+            );
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let output = child.wait_with_output().expect("relay resume finishes");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let log = claude_log(root);
+    assert!(
+        log.iter()
+            .any(|(args, _)| args.starts_with("attach ") || args.starts_with("--resume ")),
+        "the terminal must continue on alice: {log:?}"
+    );
+    let result: Value = serde_json::from_str(
+        &std::fs::read_to_string(codex_home(&world).join("switch_request_result.json"))
+            .expect("switch-request result"),
+    )
+    .expect("switch-request result json");
+    assert_eq!(result["data"]["outcome"], "answered", "{result}");
+    assert_eq!(result["data"]["ok"], true, "{result}");
+}
+
+/// The same channel targeting another Codex profile: not just a Claude destination.
+#[test]
+fn a_codex_switch_request_can_target_another_codex_profile() {
+    skip_without_process_env_scan!();
+    let world = codex_writer_world();
+    let root = world.root.path();
+    login(
+        root,
+        "codex-backup",
+        "codex",
+        "--codex-executable",
+        &root.join("bin").join("codex"),
+    );
+    let child = spawn_supervised_codex(&world, |home| {
+        std::fs::write(home.join("resume_request_switch"), "codex-backup").expect("marker");
+    });
+    wait_for(
+        "the switch-request to move the lease to codex-backup",
+        Duration::from_secs(15),
+        || lease_owner(root) == "codex-backup",
+    );
+    let output = child.wait_with_output().expect("relay resume finishes");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A process this test spawns directly — a *sibling* of the supervised Codex process, not its
+/// descendant — must be refused: it can never prove ancestry from the process the supervisor is
+/// actually following, no matter how correct the session id and target it claims are.
+#[test]
+fn an_unrelated_process_cannot_request_a_switch_on_behalf_of_a_supervised_codex_session() {
+    skip_without_process_env_scan!();
+    let world = codex_writer_world();
+    let root = world.root.path();
+    let mut child = spawn_supervised_codex(&world, |home| {
+        std::fs::write(home.join("resume_sleep"), "").expect("marker");
+    });
+    let session = relay_session_id(root);
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--json")
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(["switch-request", "alice", "--project"])
+        .arg(world.project.path())
+        .arg("--session")
+        .arg(&session);
+    scrub(&mut command);
+    let output = command.output().expect("switch-request");
+    let result = json_stdout(&output);
+    assert_eq!(result["data"]["outcome"], "answered", "{result}");
+    assert_eq!(
+        result["data"]["ok"], false,
+        "an unrelated process must be refused: {result}"
+    );
+    assert!(
+        result["data"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("did not come from the session"),
+        "{result}"
+    );
+    assert_eq!(
+        lease_owner(root),
+        "codex-main",
+        "a refused request must leave ownership untouched"
+    );
+    let _ignored = child.kill();
+    let _ignored = child.wait();
+}
+
+/// A `--session` that doesn't resolve to any real, currently-supervised session directory (a
+/// fabricated or copy-pasted-wrong id) must never be silently misrouted to some *other* session
+/// in the project — it reports plainly that there is nothing supervising it.
+#[test]
+fn a_switch_request_naming_an_unknown_session_reports_no_supervisor() {
+    skip_without_process_env_scan!();
+    let world = codex_writer_world();
+    let root = world.root.path();
+    let mut child = spawn_supervised_codex(&world, |home| {
+        std::fs::write(home.join("resume_sleep"), "").expect("marker");
+    });
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--json")
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(["switch-request", "alice", "--project"])
+        .arg(world.project.path())
+        .arg("--session")
+        .arg("11111111-1111-4111-8111-111111111111");
+    scrub(&mut command);
+    let output = command.output().expect("switch-request");
+    let result = json_stdout(&output);
+    assert_eq!(result["data"]["outcome"], "no_supervisor", "{result}");
+    assert_eq!(lease_owner(root), "codex-main");
+    let _ignored = child.kill();
+    let _ignored = child.wait();
+}
+
+/// A live, genuinely-running supervisor whose own published record has fallen out of sync with
+/// the session's *current* lease (simulated directly here — in practice this is the narrow
+/// window right after ownership moves and before the old record is cleared) is treated as stale
+/// and refused, rather than trusted at face value: the lease is re-read fresh, never cached.
+#[test]
+fn a_switch_request_is_rejected_when_the_supervisor_record_disagrees_with_the_lease() {
+    skip_without_process_env_scan!();
+    let world = codex_writer_world();
+    let root = world.root.path();
+    let mut child = spawn_supervised_codex(&world, |home| {
+        std::fs::write(home.join("resume_sleep"), "").expect("marker");
+    });
+    let session = relay_session_id(root);
+    let supervisor_path = project_state_dir(root).join("control/supervisor.json");
+    let mut record: Value = serde_json::from_str(
+        &std::fs::read_to_string(&supervisor_path).expect("supervisor record"),
+    )
+    .expect("supervisor json");
+    assert_eq!(record["owner_profile"], "codex-main", "{record}");
+    record["owner_profile"] = Value::String("erika".to_owned());
+    std::fs::write(&supervisor_path, serde_json::to_vec(&record).unwrap()).expect("rewrite");
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--json")
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(["switch-request", "alice", "--project"])
+        .arg(world.project.path())
+        .arg("--session")
+        .arg(&session);
+    scrub(&mut command);
+    let output = command.output().expect("switch-request");
+    let result = json_stdout(&output);
+    assert_eq!(result["data"]["outcome"], "stale_session", "{result}");
+    assert_eq!(lease_owner(root), "codex-main");
+    let _ignored = child.kill();
+    let _ignored = child.wait();
+}
+
+/// No live supervisor recorded at all (nothing has ever run `relay resume`/`relay codex` for
+/// this session) — the channel reports that plainly rather than hanging or guessing, which is
+/// exactly what lets the skill fall back to printing the manual command.
+#[test]
+fn a_switch_request_is_rejected_when_no_supervisor_is_recorded() {
+    let world = codex_writer_world();
+    let root = world.root.path();
+    let session = relay_session_id(root);
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--json")
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(["switch-request", "alice", "--project"])
+        .arg(world.project.path())
+        .arg("--session")
+        .arg(&session);
+    scrub(&mut command);
+    let output = command.output().expect("switch-request");
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result = json_stdout(&output);
+    assert_eq!(result["data"]["outcome"], "no_supervisor", "{result}");
+}
+
+/// An invalid target (here: not a registered profile at all — the same "does this target even
+/// exist" validation a preflight failure would also hit) is refused by the supervisor before
+/// anything is stopped: the source keeps running, exactly as this unchanged validation already
+/// guarantees for Claude's identical code path in `serve_control_request`.
+#[test]
+fn a_switch_request_whose_target_fails_preflight_leaves_the_source_alive() {
+    skip_without_process_env_scan!();
+    let world = codex_writer_world();
+    let root = world.root.path();
+    let mut child = spawn_supervised_codex(&world, |home| {
+        std::fs::write(home.join("resume_request_switch"), "no-such-profile").expect("marker");
+    });
+    // The fake Codex process keeps running (it sleeps 30s after firing the request) whether the
+    // switch is accepted or refused; give the refusal a moment to land, then check nothing moved.
+    std::thread::sleep(Duration::from_secs(2));
+    assert_eq!(
+        lease_owner(root),
+        "codex-main",
+        "a refused target must never move ownership"
+    );
+    let result: Value = serde_json::from_str(
+        &std::fs::read_to_string(codex_home(&world).join("switch_request_result.json"))
+            .expect("switch-request result"),
+    )
+    .expect("switch-request result json");
+    assert_eq!(result["data"]["outcome"], "answered", "{result}");
+    assert_eq!(result["data"]["ok"], false, "{result}");
+    let _ignored = child.kill();
+    let _ignored = child.wait();
 }
 
 /// Codex -> another Codex profile (fake providers only): the hierarchy is honoured and the

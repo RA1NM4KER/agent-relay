@@ -421,7 +421,7 @@ fn switch(context: &Context<'_>, args: &[String]) -> String {
         },
         &lease.session_id,
         lease.owner_profile.as_str(),
-        context.session.pid,
+        ProcessIdentity::query(context.session.pid),
     );
     if control.submit(&request).is_err() {
         return "Agent Relay could not reach the process supervising this terminal.".to_owned();

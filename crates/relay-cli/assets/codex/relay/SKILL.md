@@ -27,14 +27,31 @@ not ready, not an execution failure. Status lists multiple conversations: identi
 using `RELAY_SESSION_ID`, not merely the most recently active session. Never invent health,
 trust acceptance, quota, or a successful handoff. Report a sandbox denial as a denial.
 
-For switching, do not run `relay switch` inside the current agent shell: the handoff can stop
-its caller. Show the user a shell-quoted command to run in another terminal, using the actual
-environment values for executable, roots, project and session:
+For switching to a *named* profile, never run `relay switch` inside the current agent shell
+directly: it is not the same process as the one Relay is supervising, and stopping it mid-command
+would be running the switch's own kill target. Instead ask the supervising Relay process itself to
+do it, over the same control channel Claude's in-agent switch already uses:
 
-```text
-<relay> --config-root <config> --state-root <state> switch <requested-profile> --project-dir <project> --session <session> --no-attach
+```sh
+"$RELAY_EXECUTABLE" --json --config-root "$RELAY_CONFIG_ROOT" --state-root "$RELAY_STATE_ROOT" switch-request <requested-profile> --project "$RELAY_PROJECT_DIR" --session "$RELAY_SESSION_ID"
 ```
 
-Omit the profile when the user wants the interactive picker. The supervising Relay terminal
-follows a successful switch. Do not edit trust settings, accept prompts, change permissions,
-install integrations, or mutate Relay state as part of a health/status request.
+This prints a JSON envelope; read `data.outcome`:
+
+- `"answered"` — the supervisor decided. Report `data.message` to the user verbatim (this is the
+  actual accept/refuse result, `data.ok` true or false); if accepted, the supervising terminal
+  reopens the conversation on the new profile in a moment, no further action needed.
+- `"no_supervisor"`, `"stale_session"`, `"unreachable"`, or `"timeout"` — no verified Relay
+  supervisor could be reached (rare: e.g. `relay resume`/`relay codex` was not what started this
+  terminal). Fall back: show the user a shell-quoted command to run in another terminal instead,
+  using the actual environment values for executable, roots, project and session:
+
+  ```text
+  <relay> --config-root <config> --state-root <state> switch <requested-profile> --project-dir <project> --session <session> --no-attach
+  ```
+
+The interactive profile picker (no specific target named) only exists in a real terminal — when
+the user wants to choose rather than name a profile, go straight to the manual fallback above with
+the profile omitted, not `switch-request` (which always requires one). Do not edit trust settings,
+accept prompts, change permissions, install integrations, or mutate Relay state as part of a
+health/status request.

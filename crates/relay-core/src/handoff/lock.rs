@@ -114,6 +114,58 @@ impl ProcessIdentity {
             ProcessQuery::Indeterminate => None,
         }
     }
+
+    /// Whether `self` is `descendant_pid` itself, or appears somewhere in its live parent-process
+    /// chain — walked via `ps -o ppid=`, one hop at a time, bounded so a corrupted or (were one
+    /// possible) cyclic chain can never loop forever. This is the provenance proof a request
+    /// helper process can offer when it cannot be the *same* pid as the process it claims to
+    /// speak for (a shell a supervised agent's own tool-use spawned is never the agent process
+    /// itself) — the strongest thing short of exact identity.
+    ///
+    /// `Some(true)`: `self` is confirmed alive (its own fingerprint still matches) and is an
+    /// ancestor. `Some(false)`: the chain was walked to its root without ever finding `self`.
+    /// `None`: fails closed — `self` could not itself be confirmed alive, some hop's parent could
+    /// not be read, or the walk exceeded [`MAX_ANCESTRY_DEPTH`] without resolving either way. A
+    /// caller must never treat `None` as permission.
+    #[must_use]
+    pub fn is_ancestor_of(&self, descendant_pid: u32) -> Option<bool> {
+        if self.is_still_the_same_process() != Some(true) {
+            return None;
+        }
+        if descendant_pid == self.pid {
+            return Some(true);
+        }
+        let mut current = descendant_pid;
+        for _ in 0..MAX_ANCESTRY_DEPTH {
+            match query_parent(current) {
+                Some(0) => return Some(false),
+                Some(parent) if parent == self.pid => return Some(true),
+                Some(1) => return Some(false),
+                Some(parent) => current = parent,
+                None => return None,
+            }
+        }
+        None
+    }
+}
+
+/// A parent chain longer than this is treated as unresolvable rather than walked further —
+/// ordinary process trees (shell → wrapper → tool-use child) are a handful of hops deep.
+const MAX_ANCESTRY_DEPTH: u32 = 32;
+
+/// The live parent pid of `pid`, or `None` if it cannot be determined (the process is gone, or
+/// `ps` itself could not be run) — ambiguity here must propagate as ambiguity, never as "no
+/// parent found" (which would let [`ProcessIdentity::is_ancestor_of`] misread it as reaching the
+/// chain's root).
+fn query_parent(pid: u32) -> Option<u32> {
+    let output = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "ppid="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
 }
 
 /// Distinguishes "we asked and the OS said no such process" from "we could not ask at all" —
@@ -285,6 +337,70 @@ mod tests {
             start_time_fingerprint: None,
         };
         assert_eq!(identity.is_still_the_same_process(), None);
+    }
+
+    #[test]
+    fn a_process_is_an_ancestor_of_its_own_direct_child() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .expect("spawn child");
+        let identity = ProcessIdentity::current();
+        assert_eq!(identity.is_ancestor_of(child.id()), Some(true));
+        let _ignored = child.kill();
+        let _ignored = child.wait();
+    }
+
+    #[test]
+    fn a_process_is_an_ancestor_of_its_own_grandchild() {
+        // A shell that backgrounds `sleep` and then waits on it never execs into `sleep`
+        // (unlike a single simple command, which some shells optimise into a direct exec), so
+        // this genuinely produces two hops: this test -> sh -> sleep.
+        let pid_file = tempfile::NamedTempFile::new().expect("temp file");
+        let script = format!("sleep 5 & echo $! > {} ; wait", pid_file.path().display());
+        let mut shell = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&script)
+            .spawn()
+            .expect("spawn shell");
+        let grandchild_pid: u32 = (0..40)
+            .find_map(|_| {
+                let text = std::fs::read_to_string(pid_file.path()).ok()?;
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    return None;
+                }
+                trimmed.parse().ok()
+            })
+            .expect("grandchild pid was written");
+        let identity = ProcessIdentity::current();
+        assert_eq!(identity.is_ancestor_of(grandchild_pid), Some(true));
+        let _ignored = shell.kill();
+        let _ignored = shell.wait();
+    }
+
+    #[test]
+    fn an_unrelated_process_is_not_an_ancestor() {
+        let mut unrelated = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .expect("spawn unrelated process");
+        // The unrelated process's own identity, asked whether *it* is an ancestor of *us* —
+        // this process is definitely not a descendant of a sibling it just spawned.
+        let identity = ProcessIdentity::query(unrelated.id());
+        assert_eq!(identity.is_ancestor_of(std::process::id()), Some(false));
+        let _ignored = unrelated.kill();
+        let _ignored = unrelated.wait();
+    }
+
+    #[test]
+    fn an_identity_that_cannot_confirm_itself_alive_never_claims_ancestry() {
+        let bogus = ProcessIdentity {
+            pid: std::process::id(),
+            start_time_fingerprint: Some("definitely-not-the-real-start-time".to_owned()),
+        };
+        assert_eq!(bogus.is_ancestor_of(std::process::id()), None);
     }
 
     #[test]

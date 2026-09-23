@@ -14,7 +14,7 @@ use std::{
 
 use relay_core::{
     ClaudeConfigMode, Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
-    handoff::{LeaseStore, OrchestrationLock},
+    handoff::{LeaseStore, OrchestrationLock, ProcessIdentity},
 };
 use relay_provider_claude::{ClaudeInspector, query_active_sessions};
 use serde_json::Value;
@@ -208,7 +208,7 @@ fn serve_control_request(
     context: &ContinuationContext<'_>,
     control: &control::ControlDir,
     lease_store: &LeaseStore,
-    child_pid: u32,
+    child_identity: Option<ProcessIdentity>,
 ) -> Option<std::thread::JoinHandle<()>> {
     let request = control.take_request()?;
     let refuse = |message: &str| {
@@ -228,7 +228,10 @@ fn serve_control_request(
     {
         return refuse("that request is stale — the conversation has moved on");
     }
-    if child_pid == 0 || request.caller_pid != child_pid {
+    let Some(supervised) = &child_identity else {
+        return refuse("this terminal has not yet recorded a supervised process");
+    };
+    if !control::caller_is_verified(supervised, &request.caller) {
         return refuse("the request did not come from the session this terminal is running");
     }
     let Ok(registered) = context.service.list() else {
@@ -485,7 +488,8 @@ fn run_managed_terminal_inner(
         // One 300ms tick serves both duties, each on its own cadence: the in-agent control
         // channel (a request is answered within a fraction of a second) and, for Codex only, the
         // periodic usage evaluation.
-        let child_pid = std::cell::Cell::new(0_u32);
+        let child_identity: std::cell::RefCell<Option<ProcessIdentity>> =
+            std::cell::RefCell::new(None);
         let mut last_codex_poll = std::time::Instant::now();
         let mut pending_switch: Option<std::thread::JoinHandle<()>> = None;
         let mut tick_action = || {
@@ -503,7 +507,7 @@ fn run_managed_terminal_inner(
                     context,
                     &control,
                     &context.lease_store(),
-                    child_pid.get(),
+                    child_identity.borrow().clone(),
                 );
             }
             if owner_is_codex
@@ -527,7 +531,7 @@ fn run_managed_terminal_inner(
             .flatten()
             .map(|lease| lease.session_id);
         let record_spawn = |pid: u32| {
-            child_pid.set(pid);
+            child_identity.replace(Some(ProcessIdentity::query(pid)));
             match (continuation, on_first_spawn, &continuation_session) {
                 (0, Some(first), _) => first(pid),
                 (1.., _, Some(session)) => {

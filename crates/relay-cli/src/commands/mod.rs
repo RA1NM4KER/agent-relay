@@ -23,6 +23,7 @@ pub(crate) mod session;
 pub(crate) mod setup;
 pub(crate) mod status;
 pub(crate) mod switch;
+pub(crate) mod switch_request;
 pub(crate) mod watch;
 pub(crate) mod why;
 
@@ -119,6 +120,7 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
             },
         ),
         Command::Switch(args) => self::switch::run(&service, &paths, args, cli.json),
+        Command::SwitchRequest(args) => self::switch_request::run(&paths, args),
         Command::Resume(args) => self::resume::run(&service, &paths, args, cli.json),
         Command::Adopt(args) => self::adopt::run(&service, &paths, args),
         Command::Doctor(args) => self::doctor::run(&service, &paths, args),

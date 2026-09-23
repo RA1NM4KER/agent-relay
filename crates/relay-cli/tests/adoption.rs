@@ -1458,13 +1458,13 @@ fn a_control_request_that_does_not_match_the_current_session_is_refused() {
     let lease_probe = base_command(world.root.path(), true, &["--version"]);
     drop(lease_probe);
     let request = serde_json::json!({
-        "version": 1,
+        "version": 2,
         "id": "raw",
         // Not the session the lease names, and not the process the terminal runs.
         "request": {"kind": "switch", "target": "bob"},
         "session_id": OTHER_SESSION,
         "owner_profile": "alice",
-        "caller_pid": 1,
+        "caller": {"pid": 1, "start_time_fingerprint": null},
         "requested_unix_ms": std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
     });

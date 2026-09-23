@@ -12,10 +12,14 @@
 //! - `last.json` — the outcome of the most recent executed request, for `/relay status`.
 //!
 //! No socket, no daemon, no network and no shared credentials. A request is only honoured when it
-//! names the current lease's session and owner profile *and* the process that proved (from Claude's
-//! own registry, see [`crate::live`]) that it is that session; anything stale or mismatched is
-//! refused. The agent process never runs the switch itself — the supervisor does, through the same
-//! `relay switch` transaction, and its terminal follows the new owner.
+//! names the current lease's session and owner profile *and* the process that proved it is that
+//! session — either the exact same pid (Claude: the hook reports its own real pid, taken from
+//! Claude's own registry, see [`crate::live`]) or, where the calling process can never be the same
+//! pid (Codex: `$relay switch`'s helper is a shell/tool-use child the skill spawned, not the Codex
+//! process itself), a live process whose parent chain provably leads back to the exact process this
+//! terminal supervises (see [`caller_is_verified`]). Anything stale, mismatched or merely ambiguous
+//! is refused — this never guesses. The agent process never runs the switch itself — the supervisor
+//! does, through the same `relay switch` transaction, and its terminal follows the new owner.
 
 use std::{
     fs,
@@ -26,7 +30,7 @@ use std::{
 use relay_core::handoff::ProcessIdentity;
 use serde::{Deserialize, Serialize};
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 /// A request older than this is stale and is discarded unanswered.
 pub const REQUEST_MAX_AGE: Duration = Duration::from_secs(60);
 
@@ -53,9 +57,25 @@ pub struct Request {
     /// The lease session and owner the requester believes it belongs to.
     pub session_id: String,
     pub owner_profile: String,
-    /// The Claude process that proved itself as that session.
-    pub caller_pid: u32,
+    /// The process making this request, with its own start-time fingerprint — verified against
+    /// the supervised process by [`caller_is_verified`], never trusted as a bare number.
+    pub caller: ProcessIdentity,
     pub requested_unix_ms: u64,
+}
+
+/// Whether `request.caller` is provably the supervised process this terminal is running, or a
+/// live process descended from it — the two shapes a genuine requester can take (see the module
+/// doc). Fails closed: any ambiguity in confirming either identity, or in the ancestry walk
+/// itself, is refused, never guessed through.
+#[must_use]
+pub fn caller_is_verified(supervised: &ProcessIdentity, caller: &ProcessIdentity) -> bool {
+    if caller.pid == supervised.pid {
+        // The existing, unweakened exact-match path: Claude's hook already reports its own real
+        // pid, so this is only honoured once the supervised identity itself is reconfirmed alive.
+        return supervised.is_still_the_same_process() == Some(true);
+    }
+    caller.is_still_the_same_process() == Some(true)
+        && supervised.is_ancestor_of(caller.pid) == Some(true)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -238,7 +258,7 @@ pub fn request(
     request: RequestKind,
     session_id: &str,
     owner_profile: &str,
-    caller_pid: u32,
+    caller: ProcessIdentity,
 ) -> Request {
     Request {
         version: VERSION,
@@ -246,7 +266,7 @@ pub fn request(
         request,
         session_id: session_id.to_owned(),
         owner_profile: owner_profile.to_owned(),
-        caller_pid,
+        caller,
         requested_unix_ms: now_ms(),
     }
 }
@@ -263,7 +283,10 @@ mod tests {
             },
             "s",
             "erika",
-            7,
+            ProcessIdentity {
+                pid: 7,
+                start_time_fingerprint: None,
+            },
         )
     }
 
@@ -328,5 +351,71 @@ mod tests {
             .write_atomic("supervisor.json", &serde_json::to_vec(&bogus).unwrap())
             .unwrap();
         assert!(control.live_supervisor().is_none());
+    }
+
+    #[test]
+    fn the_exact_same_pid_is_verified_only_once_reconfirmed_alive() {
+        let supervised = ProcessIdentity::current();
+        assert!(caller_is_verified(&supervised, &supervised));
+
+        let stale_supervised = ProcessIdentity {
+            pid: supervised.pid,
+            start_time_fingerprint: Some("not-the-real-start-time".to_owned()),
+        };
+        assert!(
+            !caller_is_verified(&stale_supervised, &supervised),
+            "matching pids alone must not be enough once the supervised identity is unconfirmable"
+        );
+    }
+
+    #[test]
+    fn a_live_descendant_of_the_supervised_process_is_verified() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .expect("spawn child");
+        let supervised = ProcessIdentity::current();
+        let caller = ProcessIdentity::query(child.id());
+        assert!(caller_is_verified(&supervised, &caller));
+        let _ignored = child.kill();
+        let _ignored = child.wait();
+    }
+
+    #[test]
+    fn an_unrelated_live_process_is_never_verified() {
+        // Two siblings, both direct children of this test process: neither is an ancestor of the
+        // other, so "supervised" here must not be able to verify "caller" as its own descendant.
+        let mut supervised_child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .expect("spawn supervised stand-in");
+        let mut caller_child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .expect("spawn caller stand-in");
+        let supervised = ProcessIdentity::query(supervised_child.id());
+        let caller = ProcessIdentity::query(caller_child.id());
+        assert!(!caller_is_verified(&supervised, &caller));
+        let _ignored = supervised_child.kill();
+        let _ignored = supervised_child.wait();
+        let _ignored = caller_child.kill();
+        let _ignored = caller_child.wait();
+    }
+
+    #[test]
+    fn a_caller_with_an_unconfirmable_identity_is_never_verified_even_if_its_pid_is_a_real_descendant()
+     {
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .expect("spawn child");
+        let supervised = ProcessIdentity::current();
+        let caller = ProcessIdentity {
+            pid: child.id(),
+            start_time_fingerprint: Some("not-the-real-start-time".to_owned()),
+        };
+        assert!(!caller_is_verified(&supervised, &caller));
+        let _ignored = child.kill();
+        let _ignored = child.wait();
     }
 }
