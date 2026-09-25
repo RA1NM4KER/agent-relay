@@ -1,11 +1,19 @@
 name: Dogfood build
 
-# Latest GREEN main -> packaged macOS artifacts -> the Homebrew formula.
+# Latest GREEN main -> packaged macOS artifacts -> the rolling `dogfood` GitHub pre-release.
 #
 # Runs only after the normal CI workflow (fmt, clippy, tests on macOS and Linux) has completed
 # SUCCESSFULLY for a push to main. A red CI never packages or publishes anything. Every published
 # build is tied to one exact commit: the artifacts carry the short SHA in their file names and in
-# `relay --version`, and the formula pins their SHA-256 checksums.
+# `relay --version`.
+#
+# OWNERSHIP: this workflow must NEVER write to `Formula/agent-relay.rb` in the tap
+# (RA1NM4KER/homebrew-tap). That file is owned exclusively by tagged releases (see
+# `.github/workflows/release.yml`), published deliberately by a maintainer, not by every green
+# push to `main`. It briefly did write there (pre-v0.4.0) and raced with a real tagged release,
+# silently reverting the public formula back to a dev build the next time anyone pushed to `main`
+# — see the v0.4.0 changelog / release commit history. `scripts/check-no-dogfood-tap-write.sh` (run
+# from CI, see `ci.yml`) fails the build if this file references the tap again.
 
 on:
   workflow_run:
@@ -133,55 +141,9 @@ jobs:
           gh release view dogfood --repo "$REPO" --json assets --jq '.assets|sort_by(.createdAt)|reverse|.[12:]|.[].name' | while read -r name; do
             gh release delete-asset dogfood "$name" --repo "$REPO" -y || true
           done
-      - name: Update the Homebrew tap formula
-        if: env.SKIP != '1'
-        env:
-          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
-        run: |
-          set -euo pipefail
-          test -n "$TAP_DEPLOY_KEY" || { echo "TAP_DEPLOY_KEY secret is not set"; exit 1; }
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/tap_key && chmod 600 ~/.ssh/tap_key
-          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-          git clone --depth 1 git@github.com:RA1NM4KER/homebrew-tap.git tap
-          arm="agent-relay-${VERSION}-${SHORT}-aarch64-apple-darwin.tar.gz"
-          intel="agent-relay-${VERSION}-${SHORT}-x86_64-apple-darwin.tar.gz"
-          arm_sha="$(cut -d' ' -f1 "dist/${arm}.sha256")"
-          intel_sha="$(cut -d' ' -f1 "dist/${intel}.sha256")"
-          base="https://github.com/${REPO}/releases/download/dogfood"
-          cat > tap/Formula/agent-relay.rb <<RUBY
-          class AgentRelay < Formula
-            desc "Keep Claude Code and Codex sessions moving when one account hits its usage limit"
-            homepage "https://github.com/${REPO}"
-            # Tracks the latest GREEN main build. Commit: ${SHA}
-            version "${VERSION}"
-            license "Apache-2.0"
-
-            on_macos do
-              on_arm do
-                url "${base}/${arm}"
-                sha256 "${arm_sha}"
-              end
-              on_intel do
-                url "${base}/${intel}"
-                sha256 "${intel_sha}"
-              end
-            end
-
-            def install
-              bin.install "relay"
-              bin.install "relay-herdr-plugin"
-            end
-
-            test do
-              system "#{bin}/relay", "--version"
-            end
-          end
-          RUBY
-          cd tap
-          git config user.name "agent-relay dogfood bot"
-          git config user.email "noreply@github.com"
-          git add Formula/agent-relay.rb
-          git diff --cached --quiet && { echo "formula unchanged"; exit 0; }
-          git commit -m "agent-relay ${VERSION} (${SHORT})"
-          git push origin HEAD:main
+      # Deliberately no Homebrew tap step here. `Formula/agent-relay.rb` in RA1NM4KER/homebrew-tap
+      # is owned exclusively by tagged releases (release.yml), published by a maintainer, not by
+      # every green push to main. See the OWNERSHIP note at the top of this file — the tap step
+      # used to live here and raced with a real tagged release. The rolling `dogfood` GitHub
+      # pre-release above is how a bleeding-edge build is obtained now: download its artifact
+      # directly, there is no `brew upgrade` path to it.

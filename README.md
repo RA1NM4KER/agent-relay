@@ -22,10 +22,10 @@ macOS-specific). Relay runs entirely standalone — no separate tool required; a
 brew install RA1NM4KER/tap/agent-relay
 ```
 
-This installs the latest green build published to the tap, which tracks `main` and may be ahead of
-the latest tagged release (see [docs/maintainer-dogfood.md](docs/maintainer-dogfood.md) for how
-that works). To run a specific tagged release instead, build it from source (see
-[below](#advanced--manual-setup--building-from-source)), checking out that tag first.
+This installs the latest tagged release. To run the bleeding-edge `main` branch instead, build it
+from source (see [below](#advanced--manual-setup--building-from-source)), or see
+[docs/maintainer-dogfood.md](docs/maintainer-dogfood.md) for the maintainer's own dogfood-build
+workflow.
 
 ## Use
 

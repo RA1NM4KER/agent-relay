@@ -9,6 +9,12 @@ permissions:
   contents: read
 
 jobs:
+  tap-ownership-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-no-dogfood-tap-write.sh
+
   quality:
     strategy:
       fail-fast: false
