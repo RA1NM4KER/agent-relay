@@ -16,7 +16,7 @@ use relay_core::{
 use serde_json::json;
 
 use crate::{
-    auth::doctor_is_healthy,
+    auth::{apply_provider_exhaustion, doctor_is_healthy},
     auto_handoff,
     cli::WhyArgs,
     output::{CommandOutput, success},
@@ -92,8 +92,14 @@ pub(crate) fn run(
             profile.effective_claude_config_mode(),
         )
     };
-    let source_usage =
-        signal_for(source).detect(&source.config_dir, &canonical_project, &session_id)?;
+    let now = current_unix_ms();
+    let source_usage = apply_provider_exhaustion(
+        paths,
+        source,
+        &executables,
+        signal_for(source).detect(&source.config_dir, &canonical_project, &session_id)?,
+        now,
+    )?;
     let source_candidate = ProfileCandidate {
         name: source.name.clone(),
         provider: source.provider,
@@ -107,8 +113,13 @@ pub(crate) fn run(
     let fallback_candidates = fallback_profiles
         .iter()
         .map(|profile| -> Result<ProfileCandidate, Error> {
-            let usage =
-                signal_for(profile).detect(&profile.config_dir, &canonical_project, &session_id)?;
+            let usage = apply_provider_exhaustion(
+                paths,
+                profile,
+                &executables,
+                signal_for(profile).detect(&profile.config_dir, &canonical_project, &session_id)?,
+                now,
+            )?;
             Ok(ProfileCandidate {
                 name: profile.name.clone(),
                 provider: profile.provider,
@@ -123,7 +134,6 @@ pub(crate) fn run(
         .collect::<Result<Vec<_>, Error>>()?;
 
     let ledger = LedgerStore::at_path(session_dir.join("automation_state.json")).load()?;
-    let now = current_unix_ms();
     let automatic_handoff_enabled = preferences.usage_integration_enabled == Some(true);
 
     let explanation = explain(

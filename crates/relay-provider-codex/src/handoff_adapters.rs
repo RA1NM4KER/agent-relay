@@ -435,10 +435,12 @@ fn parse_exec_json_stream(stdout: &[u8]) -> Result<TargetVerification> {
         Some(thread_id) if turn_completed && !turn_failed => Ok(TargetVerification {
             target_session_id: thread_id,
             started_successfully: true,
+            diagnostics: Vec::new(),
         }),
         Some(thread_id) => Ok(TargetVerification {
             target_session_id: thread_id,
             started_successfully: false,
+            diagnostics: Vec::new(),
         }),
         None => Err(Error::MalformedProviderOutput),
     }

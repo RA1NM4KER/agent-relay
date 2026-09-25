@@ -10,6 +10,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -71,6 +72,9 @@ pub enum AutomationDecision {
 }
 
 const LEDGER_VERSION: u32 = 1;
+const PROVIDER_EXHAUSTION_LEDGER_VERSION: u32 = 1;
+const PROVIDER_EXHAUSTION_LOCK_WAIT_MS: u64 = 2_000;
+const PROVIDER_EXHAUSTION_LOCK_POLL_MS: u64 = 25;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -93,6 +97,36 @@ pub struct ExhaustedRecord {
     pub detected_via: String,
 }
 
+/// One fallback profile's reason for not being selected, the same vocabulary `relay why` already
+/// renders (see [`explain_candidate`]), captured at the moment every candidate was rejected.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RejectedCandidate {
+    pub name: ProfileName,
+    pub detail: String,
+}
+
+/// The terminal "nothing to do" fact: the source is exhausted and every configured fallback was
+/// checked and rejected. Recorded so a fire-and-forget poll can tell a later evaluation "this is
+/// the same standoff as last time" without re-printing it, and so `relay why`/history has a
+/// durable trail of *why* automation went quiet instead of just stopping silently.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NoEligibleFallbackRecord {
+    pub observed_unix_ms: u64,
+    pub source: ProfileName,
+    pub rejected: Vec<RejectedCandidate>,
+}
+
+impl NoEligibleFallbackRecord {
+    /// Same standoff as another record, ignoring the observation timestamp: identical source and
+    /// an identical rejection reason for every candidate, in the same order.
+    #[must_use]
+    pub fn same_facts(&self, other: &Self) -> bool {
+        self.source == other.source && self.rejected == other.rejected
+    }
+}
+
 /// Durable, per-project record of recent automatic activity. This is thrash protection, not the
 /// safety-critical path (the orchestration lock and writer lease remain that) — its only job is
 /// to keep a noisy or flapping usage signal from bouncing the project between profiles.
@@ -107,6 +141,12 @@ pub struct AutomationLedger {
     /// the current writer is exhausted. Reset never triggers an automatic fail-back on its own:
     /// handoffs still only start when the current writer is itself exhausted.
     pub known_exhausted: Vec<ExhaustedRecord>,
+    /// The most recent "source exhausted, no eligible fallback" standoff, if the last evaluation
+    /// ended there. `None` once any evaluation reaches a different decision (a handoff, or the
+    /// source recovering), so a later recurrence — even for the exact same reason — is reported
+    /// again rather than staying suppressed forever.
+    #[serde(default)]
+    pub last_no_eligible_fallback: Option<NoEligibleFallbackRecord>,
 }
 
 impl Default for AutomationLedger {
@@ -115,6 +155,7 @@ impl Default for AutomationLedger {
             version: LEDGER_VERSION,
             recent_handoffs: Vec::new(),
             known_exhausted: Vec::new(),
+            last_no_eligible_fallback: None,
         }
     }
 }
@@ -166,6 +207,249 @@ impl AutomationLedger {
 
 pub struct LedgerStore {
     path: PathBuf,
+}
+
+/// A quota-window fact bound to one provider's canonical stable identity. It contains no profile
+/// directory, display label, provider output, or credential material: those are not needed to
+/// decide whether this exact account identity remains in a provider-declared reset window.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderIdentityExhaustionRecord {
+    pub provider: ProviderKind,
+    pub stable_identity: String,
+    pub observed_unix_ms: u64,
+    pub exhausted_until_unix_ms: u64,
+    pub evidence: UsageEvidence,
+    pub detected_via: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderIdentityExhaustionLedger {
+    pub version: u32,
+    pub records: Vec<ProviderIdentityExhaustionRecord>,
+}
+
+impl Default for ProviderIdentityExhaustionLedger {
+    fn default() -> Self {
+        Self {
+            version: PROVIDER_EXHAUSTION_LEDGER_VERSION,
+            records: Vec::new(),
+        }
+    }
+}
+
+impl ProviderIdentityExhaustionLedger {
+    #[must_use]
+    pub fn record_for(
+        &self,
+        provider: ProviderKind,
+        stable_identity: &str,
+        now_unix_ms: u64,
+    ) -> Option<&ProviderIdentityExhaustionRecord> {
+        self.records.iter().find(|record| {
+            record.provider == provider
+                && record.stable_identity == stable_identity
+                && record.exhausted_until_unix_ms > now_unix_ms
+        })
+    }
+
+    #[must_use]
+    pub fn inherited_usage(
+        &self,
+        provider: ProviderKind,
+        stable_identity: &str,
+        now_unix_ms: u64,
+    ) -> Option<UsageObservation> {
+        self.record_for(provider, stable_identity, now_unix_ms)
+            .map(|record| UsageObservation {
+                state: UsageState::ResetPending,
+                evidence: record.evidence,
+                detected_via: "previously proven exhausted for this provider account".to_owned(),
+                observed_unix_ms: now_unix_ms,
+                reset_unix_ms: Some(record.exhausted_until_unix_ms),
+            })
+    }
+
+    fn prune_expired(&mut self, now_unix_ms: u64) {
+        self.records
+            .retain(|record| record.exhausted_until_unix_ms > now_unix_ms);
+    }
+
+    fn record_strong_exhaustion(
+        &mut self,
+        provider: ProviderKind,
+        stable_identity: String,
+        usage: &UsageObservation,
+        now_unix_ms: u64,
+    ) {
+        let Some(exhausted_until_unix_ms) =
+            usage.reset_unix_ms.filter(|reset| *reset > now_unix_ms)
+        else {
+            return;
+        };
+        if usage.state != UsageState::Exhausted || !is_durable_exhaustion_evidence(usage.evidence) {
+            return;
+        }
+        let record = ProviderIdentityExhaustionRecord {
+            provider,
+            stable_identity,
+            observed_unix_ms: usage.observed_unix_ms,
+            exhausted_until_unix_ms,
+            evidence: usage.evidence,
+            detected_via: usage.detected_via.clone(),
+        };
+        if let Some(existing) = self.records.iter_mut().find(|existing| {
+            existing.provider == record.provider
+                && existing.stable_identity == record.stable_identity
+        }) {
+            // Independent observations must never shorten an existing provider-declared window.
+            // A later, longer reset supersedes it; a shorter one is retained only as diagnostics
+            // in the per-session ledger, never as a reason to unblock the account early.
+            if record.exhausted_until_unix_ms > existing.exhausted_until_unix_ms {
+                *existing = record;
+            }
+        } else {
+            self.records.push(record);
+        }
+    }
+}
+
+/// Only observations whose evidence type already means "provider refusal plus quota proof" may
+/// leave the session boundary. Simulated, ambiguous, near-limit, health, and generic session-state
+/// observations must never become account-wide facts.
+///
+/// A real M6 incident first looked like proof that [`UsageEvidence::StopFailureHistoricalCorroborated`]
+/// specifically was unsafe here (a session's own near-limit-then-`StopFailure` correlation durably
+/// recorded an account `RESET_PENDING` for 3 days). Closer investigation with the account's own
+/// statusline history found the opposite: that reading was genuine (a second, independent native
+/// session recorded the identical 100% seven-day usage minutes earlier), and the account was
+/// restored by an out-of-band, mid-window provider-side reset roughly 15 seconds before the
+/// resulting "no eligible fallback" standoff even began. The evidence tier was not the problem —
+/// see [`ProviderIdentityExhaustionStore::record`]'s doc comment for the actual gap this incident
+/// found (nothing ever superseded the stale record once fresh contradicting evidence existed).
+#[must_use]
+pub const fn is_durable_exhaustion_evidence(evidence: UsageEvidence) -> bool {
+    matches!(
+        evidence,
+        UsageEvidence::RateLimitEvent
+            | UsageEvidence::StopFailureCorroborated
+            | UsageEvidence::StopFailureHistoricalCorroborated
+            | UsageEvidence::OutputPatternMatch
+            | UsageEvidence::ProviderRateLimitApi
+    )
+}
+
+/// Atomic, short-lock persistence for provider/account quota facts. The lock protects a
+/// read-modify-write merge across different Relay Sessions; it is never held while inspecting a
+/// provider or running a handoff transaction.
+pub struct ProviderIdentityExhaustionStore {
+    path: PathBuf,
+    lock_path: PathBuf,
+}
+
+impl ProviderIdentityExhaustionStore {
+    #[must_use]
+    pub const fn at_paths(path: PathBuf, lock_path: PathBuf) -> Self {
+        Self { path, lock_path }
+    }
+
+    pub fn load(&self) -> Result<ProviderIdentityExhaustionLedger> {
+        let bytes = match fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(ProviderIdentityExhaustionLedger::default());
+            }
+            Err(source) => {
+                return Err(Error::Io {
+                    path: self.path.clone(),
+                    source,
+                });
+            }
+        };
+        let ledger: ProviderIdentityExhaustionLedger =
+            serde_json::from_slice(&bytes).map_err(|_| Error::CorruptedState)?;
+        if ledger.version != PROVIDER_EXHAUSTION_LEDGER_VERSION {
+            return Err(Error::CorruptedState);
+        }
+        Ok(ledger)
+    }
+
+    pub fn record(
+        &self,
+        provider: ProviderKind,
+        stable_identity: String,
+        usage: &UsageObservation,
+        now_unix_ms: u64,
+    ) -> Result<()> {
+        if usage.state != UsageState::Exhausted
+            || !is_durable_exhaustion_evidence(usage.evidence)
+            || usage.reset_unix_ms.is_none_or(|reset| reset <= now_unix_ms)
+        {
+            return Ok(());
+        }
+        let lock = OrchestrationLock::at_path(self.lock_path.clone());
+        let started = std::time::Instant::now();
+        loop {
+            match lock.try_with(|| {
+                let mut ledger = self.load()?;
+                ledger.prune_expired(now_unix_ms);
+                ledger.record_strong_exhaustion(
+                    provider,
+                    stable_identity.clone(),
+                    usage,
+                    now_unix_ms,
+                );
+                let text = serde_json::to_string_pretty(&ledger)
+                    .map_err(|_| Error::SerializationFailed)?;
+                FsAtomicWriter.write_atomic(&self.path, text.as_bytes())
+            }) {
+                Err(Error::OrchestrationLockHeld)
+                    if started.elapsed().as_millis()
+                        < u128::from(PROVIDER_EXHAUSTION_LOCK_WAIT_MS) =>
+                {
+                    thread::sleep(std::time::Duration::from_millis(
+                        PROVIDER_EXHAUSTION_LOCK_POLL_MS,
+                    ));
+                }
+                other => return other,
+            }
+        }
+    }
+
+    /// Explicit operator clearing is identity-scoped. It never deletes other provider accounts'
+    /// quota facts merely because they happened to be observed from the same project.
+    pub fn clear_identity(
+        &self,
+        provider: ProviderKind,
+        stable_identity: &str,
+        now_unix_ms: u64,
+    ) -> Result<()> {
+        let lock = OrchestrationLock::at_path(self.lock_path.clone());
+        let started = std::time::Instant::now();
+        loop {
+            match lock.try_with(|| {
+                let mut ledger = self.load()?;
+                ledger.prune_expired(now_unix_ms);
+                ledger.records.retain(|record| {
+                    !(record.provider == provider && record.stable_identity == stable_identity)
+                });
+                let text = serde_json::to_string_pretty(&ledger)
+                    .map_err(|_| Error::SerializationFailed)?;
+                FsAtomicWriter.write_atomic(&self.path, text.as_bytes())
+            }) {
+                Err(Error::OrchestrationLockHeld)
+                    if started.elapsed().as_millis()
+                        < u128::from(PROVIDER_EXHAUSTION_LOCK_WAIT_MS) =>
+                {
+                    thread::sleep(std::time::Duration::from_millis(
+                        PROVIDER_EXHAUSTION_LOCK_POLL_MS,
+                    ));
+                }
+                other => return other,
+            }
+        }
+    }
 }
 
 impl LedgerStore {
@@ -487,8 +771,15 @@ pub enum WatchOutcome {
     NoActionNeeded {
         source_usage: UsageState,
     },
+    /// The source is exhausted and every configured fallback was checked and rejected — the
+    /// terminal "nothing to do" outcome, not a transient one to retry into silently. `rejected`
+    /// names each candidate and why; `newly_reported` is `true` only the first time this exact
+    /// standoff (same source, same rejection reasons) is reached in a row, so a caller polling on
+    /// a timer can emit its own trace/user-visible notice once instead of every cycle.
     WaitingForCapacity {
         reason: String,
+        rejected: Vec<RejectedCandidate>,
+        newly_reported: bool,
     },
     CooldownActive {
         retry_after_unix_ms: u64,
@@ -555,7 +846,7 @@ impl WatchCoordinator<'_> {
         };
 
         let mut fallbacks = request.fallbacks.clone();
-        let (decision, eligible_targets) = lock.try_with(|| {
+        let (decision, eligible_targets, no_eligible_fallback) = lock.try_with(|| {
             let mut ledger = ledger_store.load()?;
             for candidate in std::iter::once(&source_candidate).chain(fallbacks.iter()) {
                 if candidate.usage.state.is_blocking() {
@@ -591,6 +882,44 @@ impl WatchCoordinator<'_> {
                 &ledger,
                 &self.policy,
             );
+            // Durably remember (and de-duplicate) the "source exhausted, nothing eligible"
+            // standoff so a caller polling on a timer can report it once instead of every cycle,
+            // and so it survives the fire-and-forget detached process that actually ran this
+            // evaluation. Any other decision clears it: a later recurrence, even for the exact
+            // same reason, is a new standoff worth reporting again, not a continuation of this one.
+            let no_eligible_fallback =
+                if matches!(decision, AutomationDecision::WaitingForCapacity { .. }) {
+                    let rejected: Vec<RejectedCandidate> = fallbacks
+                        .iter()
+                        .map(|candidate| {
+                            let explanation = explain_candidate(
+                                candidate,
+                                &source_candidate,
+                                &ledger,
+                                now_unix_ms,
+                            );
+                            RejectedCandidate {
+                                name: explanation.name,
+                                detail: explanation.detail,
+                            }
+                        })
+                        .collect();
+                    let record = NoEligibleFallbackRecord {
+                        observed_unix_ms: now_unix_ms,
+                        source: source_candidate.name.clone(),
+                        rejected,
+                    };
+                    let newly_reported = ledger
+                        .last_no_eligible_fallback
+                        .as_ref()
+                        .is_none_or(|previous| !previous.same_facts(&record));
+                    let rejected = record.rejected.clone();
+                    ledger.last_no_eligible_fallback = Some(record);
+                    Some((rejected, newly_reported))
+                } else {
+                    ledger.last_no_eligible_fallback = None;
+                    None
+                };
             // Preserve the complete ordered candidate chain from this one decision snapshot.
             // If the first target's provider command fails after the source has already stopped,
             // automation may continue to the next one without re-entering `decide` (the failed
@@ -614,7 +943,7 @@ impl WatchCoordinator<'_> {
             if !request.dry_run {
                 ledger_store.save(&ledger)?;
             }
-            Ok((decision, eligible_targets))
+            Ok((decision, eligible_targets, no_eligible_fallback))
         })?;
 
         match decision {
@@ -622,7 +951,13 @@ impl WatchCoordinator<'_> {
                 source_usage: source_candidate.usage.state,
             }),
             AutomationDecision::WaitingForCapacity { reason } => {
-                Ok(WatchOutcome::WaitingForCapacity { reason })
+                let (rejected, newly_reported) =
+                    no_eligible_fallback.unwrap_or_else(|| (Vec::new(), false));
+                Ok(WatchOutcome::WaitingForCapacity {
+                    reason,
+                    rejected,
+                    newly_reported,
+                })
             }
             AutomationDecision::CooldownActive {
                 retry_after_unix_ms,
@@ -883,12 +1218,16 @@ pub fn now_unix_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{AutomationDecision, AutomationLedger, AutomationPolicy, ProfileCandidate, decide};
+    use super::{
+        AutomationDecision, AutomationLedger, AutomationPolicy, ProfileCandidate,
+        ProviderIdentityExhaustionStore, decide,
+    };
     use crate::{
-        ProfileName,
+        ProfileName, ProviderKind,
         usage::{UsageEvidence, UsageObservation, UsageState},
     };
-    use std::path::PathBuf;
+    use std::{path::PathBuf, thread};
+    use tempfile::tempdir;
 
     fn observation(state: UsageState) -> UsageObservation {
         UsageObservation {
@@ -898,6 +1237,160 @@ mod tests {
             observed_unix_ms: 1_000,
             reset_unix_ms: None,
         }
+    }
+
+    fn strong_exhaustion(reset_unix_ms: u64) -> UsageObservation {
+        UsageObservation {
+            state: UsageState::Exhausted,
+            evidence: UsageEvidence::StopFailureHistoricalCorroborated,
+            detected_via: "test".to_owned(),
+            observed_unix_ms: 100,
+            reset_unix_ms: Some(reset_unix_ms),
+        }
+    }
+
+    #[test]
+    fn provider_identity_ledger_shares_and_preserves_the_longest_reset_window() {
+        let dir = tempdir().expect("temp");
+        let store = ProviderIdentityExhaustionStore::at_paths(
+            dir.path().join("provider_identity_exhaustion.json"),
+            dir.path().join("provider_identity_exhaustion.lock"),
+        );
+        store
+            .record(
+                ProviderKind::Claude,
+                "claude:v1:identity-x".to_owned(),
+                &strong_exhaustion(2_000),
+                1_000,
+            )
+            .expect("record A");
+        // A second session's shorter observation cannot unblock the first proven window.
+        store
+            .record(
+                ProviderKind::Claude,
+                "claude:v1:identity-x".to_owned(),
+                &strong_exhaustion(1_500),
+                1_000,
+            )
+            .expect("record B");
+        // A different identity converges into the same atomic ledger without losing X.
+        store
+            .record(
+                ProviderKind::Claude,
+                "claude:v1:identity-y".to_owned(),
+                &strong_exhaustion(1_700),
+                1_000,
+            )
+            .expect("record Y");
+        let ledger = store.load().expect("load");
+        assert_eq!(ledger.records.len(), 2);
+        assert_eq!(
+            ledger
+                .record_for(ProviderKind::Claude, "claude:v1:identity-x", 1_000)
+                .expect("X")
+                .exhausted_until_unix_ms,
+            2_000
+        );
+        assert!(
+            ledger
+                .record_for(ProviderKind::Claude, "claude:v1:identity-y", 1_000)
+                .is_some()
+        );
+        assert!(
+            ledger
+                .record_for(ProviderKind::Claude, "claude:v1:identity-x", 2_000)
+                .is_none()
+        );
+        assert_eq!(
+            ledger
+                .inherited_usage(ProviderKind::Claude, "claude:v1:identity-x", 1_000)
+                .expect("shared identity inherits")
+                .state,
+            UsageState::ResetPending
+        );
+        assert!(
+            ledger
+                .inherited_usage(ProviderKind::Claude, "claude:v1:identity-z", 1_000)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn provider_identity_ledger_rejects_weak_observations() {
+        let dir = tempdir().expect("temp");
+        let store = ProviderIdentityExhaustionStore::at_paths(
+            dir.path().join("provider_identity_exhaustion.json"),
+            dir.path().join("provider_identity_exhaustion.lock"),
+        );
+        for state in [UsageState::NearLimit, UsageState::Unknown] {
+            let mut usage = strong_exhaustion(2_000);
+            usage.state = state;
+            store
+                .record(
+                    ProviderKind::Claude,
+                    format!("identity-{state:?}"),
+                    &usage,
+                    1_000,
+                )
+                .expect("weak observation ignored");
+        }
+        let mut simulated = strong_exhaustion(2_000);
+        simulated.evidence = UsageEvidence::Simulated;
+        store
+            .record(
+                ProviderKind::Claude,
+                "simulated".to_owned(),
+                &simulated,
+                1_000,
+            )
+            .expect("simulated ignored");
+        assert!(store.load().expect("load").records.is_empty());
+    }
+
+    #[test]
+    fn provider_identity_ledger_merges_concurrent_identity_updates() {
+        let dir = tempdir().expect("temp");
+        let ledger_path = dir.path().join("provider_identity_exhaustion.json");
+        let lock_path = dir.path().join("provider_identity_exhaustion.lock");
+        let first_path = ledger_path.clone();
+        let first_lock = lock_path.clone();
+        let first = thread::spawn(move || {
+            ProviderIdentityExhaustionStore::at_paths(first_path, first_lock).record(
+                ProviderKind::Claude,
+                "identity-a".to_owned(),
+                &strong_exhaustion(2_000),
+                1_000,
+            )
+        });
+        let second = thread::spawn(move || {
+            ProviderIdentityExhaustionStore::at_paths(ledger_path, lock_path).record(
+                ProviderKind::Codex,
+                "identity-b".to_owned(),
+                &UsageObservation {
+                    evidence: UsageEvidence::ProviderRateLimitApi,
+                    ..strong_exhaustion(2_100)
+                },
+                1_000,
+            )
+        });
+        first.join().expect("thread A").expect("record A");
+        second.join().expect("thread B").expect("record B");
+        let store = ProviderIdentityExhaustionStore::at_paths(
+            dir.path().join("provider_identity_exhaustion.json"),
+            dir.path().join("provider_identity_exhaustion.lock"),
+        );
+        let ledger = store.load().expect("load");
+        assert_eq!(ledger.records.len(), 2);
+        assert!(
+            ledger
+                .record_for(ProviderKind::Claude, "identity-a", 1_000)
+                .is_some()
+        );
+        assert!(
+            ledger
+                .record_for(ProviderKind::Codex, "identity-b", 1_000)
+                .is_some()
+        );
     }
 
     fn candidate(name: &str, state: UsageState) -> ProfileCandidate {
@@ -911,6 +1404,26 @@ mod tests {
             usage: observation(state),
             claude_config_mode: None,
         }
+    }
+
+    #[test]
+    fn inherited_account_exhaustion_skips_shared_identity_and_selects_next_identity() {
+        let source = candidate("claude-main", UsageState::ResetPending);
+        let mut same_account = candidate("claude-alias", UsageState::ResetPending);
+        same_account.identity_stable_id = source.identity_stable_id.clone();
+        let next = candidate("codex-main", UsageState::Available);
+        assert_eq!(
+            decide(
+                10_000,
+                &source,
+                &[same_account, next],
+                &AutomationLedger::default(),
+                &AutomationPolicy::default(),
+            ),
+            AutomationDecision::Handoff {
+                target: ProfileName::new("codex-main").expect("name")
+            }
+        );
     }
 
     #[test]

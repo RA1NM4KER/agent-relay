@@ -24,8 +24,8 @@ pub use coordinator::{
     TargetVerification, TransferOutcome, TransferredArtifact,
 };
 pub use journal::{
-    ArtifactRecord, Checkpoint, HandoffJournal, JournalStore, TargetLaunchRecord,
-    VerificationRecord,
+    ArtifactRecord, Checkpoint, HandoffJournal, HandoffStateTimestamp, HandoffTiming, JournalStore,
+    TargetLaunchRecord, VerificationRecord,
 };
 pub use lease::{LeaseStore, WriterLease};
 pub use lock::{OrchestrationLock, ProcessIdentity};

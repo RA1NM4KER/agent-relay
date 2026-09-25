@@ -12,7 +12,7 @@ use relay_core::{
 use serde_json::{Value, json};
 
 use crate::{
-    auth::{doctor_is_healthy, friendly_auth_state, select_profile},
+    auth::{apply_provider_exhaustion, doctor_is_healthy, friendly_auth_state, select_profile},
     auto_handoff,
     cli::{ClaudeArgs, CodexArgs},
     launch::record_writer_process,
@@ -101,14 +101,20 @@ fn route_exhausted_codex_start(
         let Some(candidate) = registered.iter().find(|profile| &profile.name == name) else {
             continue;
         };
-        let candidate_usage = providers::usage_signal_for(
-            candidate.provider,
+        let candidate_usage = apply_provider_exhaustion(
+            paths,
+            candidate,
             executables,
-            false,
-            None,
-            candidate.effective_claude_config_mode(),
-        )
-        .detect(&candidate.config_dir, canonical_project, "")?;
+            providers::usage_signal_for(
+                candidate.provider,
+                executables,
+                false,
+                None,
+                candidate.effective_claude_config_mode(),
+            )
+            .detect(&candidate.config_dir, canonical_project, "")?,
+            current_unix_ms(),
+        )?;
         candidates.push(ProfileCandidate {
             name: candidate.name.clone(),
             provider: candidate.provider,
@@ -287,7 +293,13 @@ fn run_codex_inner(
     // rate-limit read also proves the profile is logged in, so the slow `codex doctor` inspection
     // is only run afterwards, to explain a failure.
     progress.set_label("Checking Codex availability…");
-    let usage = codex_usage_now(profile, &executables, &canonical_project);
+    let usage = apply_provider_exhaustion(
+        paths,
+        profile,
+        &executables,
+        codex_usage_now(profile, &executables, &canonical_project),
+        current_unix_ms(),
+    )?;
     if usage.state.is_blocking() {
         return route_exhausted_codex_start(
             service,

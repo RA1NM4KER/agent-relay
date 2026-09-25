@@ -15,9 +15,12 @@
 //! used by `tests/m4.rs`, extended here to actually stay alive so there is something to sample.
 //! See `docs/benchmarks.md` for the methodology and the last recorded results.
 
-use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use serde_json::Value;
 
@@ -405,6 +408,7 @@ fn handoff_latency() {
     let session_id = NATIVE_SESSION_ID;
 
     let mut durations = Vec::new();
+    let mut phase_timings: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     const ROUNDS: u32 = 5;
     let mut from = "alice";
     let mut to = "bob";
@@ -438,6 +442,15 @@ fn handoff_latency() {
             "handoff {from} -> {to} failed: {}",
             String::from_utf8_lossy(&result.stderr)
         );
+        let journal: Value = serde_json::from_slice(&result.stdout).expect("handoff JSON");
+        for timing in journal["data"]["timings"]
+            .as_array()
+            .expect("journal timings")
+        {
+            let phase = timing["phase"].as_str().expect("timing phase").to_owned();
+            let elapsed_ms = timing["elapsed_ms"].as_u64().expect("timing elapsed");
+            phase_timings.entry(phase).or_default().push(elapsed_ms);
+        }
         durations.push(elapsed);
         std::mem::swap(&mut from, &mut to);
     }
@@ -456,6 +469,15 @@ fn handoff_latency() {
         millis[n - 1],
         millis
     );
+    for (phase, mut samples) in phase_timings {
+        samples.sort_unstable();
+        eprintln!(
+            "BENCHMARK handoff_phase: phase={phase} min_ms={} median_ms={} max_ms={} all_ms={samples:?}",
+            samples[0],
+            samples[samples.len() / 2],
+            samples[samples.len() - 1],
+        );
+    }
 }
 
 /// Sanity check that the fixture itself behaves (idempotent to run alongside the two benchmarks

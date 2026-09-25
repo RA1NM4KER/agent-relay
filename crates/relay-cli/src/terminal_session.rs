@@ -14,7 +14,8 @@ use std::{
 
 use relay_core::{
     ClaudeConfigMode, Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
-    handoff::{LeaseStore, OrchestrationLock, ProcessIdentity},
+    automation::{LedgerStore, NoEligibleFallbackRecord},
+    handoff::{HandoffJournal, HandoffState, LeaseStore, OrchestrationLock, ProcessIdentity},
 };
 use relay_provider_claude::{ClaudeInspector, query_active_sessions};
 use serde_json::Value;
@@ -87,6 +88,12 @@ impl ContinuationContext<'_> {
     /// The Relay Session's own state directory (lease, journals, provider args, control).
     fn state_dir(&self) -> PathBuf {
         self.session.borrow().dir.clone()
+    }
+    /// Project-level diagnostics are shared by the hook and this supervisor; transactional state
+    /// itself remains scoped to [`Self::state_dir`] for this Relay Session.
+    fn project_state_dir(&self) -> PathBuf {
+        self.paths
+            .project_state_dir(&self.session.borrow().project_id)
     }
     fn lease_store(&self) -> LeaseStore {
         self.session.borrow().lease_store()
@@ -175,11 +182,37 @@ pub(crate) fn run_managed_terminal(
             "\nAgent Relay: {} — run `relay resume` to continue.",
             last.message
         );
+    } else if !context.json_mode
+        && let Some(reason) = recent_automatic_handoff_failure(&context.state_dir())
+    {
+        eprintln!(
+            "\n[Relay] Automatic handoff failed: {reason}\nRun `relay resume` after resolving the failed target."
+        );
     }
     if let Some(result) = &context.adopt_result {
         report_adoption_outcome(context, result);
     }
     std::process::exit(code?)
+}
+
+/// The hook's watcher is detached, so its durable journal is the only authoritative failure
+/// explanation the foreground terminal can safely render after the source has exited.
+fn recent_automatic_handoff_failure(state_dir: &Path) -> Option<String> {
+    let handoffs = std::fs::read_dir(state_dir.join("handoffs")).ok()?;
+    let newest = handoffs
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .max_by_key(|entry| entry.metadata().and_then(|meta| meta.modified()).ok())?;
+    let journal: HandoffJournal =
+        serde_json::from_slice(&std::fs::read(newest.path()).ok()?).ok()?;
+    match journal.state {
+        HandoffState::Failed { reason, .. }
+            if current_unix_ms().saturating_sub(journal.updated_unix_ms) < 120_000 =>
+        {
+            Some(reason)
+        }
+        _ => None,
+    }
 }
 
 /// Keeps `supervisor.json` describing the conversation this terminal currently supervises (it
@@ -388,6 +421,47 @@ fn report_adoption_outcome(context: &ContinuationContext<'_>, result: &Path) {
     }
 }
 
+/// Tails this Relay Session's own automation ledger for a durable "source exhausted, no fallback
+/// eligible" standoff and prints it once, the first time it appears. The evaluation itself always
+/// runs detached (a fire-and-forget child of the `StopFailure` hook or the Codex poll, so it never
+/// blocks this terminal) — this is the only place that surfaces its terminal outcome to the user
+/// actually watching the session, rather than leaving it to a log file only `relay why` reads.
+/// Never repeats an unchanged standoff, but reports it again if it recurs after clearing (a
+/// fallback becomes eligible, a handoff happens, then some other cause exhausts everything again).
+fn report_no_eligible_fallback_if_new(
+    context: &ContinuationContext<'_>,
+    last_shown: &mut Option<NoEligibleFallbackRecord>,
+) {
+    if context.json_mode {
+        return;
+    }
+    let Ok(ledger) = LedgerStore::at_path(context.state_dir().join("automation_state.json")).load()
+    else {
+        return;
+    };
+    match &ledger.last_no_eligible_fallback {
+        Some(current)
+            if last_shown
+                .as_ref()
+                .is_none_or(|shown| !current.same_facts(shown)) =>
+        {
+            let breakdown = current
+                .rejected
+                .iter()
+                .map(|candidate| format!("  {}: {}", candidate.name, candidate.detail))
+                .collect::<Vec<_>>()
+                .join("\n");
+            println!(
+                "\n[Relay] {} is exhausted, but no fallback is currently eligible.\n{breakdown}",
+                current.source
+            );
+            *last_shown = Some(current.clone());
+        }
+        Some(_) => {}
+        None => *last_shown = None,
+    }
+}
+
 fn run_managed_terminal_inner(
     context: &ContinuationContext<'_>,
     first: terminal::TerminalCommand,
@@ -400,6 +474,9 @@ fn run_managed_terminal_inner(
     let mut owner = terminal::LeaseOwner(first_owner);
     // Failed in-agent switches whose source session has already been reopened (each once).
     let mut restored_after: Vec<u64> = Vec::new();
+    // The last "no eligible fallback" standoff already shown to the user in this terminal, so a
+    // detached poll that keeps re-confirming the same standoff is reported once, not every cycle.
+    let mut last_shown_no_eligible_fallback: Option<NoEligibleFallbackRecord> = None;
 
     for continuation in 0..=MAX_CONTINUATIONS {
         let _ = std::io::stdout().flush();
@@ -525,6 +602,10 @@ fn run_managed_terminal_inner(
                 last_codex_poll = std::time::Instant::now();
                 poll_action();
             }
+            // Cheap (one small local file read), so it runs every tick rather than only on the
+            // Codex poll cadence: a Claude session's own `StopFailure`-hook-triggered evaluation
+            // reaches the same standoff on its own schedule, outside this loop's control.
+            report_no_eligible_fallback_if_new(context, &mut last_shown_no_eligible_fallback);
         };
         let tick = Some(terminal::Tick {
             every: std::time::Duration::from_millis(300),
@@ -564,6 +645,18 @@ fn run_managed_terminal_inner(
         if let Some(helper) = pending_switch.take() {
             let _ignored = helper.join();
         }
+        if matches!(end, terminal::TerminalEnd::Exited(_))
+            && context.service.list().is_ok_and(|registered| {
+                registered.iter().any(|profile| {
+                    profile.name == owner.0 && profile.provider == ProviderKind::Claude
+                })
+            })
+        {
+            // The automatic watcher is detached from Claude's process group. This is the one
+            // reliable place the foreground supervisor can say when it noticed Claude actually
+            // exit, without writing into Claude's TTY or changing handoff behaviour.
+            auto_handoff::record_supervisor_child_exit(&context.project_state_dir());
+        }
         let code = match end {
             terminal::TerminalEnd::Exited(code) => code,
             terminal::TerminalEnd::OwnerMoved => 0,
@@ -597,7 +690,17 @@ fn run_managed_terminal_inner(
         }
 
         // A handoff stops the source session itself, so the session can end *before* the lease
-        // has moved: wait for any in-flight transaction to settle before deciding.
+        // has moved: wait for any in-flight transaction to settle before deciding. The automatic
+        // Claude hook hands work to a detached watcher whose output is deliberately journaled,
+        // not written into the provider's terminal. Once its lock proves a transaction is active,
+        // keep the foreground terminal visibly alive. We do not claim a usage limit here: the
+        // terminal can prove only that an ownership transaction is in progress, not why it began.
+        let handoff_progress = context.lock().is_currently_held().then(|| {
+            crate::progress::Progress::start(
+                &automatic_handoff_progress_label(&owner.0, None),
+                context.json_mode,
+            )
+        });
         if !terminal::wait_until_settled(
             &context.lock(),
             timing.settle_timeout,
@@ -667,6 +770,15 @@ fn run_managed_terminal_inner(
             return Ok(code);
         }
 
+        if let Some(progress) = &handoff_progress {
+            // The completed lease is the first durable proof of the actual target. Do not show
+            // one earlier merely because it was a candidate when the source stopped.
+            progress.set_label(&automatic_handoff_progress_label(
+                &owner.0,
+                Some(&lease.owner_profile),
+            ));
+        }
+
         // Continue the same conversation on whoever owns it now — resolved from the lease, never
         // from the configured primary.
         let registered = context.service.list()?;
@@ -700,16 +812,29 @@ fn run_managed_terminal_inner(
                 return Ok(code);
             }
         };
-        if !context.json_mode {
-            println!(
-                "\nAgent Relay: the conversation moved from '{}' to '{}' — continuing on '{}'...",
-                owner.0, lease.owner_profile, lease.owner_profile
-            );
+        let continuing = format!("[Relay] Continuing on {}…", lease.owner_profile);
+        if let Some(progress) = &handoff_progress {
+            progress.say(&continuing);
+        } else if !context.json_mode {
+            println!("\n{continuing}");
         }
+        // Explicitly clear before the provider takes over, and also on every error return above.
+        // `Progress` is inert in JSON and non-terminal output modes.
+        drop(handoff_progress);
         owner = terminal::LeaseOwner::of(&lease);
         command = next;
     }
     unreachable!("the loop above always returns")
+}
+
+/// The foreground supervisor knows a source profile, but the target is not trustworthy until the
+/// completed lease says who owns it. Keeping that distinction in one small formatter prevents UI
+/// from presenting an intended fallback as an accomplished handoff.
+fn automatic_handoff_progress_label(source: &ProfileName, target: Option<&ProfileName>) -> String {
+    match target {
+        Some(target) => format!("[Relay] Switching {source} → {target}…"),
+        None => format!("[Relay] Switching {source}…"),
+    }
 }
 
 /// Which real Claude command safely continues this lease. Dogfood-found (M6): `relay resume`
@@ -967,7 +1092,22 @@ mod tests {
         handoff::{LeaseStore, ProcessIdentity, ProjectId, TransactionId, WriterLease},
     };
 
-    use super::publish_supervisor_record;
+    use super::{automatic_handoff_progress_label, publish_supervisor_record};
+
+    #[test]
+    fn automatic_handoff_progress_does_not_invent_a_target_before_the_lease_moves() {
+        let source = ProfileName::new("claude-main").expect("source");
+        let target = ProfileName::new("codex-main").expect("target");
+
+        assert_eq!(
+            automatic_handoff_progress_label(&source, None),
+            "[Relay] Switching claude-main…"
+        );
+        assert_eq!(
+            automatic_handoff_progress_label(&source, Some(&target)),
+            "[Relay] Switching claude-main → codex-main…"
+        );
+    }
 
     #[test]
     fn the_supervisor_record_follows_a_conversation_across_a_same_session_owner_change() {

@@ -10,14 +10,21 @@ For Claude, automatic handoff is **opt-in**: nothing runs unless you install the
 profile. Once installed, the profile's `StopFailure` hook is the trigger: when Claude reports a rate limit
 for the session Relay manages for that project, the hook starts one short-lived, detached
 `relay watch auto` (a hidden command) that runs exactly the evaluation `relay watch run` runs,
-retrying for about two minutes only while it answers "no action needed" (the statusline snapshot
-that corroborates a limit can land just after the failure). It logs each attempt to
+retrying only while it answers "no action needed" (the statusline snapshot that corroborates a
+limit can land just after the failure). It makes a short 300ms/1s/2s corroboration burst, then
+uses the normal 20-second cadence for a bounded roughly two-minute window. It logs each attempt to
 `<state>/projects/<project>/auto-handoff.log`. Relay is not a daemon and never polls; you can still
 invoke `relay watch run` by hand at any time. Only the exact conversation named by an active Relay
 Session's lease can trigger it, and every safety rule below (cooldown, per-window cap,
 known-exhausted ledger, the session's own lock) applies unchanged — **per Relay Session**: two
 sessions on the same profile each run their own evaluation and transaction (they may land on the
 same fallback), and neither can stop or move the other.
+
+For an automatic Claude handoff, that 0600 log also records sanitized wall-clock correlation
+points for the hook receipt, detached watcher spawn, first evaluation, corroboration, and the
+foreground supervisor noticing Claude exit. The handoff journal records the corresponding
+transaction state transitions and monotonic phase durations. These are diagnostics only; they do
+not alter ownership or recovery decisions.
 
 ## One-time setup (per profile)
 
@@ -59,22 +66,86 @@ Only when the writer's profile is `EXHAUSTED`, which requires one of:
 1. a `rate_limit_event` with `status=rejected`, a reset time in the future, not using overage; or
 2. a `StopFailure(rate_limit)` **and** a fresh (≤10 min) statusline with a 5-hour or 7-day window
    at ≥100% whose reset is still in the future; or
-3. (only with `--probe`) a real limit message ("You've hit your session limit …") **plus** the same
+3. a named `StopFailure` for the account's `session` or `weekly` limit and a fresh, same-native-
+   session pre-failure statusline showing the matching 5-hour or 7-day window at ≥90%, with its
+   reset still in the future. This narrowly covers Claude's limit modal, which can redraw the
+   current statusline with null usage windows; or
+4. (only with `--probe`) a real limit message ("You've hit your session limit …") **plus** the same
    statusline corroboration.
 
 `NEAR_LIMIT` (≥90%), `AVAILABLE`, and anything stale or ambiguous (`UNKNOWN`) never trigger a
 handoff. A bare `rate_limit` can be a transient 429 capacity error, so it is never enough alone.
+
+Relay stores at most 20 sanitized statusline snapshots per Claude profile in its integration
+directory. History is bounded and only used when the `StopFailure` and the selected snapshot have
+the same native Claude session ID; a stale snapshot, missing reset, mismatched window, or bare
+`rate_limit` remains `UNKNOWN`.
+
+When strong exhaustion evidence includes a future reset, Relay also records a bounded durable
+provider-account fact under its state root, keyed by provider plus the registered profile's
+currently verified stable identity. A new Relay Session using that exact identity reads it as
+`RESET_PENDING` until the reset passes; another profile/account is unaffected. `relay watch clear`
+clears only project-session automation state. To explicitly clear one durable account record, use
+`relay watch clear --project <path> --provider-account <profile>`.
 Model-specific limits (Opus/Sonnet/Fable) only count when `--workload-model` names that family;
 a fast-mode limit never counts.
 
+### Superseding a stale durable record
+
+The durable record's reset time is Relay's own clock-based estimate, not a live guarantee — a real
+incident found a genuine, correctly-detected exhaustion (rule 3, corroborated by a second
+independent session reading the identical 100% usage minutes earlier) invalidated less than a
+minute later by an out-of-band, mid-window provider-side usage reset the record's own clock had no
+way to know about. With no automatic supersession, Relay kept treating the now-healthy account as
+`RESET_PENDING` for three more days, and — because every configured fallback was exhausted for
+independent, legitimate reasons at the same time — the resulting "no eligible fallback" standoff
+(below) ran silently rather than surfacing the mismatch.
+
+`apply_provider_exhaustion` (`relay-cli`) now checks the *fresh* observation before ever falling
+back to the durable record: if the account is freshly and positively read as `AVAILABLE` or
+`NEAR_LIMIT` (a real statusline snapshot, not merely the absence of a signal), that clears the
+stale durable record for this identity and wins outright, rather than being silently overridden by
+the older stored fact. A fresh reading of `UNKNOWN` (no real signal at all) still defers to the
+durable record exactly as before — the fix is scoped to genuine, positive contradicting evidence,
+never to weakening the fail-closed default when there is nothing new to go on.
+
 The handoff itself is Relay's transactional handoff (the same one `relay switch` uses). The target is the first `--fallback`
 that is healthy, has a different identity, and is not recorded exhausted.
+
+When an interactive terminal is waiting for a detached automatic handoff that has acquired its
+orchestration lock, Relay shows a terminal-safe progress indicator. It names the source while the
+transaction is in progress, names the target only after the completed lease proves ownership, and
+then reports that it is continuing there. `--json` remains silent; detailed phase timings belong
+in the handoff journal rather than normal terminal output (see [benchmarks](benchmarks.md#per-handoff-phase-diagnostics)).
 
 ## Reset windows
 
 An exhaustion records its reset time. Until then that profile is `RESET_PENDING` and is never chosen
 as a target. After the reset it may be a target again, but Relay **never fails back on its own**.
 `relay watch clear --project …` forgets recorded exhaustion.
+
+## No eligible fallback
+
+When the writer is exhausted and every configured fallback is also exhausted, disabled, unhealthy,
+or shares the writer's own identity, `watch run`/`watch auto` reach the terminal
+`waiting_for_capacity` outcome. This is not a transient state to retry into silently: it names why
+each candidate was rejected, and is recorded in the session's own automation ledger so a later,
+unrelated evaluation can tell "the exact same standoff as last time" from "something changed."
+
+The writer keeps the lease; nothing here weakens single-writer ownership or attempts a handoff to
+an ineligible target. A supervised terminal (the Codex periodic poll, or the `StopFailure`-hook
+trigger) prints it once the first time it is reached:
+
+```
+[Relay] codex-main is exhausted, but no fallback is currently eligible.
+  claude-main: known exhausted
+  claude-backup: known exhausted
+```
+
+It does not repeat on every later poll while the same standoff holds, and reports again only if the
+facts actually change (a fallback becomes eligible, then everything is exhausted again for some
+other reason). `--json` output carries the same facts structurally (`rejected`, `newly_reported`)
+instead of the printed line. `relay why` explains the same decision on demand at any time.
 
 ## Recovery
 

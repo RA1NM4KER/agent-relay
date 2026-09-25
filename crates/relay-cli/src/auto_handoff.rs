@@ -31,9 +31,11 @@ use serde_json::Value;
 
 use crate::{cli::Cli, output::CommandOutput, preferences::Preferences};
 
-/// Defaults for the bounded retry: about two minutes of re-evaluation, each a purely local read.
-pub const DEFAULT_ATTEMPTS: u32 = 7;
+/// Defaults for the bounded retry: a short corroboration burst, then about two minutes of
+/// ordinary re-evaluation. The burst never changes the evidence policy.
+pub const DEFAULT_ATTEMPTS: u32 = 10;
 pub const DEFAULT_INTERVAL_MS: u64 = 20_000;
+pub const INITIAL_RETRY_DELAYS_MS: &[u64] = &[300, 1_000, 2_000];
 
 /// Diagnostic overrides (tests, or an operator who wants a longer/shorter window).
 pub const ATTEMPTS_ENV: &str = "RELAY_AUTO_WATCH_ATTEMPTS";
@@ -48,6 +50,16 @@ const LOG_TRUNCATE_ABOVE_BYTES: u64 = 64 * 1024;
 pub struct AutoWatchPlan {
     pub args: Vec<OsString>,
     pub log_path: PathBuf,
+    /// Sanitized wall-clock correlation point recorded by the StopFailure hook itself.
+    pub triggered_unix_ms: u64,
+    pub trigger: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct WatchSchedule {
+    attempts: u64,
+    interval_ms: u64,
+    trigger: &'static str,
 }
 
 /// Decides whether a `StopFailure` hook event should start an automatic-handoff evaluation, and
@@ -107,10 +119,11 @@ pub fn plan(
         &fallbacks,
         project,
         session_id,
-        (
-            env_number(ATTEMPTS_ENV, u64::from(DEFAULT_ATTEMPTS)),
-            env_number(INTERVAL_MS_ENV, DEFAULT_INTERVAL_MS),
-        ),
+        WatchSchedule {
+            attempts: env_number(ATTEMPTS_ENV, u64::from(DEFAULT_ATTEMPTS)),
+            interval_ms: env_number(INTERVAL_MS_ENV, DEFAULT_INTERVAL_MS),
+            trigger: "stop_failure_received",
+        },
         project_state_dir.join(LOG_FILE_NAME),
     ))
 }
@@ -144,7 +157,11 @@ pub fn plan_poll(
         &fallbacks,
         project.to_path_buf(),
         &lease.session_id,
-        (1, 0),
+        WatchSchedule {
+            attempts: 1,
+            interval_ms: 0,
+            trigger: "codex_poll",
+        },
         paths.project_state_dir(&project_id).join(LOG_FILE_NAME),
     ))
 }
@@ -209,7 +226,7 @@ fn assemble(
     fallbacks: &[&ProfileName],
     project: PathBuf,
     session_id: &str,
-    (attempts, interval_ms): (u64, u64),
+    schedule: WatchSchedule,
     log_path: PathBuf,
 ) -> AutoWatchPlan {
     let mut args: Vec<OsString> = vec![
@@ -232,11 +249,16 @@ fn assemble(
         "--session".into(),
         session_id.into(),
         "--attempts".into(),
-        attempts.to_string().into(),
+        schedule.attempts.to_string().into(),
         "--interval-ms".into(),
-        interval_ms.to_string().into(),
+        schedule.interval_ms.to_string().into(),
     ]);
-    AutoWatchPlan { args, log_path }
+    AutoWatchPlan {
+        args,
+        log_path,
+        triggered_unix_ms: crate::util::current_unix_ms(),
+        trigger: schedule.trigger,
+    }
 }
 
 /// One global ordered hierarchy (`primary > fallbacks…`), reconsidered in full at every
@@ -283,10 +305,13 @@ pub fn spawn_detached(plan: &AutoWatchPlan) {
     let Ok(program) = std::env::current_exe() else {
         return;
     };
-    let Some(log) = open_log(&plan.log_path) else {
+    let Some(log) = open_log(&plan.log_path, plan.triggered_unix_ms, plan.trigger) else {
         return;
     };
     let Ok(log_err) = log.try_clone() else {
+        return;
+    };
+    let Ok(mut trace) = log.try_clone() else {
         return;
     };
     let mut command = Command::new(program);
@@ -295,6 +320,7 @@ pub fn spawn_detached(plan: &AutoWatchPlan) {
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_err))
+        .env("RELAY_AUTO_HANDOFF_TRACE", "1")
         .env_remove("CLAUDE_CONFIG_DIR");
     for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
         command.env_remove(variable);
@@ -304,10 +330,38 @@ pub fn spawn_detached(plan: &AutoWatchPlan) {
         use std::os::unix::process::CommandExt as _;
         command.process_group(0);
     }
-    let _ignored = command.spawn();
+    if command.spawn().is_ok() {
+        use std::io::Write as _;
+        let _ignored = writeln!(
+            trace,
+            "[trace unix_ms={}] auto_watch_spawned",
+            crate::util::current_unix_ms()
+        );
+    }
 }
 
-fn open_log(path: &Path) -> Option<std::fs::File> {
+/// Records when the foreground supervisor observes its Claude child exit. The detached watcher
+/// and the supervisor are different processes, so this is intentionally a sanitized wall-clock
+/// correlation point rather than a state-machine input. Never create a log for an ordinary exit:
+/// only append if this session already has an automatic-handoff trace.
+pub fn record_supervisor_child_exit(state_dir: &Path) {
+    use std::io::Write as _;
+
+    let path = state_dir.join(LOG_FILE_NAME);
+    if !path.is_file() {
+        return;
+    }
+    let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(path) else {
+        return;
+    };
+    let _ignored = writeln!(
+        file,
+        "[trace unix_ms={}] claude_child_exit_observed_by_supervisor",
+        crate::util::current_unix_ms()
+    );
+}
+
+fn open_log(path: &Path, triggered_unix_ms: u64, trigger: &str) -> Option<std::fs::File> {
     use std::io::Write as _;
     let too_large = std::fs::metadata(path).is_ok_and(|meta| meta.len() > LOG_TRUNCATE_ABOVE_BYTES);
     let mut options = std::fs::OpenOptions::new();
@@ -322,6 +376,7 @@ fn open_log(path: &Path) -> Option<std::fs::File> {
     }
     let mut file = options.open(path).ok()?;
     let _ignored = writeln!(file, "--- automatic handoff evaluation triggered ---");
+    let _ignored = writeln!(file, "[trace unix_ms={triggered_unix_ms}] {trigger}");
     Some(file)
 }
 
@@ -365,5 +420,18 @@ mod tests {
             candidate.as_str() != "megan"
         });
         assert_eq!(listed, [&name("erika")]);
+    }
+
+    #[test]
+    fn supervisor_exit_trace_only_appends_to_an_existing_automatic_handoff_log() {
+        let root = tempfile::tempdir().expect("temp dir");
+        record_supervisor_child_exit(root.path());
+        assert!(!root.path().join(LOG_FILE_NAME).exists());
+
+        let log = root.path().join(LOG_FILE_NAME);
+        std::fs::write(&log, "existing trace\n").expect("log");
+        record_supervisor_child_exit(root.path());
+        let contents = std::fs::read_to_string(log).expect("read log");
+        assert!(contents.contains("claude_child_exit_observed_by_supervisor"));
     }
 }

@@ -60,6 +60,10 @@ pub enum UsageEvidence {
     /// A `StopFailure(rate_limit)` hook record corroborated by a fresh statusline snapshot that
     /// shows the relevant window at or above 100% with a reset time still in the future.
     StopFailureCorroborated,
+    /// A named account-wide Claude `StopFailure(rate_limit)` corroborated by a recent statusline
+    /// snapshot from the same native session. This covers Claude's limit modal, which can replace
+    /// the current `rate_limits` object with null windows before Relay evaluates the failure.
+    StopFailureHistoricalCorroborated,
     /// A fresh statusline `rate_limits` snapshot on its own (used for `AVAILABLE`/`NEAR_LIMIT`
     /// readings, never sufficient by itself for `EXHAUSTED`).
     StatusLine,

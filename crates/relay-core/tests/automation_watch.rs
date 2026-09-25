@@ -100,6 +100,7 @@ impl TargetLauncher for Ports {
         Ok(TargetVerification {
             target_session_id: session_id,
             started_successfully: true,
+            diagnostics: Vec::new(),
         })
     }
 }
@@ -356,6 +357,121 @@ fn no_eligible_target_waits_for_capacity_without_touching_anything() {
         .expect("evaluate");
     assert!(matches!(outcome, WatchOutcome::WaitingForCapacity { .. }));
     assert_eq!(fixture.total_calls(), 0);
+}
+
+/// M6 regression: the real "source exhausted, every fallback exhausted" standoff must be reported
+/// once, not repeated on every later, unchanged evaluation (the real incident found this exact
+/// decision made silently on every ~2-minute Codex poll for over 20 minutes with no distinct trace
+/// and no way for `relay why`/history to show it after the fact).
+#[test]
+fn no_eligible_fallback_is_reported_once_then_suppressed_until_the_facts_change() {
+    let fixture = Fixture::new();
+    let exhausted_megan = candidate("megan", UsageState::Exhausted, Some(9_000_000));
+
+    let first = fixture
+        .evaluate(
+            "erika",
+            observation(UsageState::Exhausted, None),
+            vec![exhausted_megan.clone()],
+            false,
+            no_cooldown(10),
+            10_000,
+        )
+        .expect("evaluate");
+    let WatchOutcome::WaitingForCapacity {
+        rejected: first_rejected,
+        newly_reported: first_new,
+        ..
+    } = first
+    else {
+        panic!("expected waiting_for_capacity, got {first:?}");
+    };
+    assert!(
+        first_new,
+        "the first time a standoff is reached it must be reported"
+    );
+    assert_eq!(first_rejected.len(), 1);
+    assert_eq!(first_rejected[0].name, name("megan"));
+
+    // A second evaluation moments later, same source, same still-exhausted fallback: identical
+    // standoff, must not be reported again.
+    let second = fixture
+        .evaluate(
+            "erika",
+            observation(UsageState::Exhausted, None),
+            vec![exhausted_megan],
+            false,
+            no_cooldown(10),
+            11_000,
+        )
+        .expect("evaluate");
+    let WatchOutcome::WaitingForCapacity {
+        newly_reported: second_new,
+        ..
+    } = second
+    else {
+        panic!("expected waiting_for_capacity, got {second:?}");
+    };
+    assert!(
+        !second_new,
+        "an unchanged standoff must not be reported a second time"
+    );
+
+    let ledger = LedgerStore::at_path(fixture.state_dir().join("automation_state.json"))
+        .load()
+        .expect("ledger");
+    assert!(
+        ledger.last_no_eligible_fallback.is_some(),
+        "the standoff must be durably recorded so relay-why/history can explain it later"
+    );
+}
+
+/// Once a fallback recovers and a handoff actually proceeds, the standoff is resolved: no
+/// leftover suppression state may block a *later, distinct* standoff from being reported again.
+#[test]
+fn no_eligible_fallback_is_cleared_once_a_fallback_becomes_eligible() {
+    let fixture = Fixture::new();
+    fixture
+        .evaluate(
+            "erika",
+            observation(UsageState::Exhausted, None),
+            vec![candidate("megan", UsageState::Exhausted, Some(9_000_000))],
+            false,
+            no_cooldown(10),
+            10_000,
+        )
+        .expect("evaluate");
+    assert!(
+        LedgerStore::at_path(fixture.state_dir().join("automation_state.json"))
+            .load()
+            .expect("ledger")
+            .last_no_eligible_fallback
+            .is_some()
+    );
+
+    // megan's reset has passed and she now reports available: the very next evaluation hands off
+    // normally, with no leftover suppression state in the way.
+    let outcome = fixture
+        .evaluate(
+            "erika",
+            observation(UsageState::Exhausted, None),
+            vec![candidate("megan", UsageState::Available, None)],
+            false,
+            no_cooldown(10),
+            9_500_000,
+        )
+        .expect("evaluate");
+    assert!(
+        matches!(outcome, WatchOutcome::Handoff { ref target, .. } if *target == name("megan"))
+    );
+
+    let ledger = LedgerStore::at_path(fixture.state_dir().join("automation_state.json"))
+        .load()
+        .expect("ledger");
+    assert!(
+        ledger.last_no_eligible_fallback.is_none(),
+        "a resolved standoff must not linger and suppress a later, distinct one"
+    );
 }
 
 #[test]

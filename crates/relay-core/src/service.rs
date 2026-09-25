@@ -258,7 +258,10 @@ impl<W: AtomicWrite> ProfileService<W> {
             .ok_or_else(|| Error::ProfileNotFound(name.to_string()))
     }
 
-    fn validate_profile_directory(&self, profile: &Profile) -> Result<()> {
+    /// Re-validates the registered profile directory before a safety-sensitive operation. This is
+    /// intentionally local-only (ownership, permissions, and symlink boundaries); it performs no
+    /// provider inspection.
+    pub fn validate_profile_directory(&self, profile: &Profile) -> Result<()> {
         let directories = ProfileDirectory::new(self.paths.profiles_root())?;
         match profile.origin {
             ProfileOrigin::Created => directories.validate_managed_existing(&profile.config_dir),

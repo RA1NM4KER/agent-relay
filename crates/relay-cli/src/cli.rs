@@ -618,12 +618,17 @@ pub(crate) enum WatchCommand {
         #[arg(long = "project", value_name = "PATH")]
         project_dir: PathBuf,
     },
-    /// Explicitly clear a project's automation ledger (cooldown, handoff counters, and the
-    /// known-exhausted list). Automatic fail-back never happens on its own; this is the operator
-    /// action that un-blocks a profile the ledger has marked exhausted.
+    /// Explicitly clear a project's session automation ledgers (cooldown, handoff counters, and
+    /// known-exhausted lists). This does not clear durable provider-account exhaustion unless
+    /// `--provider-account` names the exact currently verified profile identity.
     Clear {
         #[arg(long = "project", value_name = "PATH")]
         project_dir: PathBuf,
+        /// Also clear the durable exhaustion record for this profile's currently verified
+        /// provider identity. Without this flag, only per-session project automation state is
+        /// cleared.
+        #[arg(long = "provider-account", value_name = "PROFILE")]
+        provider_account: Option<ProfileName>,
     },
 }
 

@@ -67,6 +67,18 @@ impl RelayPaths {
         self.state_root.join("projects")
     }
 
+    /// Provider-account exhaustion is intentionally outside project/session state: quota belongs
+    /// to the authenticated provider identity, while writer ownership remains session-local.
+    #[must_use]
+    pub fn provider_identity_exhaustion_file(&self) -> PathBuf {
+        self.state_root.join("provider_identity_exhaustion.json")
+    }
+
+    #[must_use]
+    pub fn provider_identity_exhaustion_lock_file(&self) -> PathBuf {
+        self.state_root.join("provider_identity_exhaustion.lock")
+    }
+
     #[must_use]
     pub fn project_state_dir(&self, project_id: &crate::handoff::ProjectId) -> PathBuf {
         self.projects_state_root().join(project_id.as_str())

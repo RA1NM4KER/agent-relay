@@ -10,6 +10,8 @@ use relay_core::{
     AddProfileRequest, AuthenticationState, ClaudeConfigMode, Error, IdentityMetadata, Profile,
     ProfileDirectory, ProfileName, ProfileService, ProfileSetupMode, Provider, ProviderKind,
     RelayPaths,
+    automation::ProviderIdentityExhaustionStore,
+    usage::{UsageEvidence, UsageObservation, UsageState},
 };
 use relay_provider_claude::{
     AUTHENTICATION_OVERRIDE_VARIABLES, ClaudeAdoptionProvider, ClaudeIdentityPin,
@@ -232,6 +234,123 @@ pub(crate) fn doctor_is_healthy(
     Ok(service.doctor(&profile.name, provider.as_ref())?.healthy)
 }
 
+/// Minimum current eligibility proof for an automatic fallback. Human-facing `relay doctor`
+/// remains comprehensive; this avoids repeating Codex's expensive `doctor --json` after the
+/// immediately preceding supported app-server usage read has already authenticated and bound the
+/// exact isolated home.
+pub(crate) fn fallback_is_healthy(
+    service: &ProfileService,
+    profile: &Profile,
+    executables: &providers::ExecutableOverrides,
+    usage: &UsageObservation,
+) -> Result<bool, Error> {
+    if profile.provider != ProviderKind::Codex {
+        return doctor_is_healthy(service, profile, executables);
+    }
+
+    service.validate_profile_directory(profile)?;
+    let identity_matches = relay_provider_codex::config_dir_stable_id(&profile.config_dir)
+        == profile.expected_identity.stable_id;
+    let app_server_authenticated = codex_usage_proves_current_auth(usage);
+    Ok(identity_matches && app_server_authenticated)
+}
+
+fn codex_usage_proves_current_auth(usage: &UsageObservation) -> bool {
+    usage.evidence == UsageEvidence::ProviderRateLimitApi
+}
+
+/// Resolves the identity now exposed by the provider, then requires it to equal Relay's registered
+/// pin. A provider-account exhaustion record is never applied merely because a profile name still
+/// points at an old config directory after the operator has changed accounts.
+pub(crate) fn verified_current_stable_identity(
+    profile: &Profile,
+    executables: &providers::ExecutableOverrides,
+) -> Result<Option<String>, Error> {
+    let observed = match profile.provider {
+        ProviderKind::Claude => {
+            let inspector = ClaudeInspector::discover(executables.claude.as_deref())?;
+            let report = inspector.inspect(
+                &profile.config_dir,
+                profile.effective_claude_config_mode(),
+                inspect_environment(&profile.config_dir),
+            )?;
+            report
+                .authenticated
+                .then(|| report.identity_pin.map(|pin| pin.stable_id()))
+                .flatten()
+        }
+        // Codex's canonical registered identity is intentionally the isolated CODEX_HOME
+        // fingerprint: its supported APIs expose no account identifier. Recomputing it is a
+        // local validation of that exact isolation boundary, not a provider/auth inspection.
+        ProviderKind::Codex => Some(relay_provider_codex::config_dir_stable_id(
+            &profile.config_dir,
+        )),
+        ProviderKind::Fake => Some(profile.expected_identity.stable_id.clone()),
+    };
+    Ok(observed.filter(|stable_id| stable_id == &profile.expected_identity.stable_id))
+}
+
+/// Records a newly proven provider-account exhaustion, then applies an unexpired matching record
+/// as `RESET_PENDING`. An authoritative future reset is never erased by the mere *absence* of a
+/// fresh signal (`UNKNOWN` still defers to it exactly as before) — but a real M6 incident found a
+/// genuinely-detected exhaustion invalidated less than a minute later by an out-of-band, mid-window
+/// provider-side usage reset the record's own clock had no way to know about; with nothing to
+/// supersede it, Relay kept refusing a healthy account as `RESET_PENDING` for three more days. A
+/// *positive* fresh reading — the account actually observed `AVAILABLE`/`NEAR_LIMIT` right now, not
+/// just unread — is real, current, contradicting evidence and clears the stale record outright
+/// rather than being silently overridden by the older stored fact.
+pub(crate) fn apply_provider_exhaustion(
+    paths: &RelayPaths,
+    profile: &Profile,
+    executables: &providers::ExecutableOverrides,
+    usage: UsageObservation,
+    now_unix_ms: u64,
+) -> Result<UsageObservation, Error> {
+    let Some(stable_identity) = verified_current_stable_identity(profile, executables)? else {
+        return Ok(usage);
+    };
+    let store = ProviderIdentityExhaustionStore::at_paths(
+        paths.provider_identity_exhaustion_file(),
+        paths.provider_identity_exhaustion_lock_file(),
+    );
+    store.record(
+        profile.provider,
+        stable_identity.clone(),
+        &usage,
+        now_unix_ms,
+    )?;
+    if matches!(usage.state, UsageState::Available | UsageState::NearLimit) {
+        store.clear_identity(profile.provider, &stable_identity, now_unix_ms)?;
+        return Ok(usage);
+    }
+    let ledger = store.load()?;
+    if let Some(inherited) = ledger.inherited_usage(profile.provider, &stable_identity, now_unix_ms)
+    {
+        return Ok(inherited);
+    }
+    Ok(usage)
+}
+
+/// Read-only pre-launch check for a previously proven provider-account reset window. It does not
+/// contact a usage API or create a provider process; identity resolution remains strict.
+pub(crate) fn inherited_provider_exhaustion(
+    paths: &RelayPaths,
+    profile: &Profile,
+    executables: &providers::ExecutableOverrides,
+    now_unix_ms: u64,
+) -> Result<Option<UsageObservation>, Error> {
+    let Some(stable_identity) = verified_current_stable_identity(profile, executables)? else {
+        return Ok(None);
+    };
+    let store = ProviderIdentityExhaustionStore::at_paths(
+        paths.provider_identity_exhaustion_file(),
+        paths.provider_identity_exhaustion_lock_file(),
+    );
+    Ok(store
+        .load()?
+        .inherited_usage(profile.provider, &stable_identity, now_unix_ms))
+}
+
 /// Friendly per-profile authentication summary for `relay profiles`/`relay status`. Never fails
 /// the whole listing on one profile's inspection error — reports it as "unreachable" instead, so
 /// one broken profile does not hide every other one.
@@ -426,8 +545,167 @@ pub(crate) fn provider_for_profile(
 
 #[cfg(test)]
 mod tests {
-    use super::choose_provider;
-    use relay_core::{Error, ProviderKind};
+    use super::{apply_provider_exhaustion, choose_provider, codex_usage_proves_current_auth};
+    use crate::providers;
+    use std::path::PathBuf;
+
+    use relay_core::{
+        Availability, AvailabilityObservation, Error, IdentityMetadata, Profile, ProfileName,
+        ProfileOrigin, ProviderKind, RelayPaths,
+        automation::ProviderIdentityExhaustionStore,
+        usage::{UsageEvidence, UsageObservation, UsageState},
+    };
+    use tempfile::tempdir;
+
+    fn fake_profile(name: &str, stable_id: &str, config_dir: PathBuf) -> Profile {
+        Profile {
+            name: ProfileName::new(name).expect("name"),
+            provider: ProviderKind::Fake,
+            config_dir,
+            enabled: true,
+            origin: ProfileOrigin::Created,
+            expected_identity: IdentityMetadata {
+                stable_id: stable_id.to_owned(),
+                display_label: None,
+            },
+            last_availability: AvailabilityObservation {
+                state: Availability::Unknown,
+                source: "test".to_owned(),
+                observed_unix_ms: 0,
+                reset_unix_ms: None,
+            },
+            claude_config_mode: None,
+        }
+    }
+
+    fn observation(state: UsageState, reset_unix_ms: Option<u64>) -> UsageObservation {
+        UsageObservation {
+            state,
+            evidence: UsageEvidence::StopFailureHistoricalCorroborated,
+            detected_via: "test".to_owned(),
+            observed_unix_ms: 1_000,
+            reset_unix_ms,
+        }
+    }
+
+    /// M6 regression: a genuinely-detected exhaustion, superseded less than a minute later by an
+    /// out-of-band provider-side usage reset the durable record's own clock could not know about,
+    /// left a real, then-healthy account durably `RESET_PENDING` for three more days with no way to
+    /// notice. A fresh, positive `AVAILABLE` reading for the same identity must clear that stale
+    /// record outright rather than being silently overridden by it.
+    #[test]
+    fn a_fresh_available_reading_supersedes_a_stale_durable_exhaustion() {
+        let root = tempdir().expect("tempdir");
+        let paths =
+            RelayPaths::new(root.path().join("config"), root.path().join("state")).expect("paths");
+        let profile = fake_profile("claude-main", "fake:megan", root.path().join("profile-dir"));
+        let executables = providers::ExecutableOverrides::default();
+
+        let exhausted = apply_provider_exhaustion(
+            &paths,
+            &profile,
+            &executables,
+            observation(UsageState::Exhausted, Some(9_999_999)),
+            1_000,
+        )
+        .expect("record exhaustion");
+        // `apply_provider_exhaustion` re-reads the ledger it just wrote to, so even this first,
+        // establishing call reports back `ResetPending` (the durable, inherited reading) rather
+        // than the raw `Exhausted` it was given — this is existing, unchanged behavior; what this
+        // test actually checks is what happens on the *next* call, below.
+        assert_eq!(exhausted.state, UsageState::ResetPending);
+
+        // A different session/profile sharing the exact same identity would inherit the stale
+        // record right up until the fresh reading below clears it.
+        let store = ProviderIdentityExhaustionStore::at_paths(
+            paths.provider_identity_exhaustion_file(),
+            paths.provider_identity_exhaustion_lock_file(),
+        );
+        assert!(
+            store
+                .load()
+                .expect("load")
+                .inherited_usage(ProviderKind::Fake, "fake:megan", 2_000)
+                .is_some(),
+            "the durable record must exist before the fresh reading clears it"
+        );
+
+        // The account has since been reset out-of-band; the very next check reads it fresh and
+        // positively as available.
+        let recovered = apply_provider_exhaustion(
+            &paths,
+            &profile,
+            &executables,
+            observation(UsageState::Available, None),
+            2_000,
+        )
+        .expect("apply fresh reading");
+        assert_eq!(
+            recovered.state,
+            UsageState::Available,
+            "a fresh, positive reading must win outright, not be overridden by the stale record"
+        );
+        assert!(
+            store
+                .load()
+                .expect("load")
+                .inherited_usage(ProviderKind::Fake, "fake:megan", 2_001)
+                .is_none(),
+            "the stale record must be cleared, not merely bypassed once"
+        );
+    }
+
+    /// The mirror case: a fresh reading of `UNKNOWN` (no real signal at all, e.g. no session
+    /// currently running to produce one) is the *absence* of evidence, not evidence of recovery —
+    /// it must keep deferring to the durable record exactly as before this fix.
+    #[test]
+    fn an_unknown_reading_still_defers_to_the_durable_record() {
+        let root = tempdir().expect("tempdir");
+        let paths =
+            RelayPaths::new(root.path().join("config"), root.path().join("state")).expect("paths");
+        let profile = fake_profile("claude-main", "fake:megan", root.path().join("profile-dir"));
+        let executables = providers::ExecutableOverrides::default();
+
+        apply_provider_exhaustion(
+            &paths,
+            &profile,
+            &executables,
+            observation(UsageState::Exhausted, Some(9_999_999)),
+            1_000,
+        )
+        .expect("record exhaustion");
+
+        let unknown = apply_provider_exhaustion(
+            &paths,
+            &profile,
+            &executables,
+            observation(UsageState::Unknown, None),
+            2_000,
+        )
+        .expect("apply unknown reading");
+        assert_eq!(
+            unknown.state,
+            UsageState::ResetPending,
+            "no real signal must never be treated as proof of recovery"
+        );
+    }
+
+    #[test]
+    fn only_the_supported_codex_rate_limit_read_proves_current_authentication() {
+        let observation = |evidence| UsageObservation {
+            state: UsageState::Available,
+            evidence,
+            detected_via: "test".to_owned(),
+            observed_unix_ms: 1,
+            reset_unix_ms: None,
+        };
+        assert!(codex_usage_proves_current_auth(&observation(
+            UsageEvidence::ProviderRateLimitApi
+        )));
+        assert!(!codex_usage_proves_current_auth(&observation(
+            UsageEvidence::Simulated
+        )));
+    }
 
     #[test]
     fn a_new_profile_provider_is_implied_by_the_only_installed_cli() {

@@ -1,15 +1,18 @@
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{Arc, Barrier, Mutex},
+    time::Instant,
 };
 
 use relay_core::{
     ClaudeConfigMode, Error, ProfileName, ProviderKind, RelayPaths,
     handoff::{
         ContinuityType, FailedPhase, HandoffCoordinator, HandoffRequest, HandoffState,
-        JournalStore, LaunchDirective, LeaseStore, LivenessVerdict, OrchestrationLock,
-        ProcessIdentity, ProjectId, SessionStager, SessionStopper, SourceLiveness, TargetLauncher,
-        TargetVerification, TransactionId, TransferOutcome, TransferredArtifact, WriterLease,
+        HandoffTiming, JournalStore, LaunchDirective, LeaseStore, LivenessVerdict,
+        OrchestrationLock, ProcessIdentity, ProjectId, SessionStager, SessionStopper,
+        SourceLiveness, TargetLauncher, TargetVerification, TransactionId, TransferOutcome,
+        TransferredArtifact, WriterLease,
     },
 };
 use tempfile::tempdir;
@@ -159,6 +162,7 @@ impl TargetLauncher for OkLauncher {
         Ok(TargetVerification {
             target_session_id: resume_session_id(directive).to_owned(),
             started_successfully: true,
+            diagnostics: Vec::new(),
         })
     }
 }
@@ -189,6 +193,7 @@ impl TargetLauncher for WrongSessionLauncher {
         Ok(TargetVerification {
             target_session_id: "wrong-session-id".to_owned(),
             started_successfully: true,
+            diagnostics: Vec::new(),
         })
     }
 }
@@ -258,6 +263,24 @@ fn successful_handoff_reaches_complete_and_updates_the_lease() {
     assert!(journal.verification.is_some());
     assert!(journal.checkpoint.is_some());
     assert_eq!(journal.continuity_type, ContinuityType::SessionContinuation);
+    let timed_phases: Vec<&str> = journal
+        .timings
+        .iter()
+        .map(|timing| timing.phase.as_str())
+        .collect();
+    assert_eq!(
+        timed_phases,
+        [
+            "project_git_checkpoint",
+            "source_liveness",
+            "source_preflight",
+            "source_stop_and_verification",
+            "session_staging",
+            "target_process_launch",
+            "target_verification",
+            "total_handoff",
+        ]
+    );
 
     let project_id = ProjectId::for_canonical_path(&project_dir).expect("id");
     let lease_store = LeaseStore::at_path(paths.project_state_dir(&project_id).join("lease.json"));
@@ -798,6 +821,7 @@ impl TargetLauncher for CountingLauncher {
         Ok(TargetVerification {
             target_session_id: resume_session_id(directive).to_owned(),
             started_successfully: true,
+            diagnostics: Vec::new(),
         })
     }
 }
@@ -1579,11 +1603,33 @@ impl TargetLauncher for BootstrapEchoLauncher {
             LaunchDirective::Bootstrap { .. } => Ok(TargetVerification {
                 target_session_id: "codex-thread-0000".to_owned(),
                 started_successfully: true,
+                diagnostics: Vec::new(),
             }),
             LaunchDirective::ResumeSession { .. } => {
                 panic!("state-continuation must not request ResumeSession")
             }
         }
+    }
+}
+
+struct DiagnosticBootstrapLauncher;
+impl TargetLauncher for DiagnosticBootstrapLauncher {
+    fn launch_and_verify(
+        &self,
+        _target_config_dir: &Path,
+        _project_dir: &Path,
+        _directive: &LaunchDirective<'_>,
+        on_started: &mut dyn FnMut(Option<ProcessIdentity>) -> relay_core::Result<()>,
+    ) -> relay_core::Result<TargetVerification> {
+        on_started(Some(ProcessIdentity::current()))?;
+        Ok(TargetVerification {
+            target_session_id: "codex-thread-diagnostic".to_owned(),
+            started_successfully: true,
+            diagnostics: vec![HandoffTiming {
+                phase: "codex.thread_started".to_owned(),
+                elapsed_ms: 7,
+            }],
+        })
     }
 }
 
@@ -1628,6 +1674,25 @@ fn a_state_continuation_handoff_completes_with_a_new_target_session_id() {
     assert_eq!(journal.state, HandoffState::Complete);
     assert_eq!(journal.continuity_type, ContinuityType::StateContinuation);
     assert!(journal.transferred_artifacts.is_empty());
+    let timed_phases: Vec<&str> = journal
+        .timings
+        .iter()
+        .map(|timing| timing.phase.as_str())
+        .collect();
+    assert_eq!(
+        timed_phases,
+        [
+            "project_git_checkpoint",
+            "context_capture",
+            "continuation_bundle_serialization",
+            "source_liveness",
+            "source_stop_and_verification",
+            "target_process_launch",
+            "target_verification",
+            "bootstrap_continuation_setup",
+            "total_handoff",
+        ]
+    );
     let summary = journal
         .bundle_summary
         .expect("a bundle summary must be recorded");
@@ -1646,6 +1711,92 @@ fn a_state_continuation_handoff_completes_with_a_new_target_session_id() {
         lease.session_id, "codex-thread-0000",
         "the lease must record the TARGET's real new session id, never the source's"
     );
+}
+
+#[test]
+fn target_launcher_diagnostics_are_persisted_without_affecting_verification() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
+        stager: None,
+        context_capturer: Some(&FixedBundleCapturer),
+        launcher: &DiagnosticBootstrapLauncher,
+    };
+    let journal = coordinator
+        .run(cross_provider_request(&project_dir))
+        .expect("handoff");
+    assert_eq!(journal.state, HandoffState::Complete);
+    assert!(
+        journal
+            .timings
+            .iter()
+            .any(|timing| timing.phase == "codex.thread_started" && timing.elapsed_ms == 7)
+    );
+}
+
+/// Representative lower-bound measurement for the state-continuation coordinator path. It uses
+/// deterministic in-process ports, so it intentionally measures Relay orchestration and bundle
+/// handling rather than a real provider's startup/model-turn latency.
+#[test]
+#[ignore = "benchmark, not a correctness test — run from scripts/benchmark.sh"]
+fn state_continuation_latency() {
+    const ROUNDS: usize = 5;
+    let mut totals = Vec::with_capacity(ROUNDS);
+    let mut phase_timings: BTreeMap<String, Vec<u64>> = BTreeMap::new();
+
+    for _ in 0..ROUNDS {
+        let root = tempdir().expect("temp dir");
+        let project_dir = root.path().join("project");
+        init_git_repo(&project_dir);
+        let project_dir = project_dir.canonicalize().expect("canonicalize");
+        let paths = relay_paths(root.path());
+        let coordinator = HandoffCoordinator {
+            paths: &paths,
+            liveness: &FixedLiveness(false),
+            source_stopper: &OkStopper,
+            target_stopper: &OkStopper,
+            stager: None,
+            context_capturer: Some(&FixedBundleCapturer),
+            launcher: &BootstrapEchoLauncher,
+        };
+
+        let elapsed = Instant::now();
+        let journal = coordinator
+            .run(cross_provider_request(&project_dir))
+            .expect("state continuation succeeds");
+        totals.push(elapsed.elapsed().as_secs_f64() * 1000.0);
+        for timing in journal.timings {
+            phase_timings
+                .entry(timing.phase)
+                .or_default()
+                .push(timing.elapsed_ms);
+        }
+    }
+
+    totals.sort_by(f64::total_cmp);
+    eprintln!(
+        "BENCHMARK state_continuation_latency: n={ROUNDS} min_ms={:.1} median_ms={:.1} \
+         max_ms={:.1} all_ms={totals:?}",
+        totals[0],
+        totals[ROUNDS / 2],
+        totals[ROUNDS - 1],
+    );
+    for (phase, mut samples) in phase_timings {
+        samples.sort_unstable();
+        eprintln!(
+            "BENCHMARK state_continuation_phase: phase={phase} min_ms={} median_ms={} max_ms={} all_ms={samples:?}",
+            samples[0],
+            samples[samples.len() / 2],
+            samples[samples.len() - 1],
+        );
+    }
 }
 
 #[test]
@@ -1709,6 +1860,7 @@ fn an_empty_target_session_id_fails_state_continuation_verification() {
             Ok(TargetVerification {
                 target_session_id: String::new(),
                 started_successfully: true,
+                diagnostics: Vec::new(),
             })
         }
     }

@@ -27,10 +27,14 @@ use serde_json::Value;
 pub const INTEGRATION_DIR: &str = "relay-integration";
 const SIGNALS_DIR: &str = "signals";
 const STATUSLINE_FILE: &str = "statusline.json";
+const STATUSLINE_HISTORY_FILE: &str = "statusline_history.json";
 const STOP_FAILURES_FILE: &str = "stop_failures.json";
 const RATE_LIMIT_EVENTS_FILE: &str = "rate_limit_events.json";
 const MAX_SIGNAL_FILE_BYTES: u64 = 256 * 1024;
 const MAX_STOP_FAILURE_RECORDS: usize = 32;
+/// Enough pre-modal observations for a normally redrawing interactive TUI without becoming an
+/// event log. The policy also applies its much shorter freshness bound before using one.
+pub const MAX_STATUSLINE_HISTORY: usize = 20;
 
 #[must_use]
 pub fn integration_dir(config_dir: &Path) -> PathBuf {
@@ -356,6 +360,9 @@ fn write_signal(config_dir: &Path, file: &str, bytes: &[u8]) -> Result<()> {
 #[derive(Clone, Debug, Default)]
 pub struct ProfileSignals {
     pub statusline: Option<StatusLineSnapshot>,
+    /// Bounded, per-profile statusline history. It contains only the already-sanitized snapshot
+    /// shape and lets the policy look behind a modal's null-window statusline redraw.
+    pub statusline_history: Vec<StatusLineSnapshot>,
     pub stop_failures: Vec<StopFailureRecord>,
     pub rate_limit_events: Vec<RateLimitEventRecord>,
 }
@@ -366,6 +373,9 @@ pub fn read_profile_signals(config_dir: &Path) -> ProfileSignals {
     let load = |file: &str| read_bounded(&directory.join(file));
     ProfileSignals {
         statusline: load(STATUSLINE_FILE).and_then(|bytes| serde_json::from_slice(&bytes).ok()),
+        statusline_history: load(STATUSLINE_HISTORY_FILE)
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default(),
         stop_failures: load(STOP_FAILURES_FILE)
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default(),
@@ -377,7 +387,31 @@ pub fn read_profile_signals(config_dir: &Path) -> ProfileSignals {
 
 pub fn record_statusline(config_dir: &Path, snapshot: &StatusLineSnapshot) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(snapshot).map_err(|_| Error::AtomicWriteFailed)?;
-    write_signal(config_dir, STATUSLINE_FILE, &bytes)
+    write_signal(config_dir, STATUSLINE_FILE, &bytes)?;
+
+    let mut history = read_profile_signals(config_dir).statusline_history;
+    // Coalesce identical consecutive observations while retaining the newest timestamp. This
+    // keeps a continuously redrawn statusline fresh without growing the history unnecessarily.
+    if let Some(last) = history.last_mut()
+        && same_statusline_shape(last, snapshot)
+    {
+        *last = snapshot.clone();
+    } else {
+        history.push(snapshot.clone());
+    }
+    if history.len() > MAX_STATUSLINE_HISTORY {
+        history.drain(..history.len() - MAX_STATUSLINE_HISTORY);
+    }
+    let history_bytes =
+        serde_json::to_vec_pretty(&history).map_err(|_| Error::AtomicWriteFailed)?;
+    write_signal(config_dir, STATUSLINE_HISTORY_FILE, &history_bytes)
+}
+
+fn same_statusline_shape(left: &StatusLineSnapshot, right: &StatusLineSnapshot) -> bool {
+    left.session_id == right.session_id
+        && left.model_id == right.model_id
+        && left.five_hour == right.five_hour
+        && left.seven_day == right.seven_day
 }
 
 pub fn record_stop_failure(config_dir: &Path, record: StopFailureRecord) -> Result<()> {
@@ -410,9 +444,14 @@ pub fn record_rate_limit_events(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
     use super::{
-        LimitKind, LimitScope, ModelFamily, classify_limit_message, parse_rate_limit_events,
-        parse_statusline_input, parse_stop_failure_input,
+        INTEGRATION_DIR, LimitKind, LimitScope, MAX_STATUSLINE_HISTORY, ModelFamily,
+        classify_limit_message, parse_rate_limit_events, parse_statusline_input,
+        parse_stop_failure_input, read_profile_signals, record_statusline,
     };
 
     // Strings below are the literal messages Claude Code 2.1.277 constructs.
@@ -489,6 +528,51 @@ mod tests {
         assert!(snapshot.five_hour.is_none() && snapshot.seven_day.is_none());
         assert!(parse_statusline_input(b"not json", 1).is_none());
         assert!(parse_statusline_input(b"[1,2]", 1).is_none());
+    }
+
+    #[test]
+    fn statusline_history_is_bounded_and_preserves_pre_modal_snapshot() {
+        let dir = tempdir().expect("temp");
+        let integration = dir.path().join(INTEGRATION_DIR);
+        fs::create_dir(&integration).expect("integration");
+        fs::write(integration.join("manifest.json"), b"{}").expect("manifest");
+
+        let useful = parse_statusline_input(
+            br#"{"session_id":"s1","rate_limits":{"seven_day":{"used_percentage":98,"resets_at":2000000000}}}"#,
+            1,
+        )
+        .expect("useful");
+        record_statusline(dir.path(), &useful).expect("record useful");
+        let null_windows = parse_statusline_input(br#"{"session_id":"s1"}"#, 2).expect("null");
+        record_statusline(dir.path(), &null_windows).expect("record null");
+        let after_modal = read_profile_signals(dir.path());
+        assert_eq!(after_modal.statusline_history.len(), 2);
+        assert_eq!(
+            after_modal.statusline_history[0].seven_day,
+            useful.seven_day
+        );
+        assert!(after_modal.statusline_history[1].seven_day.is_none());
+
+        for captured in 3..=MAX_STATUSLINE_HISTORY as u64 + 4 {
+            let snapshot = parse_statusline_input(
+                format!(r#"{{"session_id":"s{captured}"}}"#).as_bytes(),
+                captured,
+            )
+            .expect("snapshot");
+            record_statusline(dir.path(), &snapshot).expect("record");
+        }
+        let signals = read_profile_signals(dir.path());
+        assert_eq!(signals.statusline_history.len(), MAX_STATUSLINE_HISTORY);
+        assert_eq!(
+            signals.statusline.as_ref().map(|s| s.captured_unix_ms),
+            Some(24)
+        );
+        assert!(
+            signals
+                .statusline_history
+                .iter()
+                .all(|snapshot| snapshot.captured_unix_ms >= 5)
+        );
     }
 
     #[test]

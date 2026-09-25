@@ -839,6 +839,10 @@ pub fn apply_uninstall(plan: &UninstallPlan) -> Result<()> {
 pub struct IntegrationStatus {
     pub installed: bool,
     pub stop_failure_hook: bool,
+    /// Executable named by Relay's installed StopFailure command, when its command format is one
+    /// Relay generated. This is diagnostic evidence only; hook ownership is still determined by
+    /// the marker, not by trusting an arbitrary shell command.
+    pub stop_failure_executable: Option<PathBuf>,
     /// `none`, `relay`, `relay_chained` or `foreign` (someone else's statusLine).
     pub statusline: &'static str,
     pub settings_drifted_since_install: bool,
@@ -870,6 +874,25 @@ pub fn integration_status(config_dir: &Path) -> Result<IntegrationStatus> {
                     })
             })
         });
+    let stop_failure_executable = settings
+        .get("hooks")
+        .and_then(|hooks| hooks.get("StopFailure"))
+        .and_then(Value::as_array)
+        .and_then(|groups| {
+            groups.iter().find_map(|group| {
+                group
+                    .get("hooks")
+                    .and_then(Value::as_array)
+                    .and_then(|inner| {
+                        inner.iter().find_map(|hook| {
+                            hook.get("command")
+                                .and_then(Value::as_str)
+                                .filter(|command| command_is_ours(command, STOP_MARKER))
+                                .and_then(stop_failure_executable)
+                        })
+                    })
+            })
+        });
     let statusline = match settings
         .get("statusLine")
         .and_then(|value| value.get("command"))
@@ -889,6 +912,7 @@ pub fn integration_status(config_dir: &Path) -> Result<IntegrationStatus> {
     Ok(IntegrationStatus {
         installed: manifest.is_some() && hook_present,
         stop_failure_hook: hook_present,
+        stop_failure_executable,
         statusline,
         settings_drifted_since_install: manifest.as_ref().is_some_and(|manifest| {
             current
@@ -902,16 +926,39 @@ pub fn integration_status(config_dir: &Path) -> Result<IntegrationStatus> {
     })
 }
 
+/// Extracts the first command word only from the narrow, Relay-generated StopFailure shape. It
+/// deliberately does not attempt to interpret arbitrary shell syntax in user settings.
+fn stop_failure_executable(command: &str) -> Option<PathBuf> {
+    let executable = command.split_once(STOP_MARKER)?.0.trim();
+    if executable.is_empty() {
+        return None;
+    }
+    let executable = if executable.starts_with('\'') && executable.ends_with('\'') {
+        executable
+            .strip_prefix('\'')?
+            .strip_suffix('\'')?
+            .replace("'\\''", "'")
+    } else if executable.split_ascii_whitespace().count() == 1 {
+        executable.to_owned()
+    } else {
+        return None;
+    };
+    Some(PathBuf::from(executable))
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use serde_json::{Value, json};
     use tempfile::tempdir;
 
     use super::{
         apply_install, apply_uninstall, existing_chain, integration_status, load_manifest,
-        plan_install, plan_uninstall,
+        plan_install, plan_uninstall, stop_failure_executable,
     };
 
     const RELAY: &str = "/opt/relay/bin/relay";
@@ -966,6 +1013,26 @@ mod tests {
         assert!(again.already_installed);
         apply_install(&again, 99).expect("noop");
         assert_eq!(settings(dir.path()), installed);
+        assert_eq!(
+            integration_status(dir.path())
+                .expect("status")
+                .stop_failure_executable,
+            Some(PathBuf::from(RELAY))
+        );
+    }
+
+    #[test]
+    fn status_extracts_a_shell_quoted_relay_executable_without_interpreting_a_command() {
+        assert_eq!(
+            stop_failure_executable(
+                "'/tmp/relay tool' hook claude stop-failure --config-dir '/tmp/c'"
+            ),
+            Some(PathBuf::from("/tmp/relay tool"))
+        );
+        assert_eq!(
+            stop_failure_executable("relay --unexpected hook claude stop-failure"),
+            None
+        );
     }
 
     #[test]

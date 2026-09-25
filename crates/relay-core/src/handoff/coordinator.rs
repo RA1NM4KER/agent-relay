@@ -1,7 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use sha2::{Digest, Sha256};
@@ -161,10 +161,13 @@ pub trait ContextCapturer: Send + Sync {
     ) -> Result<ContinuationBundle>;
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TargetVerification {
     pub target_session_id: String,
     pub started_successfully: bool,
+    /// Optional provider-supplied elapsed diagnostics. They are sanitized names and monotonic
+    /// durations only; the coordinator never uses them to decide ownership or recovery.
+    pub diagnostics: Vec<super::HandoffTiming>,
 }
 
 /// What the target should do on its first turn. `relay-core` decides which variant applies (from
@@ -274,6 +277,9 @@ impl HandoffCoordinator<'_> {
         &self,
         request: HandoffRequest,
     ) -> std::result::Result<HandoffJournal, HandoffFailure> {
+        // Include canonicalization, state-directory preparation, and orchestration-lock wait in
+        // the persisted total. Individual phase timers below begin only at their own operations.
+        let handoff_started = Instant::now();
         if request.source_profile == request.target_profile {
             return Err(HandoffFailure {
                 error: Error::ProviderMismatch {
@@ -344,6 +350,7 @@ impl HandoffCoordinator<'_> {
                 &journal_store,
                 &lease_store,
                 &current_pointer,
+                handoff_started,
             );
             Ok(match result {
                 Ok(journal) => Ok(journal),
@@ -371,6 +378,7 @@ impl HandoffCoordinator<'_> {
         journal_store: &JournalStore,
         lease_store: &LeaseStore,
         current_pointer: &Path,
+        handoff_started: Instant,
     ) -> Result<HandoffJournal> {
         // M2C: never start a fresh transaction while a prior one for this project is stuck in
         // RecoveryRequired — that state means a target process may still exist from an earlier
@@ -425,6 +433,7 @@ impl HandoffCoordinator<'_> {
         macro_rules! fail_and_return {
             ($phase:expr, $reason:expr, $error:expr) => {{
                 let reason: String = $reason;
+                journal.record_timing("total_handoff", handoff_started.elapsed());
                 journal
                     .advance(
                         HandoffState::Failed {
@@ -439,6 +448,7 @@ impl HandoffCoordinator<'_> {
             }};
         }
 
+        let phase_started = Instant::now();
         let checkpoint = match checkpoint_project(project_dir) {
             Ok(checkpoint) => checkpoint,
             Err(error) => fail_and_return!(
@@ -447,6 +457,7 @@ impl HandoffCoordinator<'_> {
                 error
             ),
         };
+        journal.record_timing("project_git_checkpoint", phase_started.elapsed());
         journal.checkpoint = Some(checkpoint);
         journal.advance(HandoffState::Checkpointed, "captured git checkpoint")?;
         journal_store.save(&journal)?;
@@ -467,6 +478,7 @@ impl HandoffCoordinator<'_> {
                         Error::MissingHandoffPort("context_capturer".to_owned())
                     );
                 };
+                let phase_started = Instant::now();
                 let bundle = match capturer.capture(
                     &request.source_config_dir,
                     project_dir,
@@ -482,6 +494,8 @@ impl HandoffCoordinator<'_> {
                         error
                     ),
                 };
+                journal.record_timing("context_capture", phase_started.elapsed());
+                let phase_started = Instant::now();
                 let serialized = match serde_json::to_vec(&bundle) {
                     Ok(bytes) => bytes,
                     Err(_) => fail_and_return!(
@@ -496,6 +510,7 @@ impl HandoffCoordinator<'_> {
                     sha256: format!("{:x}", hasher.finalize()),
                     size_bytes: serialized.len() as u64,
                 });
+                journal.record_timing("continuation_bundle_serialization", phase_started.elapsed());
                 journal_store.save(&journal)?;
                 Some(bundle)
             }
@@ -508,6 +523,7 @@ impl HandoffCoordinator<'_> {
         journal_store.save(&journal)?;
         // Untracked-session detection (M2B.5): any OTHER active session for this profile and
         // project must block, since Relay cannot safely reason about work it never launched.
+        let phase_started = Instant::now();
         match self.liveness.check(
             &request.source_config_dir,
             project_dir,
@@ -529,27 +545,32 @@ impl HandoffCoordinator<'_> {
                 error
             ),
         }
+        journal.record_timing("source_liveness", phase_started.elapsed());
         // Everything staging will demand is checked NOW, while the source still runs: a
         // predictable refusal must not cost the user their live session. (`stage` re-checks after
         // the stop; this only avoids a destructive failure that could have been foreseen.)
         if let (ContinuityType::SessionContinuation, Some(stager)) =
             (&request.continuity_type, self.stager)
-            && let Err(error) = stager.preflight(
+        {
+            let phase_started = Instant::now();
+            if let Err(error) = stager.preflight(
                 &request.source_config_dir,
                 project_dir,
                 &request.session_id,
                 recorded_owner.as_ref(),
                 request.source_claude_mode,
-            )
-        {
-            fail_and_return!(
-                FailedPhase::Stop,
-                format!("preflight refused before the source was stopped: {error}"),
-                error
-            );
+            ) {
+                fail_and_return!(
+                    FailedPhase::Stop,
+                    format!("preflight refused before the source was stopped: {error}"),
+                    error
+                );
+            }
+            journal.record_timing("source_preflight", phase_started.elapsed());
         }
         // M2B.75: authoritative stop of our own session, verified quiescent across multiple
         // consecutive observations — not a single check, and not a raw kill.
+        let phase_started = Instant::now();
         match self.source_stopper.stop_and_verify(
             &request.source_config_dir,
             project_dir,
@@ -563,6 +584,7 @@ impl HandoffCoordinator<'_> {
                 error
             ),
         }
+        journal.record_timing("source_stop_and_verification", phase_started.elapsed());
         journal.advance(
             HandoffState::SourceStopped,
             "source authoritatively stopped and verified quiescent",
@@ -587,6 +609,7 @@ impl HandoffCoordinator<'_> {
                         Error::MissingHandoffPort("stager".to_owned())
                     );
                 };
+                let phase_started = Instant::now();
                 let transfer = match stager.stage(
                     &request.source_config_dir,
                     &request.target_config_dir,
@@ -602,6 +625,7 @@ impl HandoffCoordinator<'_> {
                         error
                     ),
                 };
+                journal.record_timing("session_staging", phase_started.elapsed());
                 journal.transferred_artifacts = transfer
                     .artifacts
                     .iter()
@@ -625,7 +649,11 @@ impl HandoffCoordinator<'_> {
 
         journal.advance(HandoffState::TargetStarting, "launching target")?;
         journal_store.save(&journal)?;
+        let target_started = Instant::now();
+        let mut process_started_at = None;
         let mut on_started = |process: Option<ProcessIdentity>| -> Result<()> {
+            process_started_at = Some(Instant::now());
+            journal.record_timing("target_process_launch", target_started.elapsed());
             if let Some(process) = process {
                 journal.target_launch = Some(TargetLaunchRecord {
                     process,
@@ -656,6 +684,25 @@ impl HandoffCoordinator<'_> {
                 error
             ),
         };
+        if let Some(process_started_at) = process_started_at {
+            journal.record_timing("target_verification", process_started_at.elapsed());
+        } else {
+            // A launcher that cannot report a child still has a measurable verification path;
+            // keep the missing spawn boundary explicit instead of inventing one.
+            journal.record_timing("target_verification", target_started.elapsed());
+        }
+        if request.continuity_type == ContinuityType::StateContinuation {
+            // This overlaps the launch/verification split above. It is the user-visible time
+            // spent carrying the bundle through the target's bounded bootstrap turn, retained
+            // separately because this phase exists only for STATE_CONTINUATION.
+            journal.record_timing("bootstrap_continuation_setup", target_started.elapsed());
+        }
+        for timing in &verification.diagnostics {
+            journal.record_timing(
+                timing.phase.clone(),
+                std::time::Duration::from_millis(timing.elapsed_ms),
+            );
+        }
 
         let verification_ok = match request.continuity_type {
             ContinuityType::StateContinuation => {
@@ -699,6 +746,7 @@ impl HandoffCoordinator<'_> {
         );
         lease_store.save(&lease)?;
         journal.advance(HandoffState::Complete, "ownership moved to target profile")?;
+        journal.record_timing("total_handoff", handoff_started.elapsed());
         journal_store.save(&journal)?;
 
         Ok(journal)

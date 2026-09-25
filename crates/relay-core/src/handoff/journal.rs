@@ -10,13 +10,34 @@ use crate::{
     handoff::{ContinuityType, HandoffState, ProcessIdentity, ProjectId, TransactionId},
 };
 
-/// M6: bumped from 1 to 2 to add `continuity_type` (and, for `STATE_CONTINUATION` transactions,
+/// M12: bumped from 2 to 3 to add monotonic handoff timing diagnostics. M6 bumped from 1 to 2 to add `continuity_type` (and, for `STATE_CONTINUATION` transactions,
 /// `bundle_summary`). Journals are short-lived per-transaction records, not long-term config, so
 /// — matching the existing version-mismatch-is-fatal design — a journal written by a pre-M6
 /// Relay is simply never readable by this version rather than migrated; that only matters for a
 /// transaction that was already interrupted across an upgrade, which `relay recover` already
 /// treats as requiring explicit operator attention.
-const JOURNAL_VERSION: u32 = 2;
+const JOURNAL_VERSION: u32 = 3;
+
+/// One elapsed-time measurement from the handoff coordinator. Values are durations measured with
+/// `Instant`, not wall-clock timestamps, so clock changes cannot produce negative or fabricated
+/// latency. They deliberately name only coordinator phases and contain no provider output,
+/// conversation content, or credentials.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HandoffTiming {
+    pub phase: String,
+    pub elapsed_ms: u64,
+}
+
+/// A sanitized wall-clock correlation point for a durable handoff state transition. Unlike
+/// [`HandoffTiming`], these correlate the coordinator with the independently spawned hook and
+/// terminal supervisor; they never drive recovery or any state-machine decision.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HandoffStateTimestamp {
+    pub state: String,
+    pub unix_ms: u64,
+}
 
 /// Evidence that a [`super::ContinuationBundle`] was built and delivered to the target, without
 /// persisting its content — matching docs/security.md's rule that continuation content never
@@ -96,6 +117,15 @@ pub struct HandoffJournal {
     pub verification: Option<VerificationRecord>,
     #[serde(default)]
     pub target_launch: Option<TargetLaunchRecord>,
+    /// Sanitized, monotonic elapsed timings for this attempt. They are diagnostics, not state
+    /// machine inputs: an absent or partial list must never affect recovery.
+    #[serde(default)]
+    pub timings: Vec<HandoffTiming>,
+    /// Durable, sanitized state-transition wall-clock correlation points.  These make a
+    /// hook-triggered automatic handoff explainable across processes; monotonic phase durations
+    /// remain in [`Self::timings`].
+    #[serde(default)]
+    pub state_timestamps: Vec<HandoffStateTimestamp>,
     /// Human-readable evidence trail. Never contains transcript contents, diffs, or secrets —
     /// only state transitions, reasons, and filenames, matching docs/security.md's event policy.
     pub notes: Vec<String>,
@@ -134,6 +164,11 @@ impl HandoffJournal {
             bundle_summary: None,
             verification: None,
             target_launch: None,
+            timings: Vec::new(),
+            state_timestamps: vec![HandoffStateTimestamp {
+                state: "PREPARING".to_owned(),
+                unix_ms: now,
+            }],
             notes: Vec::new(),
         }
     }
@@ -150,8 +185,41 @@ impl HandoffJournal {
         self.state = next;
         self.revision += 1;
         self.updated_unix_ms = now_unix_ms();
+        self.state_timestamps.push(HandoffStateTimestamp {
+            state: state_name(&self.state),
+            unix_ms: self.updated_unix_ms,
+        });
         self.notes.push(note.into());
         Ok(())
+    }
+
+    /// Records a completed or failed-attempt phase. Replacing a phase rather than appending a
+    /// duplicate makes retries inside a future coordinator implementation unambiguous while
+    /// keeping this journal compact.
+    pub fn record_timing(&mut self, phase: impl Into<String>, elapsed: std::time::Duration) {
+        let phase = phase.into();
+        let elapsed_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
+        if let Some(existing) = self.timings.iter_mut().find(|item| item.phase == phase) {
+            existing.elapsed_ms = elapsed_ms;
+        } else {
+            self.timings.push(HandoffTiming { phase, elapsed_ms });
+        }
+    }
+}
+
+fn state_name(state: &HandoffState) -> String {
+    match state {
+        HandoffState::Preparing => "PREPARING".to_owned(),
+        HandoffState::Checkpointed => "CHECKPOINTED".to_owned(),
+        HandoffState::SourceStopping => "SOURCE_STOPPING".to_owned(),
+        HandoffState::SourceStopped => "SOURCE_STOPPED".to_owned(),
+        HandoffState::SessionTransferring => "SESSION_TRANSFERRING".to_owned(),
+        HandoffState::SessionTransferred => "SESSION_TRANSFERRED".to_owned(),
+        HandoffState::TargetStarting => "TARGET_STARTING".to_owned(),
+        HandoffState::TargetVerified => "TARGET_VERIFIED".to_owned(),
+        HandoffState::Complete => "COMPLETE".to_owned(),
+        HandoffState::Failed { .. } => "FAILED".to_owned(),
+        HandoffState::RecoveryRequired { .. } => "RECOVERY_REQUIRED".to_owned(),
     }
 }
 
@@ -271,6 +339,10 @@ mod tests {
         let root = tempdir().expect("temp dir");
         let store = JournalStore::at_path(root.path().join("txn.json"));
         let mut journal = sample_journal();
+        journal.record_timing(
+            "project_git_checkpoint",
+            std::time::Duration::from_millis(42),
+        );
         journal
             .advance(HandoffState::Checkpointed, "checkpointed")
             .expect("advance");
@@ -278,6 +350,17 @@ mod tests {
         let loaded = store.load().expect("load");
         assert_eq!(loaded.state, HandoffState::Checkpointed);
         assert_eq!(loaded.revision, 1);
+        assert_eq!(loaded.timings.len(), 1);
+        assert_eq!(loaded.timings[0].phase, "project_git_checkpoint");
+        assert_eq!(loaded.timings[0].elapsed_ms, 42);
+        assert_eq!(
+            loaded
+                .state_timestamps
+                .iter()
+                .map(|point| point.state.as_str())
+                .collect::<Vec<_>>(),
+            ["PREPARING", "CHECKPOINTED"]
+        );
     }
 
     #[test]

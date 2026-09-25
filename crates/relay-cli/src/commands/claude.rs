@@ -11,9 +11,12 @@ use relay_provider_claude::ClaudeInspector;
 use serde_json::json;
 
 use crate::{
-    auth::{friendly_auth_state, run_claude_auth_subcommand, select_profile, verify_authenticated},
+    auth::{
+        friendly_auth_state, inherited_provider_exhaustion, run_claude_auth_subcommand,
+        select_profile, verify_authenticated,
+    },
     auto_handoff,
-    cli::ClaudeArgs,
+    cli::{ClaudeArgs, CodexArgs},
     hook::{
         ADOPT_ARGS_ENV, ADOPT_PROFILE_ENV, ADOPT_RELAY_SESSION_ENV, ADOPT_RESULT_ENV,
         ADOPT_SESSION_ENV,
@@ -87,6 +90,19 @@ pub(crate) fn run(
         claude: args.claude_executable.clone(),
         codex: None,
     };
+    if inherited_provider_exhaustion(paths, primary_profile, &executables, current_unix_ms())?
+        .is_some()
+    {
+        return route_known_exhausted_claude_start(
+            service,
+            paths,
+            args,
+            primary_profile,
+            &registered,
+            &preferences,
+            json_mode,
+        );
+    }
     // Everything from here until the provider takes over the terminal can be slow (`claude auth
     // status`, login prompts). One indicator covers all of it, so the terminal never looks frozen.
     // (Another active Relay session in this project — under any profile, this one included — is
@@ -291,6 +307,72 @@ pub(crate) fn run(
         sessions::release_after_exit(paths, &canonical_project, &session.id, &registered);
     }
     result
+}
+
+/// A fresh conversation has no lease to hand off, so an account-reset-window reroute is ordinary
+/// startup selection. It deliberately re-enters the target provider's normal launch path, which
+/// still performs its own authentication, trust, usage, and process checks.
+#[allow(clippy::too_many_arguments)]
+fn route_known_exhausted_claude_start(
+    service: &ProfileService,
+    paths: &RelayPaths,
+    args: &ClaudeArgs,
+    exhausted: &Profile,
+    registered: &[Profile],
+    preferences: &preferences::Preferences,
+    json_mode: bool,
+) -> Result<CommandOutput, Error> {
+    let executables = providers::ExecutableOverrides {
+        claude: args.claude_executable.clone(),
+        codex: None,
+    };
+    for name in auto_handoff::hierarchy_without(preferences, &exhausted.name, |_| true) {
+        let Some(candidate) = registered
+            .iter()
+            .find(|profile| &profile.name == name && profile.enabled)
+        else {
+            continue;
+        };
+        if inherited_provider_exhaustion(paths, candidate, &executables, current_unix_ms())?
+            .is_some()
+        {
+            continue;
+        }
+        return match candidate.provider {
+            ProviderKind::Claude | ProviderKind::Fake => run(
+                service,
+                paths,
+                &ClaudeArgs {
+                    message: args.message.clone(),
+                    profile: Some(candidate.name.clone()),
+                    fallback: args.fallback.clone(),
+                    project_dir: args.project_dir.clone(),
+                    no_attach: args.no_attach,
+                    new: args.new,
+                    resume: None,
+                    claude_executable: args.claude_executable.clone(),
+                    provider_args: args.provider_args.clone(),
+                },
+                json_mode,
+            ),
+            ProviderKind::Codex => super::codex::run(
+                service,
+                paths,
+                &CodexArgs {
+                    message: args.message.clone(),
+                    profile: Some(candidate.name.clone()),
+                    project_dir: args.project_dir.clone(),
+                    no_attach: args.no_attach,
+                    new: args.new,
+                    claude_executable: args.claude_executable.clone(),
+                    codex_executable: None,
+                    provider_args: Vec::new(),
+                },
+                json_mode,
+            ),
+        };
+    }
+    Err(Error::NoEligibleProfile(exhausted.name.to_string()))
 }
 
 /// `relay claude --resume [SESSION_ID]`: adopt an existing Claude conversation.

@@ -1,7 +1,7 @@
 //! `relay integration <subcommand>`: Claude usage-hook install/status/uninstall and the
 //! optional Herdr plugin link.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use relay_core::{ClaudeConfigMode, Error, ProfileService, ProviderKind, RelayPaths};
 use relay_herdr::herdr_client::HerdrCliClient;
@@ -174,11 +174,40 @@ pub(crate) fn run(
                     let capabilities =
                         assess_installed(claude_executable.as_deref(), &config_dir, mode).ok();
                     status_progress.finish();
+                    let current_relay_executable =
+                        std::env::current_exe().map_err(|source| Error::Io {
+                            path: PathBuf::from("relay"),
+                            source,
+                        })?;
+                    let installed_hook_executable = status.stop_failure_executable.clone();
+                    let hook_binary_matches_current =
+                        installed_hook_executable.as_deref().map(|installed| {
+                            executable_paths_match(&current_relay_executable, installed)
+                        });
+                    let mismatch = hook_binary_matches_current == Some(false);
+                    let reinstall_target = target.profile.as_ref().map_or_else(
+                        || format!("--config-dir {}", shell_quote_path(&config_dir)),
+                        |profile| format!("--profile {profile}"),
+                    );
+                    let mismatch_notice = if mismatch {
+                        format!(
+                            "\n\nClaude hook binary mismatch\ncurrent Relay:   {}\ninstalled hook:  {}\n\nReinstall with:\n{} integration claude install {} --allow-unverified-version",
+                            current_relay_executable.display(),
+                            installed_hook_executable
+                                .as_ref()
+                                .expect("mismatch has executable")
+                                .display(),
+                            shell_quote_path(&current_relay_executable),
+                            reinstall_target,
+                        )
+                    } else {
+                        String::new()
+                    };
                     let human = format!(
                         "Config dir: {}\nInstalled: {}\nStopFailure hook: {}\nStatusLine: {}\n\
                          Settings changed since install: {}\nHooks disabled: {}\n\
                          Recorded: statusline snapshot={}, StopFailure events={}, rate_limit events={}\n\
-                         Claude Code: {}",
+                         Claude Code: {}{}",
                         config_dir.display(),
                         status.installed,
                         status.stop_failure_hook,
@@ -199,12 +228,25 @@ pub(crate) fn run(
                                     "NOT fully verified"
                                 }
                             )
-                        )
+                        ),
+                        mismatch_notice,
                     );
                     success(
                         "integration.status",
                         human,
-                        json!({ "config_dir": config_dir, "status": status, "capabilities": capabilities }),
+                        json!({
+                            "config_dir": config_dir,
+                            "status": status,
+                            "capabilities": capabilities,
+                            "current_relay_executable": current_relay_executable,
+                            "installed_stop_failure_executable": installed_hook_executable,
+                            "stop_failure_binary_matches_current": hook_binary_matches_current,
+                            "reinstall_command": mismatch.then(|| format!(
+                                "{} integration claude install {} --allow-unverified-version",
+                                shell_quote_path(&current_relay_executable),
+                                reinstall_target,
+                            )),
+                        }),
                     )
                 }
                 ClaudeIntegrationCommand::Uninstall { target, dry_run } => {
@@ -236,6 +278,15 @@ pub(crate) fn run(
             }
         }
     }
+}
+
+fn executable_paths_match(current: &Path, installed: &Path) -> bool {
+    std::fs::canonicalize(current).unwrap_or_else(|_| current.to_path_buf())
+        == std::fs::canonicalize(installed).unwrap_or_else(|_| installed.to_path_buf())
+}
+
+fn shell_quote_path(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
 }
 
 fn run_herdr_integration(
@@ -359,5 +410,19 @@ fn run_herdr_integration(
                 json!({ "removed": removed }),
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{executable_paths_match, shell_quote_path};
+
+    #[test]
+    fn hook_binary_comparison_is_path_based_and_shell_reinstall_paths_are_quoted() {
+        let path = Path::new("/tmp/relay tool");
+        assert!(executable_paths_match(path, path));
+        assert_eq!(shell_quote_path(path), "'/tmp/relay tool'");
     }
 }

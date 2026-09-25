@@ -49,8 +49,13 @@ print(f"n={n} min={times[0]*1000:.2f}ms median={times[n//2]*1000:.2f}ms p90={tim
 PYEOF
 
 echo
-echo "== 2-4. idle supervision overhead + handoff latency (fake Claude fixture) =="
+echo "== 2-4. idle supervision + SESSION_CONTINUATION latency (fake Claude fixture) =="
 cargo test --release -p relay-cli --test benchmark -- --ignored --nocapture --test-threads=1
+
+echo
+echo "== 4b. STATE_CONTINUATION coordinator latency (deterministic fake ports) =="
+cargo test --release -p relay-core --test handoff_coordinator state_continuation_latency \
+  -- --ignored --nocapture --test-threads=1
 
 if [ "$with_codex" -eq 1 ]; then
   if [ -z "${RELAY_BENCH_CODEX_HOME:-}" ]; then

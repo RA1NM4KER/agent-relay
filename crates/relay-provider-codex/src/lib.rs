@@ -210,7 +210,10 @@ impl Provider for CodexBackend {
     }
 }
 
-fn config_dir_stable_id(config_dir: &Path) -> String {
+/// Codex's supported structured APIs do not expose a redacted account identity. Relay's pinned
+/// identity for a Codex profile is consequently its validated isolated `CODEX_HOME` path.
+#[must_use]
+pub fn config_dir_stable_id(config_dir: &Path) -> String {
     let mut hasher = Sha256::new();
     hasher.update(config_dir.as_os_str().as_encoded_bytes());
     format!("codex:v1:home:{:x}", hasher.finalize())

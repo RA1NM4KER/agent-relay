@@ -11,6 +11,10 @@
 //!    window (`five_hour`/`seven_day`) at ≥ 100% with a reset time still in the future; or
 //! 3. an explicitly opt-in phrase match on a real limit message **and** that same fresh statusline
 //!    corroboration.
+//! 4. a named account-window `StopFailure` (`session` or `weekly`) and a fresh, same-native-session
+//!    pre-failure statusline showing that exact window at or above the near-limit threshold with a
+//!    reset still in the future. This covers Claude's limit modal replacing current windows with
+//!    null before the detached watcher can inspect them.
 //!
 //! `NEAR_LIMIT` — a fresh statusline with an account window ≥ 90% (including ≥ 100% with no failure
 //! event, since the session has not actually been refused), or a fresh `allowed_warning` event.
@@ -167,6 +171,64 @@ fn same_path(left: &Path, right: &Path) -> bool {
     }
 }
 
+fn historical_window_for_failure(
+    record: &StopFailureRecord,
+    inputs: &PolicyInputs<'_>,
+    config: &PolicyConfig,
+) -> Option<(&'static str, WindowUsage)> {
+    // Historical corroboration deliberately accepts only the two account windows with an exact
+    // structured mapping. A bare rate_limit, generic account limit, or model-specific limit is
+    // not enough to infer which statusline window the refusal refers to.
+    let kind = record.limit_kind?;
+    let name = match kind {
+        LimitKind::Session => "five_hour",
+        LimitKind::Weekly => "seven_day",
+        _ => return None,
+    };
+    if record.session_id.as_deref() != Some(inputs.session_id) {
+        return None;
+    }
+    inputs
+        .signals
+        .statusline_history
+        .iter()
+        .filter(|snapshot| {
+            snapshot.session_id.as_deref() == Some(inputs.session_id)
+                && snapshot.captured_unix_ms <= record.recorded_unix_ms
+                && is_fresh_statusline(snapshot, inputs.now_unix_ms, config)
+        })
+        .filter_map(|snapshot| {
+            let window = match kind {
+                LimitKind::Session => snapshot.five_hour,
+                LimitKind::Weekly => snapshot.seven_day,
+                _ => return None,
+            }?;
+            (window.resets_at.saturating_mul(1000) > inputs.now_unix_ms
+                && window.used_percentage >= config.near_limit_percentage)
+                .then_some((snapshot.captured_unix_ms, window))
+        })
+        .max_by_key(|(captured, _)| *captured)
+        .map(|(_, window)| (name, window))
+}
+
+fn historical_stop_failure_corroboration(
+    inputs: &PolicyInputs<'_>,
+    config: &PolicyConfig,
+) -> Option<(LimitKind, &'static str, WindowUsage)> {
+    inputs
+        .signals
+        .stop_failures
+        .iter()
+        .filter(|record| failure_applies(record, inputs, config))
+        .filter_map(|record| {
+            let kind = record.limit_kind?;
+            historical_window_for_failure(record, inputs, config)
+                .map(|(name, window)| (record.recorded_unix_ms, kind, name, window))
+        })
+        .max_by_key(|(recorded, _, _, _)| *recorded)
+        .map(|(_, kind, name, window)| (kind, name, window))
+}
+
 fn rejected_event_is_current(
     event: &RateLimitEventRecord,
     inputs: &PolicyInputs<'_>,
@@ -226,6 +288,26 @@ pub fn evaluate(inputs: &PolicyInputs<'_>, config: &PolicyConfig) -> UsageObserv
             format!("rate_limit_event rejected ({kind:?}), resets at {resets_at}"),
             now,
             Some(resets_at.saturating_mul(1000)),
+        );
+    }
+
+    // Preserve the current-statusline 100% path below as the stronger normal path. This is only
+    // for the modal-era gap: an exact named refusal plus a recent matching pre-failure window.
+    if let Some((kind, name, window)) = historical_stop_failure_corroboration(inputs, config) {
+        let kind = match kind {
+            LimitKind::Session => "session",
+            LimitKind::Weekly => "weekly",
+            _ => return unknown(now, "unsupported historical StopFailure limit kind"),
+        };
+        return observation(
+            UsageState::Exhausted,
+            UsageEvidence::StopFailureHistoricalCorroborated,
+            format!(
+                "StopFailure({kind}) corroborated by recent pre-modal {name} usage at {:.0}%",
+                window.used_percentage
+            ),
+            now,
+            Some(window.resets_at.saturating_mul(1000)),
         );
     }
 
@@ -505,6 +587,86 @@ mod tests {
         assert_eq!(observation.state, UsageState::Exhausted);
         assert_eq!(observation.evidence, UsageEvidence::StopFailureCorroborated);
         assert_eq!(observation.reset_unix_ms, Some(FUTURE_S * 1000));
+    }
+
+    #[test]
+    fn weekly_stop_failure_uses_matching_pre_modal_history() {
+        let before_modal = statusline(NOW - 5_000, None, window(98.0, FUTURE_S));
+        let signals = ProfileSignals {
+            statusline: Some(statusline(NOW - 1_000, None, None)),
+            statusline_history: vec![before_modal, statusline(NOW - 1_000, None, None)],
+            stop_failures: vec![failure(Some(LimitKind::Weekly), 500)],
+            ..ProfileSignals::default()
+        };
+        let observation = run(&signals, None, None);
+        assert_eq!(observation.state, UsageState::Exhausted);
+        assert_eq!(
+            observation.evidence,
+            UsageEvidence::StopFailureHistoricalCorroborated
+        );
+        assert_eq!(observation.reset_unix_ms, Some(FUTURE_S * 1000));
+        assert_eq!(
+            observation.detected_via,
+            "StopFailure(weekly) corroborated by recent pre-modal seven_day usage at 98%"
+        );
+    }
+
+    #[test]
+    fn session_stop_failure_uses_matching_pre_modal_history() {
+        let signals = ProfileSignals {
+            statusline_history: vec![statusline(NOW - 5_000, window(97.0, FUTURE_S), None)],
+            stop_failures: vec![failure(Some(LimitKind::Session), 500)],
+            ..ProfileSignals::default()
+        };
+        assert_eq!(run(&signals, None, None).state, UsageState::Exhausted);
+    }
+
+    #[test]
+    fn historical_corroboration_requires_named_matching_fresh_same_session_window() {
+        let weekly_history = statusline(NOW - 5_000, None, window(98.0, FUTURE_S));
+        let bare = ProfileSignals {
+            statusline_history: vec![weekly_history.clone()],
+            stop_failures: vec![failure(None, 500)],
+            ..ProfileSignals::default()
+        };
+        assert_eq!(run(&bare, None, None).state, UsageState::Unknown);
+
+        let wrong_window = ProfileSignals {
+            statusline_history: vec![weekly_history.clone()],
+            stop_failures: vec![failure(Some(LimitKind::Session), 500)],
+            ..ProfileSignals::default()
+        };
+        assert_eq!(run(&wrong_window, None, None).state, UsageState::Unknown);
+
+        let stale = ProfileSignals {
+            statusline_history: vec![statusline(
+                NOW - 11 * 60 * 1000,
+                None,
+                window(98.0, FUTURE_S),
+            )],
+            stop_failures: vec![failure(Some(LimitKind::Weekly), 500)],
+            ..ProfileSignals::default()
+        };
+        assert_eq!(run(&stale, None, None).state, UsageState::Unknown);
+
+        let mut other_session = weekly_history;
+        other_session.session_id = Some("other".to_owned());
+        let other = ProfileSignals {
+            statusline_history: vec![other_session],
+            stop_failures: vec![failure(Some(LimitKind::Weekly), 500)],
+            ..ProfileSignals::default()
+        };
+        assert_eq!(run(&other, None, None).state, UsageState::Unknown);
+    }
+
+    #[test]
+    fn history_never_exhausts_without_a_refusal() {
+        let signals = ProfileSignals {
+            statusline: Some(statusline(NOW - 1_000, None, window(98.0, FUTURE_S))),
+            statusline_history: vec![statusline(NOW - 1_000, None, window(98.0, FUTURE_S))],
+            ..ProfileSignals::default()
+        };
+        assert_eq!(run(&signals, None, None).state, UsageState::NearLimit);
     }
 
     #[test]

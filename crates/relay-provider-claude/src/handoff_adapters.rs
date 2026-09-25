@@ -816,6 +816,7 @@ fn parse_verification(stdout: &[u8]) -> Result<TargetVerification> {
     Ok(TargetVerification {
         target_session_id: session_id,
         started_successfully: !is_error,
+        diagnostics: Vec::new(),
     })
 }
 

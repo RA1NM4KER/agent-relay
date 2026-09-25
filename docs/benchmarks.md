@@ -91,9 +91,41 @@ the target, move the writer lease), each timed end-to-end as a real subprocess i
 This is a **lower bound**: the fake `claude` executable responds instantly, so this number is
 Relay's own transaction overhead (checkpoint, quiescence verification, staging, process spawns,
 journal writes) — a real Claude CLI's own launch/verification turn adds real time on top that this
-number does not capture. `STATE_CONTINUATION` (any handoff touching Codex) additionally captures
-recent conversation context before staging; that step was not isolated in this pass — see "Known
-gaps" below.
+number does not capture.
+
+### Per-handoff phase diagnostics
+
+Every new handoff journal now persists a `timings` array with monotonic (`Instant`) elapsed
+milliseconds. It is intentionally silent during normal use and contains phase names/durations
+only — never bundle content, provider output, or credentials. Inspect it through `relay handoff
+status --json` or the session's journal under Relay state. A successful session continuation
+records `project_git_checkpoint`, `source_liveness`, `source_preflight`,
+`source_stop_and_verification`, `session_staging`, `target_process_launch`,
+`target_verification`, and `total_handoff`.
+
+State continuation records the phases that actually apply: `project_git_checkpoint`,
+`context_capture`, `continuation_bundle_serialization`, `source_liveness`,
+`source_stop_and_verification`, `target_process_launch`, `target_verification`,
+`bootstrap_continuation_setup`, and `total_handoff`. `bootstrap_continuation_setup` intentionally
+overlaps target launch/verification: it is the user-visible elapsed time spent delivering the
+bundle through the target's bounded bootstrap turn, while the other two split at the durable spawn
+callback. It is not added to the component phases.
+
+Failures retain `total_handoff` and every completed prior phase. A phase that fails before it
+returns may be absent; the journal state/error remains the authoritative failure evidence.
+
+### 4b. Representative STATE_CONTINUATION lower bound
+
+```sh
+cargo test --release -p relay-core --test handoff_coordinator \
+  state_continuation_latency -- --ignored --nocapture --test-threads=1
+```
+
+This runs five complete state-continuation coordinator transactions with deterministic fake ports
+and prints end-to-end plus context-capture timings. It is separate from §4 because state
+continuation has no session-artifact staging and instead constructs/serializes a bundle and
+performs bootstrap setup. It is representative of Relay's own orchestration only, not a claim
+about real provider latency; real Codex bootstrap still needs an authenticated live measurement.
 
 ## 5. Codex-specific overhead: two very different numbers
 
@@ -151,14 +183,11 @@ mentioning explicitly in onboarding material so a first-time Codex user doesn't 
 
 ## Known gaps in this pass
 
-- **Context/state-continuation capture overhead was not isolated separately.** `STATE_CONTINUATION`
-  handoffs (anything touching Codex) do more work than the SESSION_CONTINUATION path measured in
-  §4 — they also capture recent conversation context (via §5a's same fast `app-server` interface
-  for a Codex source, or a local transcript read for a Claude source) before staging. Isolating
-  that one step cleanly needs a working fake Codex `app-server` end-to-end in the handoff harness,
-  which this pass did not build; the honest statement is "STATE_CONTINUATION costs at least as much
-  as §4 plus one context-capture read (§5a: ~0.7–1.7s for Codex sources)," not a single measured
-  number.
+- **No authenticated end-to-end state-continuation result is recorded yet.** The coordinator
+  benchmark and journal phases isolate Relay's work, while Codex-source context capture includes
+  a real app-server call (see §5a) and a real target bootstrap includes provider startup plus a
+  bounded READY turn. Collect those journal timings from a controlled real handoff before making
+  an optimisation decision.
 - Everything in §2–§4 uses a fake Claude executable that responds instantly; real Claude Code CLI
   startup/response time is not included in those numbers (§1's warm/cold numbers, which measure
   `relay` itself, are unaffected by this).
@@ -185,8 +214,11 @@ n = len(times)
 print(f"n={n} min={times[0]*1000:.2f}ms median={times[n//2]*1000:.2f}ms p90={times[int(n*0.9)]*1000:.2f}ms max={times[-1]*1000:.2f}ms")
 EOF
 
-# 2-4. Idle supervision + handoff latency (fake Claude, safe, no real account touched)
+# 2-4. Idle supervision + SESSION_CONTINUATION latency (fake Claude, safe, no real account touched)
 cargo test --release -p relay-cli --test benchmark -- --ignored --nocapture --test-threads=1
+
+# 4b. STATE_CONTINUATION coordinator lower bound (deterministic fake ports)
+cargo test --release -p relay-core --test handoff_coordinator state_continuation_latency -- --ignored --nocapture --test-threads=1
 
 # 5a. Real Codex app-server rate-limit read (read-only, spends no quota)
 RELAY_BENCH_CODEX_HOME=~/.config/agent-relay/profiles/<your-codex-profile>/codex \

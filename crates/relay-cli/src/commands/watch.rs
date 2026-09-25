@@ -8,8 +8,8 @@ use clap::Parser as _;
 use relay_core::{
     Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
     automation::{
-        AutomationPolicy, LedgerStore, ProfileCandidate, WatchCoordinator, WatchOutcome,
-        WatchRequest,
+        AutomationPolicy, LedgerStore, ProfileCandidate, RejectedCandidate, WatchCoordinator,
+        WatchOutcome, WatchRequest,
     },
     handoff::{HandoffCoordinator, ProjectId},
     usage::{UsageSignal, UsageState},
@@ -19,7 +19,8 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::{
-    auth::doctor_is_healthy,
+    auth::{apply_provider_exhaustion, fallback_is_healthy, verified_current_stable_identity},
+    auto_handoff,
     cli::{Cli, WatchArgs, WatchCommand},
     output::{CommandOutput, success},
     progress, providers, sessions,
@@ -220,17 +221,62 @@ pub(crate) fn run(
 
             let usage_progress =
                 progress::Progress::start("Checking usage and fallbacks…", cli.json);
-            let source_usage =
-                source_usage_signal.detect(&source.config_dir, project_dir, session_id)?;
+            trace_preflight("source_usage_check_started", &source.name, source.provider);
+            let source_usage = apply_provider_exhaustion(
+                paths,
+                source,
+                &executables,
+                source_usage_signal.detect(&source.config_dir, project_dir, session_id)?,
+                now,
+            )?;
+            trace_preflight(
+                "source_usage_check_completed",
+                &source.name,
+                source.provider,
+            );
+            if source_usage.state.is_blocking()
+                && std::env::var_os("RELAY_AUTO_HANDOFF_TRACE").is_some()
+            {
+                eprintln!(
+                    "[trace unix_ms={}] exhaustion_corroborated",
+                    current_unix_ms()
+                );
+            }
             let fallback_candidates = fallback_profiles
                 .iter()
                 .map(|candidate| -> Result<ProfileCandidate, Error> {
-                    let usage = signal_for(candidate).detect(
-                        &candidate.config_dir,
-                        project_dir,
-                        session_id,
+                    trace_preflight(
+                        "fallback_usage_check_started",
+                        &candidate.name,
+                        candidate.provider,
+                    );
+                    let usage = apply_provider_exhaustion(
+                        paths,
+                        candidate,
+                        &executables,
+                        signal_for(candidate).detect(
+                            &candidate.config_dir,
+                            project_dir,
+                            session_id,
+                        )?,
+                        now,
                     )?;
-                    let healthy = doctor_is_healthy(service, candidate, &executables)?;
+                    trace_preflight(
+                        "fallback_usage_check_completed",
+                        &candidate.name,
+                        candidate.provider,
+                    );
+                    trace_preflight(
+                        "fallback_health_check_started",
+                        &candidate.name,
+                        candidate.provider,
+                    );
+                    let healthy = fallback_is_healthy(service, candidate, &executables, &usage)?;
+                    trace_preflight(
+                        "fallback_health_check_completed",
+                        &candidate.name,
+                        candidate.provider,
+                    );
                     Ok(ProfileCandidate {
                         name: candidate.name.clone(),
                         provider: candidate.provider,
@@ -244,6 +290,11 @@ pub(crate) fn run(
                 })
                 .collect::<Result<Vec<_>, Error>>()?;
             usage_progress.set_label("Evaluating handoff…");
+            trace_preflight(
+                "candidate_filtering_target_selection_started",
+                &source.name,
+                source.provider,
+            );
 
             let outcome = watch.evaluate(
                 WatchRequest {
@@ -329,7 +380,10 @@ pub(crate) fn run(
                 }),
             )
         }
-        WatchCommand::Clear { project_dir } => {
+        WatchCommand::Clear {
+            project_dir,
+            provider_account,
+        } => {
             let canonical = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
                 path: project_dir.clone(),
                 source,
@@ -340,10 +394,40 @@ pub(crate) fn run(
                 let dir = store.session_dir(&view.record.relay_session_id);
                 LedgerStore::at_path(dir.join("automation_state.json")).clear()?;
             }
+            if let Some(name) = provider_account {
+                let profile = service
+                    .list()?
+                    .into_iter()
+                    .find(|profile| &profile.name == name)
+                    .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+                let executables = providers::ExecutableOverrides::default();
+                let stable_identity = verified_current_stable_identity(&profile, &executables)?
+                    .ok_or(Error::IdentityUnavailable)?;
+                relay_core::automation::ProviderIdentityExhaustionStore::at_paths(
+                    paths.provider_identity_exhaustion_file(),
+                    paths.provider_identity_exhaustion_lock_file(),
+                )
+                .clear_identity(
+                    profile.provider,
+                    &stable_identity,
+                    current_unix_ms(),
+                )?;
+            }
             success(
                 "watch.clear",
-                format!("Cleared automation ledgers for {}", canonical.display()),
-                json!({ "project_id": project_id.as_str() }),
+                format!(
+                    "Cleared automation ledgers for {}{}",
+                    canonical.display(),
+                    provider_account
+                        .as_ref()
+                        .map_or_else(String::new, |name| format!(
+                            " and the durable provider-account exhaustion record for '{name}'"
+                        ))
+                ),
+                json!({
+                    "project_id": project_id.as_str(),
+                    "provider_account_cleared": provider_account.as_ref().map(ProfileName::as_str),
+                }),
             )
         }
     }
@@ -357,6 +441,8 @@ enum WatchRunOutput {
     },
     WaitingForCapacity {
         reason: String,
+        rejected: Vec<RejectedCandidate>,
+        newly_reported: bool,
     },
     CooldownActive {
         retry_after_unix_ms: u64,
@@ -395,6 +481,12 @@ fn run_watch_auto(
     let mut attempt = 0;
     loop {
         attempt += 1;
+        if attempt == 1 && std::env::var_os("RELAY_AUTO_HANDOFF_TRACE").is_some() {
+            eprintln!(
+                "[trace unix_ms={}] first_auto_watch_evaluation",
+                current_unix_ms()
+            );
+        }
         let mut argv: Vec<OsString> = vec!["relay".into(), "--json".into()];
         if let Some(root) = &cli.config_root {
             argv.extend(["--config-root".into(), root.clone().into_os_string()]);
@@ -419,14 +511,50 @@ fn run_watch_auto(
         ]);
         let inner = Cli::try_parse_from(argv).map_err(|_| Error::ProviderUnsupported)?;
         let output = crate::commands::dispatch(&inner)?;
+        let outcome = output.json["data"]["outcome"].as_str().unwrap_or_default();
         // Each attempt is logged as it happens (stderr is the triggered run's log file), so
-        // "did it fire and what did it decide" is answerable while the retries are still going.
-        eprintln!("[attempt {attempt}/{attempts}] {}", output.human);
-        let undecided = output.json["data"]["outcome"] == "no_action_needed";
+        // "did it fire and what did it decide" is answerable while the retries are still going —
+        // except an unchanged "no eligible fallback" standoff, already reported once, which would
+        // otherwise repeat this identical block on every detached poll (every `RELAY_CODEX_POLL_SECS`
+        // for as long as the standoff lasts).
+        if outcome == "waiting_for_capacity" && output.json["data"]["newly_reported"] == false {
+            eprintln!("[attempt {attempt}/{attempts}] (unchanged) waiting for capacity");
+        } else {
+            eprintln!("[attempt {attempt}/{attempts}] {}", output.human);
+        }
+        let undecided = outcome == "no_action_needed";
         if !undecided || attempt >= attempts {
             return Ok(output);
         }
-        std::thread::sleep(std::time::Duration::from_millis(interval_ms));
+        if let Some(delay) = retry_delay_after(attempt, attempts, interval_ms) {
+            std::thread::sleep(delay);
+        }
+    }
+}
+
+/// The first three retries are deliberately short: Claude's statusline evidence often arrives a
+/// moment after its StopFailure hook. Every later retry retains the existing long cadence.
+fn retry_delay_after(
+    attempt: u32,
+    attempts: u32,
+    long_interval_ms: u64,
+) -> Option<std::time::Duration> {
+    if attempt >= attempts {
+        return None;
+    }
+    let delay_ms = usize::try_from(attempt.saturating_sub(1))
+        .ok()
+        .and_then(|index| auto_handoff::INITIAL_RETRY_DELAYS_MS.get(index).copied())
+        .unwrap_or(long_interval_ms);
+    Some(std::time::Duration::from_millis(delay_ms))
+}
+
+fn trace_preflight(event: &str, profile: &ProfileName, provider: ProviderKind) {
+    if std::env::var_os("RELAY_AUTO_HANDOFF_TRACE").is_some() {
+        eprintln!(
+            "[trace unix_ms={}] {event} profile={profile} provider={provider}",
+            current_unix_ms()
+        );
     }
 }
 
@@ -438,10 +566,43 @@ fn watch_run_output(outcome: WatchOutcome) -> Result<CommandOutput, Error> {
                 source_usage: format!("{source_usage:?}"),
             },
         ),
-        WatchOutcome::WaitingForCapacity { reason } => (
-            format!("Waiting for capacity: {reason}"),
-            WatchRunOutput::WaitingForCapacity { reason },
-        ),
+        WatchOutcome::WaitingForCapacity {
+            reason,
+            rejected,
+            newly_reported,
+        } => {
+            // Only the first cycle of a given standoff traces/prints — the caller (a fire-and-
+            // forget periodic poll) would otherwise repeat this identical line every cycle.
+            if newly_reported && std::env::var_os("RELAY_AUTO_HANDOFF_TRACE").is_some() {
+                eprintln!(
+                    "[trace unix_ms={}] no_eligible_fallback {}",
+                    current_unix_ms(),
+                    rejected
+                        .iter()
+                        .map(|candidate| format!("{}={}", candidate.name, candidate.detail))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+            let human = if rejected.is_empty() {
+                format!("Waiting for capacity: {reason}")
+            } else {
+                let breakdown = rejected
+                    .iter()
+                    .map(|candidate| format!("  {}: {}", candidate.name, candidate.detail))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("Waiting for capacity: {reason}\n{breakdown}")
+            };
+            (
+                human,
+                WatchRunOutput::WaitingForCapacity {
+                    reason,
+                    rejected,
+                    newly_reported,
+                },
+            )
+        }
         WatchOutcome::CooldownActive {
             retry_after_unix_ms,
         } => (
@@ -500,4 +661,25 @@ fn watch_run_output(outcome: WatchOutcome) -> Result<CommandOutput, Error> {
         ),
     };
     success("watch.run", human, data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::retry_delay_after;
+
+    #[test]
+    fn automatic_watch_uses_a_short_burst_then_the_existing_long_cadence() {
+        let delay = |attempt| retry_delay_after(attempt, 10, 20_000).map(|value| value.as_millis());
+        assert_eq!(delay(1), Some(300));
+        assert_eq!(delay(2), Some(1_000));
+        assert_eq!(delay(3), Some(2_000));
+        assert_eq!(delay(4), Some(20_000));
+        assert_eq!(delay(9), Some(20_000));
+        assert_eq!(delay(10), None);
+    }
+
+    #[test]
+    fn automatic_watch_never_sleeps_after_a_decisive_or_final_attempt() {
+        assert_eq!(retry_delay_after(1, 1, 20_000), None);
+    }
 }
