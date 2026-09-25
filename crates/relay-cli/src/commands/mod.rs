@@ -36,7 +36,11 @@ use crate::{
     providers,
 };
 
-pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
+/// The same [`RelayPaths`] resolution `dispatch` uses (discovery, overridden by `--config-root`/
+/// `--state-root` when given) — pulled out so callers outside a dispatched command (namely the
+/// update-check hint, which needs the resolved state root after `dispatch` has already returned)
+/// can reach the exact same paths without re-deriving the override logic.
+pub(crate) fn resolve_paths(cli: &Cli) -> Result<RelayPaths, Error> {
     let discovered = RelayPaths::discover()?;
     let config_root = cli
         .config_root
@@ -46,12 +50,18 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
         .state_root
         .clone()
         .unwrap_or_else(|| discovered.state_root().to_path_buf());
-    let paths = RelayPaths::new(config_root, state_root)?;
+    RelayPaths::new(config_root, state_root)
+}
+
+pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
+    let paths = resolve_paths(cli)?;
     let service = ProfileService::new(paths.clone());
     let provider = FakeProvider::default();
 
     match &cli.command {
-        Command::Profile(profile) => self::profile::run(&service, &paths, &provider, profile),
+        Command::Profile(profile) => {
+            self::profile::run(&service, &paths, &provider, profile, cli.json)
+        }
         Command::Session(session) => self::session::run(&service, &paths, session),
         Command::Lock(lock) => self::lock::run(&paths, lock),
         Command::Handoff(handoff) => self::handoff::run(&service, &paths, handoff),
@@ -90,7 +100,7 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
         Command::Claude(args) => self::claude::run(&service, &paths, args, cli.json),
         Command::Codex(args) => self::codex::run(&service, &paths, args, cli.json),
         Command::Status { project_dir } => {
-            self::status::run_status(&service, &paths, project_dir.as_deref())
+            self::status::run_status(&service, &paths, project_dir.as_deref(), cli.json)
         }
         Command::Profiles => self::status::run_profiles(&service, &paths),
         Command::Login {
@@ -128,5 +138,10 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
         Command::Doctor(args) => self::doctor::run(&service, &paths, args, cli.json),
         Command::Why(args) => self::why::run(&service, &paths, args, cli.json),
         Command::History(args) => self::history::run(&service, &paths, args),
+        // Always intercepted in `main` before `dispatch` is ever called — see
+        // `crate::update_check`. Kept here only so the match stays exhaustive.
+        Command::InternalUpdateCheckRefresh => {
+            unreachable!("the internal update-check refresh process never reaches normal dispatch")
+        }
     }
 }

@@ -22,6 +22,13 @@ pub(crate) struct CommandOutput {
     pub(crate) json: Value,
 }
 
+/// The "Title" + blank-line spacer every human-readable Relay report opens with — kept in one
+/// place so a report's framing can never drift between commands (each one used to hand-build this
+/// prefix independently, which happened to match but had nothing enforcing it).
+pub(crate) fn header(title: &str) -> String {
+    format!("{title}\n\n")
+}
+
 pub(crate) fn success<T: Serialize>(
     command: &'static str,
     human: String,

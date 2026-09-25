@@ -22,7 +22,7 @@ use crate::{
     },
     cli::{ExistingProvider, ProfileArgs, ProfileCommand},
     output::{CommandOutput, success},
-    preferences, providers,
+    preferences, progress, providers,
 };
 
 #[derive(Serialize)]
@@ -54,6 +54,7 @@ pub(crate) fn run(
     paths: &RelayPaths,
     provider: &FakeProvider,
     profile: &ProfileArgs,
+    json_mode: bool,
 ) -> Result<CommandOutput, Error> {
     match &profile.command {
         ProfileCommand::Add {
@@ -108,6 +109,7 @@ pub(crate) fn run(
             claude_executable,
             codex_executable,
         } => {
+            let progress = progress::Progress::start(&format!("Checking {name}…"), json_mode);
             let provider = provider_for_profile(
                 service,
                 name,
@@ -117,6 +119,7 @@ pub(crate) fn run(
                 },
             )?;
             let status = service.status(name, provider.as_ref())?;
+            progress.finish();
             let human = format!(
                 "Profile: {}\nProvider: {}\nAuthentication: {:?}\nAvailability: {:?}\nIdentity matches: {}",
                 status.profile.name,
@@ -148,6 +151,7 @@ pub(crate) fn run(
             claude_executable,
             codex_executable,
         } => {
+            let progress = progress::Progress::start(&format!("Checking {name}…"), json_mode);
             let provider = provider_for_profile(
                 service,
                 name,
@@ -157,6 +161,7 @@ pub(crate) fn run(
                 },
             )?;
             let report = service.doctor(name, provider.as_ref())?;
+            progress.finish();
             let mut lines = vec![format!(
                 "Profile '{}' is {}",
                 report.profile,

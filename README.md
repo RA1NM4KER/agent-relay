@@ -163,6 +163,10 @@ Details: [docs/security.md](docs/security.md).
 brew update && brew upgrade agent-relay
 ```
 
+`relay status`/`relay doctor`/`relay setup` may show a small "Update available" hint when a newer
+stable release exists — based on a cached, at-most-daily check of GitHub's releases, never a
+network call on the command's own critical path. Relay never auto-updates itself.
+
 ## Everyday commands
 
 | Command | What it does |

@@ -36,9 +36,10 @@ mod sessions;
 mod target;
 mod terminal;
 mod terminal_session;
+mod update_check;
 mod util;
 
-use std::process::ExitCode;
+use std::{io::IsTerminal as _, process::ExitCode};
 
 use clap::Parser as _;
 
@@ -49,20 +50,48 @@ fn main() -> ExitCode {
     if let Command::Hook(hook) = &cli.command {
         return hook::run_hook(hook, &cli);
     }
+    if matches!(cli.command, Command::InternalUpdateCheckRefresh) {
+        // Only ever reached via the detached process `update_check::maybe_show_hint` spawns —
+        // never invoked directly, prints nothing, and always exits successfully regardless of
+        // whether the refresh itself found anything.
+        if let Ok(paths) = commands::resolve_paths(&cli) {
+            update_check::run_internal_refresh(&paths);
+        }
+        return ExitCode::SUCCESS;
+    }
     let is_doctor = matches!(cli.command, Command::Doctor(_));
+    // Only these normal, human-facing completion points ever show an update hint — commands run
+    // constantly in scripts or launched every conversation (`relay claude`, `relay codex`, …)
+    // never gain an extra line they did not ask for. `Command::InternalUpdateCheckRefresh` never
+    // reaches here at all (see the early return above), and `shows_update_hint_for` itself would
+    // still say `false` for it even if that changed — see that function's own doc comment.
+    let show_update_hint = update_check::shows_update_hint_for(
+        &cli.command,
+        cli.json,
+        std::io::stderr().is_terminal(),
+    );
     let result = commands::dispatch(&cli);
-    if is_doctor {
+    let succeeded = result.is_ok();
+    let exit_code = if is_doctor {
         // `relay doctor` exits non-zero only when it is genuinely not ready (never for harmless
         // warnings), without ever reporting that diagnosis as a command *error* — the JSON
         // envelope stays the rich success shape either way.
-        return output::print_result_with_exit(result, cli.json, |output| {
+        output::print_result_with_exit(result, cli.json, |output| {
             let ready = output.json["data"]["ready"].as_bool().unwrap_or(false);
             if ready {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::from(1)
             }
-        });
+        })
+    } else {
+        output::print_result(result, cli.json)
+    };
+    if show_update_hint
+        && succeeded
+        && let Ok(paths) = commands::resolve_paths(&cli)
+    {
+        update_check::maybe_show_hint(&paths, true);
     }
-    output::print_result(result, cli.json)
+    exit_code
 }

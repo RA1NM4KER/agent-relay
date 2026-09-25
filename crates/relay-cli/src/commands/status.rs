@@ -10,7 +10,7 @@ use crate::{
     auth::friendly_auth_state,
     auto_handoff,
     output::{CommandOutput, success},
-    preferences, providers, readiness, sessions, target,
+    preferences, progress, providers, readiness, sessions, target,
     util::current_unix_ms,
 };
 
@@ -61,7 +61,10 @@ pub(crate) fn run_status(
     service: &ProfileService,
     paths: &RelayPaths,
     project_dir: Option<&Path>,
+    json_mode: bool,
 ) -> Result<CommandOutput, Error> {
+    // Purely local reads (no provider process ever spawned): never animated, since neither is
+    // ever slow enough to need it.
     let cwd = match project_dir {
         Some(path) => path.to_path_buf(),
         None => std::env::current_dir().map_err(|source| Error::Io {
@@ -80,6 +83,11 @@ pub(crate) fn run_status(
             json!({ "configured": false }),
         );
     };
+
+    // From here on, provider CLIs may be spawned (auth checks, liveness reconciliation, usage
+    // reads) — the only part of `relay status` that can ever be slow. One indicator covers all of
+    // it; a fast project never draws anything at all (see `Progress`'s own start-delay).
+    let progress = progress::Progress::start("Checking provider status…", json_mode);
 
     let registered = service.list()?;
     let executables = providers::ExecutableOverrides::default();
@@ -161,12 +169,13 @@ pub(crate) fn run_status(
         }
     };
 
-    let readiness = readiness::assess_for_project(
+    let readiness = readiness::assess_for_project_reporting(
         service,
         &registered,
         &preferences,
         &executables,
         Some(&canonical),
+        &|phase| progress.set_label(phase),
     );
     let (handoff_ready, handoff_message, handoff_next, handoff_then) = automatic_handoff_summary(
         &registered,
@@ -175,7 +184,9 @@ pub(crate) fn run_status(
         &canonical,
         focus,
         &readiness,
+        &progress,
     );
+    progress.finish();
 
     let decision_section = focus.map_or_else(
         || "Current\n  No active session in this project.".to_owned(),
@@ -215,8 +226,10 @@ pub(crate) fn run_status(
         })
         .collect();
 
-    let mut human =
-        format!("Agent Relay\n\n{decision_section}\n\nAutomatic handoff\n  {handoff_message}");
+    let mut human = format!(
+        "{}{decision_section}\n\nAutomatic handoff\n  {handoff_message}",
+        crate::output::header("Agent Relay")
+    );
     if !other_active.is_empty() {
         human.push_str(&format!(
             "\n\nOther active sessions\n{}",
@@ -287,6 +300,7 @@ fn automatic_handoff_summary(
     project_dir: &Path,
     focus: Option<&relay_core::handoff::RelaySessionView>,
     readiness: &readiness::Readiness,
+    progress: &progress::Progress,
 ) -> (bool, String, Option<String>, Option<String>) {
     let Some(view) = focus else {
         let message = if readiness.ready() {
@@ -331,6 +345,7 @@ fn automatic_handoff_summary(
         return (false, format!("Not ready — {reason}"), next, then);
     }
 
+    progress.set_label(&format!("Checking {owner} usage…"));
     let source_usage = registered
         .iter()
         .find(|profile| profile.name == owner)

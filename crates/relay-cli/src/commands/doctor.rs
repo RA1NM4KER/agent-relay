@@ -18,7 +18,7 @@ pub(crate) fn run(
     args: &DoctorArgs,
     json_mode: bool,
 ) -> Result<CommandOutput, Error> {
-    let progress = progress::Progress::start("Checking provider readiness…", json_mode);
+    let progress = progress::Progress::start("Checking Relay configuration…", json_mode);
     let registered = service.list()?;
     let preferences = preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
     let executables = providers::ExecutableOverrides {
@@ -26,12 +26,13 @@ pub(crate) fn run(
         codex: args.codex_executable.clone(),
     };
     let cwd = std::env::current_dir().ok();
-    let readiness = readiness::assess_for_project(
+    let readiness = readiness::assess_for_project_reporting(
         service,
         &registered,
         &preferences,
         &executables,
         args.project_dir.as_deref().or(cwd.as_deref()),
+        &|phase| progress.set_label(phase),
     );
     progress.finish();
     success("doctor", render_human(&readiness), render_json(&readiness))
@@ -51,7 +52,8 @@ pub(crate) fn render_human_markdown(readiness: &readiness::Readiness) -> String 
 }
 
 fn render(readiness: &readiness::Readiness, emphasize: impl Fn(&str) -> String) -> String {
-    let mut lines = vec![emphasize("Agent Relay health"), String::new()];
+    let title = emphasize("Agent Relay health");
+    let mut lines = Vec::new();
     for check in &readiness.checks {
         let label = format!("{} {}", check.level.symbol(), check.label);
         lines.push(if check.level == Level::Blocking {
@@ -74,7 +76,7 @@ fn render(readiness: &readiness::Readiness, emphasize: impl Fn(&str) -> String) 
         Level::Warning => "Ready for automatic handoff (with warnings above).",
         Level::Blocking => "Not ready for automatic handoff — see above.",
     }));
-    lines.join("\n")
+    format!("{}{}", crate::output::header(&title), lines.join("\n"))
 }
 
 fn render_json(readiness: &readiness::Readiness) -> serde_json::Value {

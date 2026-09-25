@@ -154,6 +154,11 @@ pub(crate) enum Command {
     /// A readable timeline of recent Relay activity for this project (session starts, exhaustion,
     /// handoffs, recoveries) — derived entirely from existing durable state, never a new log.
     History(HistoryArgs),
+    /// Internal: the detached, best-effort background process a human-facing command spawns to
+    /// refresh the cached update-available check (see `crate::update_check`) — never invoked
+    /// directly by a user, never prints anything, never fails visibly.
+    #[command(name = "__internal-update-check-refresh", hide = true)]
+    InternalUpdateCheckRefresh,
 }
 
 #[derive(Debug, Args)]

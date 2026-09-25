@@ -74,9 +74,26 @@ impl RelayPaths {
         self.state_root.join("provider_identity_exhaustion.json")
     }
 
+    /// A small cache of the latest known stable release, so a CLI-update hint never has to make a
+    /// network call on the foreground path. Scoped to the binary, not any project.
+    #[must_use]
+    pub fn update_check_cache_file(&self) -> PathBuf {
+        self.state_root.join("update_check.json")
+    }
+
     #[must_use]
     pub fn provider_identity_exhaustion_lock_file(&self) -> PathBuf {
         self.state_root.join("provider_identity_exhaustion.lock")
+    }
+
+    /// The advisory lock a background update-check refresh holds for its short, best-effort fetch,
+    /// so several commands noticing a stale cache at once do not each spawn a redundant network
+    /// process. An OS-level lock (see [`crate::handoff::OrchestrationLock`]), not a timestamp
+    /// heuristic: a refresh process that dies leaves nothing to clean up, since the OS releases it
+    /// the instant the process is gone, for any reason.
+    #[must_use]
+    pub fn update_check_refresh_lock_file(&self) -> PathBuf {
+        self.state_root.join("update_check_refresh.lock")
     }
 
     #[must_use]

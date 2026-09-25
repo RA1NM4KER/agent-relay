@@ -330,7 +330,7 @@ pub(crate) fn run(
     let refreshed = service.list()?;
     let readiness_progress =
         progress::Progress::start("Confirming automatic handoff readiness…", json_mode);
-    let readiness = readiness::assess(
+    let readiness = readiness::assess_reporting(
         service,
         &refreshed,
         &preferences,
@@ -338,6 +338,7 @@ pub(crate) fn run(
             claude: claude_executable.map(std::path::Path::to_path_buf),
             codex: codex_executable.map(std::path::Path::to_path_buf),
         },
+        &|phase| readiness_progress.set_label(phase),
     );
     readiness_progress.finish();
     let human = render_completion(
@@ -489,7 +490,7 @@ fn run_setup_non_interactive(
     let _ = primary_profile;
     let readiness_progress =
         progress::Progress::start("Confirming automatic handoff readiness…", json_mode);
-    let readiness = readiness::assess(
+    let readiness = readiness::assess_reporting(
         service,
         &registered,
         &preferences,
@@ -497,6 +498,7 @@ fn run_setup_non_interactive(
             claude: args.claude_executable.clone(),
             codex: args.codex_executable.clone(),
         },
+        &|phase| readiness_progress.set_label(phase),
     );
     readiness_progress.finish();
     success(

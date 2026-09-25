@@ -115,19 +115,22 @@ fn role_label(profile: &Profile) -> String {
 /// authenticated, every configured Claude profile has the usage integration installed, the
 /// installed provider CLIs are at least an unverified match for a version Relay has validated,
 /// automatic handoff is actually enabled in preferences, project trust is recorded for each
-/// profile, and (informational only) git and Herdr.
-pub fn assess(
+/// profile, and (informational only) git and Herdr. Reports each phase to `on_phase` — see
+/// [`assess_for_project_reporting`].
+pub fn assess_reporting(
     service: &ProfileService,
     registered: &[Profile],
     preferences: &Preferences,
     executables: &providers::ExecutableOverrides,
+    on_phase: &dyn Fn(&str),
 ) -> Readiness {
-    assess_for_project(
+    assess_for_project_reporting(
         service,
         registered,
         preferences,
         executables,
         std::env::current_dir().ok().as_deref(),
+        on_phase,
     )
 }
 
@@ -137,6 +140,28 @@ pub fn assess_for_project(
     preferences: &Preferences,
     executables: &providers::ExecutableOverrides,
     project: Option<&Path>,
+) -> Readiness {
+    assess_for_project_reporting(
+        service,
+        registered,
+        preferences,
+        executables,
+        project,
+        &|_| {},
+    )
+}
+
+/// Identical to [`assess_for_project`], but calls `on_phase` with a short, human-facing label
+/// (`"Checking claude-main…"`, `"Checking integrations…"`, …) before each major phase of the
+/// assessment — so a caller with a [`crate::progress::Progress`] indicator running can keep its
+/// label current without this module knowing anything about spinners or terminals itself.
+pub fn assess_for_project_reporting(
+    service: &ProfileService,
+    registered: &[Profile],
+    preferences: &Preferences,
+    executables: &providers::ExecutableOverrides,
+    project: Option<&Path>,
+    on_phase: &dyn Fn(&str),
 ) -> Readiness {
     let mut readiness = Readiness::default();
     let profiles = configured_profiles(registered, preferences);
@@ -152,6 +177,7 @@ pub fn assess_for_project(
     }
 
     for profile in &profiles {
+        on_phase(&format!("Checking {}…", profile.name));
         let label = role_label(profile);
         auth_check(&mut readiness, service, profile, &label, executables);
         if profile.provider == ProviderKind::Claude {
@@ -160,6 +186,7 @@ pub fn assess_for_project(
         trust_check(&mut readiness, profile, &label, project);
     }
 
+    on_phase("Checking provider versions…");
     version_checks(&mut readiness, &profiles, executables);
 
     if preferences.usage_integration_enabled == Some(true) {
@@ -173,6 +200,7 @@ pub fn assess_for_project(
         );
     }
 
+    on_phase("Checking integrations…");
     git_check(&mut readiness);
     herdr_check(&mut readiness);
 
