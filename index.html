@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent Relay</title>
-<meta name="description" content="Agent Relay supervises isolated Claude and Codex profiles, keeps one writer, and hands work to the next eligible profile when the current one hits its usage limit.">
+<meta name="description" content="Agent Relay supervises isolated Claude and Codex profiles, keeps one active writer per Relay Session, and automatically hands work to the next eligible profile when the current one hits its usage limit.">
 <style>
   :root {
     --bg: #0D0F12;
@@ -538,7 +538,7 @@
       <a href="#how-it-works">How it works</a>
       <a href="#security">Security</a>
       <a href="https://github.com/RA1NM4KER/agent-relay">GitHub</a>
-      <span class="badge">v0.3.0</span>
+      <a class="badge" href="https://github.com/RA1NM4KER/agent-relay/releases/tag/v0.4.0">v0.4.0</a>
     </div>
   </div>
 </nav>
@@ -549,7 +549,7 @@
   <section class="hero">
     <div class="wrap">
       <h1>Keep coding when your agent hits its limit.</h1>
-      <p class="sub">Agent Relay supervises isolated Claude and Codex profiles, keeps one writer, and hands the work to the next eligible profile in your priority order when the current one is exhausted.</p>
+      <p class="sub">Agent Relay supervises isolated Claude Code and Codex profiles, one active writer per Relay Session, and automatically hands work to the next eligible profile in your priority order when the current one is exhausted — exhaustion is remembered across sessions, and Relay never fails back on its own.</p>
 
       <div class="hero-ctas">
         <div class="install-cmd">
@@ -563,7 +563,7 @@
       </div>
 
       <div class="meta-row">
-        <span>v0.3.0</span>
+        <span>v0.4.0</span>
         <span>macOS</span>
         <span>Open source</span>
         <span>Apache-2.0</span>
@@ -576,7 +576,7 @@
     <div class="wrap">
       <div class="section-head">
         <span class="eyebrow">Live handoff</span>
-        <h2>One writer. An ordered fallback list.</h2>
+        <h2>One writer per session. An ordered fallback list.</h2>
         <p>Relay re-checks the priority order only when the current writer blocks. Until then, it stays put.</p>
       </div>
 
@@ -632,7 +632,7 @@
         </div>
       </div>
 
-      <p class="loop-note">Claude exhaustion is event-driven through Relay's Claude integration. Codex usage is checked immediately before Relay enters a Codex-managed terminal, then periodically while that session is supervised.</p>
+      <p class="loop-note">Claude exhaustion is event-driven through Relay's Claude integration. Codex usage is checked immediately before Relay enters a Codex-managed terminal, then periodically while that session is supervised. An out-of-band provider-side reset is recognized too: fresh, authoritative evidence that a profile is available again can clear an exhaustion before its originally scheduled reset time.</p>
     </div>
   </section>
 
@@ -644,7 +644,7 @@
         <div class="proof-card">
           <span class="proof-num">01</span>
           <h3>Honest continuity</h3>
-          <p>Claude → Claude continues the same Claude session. Between Claude and Codex, work continues from a state bundle: a new session on the other provider, not the same native conversation.</p>
+          <p>Claude → Claude continues the same native Claude session when supported. Between Claude and Codex, work continues from a provider-neutral state bundle: a new session on the other provider, never presented as the same conversation.</p>
         </div>
         <div class="proof-card">
           <span class="proof-num">02</span>
@@ -653,8 +653,8 @@
         </div>
         <div class="proof-card">
           <span class="proof-num">03</span>
-          <h3>One writer</h3>
-          <p>Relay enforces a single writer per project. The current writer is sticky: it stays active until it blocks, with no eager fail-back.</p>
+          <h3>One writer per session</h3>
+          <p>Relay enforces exactly one active writer per Relay Session — a project can hold several sessions, each supervised and switched independently. The current writer is sticky: it stays active until it blocks, with no eager fail-back.</p>
         </div>
       </div>
     </div>
@@ -681,7 +681,7 @@
         <div class="step">
           <span class="step-num">03</span>
           <h3>Automatic handoff</h3>
-          <p>When the current writer is exhausted, Relay re-checks the whole priority order and hands off to the first eligible profile, Claude or Codex. Claude limits arrive as events; Codex quota is checked before its terminal opens and while Relay supervises it.</p>
+          <p>When the current writer is exhausted, Relay re-checks the whole priority order and hands off to the first eligible profile, Claude or Codex — remembering proven exhaustion per provider account across Relay Sessions, not just this one. Claude limits arrive as events; Codex quota is read through Codex's own structured app-server interface, checked before its terminal opens and while Relay supervises it.</p>
         </div>
       </div>
 
@@ -692,6 +692,7 @@
         </div>
         <p>Arguments after <code class="mono">--</code> go straight to that provider and stay provider-scoped across handoffs. Claude's are never translated into Codex's, or the other way round.</p>
         <p>Managed Claude sessions also show the current Relay owner in the status line: <code class="mono">[Relay · profile]</code>.</p>
+        <p>Claude's own limit modal can stop refreshing usage in the status line; when that happens, Relay corroborates the block with very recent usage history instead of losing the signal. If every profile in the order is unavailable, Relay reports that condition instead of retrying silently.</p>
       </div>
     </div>
   </section>
@@ -709,9 +710,10 @@
           <li>Runs entirely on your machine<span class="sub">no Relay-operated server; Relay does not send your session data to its own backend</span></li>
           <li>Credentials remain provider-owned<span class="sub">Relay launches each provider's own official login flow</span></li>
           <li>No token storage<span class="sub">Relay never reads, copies, or stores OAuth tokens, cookies, API keys, or passwords</span></li>
-          <li>Transactional handoff<span class="sub">a handoff either completes cleanly or is recovered — never left half-done</span></li>
-          <li>Single-writer safety<span class="sub">one active writer per project, enforced, not assumed</span></li>
+          <li>Transactional handoff<span class="sub">a handoff either completes cleanly or is recovered — never left half-done; verification fails closed on any ambiguity</span></li>
+          <li>Single-writer safety<span class="sub">one active writer per Relay Session, enforced, not assumed — a project can hold several sessions, each independently owned</span></li>
           <li>Explicit profile isolation<span class="sub">each account lives in its own isolated configuration directory</span></li>
+          <li>No quota bypassing<span class="sub">Relay does not bypass or modify provider usage limits — each profile remains subject to its own provider's limits</span></li>
         </ul>
       </div>
       <p style="margin-top:32px; font-size:0.92rem;"><a href="https://github.com/RA1NM4KER/agent-relay/blob/main/docs/security.md">Read the full threat model →</a></p>
