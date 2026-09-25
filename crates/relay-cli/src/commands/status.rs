@@ -210,6 +210,12 @@ pub(crate) fn run_status(
                 "Current\n  {owner} · {provider}\n  Session {}",
                 view.record.relay_session_id.short()
             );
+            // Not noisy for the common case: only shown when it deviates from the default
+            // (Interactive), same as everything else in this local-only summary — see
+            // `readiness.rs`'s post-perf-fix "only claim what's known" convention.
+            if view.record.execution_intent == relay_core::handoff::ExecutionIntent::Autonomous {
+                section.push_str("\n  Execution: autonomous");
+            }
             section.push_str("\n\nIf this profile runs out");
             match (&handoff_next, &handoff_then) {
                 (Some(next), Some(then)) => {
@@ -286,6 +292,7 @@ pub(crate) fn run_status(
                 "relay_session_id": view.record.relay_session_id.as_str(),
                 "profile": view.profile().as_str(),
                 "provider": provider_of(view).map(|provider| provider.to_string()),
+                "execution_intent": view.record.execution_intent,
             })),
             "next_target": handoff_next,
             "then_target": handoff_then,

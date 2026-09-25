@@ -219,6 +219,19 @@ pub fn render_bootstrap_prompt(bundle: &ContinuationBundle) -> String {
     prompt
 }
 
+/// The concise instruction appended to a target's continuation turn when the Relay Session is
+/// [`super::ExecutionIntent::Autonomous`]. Deliberately does not suppress every question — an
+/// autonomous agent must still stop for a genuine blocker; see the enum's own doc comment. Kept
+/// in one place so Claude and Codex targets receive byte-identical wording, and so it is stated
+/// exactly once per continuation rather than repeated throughout a bundle/prompt.
+#[must_use]
+pub const fn render_autonomous_notice() -> &'static str {
+    "This Relay Session is autonomous. Continue the current task immediately. Do not ask the \
+     user whether you should continue merely because a handoff occurred. Stop only when: the \
+     task is complete, you are genuinely blocked on missing information, an action requires \
+     explicit user authorization, or continuing would be unsafe or ambiguous."
+}
+
 fn push_file_list(prompt: &mut String, label: &str, files: &[String]) {
     if files.is_empty() {
         return;
@@ -230,7 +243,8 @@ fn push_file_list(prompt: &mut String, label: &str, files: &[String]) {
 mod tests {
     use super::{
         ContinuationBundle, ContinuityType, ConversationExcerpt, EXCERPT_BYTE_CAP, ExcerptRole,
-        RECENT_CONTEXT_BYTE_BUDGET, RepoFacts, bound_recent_context, render_bootstrap_prompt,
+        RECENT_CONTEXT_BYTE_BUDGET, RepoFacts, bound_recent_context, render_autonomous_notice,
+        render_bootstrap_prompt,
     };
     use crate::{ProfileName, ProviderKind};
 
@@ -327,5 +341,35 @@ mod tests {
         bundle.repo.staged_files.clear();
         let prompt = render_bootstrap_prompt(&bundle);
         assert!(prompt.contains("working tree: clean"));
+    }
+
+    #[test]
+    fn autonomous_notice_says_continue_without_asking_but_still_allows_stopping() {
+        let notice = render_autonomous_notice();
+        assert!(notice.contains("Continue the current task immediately"));
+        assert!(notice.to_lowercase().contains("do not ask"));
+        // Genuine-blocker language must survive — this is not "never ask anything".
+        assert!(notice.to_lowercase().contains("blocked"));
+        assert!(notice.to_lowercase().contains("authorization"));
+        assert!(notice.to_lowercase().contains("unsafe"));
+    }
+
+    #[test]
+    fn autonomous_notice_never_mentions_provider_permissions() {
+        // The critical separation: intent text must never talk in terms of provider permission
+        // flags/modes, only behavioral continuation.
+        let notice = render_autonomous_notice().to_lowercase();
+        for forbidden in [
+            "permission",
+            "sandbox",
+            "dangerously-skip",
+            "full-access",
+            "unrestricted",
+        ] {
+            assert!(
+                !notice.contains(forbidden),
+                "notice must not mention '{forbidden}'"
+            );
+        }
     }
 }

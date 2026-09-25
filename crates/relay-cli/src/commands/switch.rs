@@ -226,7 +226,9 @@ pub(crate) fn run(
                 &canonical_project,
                 &new_session_id,
                 stored_args.for_provider(ProviderKind::Codex),
-                Some(crate::terminal_session::HANDOFF_CONTINUE_PROMPT),
+                Some(&crate::terminal_session::continuation_prompt(
+                    chosen.record.execution_intent,
+                )),
             )?;
             run_managed_terminal(
                 &ContinuationContext::new(

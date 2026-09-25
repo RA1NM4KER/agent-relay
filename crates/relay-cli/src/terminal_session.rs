@@ -15,7 +15,10 @@ use std::{
 use relay_core::{
     ClaudeConfigMode, Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
     automation::{LedgerStore, NoEligibleFallbackRecord},
-    handoff::{HandoffJournal, HandoffState, LeaseStore, OrchestrationLock, ProcessIdentity},
+    handoff::{
+        ExecutionIntent, HandoffJournal, HandoffState, LeaseStore, OrchestrationLock,
+        ProcessIdentity, render_autonomous_notice,
+    },
 };
 use relay_provider_claude::{ClaudeInspector, query_active_sessions};
 use serde_json::Value;
@@ -33,6 +36,22 @@ use crate::{
 /// interactive target. Keeping the task execution here (rather than in the headless verification
 /// turn) makes startup bounded and lets the user see the continued work as it happens.
 pub(crate) const HANDOFF_CONTINUE_PROMPT: &str = "Continue the transferred task now. Use the handoff context already recorded in this session, inspect the repository as needed, and do not redo work that is already complete.";
+
+/// [`HANDOFF_CONTINUE_PROMPT`], with the autonomous-continuation notice appended when this Relay
+/// Session's [`ExecutionIntent`] calls for it. This is the actual fix for the "would you like me
+/// to continue?" gap (GitHub Issue #3): the headless `STATE_CONTINUATION` bootstrap turn
+/// (`render_bootstrap_prompt`) explicitly tells the target not to continue yet, so the real
+/// continuation instruction — and the only place worth stating intent — is this one, sent once
+/// Relay has attached the real interactive target, for both continuity types.
+#[must_use]
+pub(crate) fn continuation_prompt(intent: ExecutionIntent) -> String {
+    match intent {
+        ExecutionIntent::Interactive => HANDOFF_CONTINUE_PROMPT.to_owned(),
+        ExecutionIntent::Autonomous => {
+            format!("{HANDOFF_CONTINUE_PROMPT} {}", render_autonomous_notice())
+        }
+    }
+}
 
 /// How often a supervised *Codex* session asks Codex's structured usage interface whether it is
 /// exhausted (Codex has no limit event to hook). Seconds; `RELAY_CODEX_POLL_SECS=0` disables.
@@ -84,6 +103,24 @@ impl<'a> ContinuationContext<'a> {
 impl ContinuationContext<'_> {
     fn session(&self) -> sessions::SessionCtx {
         self.session.borrow().clone()
+    }
+    /// This Relay Session's execution intent, read fresh from the durable record on every call
+    /// (never cached — a stale value here would misrepresent what the launching command actually
+    /// asked for). Defaults to `Interactive` if the record can't be read: this only ever affects
+    /// continuation-prompt wording, never an ownership or safety decision, so failing open here
+    /// is the least-surprising choice, not a fail-closed one.
+    fn execution_intent(&self) -> ExecutionIntent {
+        let session = self.session();
+        let Ok(store) = sessions::open_store(&self.paths, &self.canonical_project) else {
+            return ExecutionIntent::Interactive;
+        };
+        store
+            .load_record(&session.id)
+            .ok()
+            .flatten()
+            .map_or(ExecutionIntent::Interactive, |record| {
+                record.execution_intent
+            })
     }
     /// The Relay Session's own state directory (lease, journals, provider args, control).
     fn state_dir(&self) -> PathBuf {
@@ -788,6 +825,7 @@ fn run_managed_terminal_inner(
         else {
             return Ok(code);
         };
+        let prompt = continuation_prompt(context.execution_intent());
         let next = match provider_args::ProviderArgs::load(&context.state_dir()).and_then(
             |stored| {
                 plan_terminal_for_lease(
@@ -797,7 +835,7 @@ fn run_managed_terminal_inner(
                     context.claude_executable.as_deref(),
                     context.codex_executable.as_deref(),
                     &stored,
-                    Some(HANDOFF_CONTINUE_PROMPT),
+                    Some(&prompt),
                 )
             },
         ) {
@@ -1089,10 +1127,40 @@ pub(crate) fn plan_claude_attach(
 mod tests {
     use relay_core::{
         ProfileName,
-        handoff::{LeaseStore, ProcessIdentity, ProjectId, TransactionId, WriterLease},
+        handoff::{
+            ExecutionIntent, LeaseStore, ProcessIdentity, ProjectId, TransactionId, WriterLease,
+        },
     };
 
-    use super::{automatic_handoff_progress_label, publish_supervisor_record};
+    use super::{
+        HANDOFF_CONTINUE_PROMPT, automatic_handoff_progress_label, continuation_prompt,
+        publish_supervisor_record,
+    };
+
+    #[test]
+    fn interactive_continuation_is_unchanged_from_before_this_feature() {
+        assert_eq!(
+            continuation_prompt(ExecutionIntent::Interactive),
+            HANDOFF_CONTINUE_PROMPT
+        );
+    }
+
+    #[test]
+    fn autonomous_continuation_tells_the_target_to_proceed_without_asking() {
+        let prompt = continuation_prompt(ExecutionIntent::Autonomous);
+        assert!(prompt.starts_with(HANDOFF_CONTINUE_PROMPT));
+        assert!(prompt.contains("Continue the current task immediately"));
+        assert!(prompt.to_lowercase().contains("do not ask"));
+    }
+
+    #[test]
+    fn autonomous_continuation_still_preserves_genuine_blocker_language() {
+        let prompt = continuation_prompt(ExecutionIntent::Autonomous);
+        let lower = prompt.to_lowercase();
+        assert!(lower.contains("blocked"));
+        assert!(lower.contains("authorization"));
+        assert!(lower.contains("unsafe"));
+    }
 
     #[test]
     fn automatic_handoff_progress_does_not_invent_a_target_before_the_lease_moves() {

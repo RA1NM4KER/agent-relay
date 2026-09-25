@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use relay_core::{Error, ProfileName, ProfileService, RelayPaths};
+use relay_core::{Error, ProfileName, ProfileService, RelayPaths, handoff::ExecutionIntent};
 use serde_json::json;
 
 use crate::{
@@ -27,6 +27,10 @@ pub(crate) fn run(
         prompt,
         claude_executable.as_deref(),
         &[],
+        // `relay launch` has no `--autonomous` flag of its own (scoped to `relay claude`/`relay
+        // codex`, see AGENTS.md's "keep changes narrow"); this scripting-oriented entry point
+        // keeps its existing behavior unchanged.
+        ExecutionIntent::Interactive,
     )?;
     let human = format!(
         "Launched '{}' for {} as Relay session {}\nSession: {}\nPid: {}\nBackground job: {}",

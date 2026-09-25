@@ -16,7 +16,8 @@ mod state;
 
 pub use continuity::{
     ContinuationBundle, ContinuityType, ConversationExcerpt, EXCERPT_BYTE_CAP, ExcerptRole,
-    RECENT_CONTEXT_BYTE_BUDGET, RepoFacts, bound_recent_context, render_bootstrap_prompt,
+    RECENT_CONTEXT_BYTE_BUDGET, RepoFacts, bound_recent_context, render_autonomous_notice,
+    render_bootstrap_prompt,
 };
 pub use coordinator::{
     ContextCapturer, HandoffCoordinator, HandoffFailure, HandoffRequest, LaunchDirective,
@@ -31,6 +32,7 @@ pub use lease::{LeaseStore, WriterLease};
 pub use lock::{OrchestrationLock, ProcessIdentity};
 pub use project::ProjectId;
 pub use session::{
-    RelaySessionId, RelaySessionRecord, RelaySessionView, SessionState, SessionStore,
+    ExecutionIntent, RelaySessionId, RelaySessionRecord, RelaySessionView, SessionState,
+    SessionStore,
 };
 pub use state::{FailedPhase, HandoffState, TransactionId};

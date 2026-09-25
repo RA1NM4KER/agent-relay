@@ -106,6 +106,24 @@ impl std::fmt::Display for RelaySessionId {
     }
 }
 
+/// Behavioral intent for a Relay Session — never a permission grant. See module docs and
+/// `docs/automatic-handoff.md`: this decides only whether a target should ask "would you like me
+/// to continue?" after a handoff, never what a provider process is allowed to do to the
+/// filesystem/network/destructive actions. Provider-specific sandbox/permission behavior is
+/// completely orthogonal to this and must never be inferred from it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionIntent {
+    /// Normal conversational behavior: the agent may ask before continuing, as usual.
+    #[default]
+    Interactive,
+    /// Continue pursuing the current task without asking the user whether to continue merely
+    /// because a handoff occurred. Does not suppress stopping for a genuine blocker (missing
+    /// credential/information, an action needing explicit authorization, or unsafe/ambiguous
+    /// continuation) — see [`super::continuity::render_autonomous_notice`].
+    Autonomous,
+}
+
 /// The durable record. `last_profile` and `native_session_id` are *history* while the session is
 /// dormant — never an active owner.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -127,6 +145,11 @@ pub struct RelaySessionRecord {
     /// ends is removed instead of remembered.
     #[serde(default)]
     pub provisional: bool,
+    /// Set once, at session creation, from the launching command's own flag — never changed by a
+    /// handoff. An old record predating this field safely deserializes as `Interactive`, the
+    /// least-surprising existing behavior.
+    #[serde(default)]
+    pub execution_intent: ExecutionIntent,
 }
 
 impl RelaySessionRecord {
@@ -150,7 +173,17 @@ impl RelaySessionRecord {
             provider,
             native_session_id,
             provisional,
+            execution_intent: ExecutionIntent::default(),
         }
+    }
+
+    /// Overrides the execution intent set by [`Self::new`] — a separate step so every existing
+    /// call site that has no opinion on autonomy keeps compiling unchanged and keeps the safe
+    /// `Interactive` default.
+    #[must_use]
+    pub const fn with_execution_intent(mut self, intent: ExecutionIntent) -> Self {
+        self.execution_intent = intent;
+        self
     }
 }
 
@@ -768,5 +801,63 @@ mod tests {
             Some("native-2")
         );
         assert!(session_dir.join("provider_args.json").exists());
+    }
+
+    #[test]
+    fn a_new_record_defaults_to_interactive() {
+        let record = record(&project(), "megan", "n1");
+        assert_eq!(record.execution_intent, ExecutionIntent::Interactive);
+    }
+
+    #[test]
+    fn with_execution_intent_overrides_the_default() {
+        let record =
+            record(&project(), "megan", "n1").with_execution_intent(ExecutionIntent::Autonomous);
+        assert_eq!(record.execution_intent, ExecutionIntent::Autonomous);
+    }
+
+    #[test]
+    fn an_old_record_without_execution_intent_deserializes_as_interactive() {
+        // Exactly the shape a pre-this-change `session.json` has on disk: no `execution_intent`
+        // key at all. `#[serde(deny_unknown_fields)]` only rejects EXTRA keys, never missing ones
+        // with a `#[serde(default)]`, so this must still parse.
+        let old_json = serde_json::json!({
+            "version": 1,
+            "relay_session_id": RelaySessionId::generate().expect("id").as_str(),
+            "project_id": project().as_str(),
+            "created_unix_ms": 10,
+            "last_activity_unix_ms": 10,
+            "last_profile": "megan",
+            "provider": "claude",
+            "native_session_id": "n1",
+            "provisional": false,
+        });
+        let record: RelaySessionRecord =
+            serde_json::from_value(old_json).expect("old record without the new field parses");
+        assert_eq!(record.execution_intent, ExecutionIntent::Interactive);
+    }
+
+    #[test]
+    fn execution_intent_persists_through_release_and_reactivate() {
+        let root = tempdir().expect("root");
+        let paths = paths(root.path());
+        let store = SessionStore::new(&paths, project());
+        let record =
+            record(&project(), "megan", "n1").with_execution_intent(ExecutionIntent::Autonomous);
+        let id = record.relay_session_id.clone();
+        store
+            .create_active(&record, &lease(&project(), "megan", "n1"))
+            .expect("create");
+        // The session goes dormant (source stopped)...
+        store.release(&id, 20, false).expect("release");
+        let dormant = store.load_record(&id).expect("load").expect("exists");
+        assert_eq!(dormant.execution_intent, ExecutionIntent::Autonomous);
+        // ...then a handoff hands it to a different profile/native session entirely.
+        store
+            .activate(&id, &lease(&project(), "bob", "n2"))
+            .expect("activate");
+        let after_handoff = store.load_record(&id).expect("load").expect("exists");
+        assert_eq!(after_handoff.execution_intent, ExecutionIntent::Autonomous);
+        assert_eq!(after_handoff.last_profile.as_str(), "bob");
     }
 }

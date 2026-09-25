@@ -6,7 +6,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use relay_core::{Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths};
+use relay_core::{
+    Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths, handoff::ExecutionIntent,
+};
 use relay_provider_claude::ClaudeInspector;
 use serde_json::json;
 
@@ -31,6 +33,16 @@ use crate::{
         resolve_initial_message, shell_quote,
     },
 };
+
+/// Behavioral intent only (see `ExecutionIntent`'s own doc comment) — never mapped to any
+/// provider permission flag.
+const fn execution_intent(autonomous: bool) -> ExecutionIntent {
+    if autonomous {
+        ExecutionIntent::Autonomous
+    } else {
+        ExecutionIntent::Interactive
+    }
+}
 
 pub(crate) fn run(
     service: &ProfileService,
@@ -195,6 +207,7 @@ pub(crate) fn run(
             &message,
             args.claude_executable.as_deref(),
             &args.provider_args,
+            execution_intent(args.autonomous),
         )?;
         drop(progress.take());
         provider_args::ProviderArgs::fresh_for(ProviderKind::Claude, args.provider_args.clone())
@@ -257,6 +270,7 @@ pub(crate) fn run(
         None,
         true,
         current_unix_ms(),
+        execution_intent(args.autonomous),
     )?;
     provider_args::ProviderArgs::fresh_for(ProviderKind::Claude, args.provider_args.clone())
         .save(&session.dir)?;
@@ -348,6 +362,7 @@ fn route_known_exhausted_claude_start(
                     fallback: args.fallback.clone(),
                     project_dir: args.project_dir.clone(),
                     no_attach: args.no_attach,
+                    autonomous: args.autonomous,
                     new: args.new,
                     resume: None,
                     claude_executable: args.claude_executable.clone(),
@@ -363,6 +378,7 @@ fn route_known_exhausted_claude_start(
                     profile: Some(candidate.name.clone()),
                     project_dir: args.project_dir.clone(),
                     no_attach: args.no_attach,
+                    autonomous: args.autonomous,
                     new: args.new,
                     claude_executable: args.claude_executable.clone(),
                     codex_executable: None,

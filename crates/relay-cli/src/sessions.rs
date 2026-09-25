@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use relay_core::{
     Error, Profile, ProfileName, ProviderKind, RelayPaths,
     handoff::{
-        LeaseStore, OrchestrationLock, ProcessIdentity, ProjectId, RelaySessionId,
+        ExecutionIntent, LeaseStore, OrchestrationLock, ProcessIdentity, ProjectId, RelaySessionId,
         RelaySessionRecord, RelaySessionView, SessionState, SessionStore, TransactionId,
         WriterLease,
     },
@@ -97,6 +97,7 @@ pub fn create_session(
     provider_handle: Option<String>,
     provisional: bool,
     now_unix_ms: u64,
+    execution_intent: ExecutionIntent,
 ) -> Result<(SessionCtx, WriterLease), Error> {
     let store = open_store(paths, canonical_project)?;
     let id = RelaySessionId::generate()?;
@@ -117,7 +118,8 @@ pub fn create_session(
         Some(native_session_id.to_owned()),
         provisional,
         now_unix_ms,
-    );
+    )
+    .with_execution_intent(execution_intent);
     store.create_active(&record, &lease)?;
     Ok((SessionCtx::of(&store, &id), lease))
 }

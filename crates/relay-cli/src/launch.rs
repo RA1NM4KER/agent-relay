@@ -6,7 +6,7 @@ use std::path::Path;
 
 use relay_core::{
     Error, Profile, ProfileName, ProfileService, RelayPaths,
-    handoff::{LeaseStore, OrchestrationLock},
+    handoff::{ExecutionIntent, LeaseStore, OrchestrationLock},
 };
 
 use crate::{providers, sessions, util::current_unix_ms};
@@ -56,6 +56,7 @@ pub(crate) fn confirm_not_active(
 /// unchanged rather than re-implementing writer creation: refuses a still-active existing writer,
 /// otherwise spawns `claude --bg` and records a fresh `WriterLease`. Both callers get the same
 /// safety guarantees; `relay claude` just chooses the profile/prompt/session for the caller.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn perform_launch(
     service: &ProfileService,
     paths: &RelayPaths,
@@ -64,6 +65,7 @@ pub(crate) fn perform_launch(
     prompt: &str,
     claude_executable: Option<&Path>,
     extra_args: &[String],
+    execution_intent: ExecutionIntent,
 ) -> Result<(sessions::SessionCtx, relay_core::handoff::WriterLease), Error> {
     let registered = service.list()?;
     let target = registered
@@ -100,6 +102,7 @@ pub(crate) fn perform_launch(
         Some(launched.provider_handle.clone()),
         false,
         current_unix_ms(),
+        execution_intent,
     )
 }
 

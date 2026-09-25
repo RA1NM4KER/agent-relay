@@ -806,6 +806,129 @@ fn status_reports_current_owner_and_automatic_handoff_readiness() {
     assert!(human.contains("Automatic handoff"));
 }
 
+/// GitHub Issue #3: `--autonomous` is set once at session creation and `relay status` (a purely
+/// local read, per the perf fix above) surfaces it — proving the flag actually reaches the
+/// durable Relay Session record end to end, not just that the CLI parses it.
+#[test]
+fn autonomous_flag_is_persisted_and_surfaced_by_status() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir").keep();
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "2.1.276",
+        "aaaa1111",
+        "22222222-2222-4222-8222-222222222222",
+    );
+    adopt_profile(root.path(), "alice", &claude);
+    accept_project_trust(root.path(), "alice", &project);
+    let setup = relay(
+        root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "alice",
+            "--usage-integration",
+            "true",
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(
+        setup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&setup.stderr)
+    );
+    let launch = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.to_string_lossy(),
+            "--no-attach",
+            "--autonomous",
+            "--claude-executable",
+            &claude.path_text(),
+            "hello there",
+        ],
+    );
+    assert!(
+        launch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launch.stderr)
+    );
+
+    let status = relay(
+        root.path(),
+        &["status", "--project", &project.to_string_lossy(), "--json"],
+    );
+    assert!(
+        status.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let data = json_stdout(&status)["data"].clone();
+    assert_eq!(data["current_session"]["execution_intent"], "autonomous");
+
+    assert!(human_status_output(root.path(), &project).contains("Execution: autonomous"));
+}
+
+/// `relay()`'s helper always passes `--json` (see its own doc comment); this builds the raw
+/// command a real human-terminal invocation would run, matching
+/// `status_reports_current_owner_and_automatic_handoff_readiness`'s existing pattern.
+fn human_status_output(root: &Path, project: &Path) -> String {
+    let path_with_bin = std::env::join_paths(
+        std::iter::once(root.join("bin")).chain(
+            std::env::var_os("PATH")
+                .iter()
+                .flat_map(std::env::split_paths),
+        ),
+    )
+    .expect("joinable PATH");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .arg("status")
+        .arg("--project")
+        .arg(project)
+        .env("PATH", path_with_bin)
+        .env_remove("CLAUDE_CONFIG_DIR");
+    for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    for variable in HERDR_ENV_VARS {
+        command.env_remove(variable);
+    }
+    let output = command.output().expect("run relay status");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// The default (no `--autonomous`) path must remain exactly as before this feature: no
+/// "Execution:" line at all, and the JSON says `interactive` explicitly rather than omitting the
+/// field — additive, never silently missing.
+#[test]
+fn interactive_is_the_default_and_stays_unannounced_in_human_output() {
+    let root = tempdir().expect("tempdir");
+    let (project, _claude) = live_session(root.path());
+    let status = relay(
+        root.path(),
+        &["status", "--project", &project.to_string_lossy(), "--json"],
+    );
+    let data = json_stdout(&status)["data"].clone();
+    assert_eq!(data["current_session"]["execution_intent"], "interactive");
+
+    assert!(!human_status_output(root.path(), &project).contains("Execution:"));
+}
+
 /// The whole point of the fast/`--live` split (M-status-perf): default `relay status` must never
 /// spawn a provider auth check, and `--live` must actually perform one. Proven here by wrapping
 /// the fixture `claude` binary with a marker that only appears if `auth status` really ran —

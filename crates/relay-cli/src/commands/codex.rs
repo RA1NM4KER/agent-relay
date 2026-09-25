@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use relay_core::{
     ClaudeConfigMode, Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
     automation::{AutomationDecision, AutomationPolicy, LedgerStore, ProfileCandidate, decide},
-    handoff::ProjectId,
+    handoff::{ExecutionIntent, ProjectId},
     usage::UsageState,
 };
 use serde_json::{Value, json};
@@ -178,6 +178,7 @@ fn route_exhausted_codex_start(
                 fallback: Vec::new(),
                 project_dir: args.project_dir.clone(),
                 no_attach: args.no_attach,
+                autonomous: args.autonomous,
                 new: args.new,
                 resume: None,
                 claude_executable: args.claude_executable.clone(),
@@ -210,6 +211,7 @@ fn perform_codex_launch(
     profile: &Profile,
     canonical_project: &Path,
     executables: &providers::ExecutableOverrides,
+    execution_intent: ExecutionIntent,
 ) -> Result<(sessions::SessionCtx, relay_core::handoff::WriterLease), Error> {
     let _ = service;
     let launched = relay_provider_codex::launch_new_thread(
@@ -231,6 +233,7 @@ fn perform_codex_launch(
         None,
         false,
         current_unix_ms(),
+        execution_intent,
     )
 }
 
@@ -338,8 +341,18 @@ fn run_codex_inner(
         profile.name
     ));
     progress.set_label("Creating the Codex session…");
-    let (session, lease) =
-        perform_codex_launch(service, paths, profile, &canonical_project, &executables)?;
+    let (session, lease) = perform_codex_launch(
+        service,
+        paths,
+        profile,
+        &canonical_project,
+        &executables,
+        if args.autonomous {
+            ExecutionIntent::Autonomous
+        } else {
+            ExecutionIntent::Interactive
+        },
+    )?;
     progress.finish();
     // A brand-new managed conversation: only Codex's arguments carry over to it.
     provider_args::ProviderArgs::fresh_for(ProviderKind::Codex, args.provider_args.clone())

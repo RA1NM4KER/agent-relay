@@ -328,6 +328,11 @@ pub(crate) struct ClaudeArgs {
     /// environments with no real TTY to attach to.
     #[arg(long)]
     pub(crate) no_attach: bool,
+    /// Continue pursuing the task without asking whether to continue after a handoff moves it to
+    /// another profile/provider — behavioral intent only, never a permission grant. Set once at
+    /// session creation and carried by the Relay Session across every future handoff.
+    #[arg(long)]
+    pub(crate) autonomous: bool,
     /// Deprecated and unnecessary: every `relay claude` already starts a NEW Relay session and
     /// never stops or replaces any other one. Accepted (and ignored) for old scripts.
     #[arg(long, hide = true)]
@@ -365,6 +370,11 @@ pub(crate) struct CodexArgs {
     /// interactive session (`relay resume` opens it later).
     #[arg(long)]
     pub(crate) no_attach: bool,
+    /// Continue pursuing the task without asking whether to continue after a handoff moves it to
+    /// another profile/provider — behavioral intent only, never a permission grant. Set once at
+    /// session creation and carried by the Relay Session across every future handoff.
+    #[arg(long)]
+    pub(crate) autonomous: bool,
     /// Deprecated and unnecessary: every `relay codex` already starts a NEW Relay session and
     /// never stops or replaces any other one. Accepted (and ignored) for old scripts.
     #[arg(long, hide = true)]
@@ -939,5 +949,48 @@ impl From<CliProvider> for ProviderKind {
         match value {
             CliProvider::Fake => Self::Fake,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser as _;
+
+    use super::{Cli, Command};
+
+    /// GitHub Issue #3: `--autonomous` must never be confused with, or leak into, a
+    /// provider-forwarded permission flag — even one typed on the very same command line. Parsing
+    /// alone proves the separation clap enforces: `--autonomous` sets Relay's own bool field,
+    /// while everything after `--` (including something as permission-shaped as
+    /// `--dangerously-skip-permissions`) lands untouched in `provider_args`, exactly as it would
+    /// without `--autonomous` present.
+    #[test]
+    fn autonomous_flag_never_absorbs_or_implies_a_provider_permission_flag() {
+        let cli = Cli::try_parse_from([
+            "relay",
+            "claude",
+            "--autonomous",
+            "--no-attach",
+            "--",
+            "--dangerously-skip-permissions",
+        ])
+        .expect("parses");
+        let Command::Claude(args) = cli.command else {
+            panic!("expected Claude subcommand");
+        };
+        assert!(args.autonomous);
+        assert_eq!(
+            args.provider_args,
+            vec!["--dangerously-skip-permissions".to_owned()]
+        );
+    }
+
+    #[test]
+    fn autonomous_defaults_to_false_and_does_not_require_the_flag() {
+        let cli = Cli::try_parse_from(["relay", "codex", "--no-attach"]).expect("parses");
+        let Command::Codex(args) = cli.command else {
+            panic!("expected Codex subcommand");
+        };
+        assert!(!args.autonomous);
     }
 }
