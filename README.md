@@ -6,11 +6,16 @@ profile in one priority order. Claude → Claude continues the same native Claud
 involving Codex continues from a Relay state bundle in a new session — never the same native
 conversation across the two CLIs.
 
-Status: **v0.3.0, macOS-first.** The handoff, recovery, and usage-detection paths are validated
+Status: **v0.4.0, macOS-first.** The handoff, recovery, and usage-detection paths are validated
 live on macOS with Claude Code 2.1.276–2.1.278; Codex support was checked live against Codex CLI
 0.155.0 (structured usage reads, thread verification, Codex → Claude handoff by hand, pre-launch
-fallback from an exhausted Codex profile) — automatic handoff *from a real Codex exhaustion
-mid-session* is covered by fake-provider tests and has not yet been observed live. Linux builds and
+fallback from an exhausted Codex profile). Automatic handoff *from a real Codex exhaustion
+mid-session* has now been observed live: detection and evaluation ran correctly against a genuine
+exhaustion, though that specific incident had no eligible fallback available to hand off to (every
+configured fallback was independently exhausted at the same time) — see
+[docs/automatic-handoff.md](docs/automatic-handoff.md#no-eligible-fallback) for the diagnostics
+that case now produces. A full live handoff away from a real Codex exhaustion (to a healthy
+fallback) is still covered by fake-provider tests rather than observed live. Linux builds and
 passes the tests in CI but is not yet live-supported or validated (some process-scan code is
 macOS-specific). Relay runs entirely standalone — no separate tool required; an optional
 [Herdr](https://herdr.dev) integration exists for people already using Herdr (see

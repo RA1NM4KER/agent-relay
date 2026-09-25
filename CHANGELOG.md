@@ -4,39 +4,9 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
-- **Claude's own native-default account is now a first-class profile.** Live-confirmed: `claude
-  auth status --json` with `CLAUDE_CONFIG_DIR` unset reports the logged-in native account
-  (`configDirectory: ~/.claude`); the identical command with `CLAUDE_CONFIG_DIR=~/.claude`
-  explicitly set reports logged **out**. These are never treated as equivalent. `relay profile
-  inspect-existing --provider claude --native-default` and `relay profile adopt <name> --provider
-  claude --native-default` register `~/.claude` by reference (no credential copy, no
-  reauthentication) with the same identity pinning, permission checks and duplicate-identity
-  rules as any isolated profile; `relay integration claude install/status/uninstall
-  --native-default` installs the usage hooks there too. A native-default profile can be the
-  source or target of a normal `relay switch`/automatic handoff, side by side with isolated
-  profiles.
-- **`relay claude --resume <exact-uuid>` finds its real owner.** With no `--profile`, every
-  registered Claude profile (native-default included) is searched structurally — via its own
-  saved transcripts, never model output — for the one that actually has that conversation: a
-  single owner is used automatically (and named), zero owners gives an actionable next step, and
-  more than one refuses and lists the candidates. An explicit `--profile` still pins the search,
-  but a wrong pin now names the real owner when one is provable instead of a bare "not found".
-- **`relay adopt --session <id>`** brings an already-running Claude conversation under Relay from
-  outside it — no in-session `/relay adopt` required. This matters because a Claude process
-  started before Relay's `/relay` command was installed never sees it (Claude only loads custom
-  commands at session start), so the in-session hook path is structurally unreachable for a
-  conversation that predates the install. Every fact still comes from Claude's own live session
-  registry and transcript layout; every registered Claude profile is checked (or one is pinned
-  with `--profile`), the process is never restarted, and the exact-session safety invariants
-  (one live owner per native conversation, atomic lease creation) apply unchanged. `relay status`
-  shows it ACTIVE immediately, and an external `relay switch --session <id> <target>` can act on
-  it like any other session.
-- **More actionable provider errors.** A failed provider inspection now reports which operation
-  failed and a sanitized reason (`Claude \`auth status\` failed: ...`) instead of a bare "provider
-  command failed"; stderr is captured, secret-shaped tokens are redacted, and raw output is never
-  leaked. An unsafe profile directory's error now names the exact mode and the fix (`... is mode
-  755; ... Run: chmod 700 <path>`), and `relay profile doctor` surfaces that same actionable text
-  instead of a generic "failed safety validation".
+## v0.4.0 — 2026-09-25
+
+### Multi-session Relay supervision
 
 - **Relay supervises conversations, not repositories.** A project can now hold many Relay Sessions
   (each with a stable Relay id, its own lease, journals, provider arguments and control endpoint);
@@ -55,37 +25,29 @@ All notable changes to Agent Relay will be documented here.
   check for handoffs is now conversation-scoped: only another process serving *the same
   conversation* blocks.
 
-- **More precise switch safety.** The check before a Claude → Claude move no longer refuses because
-  *some* Claude process runs under the source profile (background daemons, helpers and sessions in other
-  projects did): each process is classified by pid + start time, Claude's session registry and working
-  directory, and only a possible writer for *this* project — or something that cannot be placed — blocks.
-  Foreseeable refusals now happen before the source is stopped, and a supervised terminal reopens the same
-  session when a switch fails after the stop but before ownership moved. Identity of the target is also
-  checked up front.
+### Claude and Codex parity
 
-- **Session adoption and in-agent control.** `relay claude --resume [SESSION]` adopts an existing Claude
-  conversation through Claude's own resume flow (same session, no fork), proven from Claude's own
-  `SessionStart` report, its live-session registry and the profile identity pin before any lease is written.
-  `/relay status`, `/relay switch [profile]` and `/relay adopt` work inside Claude (a `UserPromptSubmit` hook
-  answers them without a model turn; installed with the usage integration, an existing `commands/relay.md`
-  is never touched); `/relay switch` is a request over a private per-project control directory to the
-  supervising `relay`, which runs the ordinary switch transaction and follows the conversation. Bare
-  `relay switch` opens a terminal picker (shared target model: current/exhausted/disabled/unverifiable
-  profiles shown but not selectable). `relay login <new-name>` no longer silently defaults to Claude. Live
-  Codex adoption is still not offered (no way to verify a live thread's identity); Codex now has its own
-  in-agent mechanism instead — `$relay status|doctor|why|history|switch`, an installed skill executed
-  through a model/tool turn rather than a hook (see the entries below).
-
-- `relay setup` works with Claude Code and/or Codex (either alone is enough), asks which provider a new
-  profile is for only when both are installed, installs the usage hook only for Claude profiles, and ends
-  with the start commands for the providers you configured (`relay claude` / `relay codex` as peers +
-  `relay resume`). Claude Code 2.1.278 is now a verified version. CLI help and docs no longer use internal
+- `relay setup` works with Claude Code and/or Codex (either alone is enough), asks which provider a
+  new profile is for only when both are installed, installs the usage hook only for Claude
+  profiles, and ends with the start commands for the providers you configured (`relay claude` /
+  `relay codex` as peers + `relay resume`). `relay login <new-name>` no longer silently defaults to
+  Claude, Claude Code 2.1.278 is now a verified version, and CLI help/docs no longer use internal
   milestone labels or describe the retired background-launch flow.
-- `relay claude` no longer asks for a first message: it starts `claude --session-id <uuid>` directly in
-  your terminal (Relay assigns and records the session) and a handoff can stop that interactive session by
-  its verified process. One progress indicator now covers every slow provider phase of `relay claude` /
-  `relay codex` (no blank gaps); `relay codex` no longer runs the slow `codex doctor` before its usage check.
+- Investigated whether Codex can show a live Relay-ownership indicator the way Claude's status-line
+  badge does. It cannot today: Codex's TUI status line only accepts a fixed set of built-in items
+  (no custom-command item type), and its hook system fires on lifecycle events (`SessionStart`,
+  `PreToolUse`, ...) rather than on a render tick, so nothing can keep a footer honest across a
+  handoff. The existing one-shot launch banner stays; see `docs/codex-status-line.md` for the
+  live-verified findings.
 
+### Seamless in-agent switching
+
+- `/relay status`, `/relay switch [profile]` and `/relay adopt` work inside Claude (a
+  `UserPromptSubmit` hook answers them without a model turn; installed with the usage integration,
+  an existing `commands/relay.md` is never touched); `/relay switch` is a request over a private
+  per-project control directory to the supervising `relay`, which runs the ordinary switch
+  transaction and follows the conversation. Bare `relay switch` opens a terminal picker (shared
+  target model: current/exhausted/disabled/unverifiable profiles shown but not selectable).
 - **`$relay switch <profile>` now performs the switch itself**, instead of only printing a command
   for another terminal. It asks the Relay process supervising the Codex terminal to do it, over the
   same private control channel Claude's `/relay switch` already uses (`switch-request`) — the
@@ -95,7 +57,12 @@ All notable changes to Agent Relay will be documented here.
   active lease, failing closed on any ambiguity; only the supervisor itself ever executes the
   switch. Falls back to printing the manual command only when no verified supervisor can be reached
   (`no_supervisor`, `stale_session`, `unreachable`, `timeout`). Claude's own switch path is
-  unchanged.
+  unchanged. Live Codex adoption is still not offered (no way to verify a live thread's identity);
+  Codex now has its own in-agent mechanism instead — `$relay status|doctor|why|history|switch`, an
+  installed skill executed through a model/tool turn rather than a hook.
+
+### Codex official app-server context capture
+
 - **Codex → \* handoffs can now capture real recent conversation context**, not just repository
   facts, for the `STATE_CONTINUATION` bundle a target profile bootstraps from. Sourced from
   `codex app-server`'s official `thread/items/list` method (the same structured, schema-generated
@@ -103,17 +70,152 @@ All notable changes to Agent Relay will be documented here.
   version-fragile local rollout storage. Best-effort like every other app-server read: a missing
   thread, an old server, or any protocol error degrades to no captured context rather than failing
   the handoff.
-- **Investigated whether Codex can show a live Relay-ownership indicator** the way Claude's
-  status-line badge does. It cannot today: Codex's TUI status line only accepts a fixed set of
-  built-in items (no custom-command item type), and its hook system fires on lifecycle events
-  (`SessionStart`, `PreToolUse`, ...) rather than on a render tick, so nothing can keep a footer
-  honest across a handoff. The existing one-shot launch banner stays; see
-  `docs/codex-status-line.md` for the live-verified findings.
+
+### Automatic exhaustion detection/handoff
+
+- `relay claude` no longer asks for a first message: it starts `claude --session-id <uuid>`
+  directly in your terminal (Relay assigns and records the session) and a handoff can stop that
+  interactive session by its verified process.
+
+### Claude pre-modal exhaustion evidence
+
+- Exhaustion now also fires on a named `StopFailure` for the account's `session` or `weekly` limit
+  corroborated by a fresh, same-native-session pre-failure statusline showing the matching 5-hour
+  or 7-day window at ≥90% with its reset still in the future — narrowly covering Claude's limit
+  modal, which can redraw the current statusline with null usage windows. `NEAR_LIMIT` (≥90%) alone,
+  `AVAILABLE`, and anything stale or ambiguous (`UNKNOWN`) never trigger a handoff on their own; a
+  bare `rate_limit` can be a transient 429 capacity error, so it is never enough alone. Relay stores
+  at most 20 sanitized statusline snapshots per Claude profile, and only ever matches a
+  `StopFailure` against a snapshot from the *same* native Claude session ID. **This exact path fired
+  for real during dogfooding**: a genuine weekly-limit exhaustion, independently corroborated by a
+  second native session reading the identical 100% usage minutes earlier — see "fresh evidence
+  superseding stale exhaustion" below for the gap that real incident actually exposed.
+
+### Durable provider-account exhaustion tracking
+
+- When strong exhaustion evidence includes a future reset, Relay now also records a bounded durable
+  provider-account fact under its state root, keyed by provider plus the registered profile's
+  currently verified stable identity. A new Relay Session using that exact identity reads it as
+  `RESET_PENDING` until the reset passes; another profile/account sharing the same project is
+  unaffected. `relay watch clear` still clears only project-session automation state; to explicitly
+  clear one durable account record, use `relay watch clear --project <path> --provider-account
+  <profile>`.
+
+### Fresh evidence superseding stale exhaustion after provider-side resets
+
+- The durable record's reset time is Relay's own clock-based estimate, not a live guarantee — the
+  same real incident above was invalidated less than a minute after detection by an out-of-band,
+  mid-window provider-side usage reset the record's own clock had no way to know about. With no
+  automatic supersession, Relay kept treating the now-healthy account as `RESET_PENDING` for three
+  more days. `apply_provider_exhaustion` now checks the *fresh* observation first: a real,
+  positively-read `AVAILABLE` or `NEAR_LIMIT` statusline snapshot clears the stale durable record
+  for that identity and wins outright, instead of being silently overridden by the older stored
+  fact. A fresh `UNKNOWN` reading (no real signal at all) still defers to the durable record exactly
+  as before — this is scoped to genuine, positive contradicting evidence, never a general weakening
+  of the fail-closed default.
+
+### Explicit no-eligible-fallback diagnostics
+
+- When the writer is exhausted and every configured fallback is also exhausted, disabled,
+  unhealthy, or shares the writer's own identity, automatic evaluation now reaches an explicit
+  terminal outcome instead of retrying silently forever (which is what actually happened in the
+  incident above, once its independently-exhausted fallback profile compounded with the stale
+  record — the standoff produced no visible signal at all). It names why each candidate was
+  rejected, is recorded in the session's own automation ledger so a later evaluation can tell "the
+  same standoff as last time" apart from "something changed," and a supervised terminal prints it
+  once the first time it's reached:
+  ```
+  [Relay] codex-main is exhausted, but no fallback is currently eligible.
+    claude-main: known exhausted
+    claude-backup: known exhausted
+  ```
+  It does not repeat on every later poll while the same standoff holds, and reports again only if
+  the facts actually change. `--json` output carries the same facts structurally instead of the
+  printed line. `relay why` explains the same decision on demand at any time. The writer keeps the
+  lease throughout — nothing here weakens single-writer ownership.
+
+### Handoff latency/progress improvements
+
+- One progress indicator now covers every slow provider phase of `relay claude` / `relay codex` (no
+  blank gaps); `relay codex` no longer runs the slow `codex doctor` before its usage check.
 - **Tasteful progress indicators for slow, previously-silent phases** of `relay resume`, `relay
   doctor`, `relay setup`, `relay integration claude/herdr install|status|doctor`, and `relay watch
-  run`'s usage/fallback evaluation — provider/auth verification, usage checks and handoff
-  evaluation no longer appear to hang with no feedback. TTY-only, `--json`-silent, delayed ~250ms
-  so a fast path never flickers a spinner on and off.
+  run`'s usage/fallback evaluation. TTY-only, `--json`-silent, delayed ~250ms so a fast path never
+  flickers a spinner on and off.
+- When an interactive terminal is waiting for a detached automatic handoff that has acquired its
+  orchestration lock, Relay now shows a terminal-safe progress indicator: it names the source while
+  the transaction is in progress, names the target only after the completed lease proves ownership,
+  and then reports that it is continuing there. `--json` remains silent.
+
+### Safety and identity verification improvements
+
+- **More precise switch safety.** The check before a Claude → Claude move no longer refuses because
+  *some* Claude process runs under the source profile (background daemons, helpers and sessions in
+  other projects did): each process is classified by pid + start time, Claude's session registry
+  and working directory, and only a possible writer for *this* project — or something that cannot
+  be placed — blocks. Foreseeable refusals now happen before the source is stopped, and a
+  supervised terminal reopens the same session when a switch fails after the stop but before
+  ownership moved. Identity of the target is also checked up front.
+- **More actionable provider errors.** A failed provider inspection now reports which operation
+  failed and a sanitized reason (`Claude \`auth status\` failed: ...`) instead of a bare "provider
+  command failed"; stderr is captured, secret-shaped tokens are redacted, and raw output is never
+  leaked. An unsafe profile directory's error now names the exact mode and the fix (`... is mode
+  755; ... Run: chmod 700 <path>`), and `relay profile doctor` surfaces that same actionable text
+  instead of a generic "failed safety validation".
+
+### Native-default Claude profile support
+
+- **Claude's own native-default account is now a first-class profile.** Live-confirmed: `claude
+  auth status --json` with `CLAUDE_CONFIG_DIR` unset reports the logged-in native account
+  (`configDirectory: ~/.claude`); the identical command with `CLAUDE_CONFIG_DIR=~/.claude`
+  explicitly set reports logged **out**. These are never treated as equivalent. `relay profile
+  inspect-existing --provider claude --native-default` and `relay profile adopt <name> --provider
+  claude --native-default` register `~/.claude` by reference (no credential copy, no
+  reauthentication) with the same identity pinning, permission checks and duplicate-identity
+  rules as any isolated profile; `relay integration claude install/status/uninstall
+  --native-default` installs the usage hooks there too. A native-default profile can be the
+  source or target of a normal `relay switch`/automatic handoff, side by side with isolated
+  profiles.
+
+### Adoption/resume improvements
+
+- **`relay claude --resume <exact-uuid>` finds its real owner.** With no `--profile`, every
+  registered Claude profile (native-default included) is searched structurally — via its own
+  saved transcripts, never model output — for the one that actually has that conversation: a
+  single owner is used automatically (and named), zero owners gives an actionable next step, and
+  more than one refuses and lists the candidates. An explicit `--profile` still pins the search,
+  but a wrong pin now names the real owner when one is provable instead of a bare "not found".
+  `relay claude --resume [SESSION]` adopts through Claude's own resume flow (same session, no
+  fork), proven from Claude's own `SessionStart` report, its live-session registry, and the
+  profile identity pin before any lease is written.
+- **`relay adopt --session <id>`** brings an already-running Claude conversation under Relay from
+  outside it — no in-session `/relay adopt` required. This matters because a Claude process
+  started before Relay's `/relay` command was installed never sees it (Claude only loads custom
+  commands at session start), so the in-session hook path is structurally unreachable for a
+  conversation that predates the install. Every fact still comes from Claude's own live session
+  registry and transcript layout; every registered Claude profile is checked (or one is pinned
+  with `--profile`), the process is never restarted, and the exact-session safety invariants
+  (one live owner per native conversation, atomic lease creation) apply unchanged. `relay status`
+  shows it ACTIVE immediately, and an external `relay switch --session <id> <target>` can act on
+  it like any other session.
+
+### Benchmark/instrumentation work
+
+- Every handoff journal now persists a `timings` array with monotonic elapsed milliseconds per
+  phase — `project_git_checkpoint`, `source_liveness`, `source_stop_and_verification`,
+  `target_process_launch`, `target_verification`, `total_handoff`, and (session continuation only)
+  `source_preflight`/`session_staging`, or (state continuation only) `context_capture`,
+  `continuation_bundle_serialization`, `bootstrap_continuation_setup`. Diagnostics only — never
+  bundle content, provider output, or credentials — inspectable via `relay handoff status --json`
+  or the journal itself. A new `state_continuation_latency` benchmark (§4b in
+  [docs/benchmarks.md](docs/benchmarks.md#per-handoff-phase-diagnostics)) isolates Relay's own
+  state-continuation orchestration overhead with deterministic fake ports, separately from real
+  provider latency. For an automatic Claude handoff, the existing `auto-handoff.log` also records
+  sanitized wall-clock correlation points (hook receipt, detached watcher spawn, first evaluation,
+  corroboration, foreground supervisor noticing Claude exit); the corroboration retry loop itself
+  is now a short 300ms/1s/2s burst followed by the normal 20-second cadence, bounded to roughly two
+  minutes, rather than a flat two-minute retry. None of this alters ownership or recovery
+  decisions.
 
 ## v0.3.0 — 2026-09-21
 

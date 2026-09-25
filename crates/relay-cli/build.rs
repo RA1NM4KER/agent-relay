@@ -1,9 +1,9 @@
 //! Build identity for `relay --version`.
 //!
 //! * Tagged releases (`RELAY_RELEASE_BUILD=1`, set by the release workflow) report the clean
-//!   Cargo version, e.g. `0.3.0`.
+//!   Cargo version, e.g. `0.4.0`.
 //! * Every other build reports which exact commit it is: `<next patch>-dev.<commit count>+<short
-//!   sha>` (for example `0.3.1-dev.412+67a815c`), with `.dirty` appended when built from a working
+//!   sha>` (for example `0.4.1-dev.412+67a815c`), with `.dirty` appended when built from a working
 //!   tree with uncommitted changes. CI supplies `RELAY_BUILD_SHA` / `RELAY_BUILD_COUNT`; a local
 //!   build reads them from git. Cargo.toml is never edited to encode a commit.
 //!
