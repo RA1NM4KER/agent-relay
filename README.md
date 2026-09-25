@@ -46,7 +46,8 @@ relay resume                # reopen a closed conversation of this project
 relay switch                # choose a profile from a list ...
 relay switch <profile>      # ... or name it: move a conversation to another profile
 
-relay status                # what is going on in this project
+relay status                # fast local snapshot: what is going on in this project
+relay status --live         # the same, plus a fresh provider auth/usage check (slower)
 relay profiles              # your profiles, their order and login state
 ```
 
@@ -177,7 +178,7 @@ network call on the command's own critical path. Relay never auto-updates itself
 | `relay resume [profile] [--session ID]` | Reopen a closed Relay session of this project (a picker when there are several; the profile is only a filter). |
 | `relay switch [profile] [--session ID]` | Explicitly hand a conversation to a different profile/provider (state continuation across providers). With several active sessions you choose which; refuses an exhausted or unverifiable Codex target rather than rerouting your choice. |
 | `relay claude -- …` / `relay codex -- …` | Arguments after `--` go straight to that provider's CLI and stay provider-scoped (see below). |
-| `relay status` | Plain-language summary: the project's active and dormant Relay sessions (provider, profile, ids), primary/fallback order, automatic-handoff status, Herdr. |
+| `relay status [--live]` | Plain-language summary: the project's active and dormant Relay sessions (provider, profile, ids), primary/fallback order, automatic-handoff status, Herdr. Default reads only local Relay state (fast; provider auth/usage are reported as last-known, not fresh). `--live` also performs a current provider auth/usage/version check (slower — spawns the provider CLI). |
 | `relay doctor [--project PATH]` | Check automatic-handoff readiness, including each configured profile's recorded trust for the project. Missing or unverifiable trust is blocking (exit 1). |
 | `relay profiles` | List registered profiles and which is primary/fallback. |
 | `relay login <name>` / `relay logout <name>` | Friendly wrappers around the provider's own official login/logout (Claude or Codex) for one isolated profile. |

@@ -99,8 +99,8 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
         Command::Setup(args) => self::setup::run(&service, &paths, args, cli.json),
         Command::Claude(args) => self::claude::run(&service, &paths, args, cli.json),
         Command::Codex(args) => self::codex::run(&service, &paths, args, cli.json),
-        Command::Status { project_dir } => {
-            self::status::run_status(&service, &paths, project_dir.as_deref(), cli.json)
+        Command::Status { project_dir, live } => {
+            self::status::run_status(&service, &paths, project_dir.as_deref(), cli.json, *live)
         }
         Command::Profiles => self::status::run_profiles(&service, &paths),
         Command::Login {

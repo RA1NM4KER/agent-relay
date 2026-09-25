@@ -3,7 +3,10 @@
 
 use std::path::{Path, PathBuf};
 
-use relay_core::{Error, Profile, ProfileService, RelayPaths, handoff::OrchestrationLock};
+use relay_core::{
+    Error, Profile, ProfileName, ProfileService, RelayPaths,
+    automation::ProviderIdentityExhaustionStore, handoff::OrchestrationLock,
+};
 use serde_json::json;
 
 use crate::{
@@ -62,6 +65,7 @@ pub(crate) fn run_status(
     paths: &RelayPaths,
     project_dir: Option<&Path>,
     json_mode: bool,
+    live: bool,
 ) -> Result<CommandOutput, Error> {
     // Purely local reads (no provider process ever spawned): never animated, since neither is
     // ever slow enough to need it.
@@ -84,17 +88,23 @@ pub(crate) fn run_status(
         );
     };
 
-    // From here on, provider CLIs may be spawned (auth checks, liveness reconciliation, usage
-    // reads) — the only part of `relay status` that can ever be slow. One indicator covers all of
-    // it; a fast project never draws anything at all (see `Progress`'s own start-delay).
+    // Only `--live` ever spawns a provider CLI (auth checks, version checks, a fresh usage read)
+    // — on this machine that used to cost ~14s of `relay status`'s ~14s total, almost entirely
+    // Codex's own `codex doctor --json`. The default path below reads only local Relay state, so
+    // the indicator here virtually never actually draws (see `Progress`'s own start-delay).
     let progress = progress::Progress::start("Checking provider status…", json_mode);
 
     let registered = service.list()?;
     let executables = providers::ExecutableOverrides::default();
     let primary_profile = registered.iter().find(|profile| profile.name == primary);
-    let (primary_auth, _) = primary_profile.map_or(("not registered", None), |profile| {
-        friendly_auth_state(profile, &executables)
-    });
+    let (primary_auth, primary_auth_source) = if live {
+        let (state, _) = primary_profile.map_or(("not registered", None), |profile| {
+            friendly_auth_state(profile, &executables)
+        });
+        (state.to_owned(), "live")
+    } else {
+        ("not checked this run".to_owned(), "not_checked")
+    };
 
     // Relay supervises conversations, not repositories: list this project's Relay sessions, each
     // active one with its owner and each dormant one with its last profile (history, not an owner).
@@ -175,6 +185,7 @@ pub(crate) fn run_status(
         &preferences,
         &executables,
         Some(&canonical),
+        live,
         &|phase| progress.set_label(phase),
     );
     let (handoff_ready, handoff_message, handoff_next, handoff_then) = automatic_handoff_summary(
@@ -182,9 +193,11 @@ pub(crate) fn run_status(
         &preferences,
         &executables,
         &canonical,
+        paths,
         focus,
         &readiness,
         &progress,
+        live,
     );
     progress.finish();
 
@@ -263,6 +276,8 @@ pub(crate) fn run_status(
             "sessions": session_rows,
             "primary_profile": primary.as_str(),
             "primary_authenticated": primary_auth,
+            "primary_authenticated_source": primary_auth_source,
+            "live": live,
             "fallback_profiles": fallback_order,
             "usage_integration_enabled": preferences.usage_integration_enabled.unwrap_or(false),
             "herdr_connected": herdr_connected,
@@ -298,9 +313,11 @@ fn automatic_handoff_summary(
     preferences: &preferences::Preferences,
     executables: &providers::ExecutableOverrides,
     project_dir: &Path,
+    paths: &RelayPaths,
     focus: Option<&relay_core::handoff::RelaySessionView>,
     readiness: &readiness::Readiness,
     progress: &progress::Progress,
+    live: bool,
 ) -> (bool, String, Option<String>, Option<String>) {
     let Some(view) = focus else {
         let message = if readiness.ready() {
@@ -317,6 +334,11 @@ fn automatic_handoff_summary(
         return (readiness.ready(), message, None, None);
     };
     let owner = view.profile().clone();
+
+    if !live {
+        return local_only_handoff_summary(registered, preferences, &owner, paths, readiness);
+    }
+
     let targets = target::build_targets(
         registered,
         preferences,
@@ -374,5 +396,266 @@ fn automatic_handoff_summary(
         )
     } else {
         (true, "Ready.".to_owned(), next, then)
+    }
+}
+
+/// `relay status`'s fast default path: the same "Next"/"Then" shape as the live path above, but
+/// eligibility comes only from local state — the configured priority order, whether a profile is
+/// enabled, and the durable provider-account exhaustion ledger (already timestamped, already
+/// written by real handoff activity — see `docs/automatic-handoff.md`) — never a fresh provider
+/// call. The message says plainly that this is last-known information, never presenting it as a
+/// live query.
+fn local_only_handoff_summary(
+    registered: &[Profile],
+    preferences: &preferences::Preferences,
+    owner: &ProfileName,
+    paths: &RelayPaths,
+    readiness: &readiness::Readiness,
+) -> (bool, String, Option<String>, Option<String>) {
+    let now = current_unix_ms();
+    let store = ProviderIdentityExhaustionStore::at_paths(
+        paths.provider_identity_exhaustion_file(),
+        paths.provider_identity_exhaustion_lock_file(),
+    );
+    let ledger = store.load().unwrap_or_default();
+    let last_known_exhausted_at = |name: &ProfileName| -> Option<u64> {
+        registered
+            .iter()
+            .find(|profile| &profile.name == name)
+            .and_then(|profile| {
+                ledger
+                    .record_for(profile.provider, &profile.expected_identity.stable_id, now)
+                    .map(|record| record.observed_unix_ms)
+            })
+    };
+
+    let candidates = auto_handoff::hierarchy_without(preferences, owner, |name| {
+        registered.iter().any(|profile| &profile.name == name)
+    });
+    let mut eligible = candidates.into_iter().filter(|name| {
+        registered
+            .iter()
+            .find(|profile| &profile.name == *name)
+            .is_some_and(|profile| profile.enabled)
+            && last_known_exhausted_at(name).is_none()
+    });
+    let next = eligible
+        .next()
+        .and_then(|name| registered.iter().find(|profile| &profile.name == name))
+        .map(|profile| format!("{} · {}", profile.name, provider_label(profile.provider)));
+    let then = eligible
+        .next()
+        .and_then(|name| registered.iter().find(|profile| &profile.name == name))
+        .map(|profile| format!("{} · {}", profile.name, provider_label(profile.provider)));
+
+    if !readiness.ready() {
+        let reason = readiness
+            .checks
+            .iter()
+            .find(|check| check.level == readiness::Level::Blocking)
+            .map_or_else(
+                || "not ready".to_owned(),
+                |check| check.detail.clone().unwrap_or_else(|| check.label.clone()),
+            );
+        return (false, format!("Not ready — {reason}"), next, then);
+    }
+
+    let message = match last_known_exhausted_at(owner) {
+        Some(observed_unix_ms) => format!(
+            "Last known: exhausted (observed {}) — run `relay status --live` to check for a fresh reset.",
+            sessions::ago(observed_unix_ms, now)
+        ),
+        None => "Last known: not exhausted — run `relay status --live` to verify current usage."
+            .to_owned(),
+    };
+    (true, message, next, then)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use relay_core::{
+        Availability, AvailabilityObservation, IdentityMetadata, ProfileOrigin, ProviderKind,
+        automation::{ProviderIdentityExhaustionLedger, ProviderIdentityExhaustionRecord},
+        usage::UsageEvidence,
+    };
+
+    fn fake_profile(name: &str, provider: ProviderKind, stable_id: &str) -> Profile {
+        Profile {
+            name: ProfileName::new(name).expect("name"),
+            provider,
+            config_dir: PathBuf::from("/tmp/does-not-need-to-exist"),
+            enabled: true,
+            origin: ProfileOrigin::Created,
+            expected_identity: IdentityMetadata {
+                stable_id: stable_id.to_owned(),
+                display_label: None,
+            },
+            last_availability: AvailabilityObservation {
+                state: Availability::Unknown,
+                source: "test".to_owned(),
+                observed_unix_ms: 0,
+                reset_unix_ms: None,
+            },
+            claude_config_mode: None,
+        }
+    }
+
+    fn paths_with_ledger(
+        records: Vec<ProviderIdentityExhaustionRecord>,
+    ) -> (tempfile::TempDir, RelayPaths) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = RelayPaths::new(dir.path().join("config"), dir.path().join("state"))
+            .expect("relay paths");
+        std::fs::create_dir_all(paths.state_root()).expect("state root");
+        let ledger = ProviderIdentityExhaustionLedger {
+            version: 1,
+            records,
+        };
+        std::fs::write(
+            paths.provider_identity_exhaustion_file(),
+            serde_json::to_string_pretty(&ledger).expect("serialize ledger"),
+        )
+        .expect("write ledger");
+        (dir, paths)
+    }
+
+    fn exhausted_record(
+        profile: &Profile,
+        observed_unix_ms: u64,
+    ) -> ProviderIdentityExhaustionRecord {
+        ProviderIdentityExhaustionRecord {
+            provider: profile.provider,
+            stable_identity: profile.expected_identity.stable_id.clone(),
+            observed_unix_ms,
+            exhausted_until_unix_ms: u64::MAX, // never expires within this test's lifetime
+            evidence: UsageEvidence::Simulated,
+            detected_via: "test".to_owned(),
+        }
+    }
+
+    /// `relay status`'s fast default path must never claim a fresh check happened: with no
+    /// durable exhaustion record for the owner, it says plainly that this is last-known,
+    /// unverified state, not "available" or "ready" as though a live check confirmed it.
+    #[test]
+    fn local_only_summary_is_honest_about_no_known_exhaustion() {
+        let owner = fake_profile("owner", ProviderKind::Fake, "id-owner");
+        let fallback = fake_profile("fallback", ProviderKind::Fake, "id-fallback");
+        let (_dir, paths) = paths_with_ledger(vec![]);
+        let preferences = preferences::Preferences {
+            primary_profile: Some(owner.name.clone()),
+            fallback_profiles: vec![fallback.name.clone()],
+            ..Default::default()
+        };
+        let registered = vec![owner.clone(), fallback.clone()];
+
+        let (ready, message, next, then) = local_only_handoff_summary(
+            &registered,
+            &preferences,
+            &owner.name,
+            &paths,
+            &readiness::Readiness::default(),
+        );
+
+        assert!(ready);
+        assert!(
+            message.contains("Last known: not exhausted") && message.contains("--live"),
+            "must not claim freshness it doesn't have: {message}"
+        );
+        assert_eq!(next, Some("fallback · Claude".to_owned()));
+        assert_eq!(then, None);
+    }
+
+    /// A durable exhaustion record already on disk (written by real handoff activity, per
+    /// `docs/automatic-handoff.md`) is exactly the kind of local, timestamped evidence the fast
+    /// path is allowed to use — and it must label it as observed, not live.
+    #[test]
+    fn local_only_summary_surfaces_durable_exhaustion_as_last_known() {
+        let owner = fake_profile("owner", ProviderKind::Fake, "id-owner");
+        let fallback = fake_profile("fallback", ProviderKind::Fake, "id-fallback");
+        let now = crate::util::current_unix_ms();
+        let observed = now - 3 * 60 * 1000; // 3 minutes ago
+        let (_dir, paths) = paths_with_ledger(vec![exhausted_record(&owner, observed)]);
+        let preferences = preferences::Preferences {
+            primary_profile: Some(owner.name.clone()),
+            fallback_profiles: vec![fallback.name.clone()],
+            ..Default::default()
+        };
+        let registered = vec![owner.clone(), fallback.clone()];
+
+        let (ready, message, next, _then) = local_only_handoff_summary(
+            &registered,
+            &preferences,
+            &owner.name,
+            &paths,
+            &readiness::Readiness::default(),
+        );
+
+        assert!(ready);
+        assert!(
+            message.contains("Last known: exhausted") && message.contains("observed"),
+            "must surface the durable record, labeled as an observation: {message}"
+        );
+        // The fallback is not itself exhausted, so it remains eligible.
+        assert_eq!(next, Some("fallback · Claude".to_owned()));
+    }
+
+    /// A candidate that is ITSELF durably known-exhausted must never be offered as "Next" — that
+    /// would tell the user Relay would hand off to an account it already knows is out of quota.
+    #[test]
+    fn local_only_summary_never_offers_a_durably_exhausted_fallback() {
+        let owner = fake_profile("owner", ProviderKind::Fake, "id-owner");
+        let fallback = fake_profile("fallback", ProviderKind::Fake, "id-fallback");
+        let healthy = fake_profile("healthy", ProviderKind::Fake, "id-healthy");
+        let now = crate::util::current_unix_ms();
+        let (_dir, paths) = paths_with_ledger(vec![exhausted_record(&fallback, now)]);
+        let preferences = preferences::Preferences {
+            primary_profile: Some(owner.name.clone()),
+            fallback_profiles: vec![fallback.name.clone(), healthy.name.clone()],
+            ..Default::default()
+        };
+        let registered = vec![owner.clone(), fallback.clone(), healthy.clone()];
+
+        let (_ready, _message, next, then) = local_only_handoff_summary(
+            &registered,
+            &preferences,
+            &owner.name,
+            &paths,
+            &readiness::Readiness::default(),
+        );
+
+        assert_eq!(
+            next,
+            Some("healthy · Claude".to_owned()),
+            "the exhausted fallback must be skipped"
+        );
+        assert_eq!(then, None);
+    }
+
+    /// A blocking local readiness problem (e.g. project trust not accepted) must still be
+    /// reported even on the fast path — the fast path trims *live provider calls*, not
+    /// correctness.
+    #[test]
+    fn local_only_summary_still_reports_a_blocking_local_readiness_problem() {
+        let owner = fake_profile("owner", ProviderKind::Fake, "id-owner");
+        let (_dir, paths) = paths_with_ledger(vec![]);
+        let preferences = preferences::Preferences {
+            primary_profile: Some(owner.name.clone()),
+            ..Default::default()
+        };
+        let registered = vec![owner.clone()];
+        let mut blocking = readiness::Readiness::default();
+        blocking.checks.push(readiness::Check {
+            label: "project trust accepted".to_owned(),
+            level: readiness::Level::Blocking,
+            detail: Some("not recorded for this exact directory".to_owned()),
+            remedy: None,
+        });
+
+        let (ready, message, _next, _then) =
+            local_only_handoff_summary(&registered, &preferences, &owner.name, &paths, &blocking);
+
+        assert!(!ready);
+        assert!(message.contains("not recorded for this exact directory"));
     }
 }

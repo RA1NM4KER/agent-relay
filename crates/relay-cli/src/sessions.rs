@@ -379,7 +379,7 @@ impl target::PickRow for SessionRow {
     }
 }
 
-fn ago(unix_ms: u64, now_unix_ms: u64) -> String {
+pub(crate) fn ago(unix_ms: u64, now_unix_ms: u64) -> String {
     let seconds = now_unix_ms.saturating_sub(unix_ms) / 1000;
     match seconds {
         0..=59 => "just now".to_owned(),

@@ -86,10 +86,16 @@ pub(crate) enum Command {
     /// Start a new Relay-managed Codex conversation in this project and open Codex directly.
     /// Options after `--` go straight to `codex`.
     Codex(CodexArgs),
-    /// Show this project's current writer, fallback order and integrations at a glance.
+    /// Show this project's current writer, fallback order and integrations at a glance. Reads
+    /// only local Relay state by default (fast); pass `--live` to also perform current provider
+    /// auth/usage checks (slower, spawns provider CLIs).
     Status {
         #[arg(long = "project", value_name = "PATH")]
         project_dir: Option<PathBuf>,
+        /// Perform live provider auth/usage/version checks instead of the fast local-only
+        /// snapshot. This is what `relay status` did unconditionally before this flag existed.
+        #[arg(long)]
+        live: bool,
     },
     /// List registered profiles with their provider, priority role and login state.
     Profiles,

@@ -806,6 +806,97 @@ fn status_reports_current_owner_and_automatic_handoff_readiness() {
     assert!(human.contains("Automatic handoff"));
 }
 
+/// The whole point of the fast/`--live` split (M-status-perf): default `relay status` must never
+/// spawn a provider auth check, and `--live` must actually perform one. Proven here by wrapping
+/// the fixture `claude` binary with a marker that only appears if `auth status` really ran —
+/// not by timing, which would be flaky.
+#[test]
+fn default_status_skips_the_live_auth_check_but_live_performs_it() {
+    let root = tempdir().expect("tempdir");
+    let (project, _claude) = live_session(root.path());
+
+    let marker = root.path().join("auth-status-was-called");
+    let bin_claude = root.path().join("bin").join("claude");
+    let real_claude = root.path().join("bin").join("claude-real");
+    std::fs::rename(&bin_claude, &real_claude).expect("move fixture aside");
+    let wrapper = format!(
+        "#!/bin/sh\nif [ \"$1\" = auth ] && [ \"$2\" = status ]; then touch \"{}\"; fi\nexec \"{}\" \"$@\"\n",
+        marker.display(),
+        real_claude.display(),
+    );
+    std::fs::write(&bin_claude, wrapper).expect("wrapper script");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&bin_claude, std::fs::Permissions::from_mode(0o700))
+            .expect("chmod wrapper");
+    }
+
+    let default_output = relay(
+        root.path(),
+        &["status", "--project", &project.to_string_lossy()],
+    );
+    assert!(
+        default_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&default_output.stderr)
+    );
+    assert!(
+        !marker.exists(),
+        "default `relay status` must not perform a live auth check"
+    );
+    let default_data = json_stdout(&default_output)["data"].clone();
+    assert_eq!(default_data["primary_authenticated_source"], "not_checked");
+    assert_eq!(default_data["live"], false);
+
+    let live_output = relay(
+        root.path(),
+        &["status", "--live", "--project", &project.to_string_lossy()],
+    );
+    assert!(
+        live_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&live_output.stderr)
+    );
+    assert!(
+        marker.exists(),
+        "`relay status --live` must perform a real auth check"
+    );
+    let live_data = json_stdout(&live_output)["data"].clone();
+    assert_eq!(live_data["primary_authenticated_source"], "live");
+    assert_eq!(live_data["primary_authenticated"], "authenticated");
+    assert_eq!(live_data["live"], true);
+}
+
+/// `--json` must stay machine-readable and must never leak a spinner escape sequence into stdout
+/// — true for both the fast default (which should not even start a spinner: the whole operation
+/// finishes inside `Progress`'s own start-delay) and `--live` (which is slow enough to normally
+/// draw one in a real terminal, but `--json` must suppress it regardless of speed).
+#[test]
+fn json_mode_never_contains_control_characters_default_or_live() {
+    let root = tempdir().expect("tempdir");
+    let (project, _claude) = live_session(root.path());
+
+    for args in [
+        vec!["status", "--json", "--project"],
+        vec!["status", "--live", "--json", "--project"],
+    ] {
+        let mut full_args = args;
+        let project_str = project.to_string_lossy().into_owned();
+        full_args.push(&project_str);
+        let output = relay(root.path(), &full_args);
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            !stdout.contains('\u{1b}'),
+            "--json output must never contain an escape sequence: {full_args:?}"
+        );
+        // Must still be valid, parseable JSON — not partially overwritten by a spinner frame.
+        let _: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|error| {
+            panic!("--json output was not valid JSON for {full_args:?}: {error}\n{stdout}")
+        });
+    }
+}
+
 #[test]
 fn trust_blocks_readiness_per_profile_and_project_and_recovers_after_acceptance() {
     let root = tempdir().unwrap();

@@ -175,11 +175,20 @@ doctor`/`setup`/`status`'s general-purpose readiness check has not been changed 
 so would need its own validation pass, out of scope for this benchmarking pass.
 
 **Practical consequence:** a Codex profile makes `relay doctor`, `relay setup`'s completion screen,
-and `relay status` take roughly 13 extra seconds per Codex profile checked. This is exactly the
-kind of "appears to hang" latency the tasteful-progress-indicator work (see the `feat(cli): tasteful
-TTY progress indicators` commit) now covers with a spinner instead of a silent wait — but it is
-still real wall-clock time worth knowing about before advertising `relay doctor` as fast, and worth
-mentioning explicitly in onboarding material so a first-time Codex user doesn't think it's stuck.
+and `relay status --live` take roughly 13 extra seconds per Codex profile checked. This is exactly
+the kind of "appears to hang" latency the tasteful-progress-indicator work (see the `feat(cli):
+tasteful TTY progress indicators` commit) now covers with a spinner instead of a silent wait — but
+it is still real wall-clock time worth knowing about before advertising `relay doctor` as fast, and
+worth mentioning explicitly in onboarding material so a first-time Codex user doesn't think it's
+stuck.
+
+**Update (relay status performance pass):** plain `relay status` (no `--live`) no longer pays this
+cost at all — it was split into a fast, local-only default (measured **~30-40ms** on this same
+3-profile setup, versus the ~14s above) and an explicit `relay status --live` that keeps exactly
+the behavior benchmarked in this section. `relay doctor` and `relay setup` are unchanged and still
+pay the full cost by design (they exist to actively verify, not to be fast); this was the
+previously-noted "out of scope for this benchmarking pass" work, now done. See
+`crates/relay-cli/src/readiness.rs`'s `assess_for_project_reporting` doc comment for the mechanism.
 
 ## Known gaps in this pass
 

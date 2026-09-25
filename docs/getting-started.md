@@ -267,6 +267,14 @@ Automatic handoff: enabled
 Herdr: connected
 ```
 
+This default form reads only local Relay state, so it's fast even with many past sessions —
+provider auth/usage are reported as last-known, not freshly checked. Add `--live` when you want a
+current provider check instead (slower — it spawns the provider CLI):
+
+```sh
+relay status --live
+```
+
 ```sh
 relay profiles
 ```

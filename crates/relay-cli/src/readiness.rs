@@ -130,6 +130,7 @@ pub fn assess_reporting(
         preferences,
         executables,
         std::env::current_dir().ok().as_deref(),
+        true,
         on_phase,
     )
 }
@@ -147,6 +148,7 @@ pub fn assess_for_project(
         preferences,
         executables,
         project,
+        true,
         &|_| {},
     )
 }
@@ -155,12 +157,23 @@ pub fn assess_for_project(
 /// (`"Checking claude-main…"`, `"Checking integrations…"`, …) before each major phase of the
 /// assessment — so a caller with a [`crate::progress::Progress`] indicator running can keep its
 /// label current without this module knowing anything about spinners or terminals itself.
+///
+/// `live` controls whether this actually spawns provider CLIs to check authentication and CLI
+/// version (`relay doctor`, `relay setup`, and `relay status --live` all want `true` — this is
+/// their real verification). `relay status`'s fast default path passes `false`: it skips
+/// `auth_check` and `version_checks` (the only two phases that ever launch a provider process —
+/// on this machine, Codex's own `codex doctor --json` alone measured over 12 of `status`'s ~14
+/// total seconds) and reports readiness from local state only (usage-integration installation,
+/// project trust, the automatic-handoff preference, git availability, Herdr). A `false` readiness
+/// therefore certifies less than a `true` one — callers must not present it as a full `doctor`
+/// verdict.
 pub fn assess_for_project_reporting(
     service: &ProfileService,
     registered: &[Profile],
     preferences: &Preferences,
     executables: &providers::ExecutableOverrides,
     project: Option<&Path>,
+    live: bool,
     on_phase: &dyn Fn(&str),
 ) -> Readiness {
     let mut readiness = Readiness::default();
@@ -179,15 +192,19 @@ pub fn assess_for_project_reporting(
     for profile in &profiles {
         on_phase(&format!("Checking {}…", profile.name));
         let label = role_label(profile);
-        auth_check(&mut readiness, service, profile, &label, executables);
+        if live {
+            auth_check(&mut readiness, service, profile, &label, executables);
+        }
         if profile.provider == ProviderKind::Claude {
             integration_check(&mut readiness, profile, &label);
         }
         trust_check(&mut readiness, profile, &label, project);
     }
 
-    on_phase("Checking provider versions…");
-    version_checks(&mut readiness, &profiles, executables);
+    if live {
+        on_phase("Checking provider versions…");
+        version_checks(&mut readiness, &profiles, executables);
+    }
 
     if preferences.usage_integration_enabled == Some(true) {
         readiness.push("Automatic handoff enabled", Level::Ok, None, None);

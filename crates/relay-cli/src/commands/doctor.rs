@@ -32,6 +32,7 @@ pub(crate) fn run(
         &preferences,
         &executables,
         args.project_dir.as_deref().or(cwd.as_deref()),
+        true,
         &|phase| progress.set_label(phase),
     );
     progress.finish();
