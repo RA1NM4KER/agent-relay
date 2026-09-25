@@ -3,7 +3,7 @@
 Agent Relay supervises Claude Code and Codex conversations across isolated (or Claude's own
 native-default) profiles, and moves work to the next eligible profile — by hand (`relay switch`)
 or automatically on exhaustion — without losing the conversation. It is in daily dogfood use by
-its maintainer; `v0.4.0` is the latest tagged release, but `main` is kept green and may be ahead of
+its maintainer; `v0.4.1` is the latest tagged release, but `main` is kept green and may be ahead of
 it — see [docs/maintainer-dogfood.md](docs/maintainer-dogfood.md) for how the maintainer runs a
 bleeding-edge build day to day.
 

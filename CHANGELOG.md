@@ -4,6 +4,35 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+## v0.4.1 — 2026-09-25
+
+A CLI-UX and polish release. No handoff, exhaustion, or provider-auth semantics changed — the
+durable provider-account exhaustion tracking, fresh-evidence supersession of stale exhaustion after
+an out-of-band provider reset, and explicit "no eligible fallback" reporting already shipped in
+v0.4.0 (see below); this patch is about visibility into what Relay is doing while it works.
+
+### CLI UX
+
+- **Cached, non-blocking update-available hints.** `relay status`, `relay doctor`, and `relay
+  setup` now show a small hint (`Update available: vX.Y.Z` / `Run: brew upgrade agent-relay`) when
+  a newer *stable* release exists. The check reads a local cache refreshed at most once every 24
+  hours, so a normal command never waits on GitHub; a stale or missing cache triggers a detached,
+  best-effort background refresh (a short-timeout `curl` against GitHub's stable-latest-release
+  endpoint — prereleases and drafts are never treated as an update target) instead of blocking the
+  foreground command, and any network or parse failure is silent with no retries on the critical
+  path. Never shown in `--json` output or when the terminal isn't interactive. Several commands
+  hitting a stale cache at the same time no longer spawn duplicate refresh processes: the same
+  OS-backed lock `relay status`'s own session lock already uses now serializes the background
+  refresh too, and a refresh process dying cannot wedge future ones — there is no daemon, and the
+  internal refresh command cannot itself schedule another refresh or show a hint.
+- **Consistent, honest progress feedback for slow commands.** `relay status` previously gave no
+  indication at all while it spawned provider subprocesses; `relay doctor` and `relay setup` had a
+  spinner stuck on a static label throughout. All three (plus `relay profile status`/`relay profile
+  doctor`) now share one progress indicator whose label updates through each real phase ("Checking
+  claude-main…", "Checking provider usage…", …), appears only past a ~250ms delay so a fast path
+  never flickers a spinner on and off, and clears cleanly on success, error, or panic. Never drawn
+  in `--json` mode or a non-interactive terminal.
+
 ## v0.4.0 — 2026-09-25
 
 ### Multi-session Relay supervision

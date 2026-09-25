@@ -6,7 +6,7 @@ profile in one priority order. Claude → Claude continues the same native Claud
 involving Codex continues from a Relay state bundle in a new session — never the same native
 conversation across the two CLIs.
 
-Status: **v0.4.0, macOS-first.** The handoff, recovery, and usage-detection paths are validated
+Status: **v0.4.1, macOS-first.** The handoff, recovery, and usage-detection paths are validated
 live on macOS with Claude Code 2.1.276–2.1.278; Codex support was checked live against Codex CLI
 0.155.0 (structured usage reads, thread verification, Codex → Claude handoff by hand, pre-launch
 fallback from an exhausted Codex profile). Automatic handoff *from a real Codex exhaustion
