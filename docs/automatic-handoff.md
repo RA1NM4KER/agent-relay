@@ -198,6 +198,48 @@ explicit `relay watch run` or the Herdr event.
 Codex → Claude and Codex → other Codex profiles are `STATE_CONTINUATION` (a new session seeded from
 the state bundle); cross-profile native resume is not supported.
 
+### Experimental: event-driven wake-up (GitHub #16), opt-in only
+
+Set `RELAY_CODEX_EVENT_DRIVEN=1` to let a *resumed* supervised Codex terminal wake up immediately
+on Codex's own structured turn-failure error (`usageLimitExceeded`) or its
+`account/rateLimits/updated` notification, rather than only ever finding out on the next poll
+above. Unset (the default), nothing here changes: every launch/resume/switch behaves exactly as
+already described. `#13`'s polling is never disabled or reduced by this — it remains the watchdog
+either way, and this feature never becomes authoritative on its own: either signal only ever
+triggers the same `account/rateLimits/read` evaluation, and `ordinaryUsageAllowed == false` remains
+the sole exhaustion verdict.
+
+Mechanically: enabling this starts an external `codex app-server --listen unix://…` (a private,
+owner-only socket, deliberately not a nested path under the profile's own state directory — a real
+macOS `SUN_LEN` path-length failure was hit doing that during research), adds `--remote unix://…`
+to the resumed interactive command so it becomes a client of that runtime instead of embedding its
+own private one, and attaches Relay's own passive observer to the same runtime by resuming the
+known thread (agent-relay#15 live-verified this delivers the full notification stream to a
+subscribed connection without disturbing whichever connection is actually driving turns). Both the
+app-server and the observer are torn down synchronously as part of normal session cleanup.
+
+Two things this deliberately does **not** attempt in its current form:
+
+- **A fresh launch never activates this.** The only way to learn a brand-new thread's id (waiting
+  for its `thread/started` broadcast) races a live-confirmed server rule that rejects `thread/
+  resume` for a thread with no completed turns yet — a real user may take any amount of time to
+  send their first message, and retrying that indefinitely was out of scope for this pass. Only a
+  resume (Relay's own lease already names the thread, which by definition already has history) is
+  covered.
+- **A hard Relay crash (`SIGKILL`) can orphan the app-server.** There is no `PR_SET_PDEATHSIG`
+  equivalent on macOS, no protocol-level shutdown method, and it does not exit on stdin EOF — all
+  three were live-tested, not assumed. Normal/handled exit (including `SIGTERM`/`SIGINT`) always
+  terminates it synchronously; after a real crash, the *next* invocation of the same session
+  reconciles the durable runtime record it left behind and safely reaps it, using the same
+  pid+start-time fingerprint proof every other stale-process check in this codebase already
+  requires — never a bare pid or socket-path match, and never guessed at if that proof is
+  ambiguous.
+
+Only activates for a Codex CLI version this was live-verified against
+(`relay_provider_codex::VERIFIED_VERSIONS`); any other version silently declines and #13 alone
+covers that session. See `crates/relay-provider-codex/src/{events,observer,runtime}.rs` and
+`crates/relay-cli/src/codex_runtime.rs`.
+
 ## Working state (Issue #5)
 
 Relay can carry a small, durable, per-Relay-Session working-state snapshot across a handoff, in

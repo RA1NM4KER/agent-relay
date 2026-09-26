@@ -1,0 +1,735 @@
+//! GitHub #16: the external `codex app-server --listen unix://…` runtime an event-driven
+//! observer needs — process identity/liveness, the private socket-path scheme, and spawning
+//! /terminating that one extra child. This module never decides exhaustion and never touches the
+//! interactive terminal's own I/O; see `crate::events` for the structured signals it exists to let
+//! a caller observe, and `crate::usage` for the one authoritative verdict those signals only ever
+//! wake up.
+//!
+//! ## Why this exists (agent-relay#15's live findings)
+//!
+//! Today's supervised Codex child (`codex resume <thread-id>`) embeds its own private app-server
+//! internally (default `stdio://` transport) — nothing outside that one process can observe its
+//! live notifications. The only way to observe `account/rateLimits/updated` or a turn's structured
+//! `usageLimitExceeded` error from the *same* interactive runtime is to run that app-server
+//! externally (`--listen`) and have the interactive client attach to it remotely (`--remote`), so
+//! a separate, passive Relay connection can attach too. Live-verified against `codex-cli 0.155.0`:
+//! multiple independent connections to one external app-server each get the full, correct
+//! notification stream for a thread they explicitly subscribed to (`thread/resume`, or having
+//! created it themselves) — regardless of which connection actually drives a given turn — with no
+//! cross-talk and no interference between connections.
+//!
+//! ## What this module deliberately does NOT solve
+//!
+//! **There is no `PR_SET_PDEATHSIG` equivalent on macOS, and the app-server has no protocol-level
+//! shutdown method and does not exit on stdin EOF.** All three were live-tested for this issue: a
+//! `--listen` app-server survives its spawning parent's `SIGKILL` (reparented to pid 1, still
+//! answering `healthz`); closing the only pipe to its stdin does not stop it; there is no
+//! `shutdown`/`quit` RPC in `codex app-server generate-json-schema`'s method list. A hard crash of
+//! the Relay process supervising this runtime *will* orphan it — this module does not pretend
+//! otherwise. What it *does* guarantee: [`AppServerHandle::terminate`] synchronously stops a
+//! runtime this process still holds a live handle to (normal exit, `SIGTERM`, `SIGINT` — anything
+//! that lets Relay's own cleanup code run), and [`reconcile_stale`] lets a *later* Relay
+//! invocation safely recognize and reap an orphan from an earlier crash — using the same
+//! pid+start-time fingerprint proof (`ProcessIdentity`) every other ownership check in this
+//! codebase already relies on, never a bare pid or socket-path match. An orphan that cannot be
+//! proven safe to reap is left alone and reported, never guessed about.
+
+use std::{
+    fs,
+    os::unix::fs::MetadataExt,
+    path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
+    time::{Duration, Instant},
+};
+
+use relay_core::handoff::ProcessIdentity;
+use serde::{Deserialize, Serialize};
+
+use crate::AUTHENTICATION_OVERRIDE_VARIABLES;
+
+/// Identifies one external Codex runtime this process (or an earlier invocation, for
+/// [`reconcile_stale`]) may have started: the app-server child's own identity, the private socket
+/// it listens on, the profile it must have resolved (checked exactly like
+/// `app_server::Session::handshake` already checks the ephemeral one-shot reads), and — once
+/// known — the thread the interactive client is actually using. `tui` is `None` until the
+/// interactive `--remote` client has actually attached and Relay has recorded its pid; a runtime
+/// with an app-server but no recorded TUI yet is not a session anyone can rely on as "the current
+/// writer" (see [`RuntimeLiveness`]).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CodexRuntimeIdentity {
+    pub app_server: ProcessIdentity,
+    pub tui: Option<ProcessIdentity>,
+    pub endpoint: PathBuf,
+    pub codex_home: PathBuf,
+    pub thread_id: Option<String>,
+}
+
+/// Whether `identity` still describes a runtime Relay can safely treat as the current writer.
+/// Fail-closed: anything other than [`Self::Live`] must never be treated as proof of an active
+/// session, mirroring every other `ProcessIdentity`-based check in this codebase
+/// (`is_still_the_same_process`, `caller_is_verified`) — `None`/ambiguous is never permission.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeLiveness {
+    /// Both the app-server and the TUI are confirmed alive with matching fingerprints.
+    Live,
+    /// The app-server is confirmed gone (or never confirmable). The interactive session's actual
+    /// runtime is dead even if a TUI process happens to still exist — never trust a TUI pid alone.
+    AppServerGone,
+    /// The app-server is alive, but the recorded TUI is confirmed gone. The runtime that owns the
+    /// thread may still be technically up, but nothing is driving it as this session's writer.
+    TuiGone,
+    /// No TUI has ever attached to this runtime yet (still starting up).
+    TuiNotYetAttached,
+    /// Either identity could not be confirmed either way (a `ps` query itself failed, or no
+    /// fingerprint was ever recorded) — never treated as live, never treated as dead.
+    Ambiguous,
+}
+
+impl RuntimeLiveness {
+    /// The only state a caller may build on as "this runtime is the current writer."
+    #[must_use]
+    pub const fn is_live(self) -> bool {
+        matches!(self, Self::Live)
+    }
+}
+
+/// Evaluates [`CodexRuntimeIdentity`] against the live process table right now. Does not touch
+/// the network/socket at all — pure process-identity liveness, exactly as cheap and exactly as
+/// fail-closed as the rest of this codebase's `ProcessIdentity` checks. A caller that also wants
+/// to know the app-server is *responsive* (not just alive) must additionally attempt a protocol
+/// round trip (e.g. `account/rateLimits/read` via `crate::app_server`) and treat a failure there
+/// as unproven liveness too — this function alone only proves the OS still schedules the process.
+#[must_use]
+pub fn evaluate_liveness(identity: &CodexRuntimeIdentity) -> RuntimeLiveness {
+    match identity.app_server.is_still_the_same_process() {
+        Some(false) => return RuntimeLiveness::AppServerGone,
+        None => return RuntimeLiveness::Ambiguous,
+        Some(true) => {}
+    }
+    let Some(tui) = &identity.tui else {
+        return RuntimeLiveness::TuiNotYetAttached;
+    };
+    match tui.is_still_the_same_process() {
+        Some(true) => RuntimeLiveness::Live,
+        Some(false) => RuntimeLiveness::TuiGone,
+        None => RuntimeLiveness::Ambiguous,
+    }
+}
+
+/// Durable record of a runtime this process started, so a *later* Relay invocation (after a
+/// crash) can find it. Persisted by the caller (`relay-cli`, alongside its other session state) —
+/// this module only defines the shape and the reconciliation decision, never where it lives on
+/// disk or when it is written.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CodexRuntimeRecord {
+    pub app_server: ProcessIdentity,
+    pub endpoint: PathBuf,
+    pub codex_home: PathBuf,
+}
+
+/// What a later Relay invocation should do about a [`CodexRuntimeRecord`] found on disk, given
+/// the live process table right now. Never a guess: reaping requires the exact same
+/// pid+start-time fingerprint proof every other stale-process decision in this codebase already
+/// requires (PID reuse is explicitly why a bare pid match is never sufficient — see
+/// `relay_core::handoff::ProcessIdentity`'s own doc comment).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StaleReconciliation {
+    /// No live process matches the recorded identity: nothing to reap, the record is simply
+    /// stale (already gone, or another process now holds that pid). Safe to delete the record.
+    NothingToReap,
+    /// A live process's identity provably matches the record exactly (same pid, same start-time
+    /// fingerprint): this is genuinely an orphan from an earlier crash. Safe to terminate.
+    SafeToReap(ProcessIdentity),
+    /// Identity could not be confirmed either way. Never terminate on this: report it and leave
+    /// the record and the process alone rather than risk killing something Relay does not
+    /// actually own.
+    Ambiguous,
+}
+
+/// Decides [`StaleReconciliation`] for one recorded runtime. Does not act — callers that get
+/// [`StaleReconciliation::SafeToReap`] still choose whether and how to terminate it (typically via
+/// [`AppServerHandle::terminate_orphan`]).
+#[must_use]
+pub fn reconcile_stale(record: &CodexRuntimeRecord) -> StaleReconciliation {
+    match record.app_server.is_still_the_same_process() {
+        Some(true) => StaleReconciliation::SafeToReap(record.app_server.clone()),
+        Some(false) => StaleReconciliation::NothingToReap,
+        None => StaleReconciliation::Ambiguous,
+    }
+}
+
+/// Errors starting or verifying an external app-server runtime.
+#[derive(Debug, Eq, PartialEq)]
+pub enum RuntimeError {
+    Spawn,
+    /// The socket never appeared / the app-server never became ready within the bounded wait.
+    NotReady,
+    /// The private socket directory or file failed a required permission/ownership/symlink check.
+    UnsafeEndpoint,
+}
+
+impl std::fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Spawn => write!(f, "codex app-server could not be started"),
+            Self::NotReady => write!(f, "codex app-server did not become ready in time"),
+            Self::UnsafeEndpoint => {
+                write!(f, "the private runtime socket path failed a safety check")
+            }
+        }
+    }
+}
+
+/// A short, private, per-user, per-attempt unix socket path — deliberately never nested under a
+/// profile's own (long) state directory. Agent-relay#15 hit a real macOS `SUN_LEN` failure
+/// (`Error: path must be shorter than SUN_LEN`) doing exactly that. Base directory: `/tmp` itself
+/// (always short, unlike `$TMPDIR`, which on macOS is routinely 50+ characters on its own),
+/// scoped per-user by the same "read `$HOME`'s owning uid" technique
+/// `inspection::validate_executable_platform` already uses (there is no safe way to call
+/// `getuid()` directly under this workspace's `unsafe_code = "forbid"`), and a random-ish
+/// per-attempt suffix so concurrent Relay sessions — or a retried spawn after a failed one — can
+/// never collide on the same path.
+pub fn allocate_endpoint() -> Result<PathBuf, RuntimeError> {
+    let directory = private_socket_directory()?;
+    let suffix = unique_suffix();
+    Ok(directory.join(format!("{suffix}.sock")))
+}
+
+fn private_socket_directory() -> Result<PathBuf, RuntimeError> {
+    let uid = home_owner_uid().ok_or(RuntimeError::UnsafeEndpoint)?;
+    let directory = PathBuf::from("/tmp").join(format!("relay-codex-{uid}"));
+    ensure_private_directory(&directory)?;
+    Ok(directory)
+}
+
+/// The uid that owns `$HOME` — used only to scope the socket directory name per user, exactly as
+/// `relay_provider_codex::inspection::validate_executable_platform` already establishes the
+/// "current user" without an `unsafe` FFI call to `getuid()`.
+fn home_owner_uid() -> Option<u32> {
+    let home = std::env::var_os("HOME")?;
+    Some(fs::metadata(home).ok()?.uid())
+}
+
+/// Creates the private base directory if missing (owner-only, 0700), or verifies an existing one
+/// is genuinely private and not a symlink — the same defence
+/// `relay_core::handoff::OrchestrationLock::open_lock` already applies to its own lock file, since
+/// a pre-existing symlink or a directory some other uid controls could otherwise redirect Relay's
+/// socket into an attacker-controlled location.
+fn ensure_private_directory(directory: &Path) -> Result<(), RuntimeError> {
+    if fs::symlink_metadata(directory).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Err(RuntimeError::UnsafeEndpoint);
+    }
+    match fs::create_dir(directory) {
+        Ok(()) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+                    .map_err(|_| RuntimeError::UnsafeEndpoint)?;
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            verify_private_directory(directory)
+        }
+        Err(_) => Err(RuntimeError::UnsafeEndpoint),
+    }
+}
+
+#[cfg(unix)]
+fn verify_private_directory(directory: &Path) -> Result<(), RuntimeError> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let metadata = fs::metadata(directory).map_err(|_| RuntimeError::UnsafeEndpoint)?;
+    if !metadata.is_dir() {
+        return Err(RuntimeError::UnsafeEndpoint);
+    }
+    let owned_by_us = home_owner_uid() == Some(metadata.uid());
+    let owner_only = metadata.permissions().mode() & 0o077 == 0;
+    if owned_by_us && owner_only {
+        Ok(())
+    } else {
+        Err(RuntimeError::UnsafeEndpoint)
+    }
+}
+
+#[cfg(not(unix))]
+fn verify_private_directory(_directory: &Path) -> Result<(), RuntimeError> {
+    Err(RuntimeError::UnsafeEndpoint)
+}
+
+/// Not a security token — only a path discriminator, so retried/concurrent spawns never collide
+/// on the same socket path. Safe to be predictable; the directory permissions (owner-only) are
+/// what actually keeps this private, not the filename.
+fn unique_suffix() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default();
+    format!("{:x}-{:x}", std::process::id(), nanos & 0xffff_ffff)
+}
+
+/// A live handle to one external `codex app-server --listen unix://…` this process spawned.
+/// Dropping this without calling [`Self::terminate`] leaves the child running — GitHub #16's own
+/// finding that nothing about the protocol or a closed pipe stops it — so callers must always
+/// explicitly terminate it as part of normal session cleanup (see this module's own doc comment
+/// for exactly what is, and is not, guaranteed).
+pub struct AppServerHandle {
+    child: Child,
+    pub identity: ProcessIdentity,
+    pub endpoint: PathBuf,
+}
+
+/// Wall-clock budget for the app-server to create its socket file after spawning.
+const READY_TIMEOUT: Duration = Duration::from_secs(10);
+const READY_POLL_INTERVAL: Duration = Duration::from_millis(50);
+/// Grace period for a `SIGTERM` before escalating to `SIGKILL`, matching
+/// `crate::terminal::terminate`'s own existing grace window for the interactive child.
+const TERMINATE_GRACE: Duration = Duration::from_secs(3);
+
+impl AppServerHandle {
+    /// Spawns `codex app-server --listen unix://<endpoint>` under `config_dir`'s isolated
+    /// `CODEX_HOME`, waits (bounded) for the socket file to appear, and returns a handle carrying
+    /// the child's own `ProcessIdentity` — never assumed live from the `Child` alone; queried
+    /// fresh via `ps`, exactly like every other process-identity record in this codebase.
+    ///
+    /// Does NOT verify the app-server actually resolved `config_dir` as its `codexHome` — that
+    /// check happens on the protocol connection itself (mirroring
+    /// `crate::app_server::Session::handshake`'s existing `HomeMismatch` check), since it needs an
+    /// actual `initialize` round trip this function deliberately does not make (spawning and
+    /// verifying protocol identity are different concerns; a caller that skips the connection
+    /// step must never treat a merely-running app-server as proof of the right profile).
+    pub fn spawn(
+        executable: &Path,
+        config_dir: &Path,
+        endpoint: &Path,
+    ) -> Result<Self, RuntimeError> {
+        let mut command = Command::new(executable);
+        command
+            .arg("app-server")
+            .arg("--listen")
+            .arg(format!("unix://{}", endpoint.display()))
+            .env("CODEX_HOME", config_dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
+            command.env_remove(variable);
+        }
+        let child = command.spawn().map_err(|_| RuntimeError::Spawn)?;
+        let identity = ProcessIdentity::query(child.id());
+        let handle = Self {
+            child,
+            identity,
+            endpoint: endpoint.to_path_buf(),
+        };
+        handle.wait_ready()?;
+        Ok(handle)
+    }
+
+    fn wait_ready(&self) -> Result<(), RuntimeError> {
+        let deadline = Instant::now() + READY_TIMEOUT;
+        while Instant::now() < deadline {
+            if self.endpoint.exists() {
+                return Ok(());
+            }
+            std::thread::sleep(READY_POLL_INTERVAL);
+        }
+        Err(RuntimeError::NotReady)
+    }
+
+    /// Graceful `SIGTERM` first (so the app-server can close its listener/socket file cleanly),
+    /// then a hard `SIGKILL` if it ignores that — the same two-step `crate::terminal::terminate`
+    /// already uses for the interactive child, applied here for the exact reason this module's
+    /// doc comment explains: nothing about this protocol stops the process on its own.
+    pub fn terminate(mut self) {
+        terminate_child(&mut self.child);
+        let _ignored = fs::remove_file(&self.endpoint);
+    }
+
+    /// Same two-step termination, for a process this invocation did not spawn itself but proved
+    /// (via [`reconcile_stale`]) is safe to reap — an orphan from an earlier crashed Relay
+    /// invocation. Takes the exact matched [`ProcessIdentity`], never a bare pid, so a caller can
+    /// never accidentally call this on an unverified process.
+    pub fn terminate_orphan(identity: &ProcessIdentity, endpoint: &Path) {
+        #[cfg(unix)]
+        {
+            let _ignored = Command::new("kill")
+                .arg("-TERM")
+                .arg(identity.pid.to_string())
+                .status();
+            let started = Instant::now();
+            while started.elapsed() < TERMINATE_GRACE {
+                if identity.is_still_the_same_process() != Some(true) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            if identity.is_still_the_same_process() == Some(true) {
+                let _ignored = Command::new("kill")
+                    .arg("-KILL")
+                    .arg(identity.pid.to_string())
+                    .status();
+            }
+        }
+        let _ignored = fs::remove_file(endpoint);
+    }
+}
+
+impl Drop for AppServerHandle {
+    /// Best-effort safety net only — normal cleanup must call [`Self::terminate`] explicitly so
+    /// the caller controls exactly when it happens relative to the rest of session teardown
+    /// (releasing the lease, clearing the control record, etc.). A drop reached without an
+    /// explicit `terminate()` (an early return, a panic unwinding) still must not leak the child.
+    fn drop(&mut self) {
+        let _ignored = self.child.kill();
+        let _ignored = self.child.wait();
+        let _ignored = fs::remove_file(&self.endpoint);
+    }
+}
+
+#[cfg(unix)]
+fn terminate_child(child: &mut Child) {
+    let _ignored = Command::new("kill")
+        .arg("-TERM")
+        .arg(child.id().to_string())
+        .status();
+    let started = Instant::now();
+    while started.elapsed() < TERMINATE_GRACE {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let _ignored = child.kill();
+    let _ignored = child.wait();
+}
+
+#[cfg(not(unix))]
+fn terminate_child(child: &mut Child) {
+    let _ignored = child.kill();
+    let _ignored = child.wait();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command as StdCommand;
+
+    fn live_identity() -> (StdCommand, std::process::Child, ProcessIdentity) {
+        let child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .expect("spawn sleep");
+        let identity = ProcessIdentity::query(child.id());
+        (std::process::Command::new("true"), child, identity)
+    }
+
+    /// A genuinely, confirmably dead `ProcessIdentity`: captured *while the process was alive*
+    /// (so `start_time_fingerprint` is `Some`, exactly as a real record always is), then reaped.
+    /// Querying `ProcessIdentity::query` on an *already-dead* pid instead — the mistake this
+    /// helper exists to avoid — always yields `start_time_fingerprint: None` (`query`'s own
+    /// `ConfirmedAbsent | Indeterminate => None` mapping), which makes every liveness check
+    /// answer `Ambiguous`, not `Gone`; `is_still_the_same_process` only ever answers `Some(false)`
+    /// when a *previously recorded* fingerprint exists to compare against a now-confirmed-absent
+    /// pid (see `relay_core::handoff::lock`'s own identical test pattern).
+    fn dead_identity() -> ProcessIdentity {
+        // Must still be alive at the moment of `query` (a `true` that has already exited by then
+        // gives the same unconfirmable `None` fingerprint this helper exists to avoid).
+        let mut child = std::process::Command::new("sleep")
+            .arg("2")
+            .spawn()
+            .expect("spawn sleep");
+        let identity = ProcessIdentity::query(child.id());
+        assert!(
+            identity.start_time_fingerprint.is_some(),
+            "must capture a real fingerprint while alive"
+        );
+        let _ = child.kill();
+        child.wait().expect("reap");
+        std::thread::sleep(Duration::from_millis(100));
+        identity
+    }
+
+    // --- RuntimeLiveness ---
+
+    #[test]
+    fn both_alive_is_live() {
+        let (_c, mut app_server, app_server_id) = live_identity();
+        let (_c2, mut tui, tui_id) = live_identity();
+        let identity = CodexRuntimeIdentity {
+            app_server: app_server_id,
+            tui: Some(tui_id),
+            endpoint: PathBuf::from("/tmp/x.sock"),
+            codex_home: PathBuf::from("/config"),
+            thread_id: Some("t1".to_owned()),
+        };
+        assert_eq!(evaluate_liveness(&identity), RuntimeLiveness::Live);
+        assert!(evaluate_liveness(&identity).is_live());
+        let _ = app_server.kill();
+        let _ = app_server.wait();
+        let _ = tui.kill();
+        let _ = tui.wait();
+    }
+
+    #[test]
+    fn a_dead_app_server_is_reported_even_if_a_tui_identity_is_present() {
+        let (_c, mut tui, tui_id) = live_identity();
+        let identity = CodexRuntimeIdentity {
+            app_server: dead_identity(),
+            tui: Some(tui_id),
+            endpoint: PathBuf::from("/tmp/x.sock"),
+            codex_home: PathBuf::from("/config"),
+            thread_id: None,
+        };
+        assert_eq!(evaluate_liveness(&identity), RuntimeLiveness::AppServerGone);
+        assert!(!evaluate_liveness(&identity).is_live());
+        let _ = tui.kill();
+        let _ = tui.wait();
+    }
+
+    #[test]
+    fn a_dead_tui_with_a_live_app_server_is_reported_distinctly() {
+        let (_c, mut app_server, app_server_id) = live_identity();
+        let identity = CodexRuntimeIdentity {
+            app_server: app_server_id,
+            tui: Some(dead_identity()),
+            endpoint: PathBuf::from("/tmp/x.sock"),
+            codex_home: PathBuf::from("/config"),
+            thread_id: Some("t1".to_owned()),
+        };
+        assert_eq!(evaluate_liveness(&identity), RuntimeLiveness::TuiGone);
+        assert!(!evaluate_liveness(&identity).is_live());
+        let _ = app_server.kill();
+        let _ = app_server.wait();
+    }
+
+    #[test]
+    fn no_tui_attached_yet_is_its_own_distinct_state_not_live() {
+        let (_c, mut app_server, app_server_id) = live_identity();
+        let identity = CodexRuntimeIdentity {
+            app_server: app_server_id,
+            tui: None,
+            endpoint: PathBuf::from("/tmp/x.sock"),
+            codex_home: PathBuf::from("/config"),
+            thread_id: None,
+        };
+        assert_eq!(
+            evaluate_liveness(&identity),
+            RuntimeLiveness::TuiNotYetAttached
+        );
+        assert!(!evaluate_liveness(&identity).is_live());
+        let _ = app_server.kill();
+        let _ = app_server.wait();
+    }
+
+    #[test]
+    fn an_unconfirmable_app_server_identity_is_ambiguous_never_live_never_dead() {
+        // `start_time_fingerprint: None` is the genuinely-indeterminate case (never established,
+        // or `ps` itself failed) — distinct from a *wrong* fingerprint against a live pid, which
+        // `ProcessIdentity::is_still_the_same_process` correctly reports as a definite `Some(false)`
+        // (see `relay_core::handoff::lock`'s own `a_fabricated_identity_with_a_wrong_fingerprint_
+        // is_detected_as_different`), not an ambiguity.
+        let bogus = ProcessIdentity {
+            pid: std::process::id(),
+            start_time_fingerprint: None,
+        };
+        let identity = CodexRuntimeIdentity {
+            app_server: bogus,
+            tui: None,
+            endpoint: PathBuf::from("/tmp/x.sock"),
+            codex_home: PathBuf::from("/config"),
+            thread_id: None,
+        };
+        assert_eq!(evaluate_liveness(&identity), RuntimeLiveness::Ambiguous);
+        assert!(!evaluate_liveness(&identity).is_live());
+    }
+
+    // --- stale reconciliation ---
+
+    #[test]
+    fn a_confirmed_dead_recorded_app_server_needs_no_reaping() {
+        let record = CodexRuntimeRecord {
+            app_server: dead_identity(),
+            endpoint: PathBuf::from("/tmp/x.sock"),
+            codex_home: PathBuf::from("/config"),
+        };
+        assert_eq!(reconcile_stale(&record), StaleReconciliation::NothingToReap);
+    }
+
+    #[test]
+    fn a_confirmed_live_matching_recorded_app_server_is_safe_to_reap() {
+        let (_c, mut app_server, identity) = live_identity();
+        let record = CodexRuntimeRecord {
+            app_server: identity.clone(),
+            endpoint: PathBuf::from("/tmp/x.sock"),
+            codex_home: PathBuf::from("/config"),
+        };
+        assert_eq!(
+            reconcile_stale(&record),
+            StaleReconciliation::SafeToReap(identity)
+        );
+        let _ = app_server.kill();
+        let _ = app_server.wait();
+    }
+
+    #[test]
+    fn a_recycled_pid_with_a_mismatched_fingerprint_is_never_reaped() {
+        // The exact PID-reuse scenario this module's doc comment calls out: a live process now
+        // happens to occupy the recorded pid, but its fingerprint does not match what was
+        // recorded — this must never be treated as "safe to reap," since it is not the process
+        // Relay actually started.
+        let (_c, mut app_server, real_identity) = live_identity();
+        let mismatched_record = CodexRuntimeRecord {
+            app_server: ProcessIdentity {
+                pid: real_identity.pid,
+                start_time_fingerprint: Some("not-the-real-start-time".to_owned()),
+            },
+            endpoint: PathBuf::from("/tmp/x.sock"),
+            codex_home: PathBuf::from("/config"),
+        };
+        assert_eq!(
+            reconcile_stale(&mismatched_record),
+            StaleReconciliation::NothingToReap
+        );
+        let _ = app_server.kill();
+        let _ = app_server.wait();
+    }
+
+    #[test]
+    fn an_unconfirmable_recorded_identity_is_ambiguous_never_reaped() {
+        let record = CodexRuntimeRecord {
+            app_server: ProcessIdentity {
+                pid: std::process::id(),
+                start_time_fingerprint: None,
+            },
+            endpoint: PathBuf::from("/tmp/x.sock"),
+            codex_home: PathBuf::from("/config"),
+        };
+        assert_eq!(reconcile_stale(&record), StaleReconciliation::Ambiguous);
+    }
+
+    // --- socket path scheme ---
+
+    #[test]
+    fn allocated_endpoints_are_short_enough_for_macos_sun_len_and_owner_private() {
+        let path = allocate_endpoint().expect("allocate endpoint");
+        // macOS `sockaddr_un.sun_path` is 104 bytes including the null terminator; stay well
+        // under that so a realistic Relay invocation never repeats agent-relay#15's live
+        // `Error: path must be shorter than SUN_LEN` failure.
+        assert!(
+            path.as_os_str().len() < 100,
+            "endpoint path too long for SUN_LEN: {} ({} bytes)",
+            path.display(),
+            path.as_os_str().len()
+        );
+        // `Path::starts_with` compares whole components, not string prefixes — the directory
+        // component is `relay-codex-<uid>`, so a plain string check is what we actually want.
+        assert!(path.to_string_lossy().starts_with("/tmp/relay-codex-"));
+        let directory = path.parent().expect("parent");
+        let metadata = fs::metadata(directory).expect("directory exists");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+        }
+    }
+
+    #[test]
+    fn two_allocations_never_collide() {
+        let a = allocate_endpoint().expect("first");
+        let b = allocate_endpoint().expect("second");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn a_symlinked_base_directory_is_rejected_not_followed() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let real_target = scratch.path().join("elsewhere");
+        fs::create_dir_all(&real_target).expect("real target");
+        let uid = home_owner_uid().expect("uid");
+        let fake_base = PathBuf::from("/tmp").join(format!("relay-codex-{uid}-test-symlink"));
+        let _ = fs::remove_file(&fake_base);
+        let _ = fs::remove_dir_all(&fake_base);
+        std::os::unix::fs::symlink(&real_target, &fake_base).expect("symlink");
+        let result = ensure_private_directory(&fake_base);
+        assert_eq!(result, Err(RuntimeError::UnsafeEndpoint));
+        let _ = fs::remove_file(&fake_base);
+    }
+
+    // --- spawn / ready / terminate against a scripted fake app-server ---
+
+    /// A minimal scripted stand-in for `codex app-server --listen unix://PATH`: it only needs to
+    /// create the socket path (as a plain file — real readiness detection here is "the path
+    /// exists," matching `AppServerHandle::wait_ready`) and then sleep, so tests can exercise
+    /// spawn/ready/terminate without a real Codex install.
+    fn install_fake_app_server(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = dir.join("fake-codex-app-server");
+        fs::write(
+            &path,
+            r#"#!/bin/sh
+[ "$1" = "app-server" ] || exit 64
+shift
+listen=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --listen) listen="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+sockpath=$(printf '%s' "$listen" | sed 's#^unix://##')
+touch "$sockpath"
+trap 'rm -f "$sockpath"; exit 0' TERM
+while true; do sleep 1; done
+"#,
+        )
+        .expect("write fake app-server");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+        path
+    }
+
+    #[test]
+    fn spawn_waits_for_the_socket_and_records_a_confirmable_identity() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let exe = install_fake_app_server(scratch.path());
+        let endpoint = allocate_endpoint().expect("endpoint");
+        let handle = AppServerHandle::spawn(&exe, scratch.path(), &endpoint).expect("spawn");
+        assert_eq!(handle.identity.is_still_the_same_process(), Some(true));
+        assert!(
+            endpoint.exists(),
+            "socket path must exist once ready() returns"
+        );
+        handle.terminate();
+        assert!(!endpoint.exists(), "terminate must remove the socket file");
+    }
+
+    #[test]
+    fn a_missing_executable_fails_closed_as_spawn_error() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let endpoint = allocate_endpoint().expect("endpoint");
+        let result = AppServerHandle::spawn(
+            Path::new("/definitely/not/codex"),
+            scratch.path(),
+            &endpoint,
+        );
+        assert!(matches!(result, Err(RuntimeError::Spawn)));
+    }
+
+    #[test]
+    fn terminate_orphan_stops_a_process_this_invocation_did_not_spawn_itself() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let exe = install_fake_app_server(scratch.path());
+        let endpoint = allocate_endpoint().expect("endpoint");
+        let mut handle = AppServerHandle::spawn(&exe, scratch.path(), &endpoint).expect("spawn");
+        // Simulate "a later Relay invocation reconciling a stale record": act on only the
+        // identity/endpoint, as `reconcile_stale` would hand back, never through the original
+        // handle's own `terminate()` — but keep `handle.child` around so *something* still reaps
+        // the exit status once `terminate_orphan` signals it (in a real crash, launchd/init, the
+        // orphan's new parent, does this; in-process here, nothing else will).
+        let identity = handle.identity.clone();
+        let endpoint_copy = handle.endpoint.clone();
+        AppServerHandle::terminate_orphan(&identity, &endpoint_copy);
+        let _ = handle.child.wait();
+        assert_eq!(identity.is_still_the_same_process(), Some(false));
+    }
+}

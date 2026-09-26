@@ -24,6 +24,7 @@ mod badge;
 mod cli;
 mod codex_integration;
 mod codex_poll;
+mod codex_runtime;
 mod commands;
 mod control;
 mod hook;

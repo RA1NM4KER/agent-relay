@@ -4,9 +4,12 @@
 
 pub mod app_server;
 mod context_capture;
+pub mod events;
 mod handoff_adapters;
 mod inspection;
+pub mod observer;
 pub mod polling;
+pub mod runtime;
 mod usage;
 
 pub use context_capture::CodexContextCapturer;

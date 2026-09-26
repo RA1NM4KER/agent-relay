@@ -396,7 +396,10 @@ relay handoff run --from claude-primary --to claude-backup --project ~/repos/foo
   adaptively: every 2 minutes at comfortable usage, tightening to 15s once a trustworthy read
   reports 90%+ used and 5s at 98%+, so a near-limit account is caught in roughly 5s instead of
   waiting out a full 2-minute interval (`RELAY_CODEX_POLL_SECS`, `0` disables, `N > 0` pins a fixed
-  interval instead). Codex → Claude (and Codex → another Codex profile, tested with fakes only) hand over as state
+  interval instead). An experimental, off-by-default `RELAY_CODEX_EVENT_DRIVEN=1` lets a *resumed*
+  Codex terminal wake up on Codex's own structured signals instead of only the periodic check —
+  see [docs/automatic-handoff.md](docs/automatic-handoff.md#experimental-event-driven-wake-up-github-16-opt-in-only)
+  for what it does and does not yet cover. Codex → Claude (and Codex → another Codex profile, tested with fakes only) hand over as state
   continuation, never as the same native conversation; only same-profile Codex resume is native, and
   Relay confirms the thread with Codex before resuming it.
 - Before Relay enters a Codex terminal it checks Codex's structured usage immediately, so an already

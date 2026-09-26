@@ -221,6 +221,24 @@ pay the full cost by design (they exist to actively verify, not to be fast); thi
 previously-noted "out of scope for this benchmarking pass" work, now done. See
 `crates/relay-cli/src/readiness.rs`'s `assess_for_project_reporting` doc comment for the mechanism.
 
+## 6. GitHub #16: the experimental event-driven Codex path — not yet a real benchmark
+
+A live smoke test (`RELAY_BENCH_CODEX_HOME=… cargo test --release -p relay-provider-codex --lib
+observer::tests::live_smoke_test_against_the_real_app_server -- --ignored --nocapture`) proved the
+mechanism end-to-end against `codex-cli 0.155.0` and a real authenticated account: spawn the
+external app-server, attach the observer to an already-populated thread, drive a second real turn
+from an independent connection, and decode the resulting live `account/rateLimits/updated`
+notification — the whole run took **~10s**, dominated by the real model turn itself, not by any
+part of this mechanism. That is **not** a latency measurement of the thing this feature actually
+exists to speed up: emission-to-observer-receipt timing was not instrumented to millisecond
+precision, so no specific number is claimed here for "how much faster than #13's ~0.7-1.7s read
+plus up to 5s/15s/120s cadence" this is. Qualitatively, the notification arrived in the same burst
+as `turn/completed` over a local socket, so the added latency this mechanism itself introduces is
+expected to be small relative to the model turn's own duration — but "expected to be small" is not
+a number, and this section will be replaced with one once that instrumentation exists. Do not treat
+this feature as measured-fast; treat it as measured-real (it works, live, against the real binary)
+and not yet measured-fast.
+
 ## Known gaps in this pass
 
 - **No authenticated end-to-end state-continuation result is recorded yet.** The coordinator

@@ -545,6 +545,7 @@ fn run_managed_terminal_inner(
                 .iter()
                 .any(|profile| profile.name == owner.0 && profile.provider == ProviderKind::Codex)
         });
+        let mut event_driven: Option<crate::codex_runtime::EventDrivenRuntime> = None;
         if owner_is_codex {
             let profile = context
                 .service
@@ -552,6 +553,37 @@ fn run_managed_terminal_inner(
                 .into_iter()
                 .find(|profile| profile.name == owner.0)
                 .ok_or_else(|| Error::ProfileNotFound(owner.0.to_string()))?;
+            // GitHub #16, off by default (`RELAY_CODEX_EVENT_DRIVEN`): best-effort only, and only
+            // for a resume (`command.args` is `["resume", thread_id, ...]`, built by
+            // `plan_codex_resume`) — a fresh launch has no known thread id yet, and
+            // `EventDrivenRuntime::start` deliberately declines that case entirely (see its own
+            // doc comment for the live-confirmed reason). Any failure here (unverified version,
+            // spawn/handshake failure) leaves `command` untouched and `event_driven` `None`, so
+            // this Codex owner supervises exactly as it always has, on GitHub #13's polling alone.
+            let known_thread_id = (command.args.first().map(std::ffi::OsString::as_os_str)
+                == Some(std::ffi::OsStr::new("resume")))
+            .then(|| command.args.get(1))
+            .flatten()
+            .and_then(|arg| arg.to_str());
+            if let Some(runtime) = crate::codex_runtime::EventDrivenRuntime::start(
+                context
+                    .codex_executable
+                    .as_deref()
+                    .unwrap_or_else(|| Path::new("codex")),
+                &profile.config_dir,
+                &context.state_dir(),
+                known_thread_id,
+                context.json_mode,
+            ) {
+                if !context.json_mode {
+                    eprintln!(
+                        "[Relay] event-driven Codex observation active (thread {})",
+                        runtime.thread_id()
+                    );
+                }
+                command.args.extend(runtime.remote_args());
+                event_driven = Some(runtime);
+            }
             let skill = crate::codex_integration::install(&profile.config_dir);
             // Scope every skill invocation to this supervisor's roots and conversation. Replaced
             // on every attach, including a Claude -> Codex handoff and same-profile resume.
@@ -633,6 +665,9 @@ fn run_managed_terminal_inner(
                 );
             }
             if let Some(scheduler) = codex_poll.as_mut() {
+                if let Some(runtime) = event_driven.as_ref() {
+                    runtime.tick(scheduler);
+                }
                 scheduler.tick(
                     || {
                         let lease = context.lease_store().load().ok().flatten()?;
@@ -691,6 +726,12 @@ fn run_managed_terminal_inner(
             path: command.program.clone(),
             source,
         })?;
+        // GitHub #16: this continuation's supervision has ended (child exited or the lease moved
+        // away) — stop the observer and synchronously terminate the app-server now, exactly as
+        // any other normal/handled session-end cleanup, regardless of which path `end` took.
+        if let Some(runtime) = event_driven.take() {
+            runtime.stop();
+        }
         // The switch helper (if any) finishes recording its outcome before the decision below.
         if let Some(helper) = pending_switch.take() {
             let _ignored = helper.join();

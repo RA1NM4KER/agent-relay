@@ -193,6 +193,34 @@ impl CodexPollScheduler {
         }
     }
 
+    /// GitHub #16: an observer's decoded structured event pre-empts this scheduler's own cadence
+    /// — without adding a second scheduling policy of its own. `UsageLimitExceeded` makes the
+    /// *next* tick treat a poll as immediately due (never spawns anything itself; `tick()` still
+    /// owns that, so the existing single-flight guarantee is untouched — a poll already in flight
+    /// is left alone rather than queuing a second one). `RateLimitsHint` re-derives the interval
+    /// from the exact same [`poll_interval_secs`] policy #13 already uses, exactly as if this had
+    /// been a fresh completed poll's own reading (including relaxing back down on a lower hint).
+    /// A disabled scheduler (`RELAY_CODEX_POLL_SECS=0`) ignores every event, matching the existing
+    /// "polling disabled" contract — an operator's explicit opt-out covers every trigger, not only
+    /// the timer. A fixed override ignores hints (exactly like [`Self::reschedule_from_last_result`]
+    /// already does) but still lets a usage-limit event pre-empt its own fixed wait, since that is
+    /// a real failure signal, not a scheduling opinion.
+    pub(crate) fn notify_event(&mut self, event: relay_provider_codex::observer::ObserverEvent) {
+        use relay_provider_codex::observer::ObserverEvent;
+        if matches!(self.mode, PollMode::Disabled) || self.child.is_some() {
+            return;
+        }
+        match event {
+            ObserverEvent::UsageLimitExceeded => self.next_poll_at = Instant::now(),
+            ObserverEvent::RateLimitsHint(percent) => {
+                if matches!(self.mode, PollMode::Adaptive) {
+                    self.next_poll_at =
+                        Instant::now() + Duration::from_secs(poll_interval_secs(percent));
+                }
+            }
+        }
+    }
+
     fn fallback_secs(&self) -> u64 {
         match self.mode {
             PollMode::Fixed(fixed) => fixed,
@@ -221,7 +249,95 @@ impl CodexPollScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use relay_provider_codex::observer::ObserverEvent;
     use std::process::Command;
+
+    // --- GitHub #16: event notification pre-empts cadence without a second scheduling policy ---
+
+    #[test]
+    fn a_usage_limit_event_makes_the_very_next_tick_due() {
+        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), None);
+        assert!(scheduler.next_poll_at > Instant::now());
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        assert!(scheduler.next_poll_at <= Instant::now());
+    }
+
+    #[test]
+    fn a_disabled_scheduler_ignores_every_event() {
+        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Disabled, PathBuf::new(), None);
+        let before = scheduler.next_poll_at;
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        assert_eq!(scheduler.next_poll_at, before);
+    }
+
+    #[test]
+    fn a_usage_limit_event_is_ignored_while_a_poll_is_already_in_flight() {
+        let mut scheduler = due_scheduler(PollMode::Adaptive, PathBuf::new());
+        let fake_plan = || {
+            Some(AutoWatchPlan {
+                args: Vec::new(),
+                log_path: PathBuf::new(),
+                triggered_unix_ms: 0,
+                trigger: "test",
+            })
+        };
+        scheduler.tick(fake_plan, |_| Some(sleeper_child()));
+        assert!(scheduler.child.is_some());
+        let before = scheduler.next_poll_at;
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        assert_eq!(
+            scheduler.next_poll_at, before,
+            "must never queue a second evaluation while one is already in flight"
+        );
+        if let Some(child) = scheduler.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    #[test]
+    fn a_rate_limits_hint_tightens_adaptive_cadence_via_the_existing_policy() {
+        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), None);
+        scheduler.notify_event(ObserverEvent::RateLimitsHint(Some(99)));
+        let delay = scheduler
+            .next_poll_at
+            .saturating_duration_since(Instant::now());
+        assert!(
+            delay <= Duration::from_secs(5),
+            "99% must select the critical cadence"
+        );
+    }
+
+    #[test]
+    fn a_rate_limits_hint_relaxes_adaptive_cadence_back_down_too() {
+        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), None);
+        scheduler.notify_event(ObserverEvent::RateLimitsHint(Some(99)));
+        scheduler.notify_event(ObserverEvent::RateLimitsHint(Some(10)));
+        let delay = scheduler
+            .next_poll_at
+            .saturating_duration_since(Instant::now());
+        assert!(
+            delay > Duration::from_secs(100),
+            "a fresh lower hint must relax back to comfortable"
+        );
+    }
+
+    #[test]
+    fn a_fixed_override_ignores_rate_limit_hints_but_not_usage_limit_events() {
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Fixed(45), PathBuf::new(), None);
+        let before = scheduler.next_poll_at;
+        scheduler.notify_event(ObserverEvent::RateLimitsHint(Some(99)));
+        assert_eq!(
+            scheduler.next_poll_at, before,
+            "a fixed override must not let a hint change its own interval"
+        );
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        assert!(
+            scheduler.next_poll_at <= Instant::now(),
+            "a real usage-limit signal still pre-empts even a fixed override"
+        );
+    }
 
     // --- RELAY_CODEX_POLL_SECS compatibility (never mutates real process env — see
     // `poll_mode_from_env`'s doc comment) ---
