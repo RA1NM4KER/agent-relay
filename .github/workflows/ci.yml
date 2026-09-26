@@ -17,6 +17,12 @@ jobs:
       - run: ./scripts/check-dev-formula-renames-binary.sh
       - run: ./scripts/test-dogfood-tap-change-scope.sh
 
+  pages-updater-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/test-update-pages-stable-version.sh
+
   quality:
     strategy:
       fail-fast: false

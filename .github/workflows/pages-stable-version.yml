@@ -1,0 +1,73 @@
+name: Pages stable version
+
+# Keeps the public gh-pages badge/link/meta-row in sync with the latest *stable* GitHub
+# Release, with no manual version edit and no client-side API fetch.
+#
+# `.github/workflows/release.yml` creates every tagged release as a draft, so this only fires
+# once a maintainer actually publishes one (draft -> published is the `release: published`
+# event with `draft: false`). It also excludes prereleases and the rolling `dogfood`
+# pre-release, and re-validates the tag shape itself (`vX.Y.Z`) before touching anything, so a
+# misconfigured or unexpected release event can never push a dev/dogfood string to the public
+# site. See docs/history or issue #8 for the design rationale.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  update-stable-version:
+    if: github.event.release.draft == false && github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Validate stable tag shape
+        id: guard
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "stable=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "stable=false" >>"$GITHUB_OUTPUT"
+            echo "not a stable version tag: $TAG; skipping the Pages update" >&2
+          fi
+
+      - name: Checkout main (updater script)
+        if: steps.guard.outputs.stable == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      - name: Checkout gh-pages
+        if: steps.guard.outputs.stable == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Update the stable version badge
+        if: steps.guard.outputs.stable == 'true'
+        run: python3 main/scripts/update-pages-stable-version.py gh-pages/index.html "${{ github.event.release.tag_name }}"
+
+      - name: Commit and push if the site actually changed
+        if: steps.guard.outputs.stable == 'true'
+        working-directory: gh-pages
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- index.html; then
+            echo "gh-pages already at $TAG; nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "chore(site): update stable version to ${TAG}"
+          git push origin HEAD:gh-pages
