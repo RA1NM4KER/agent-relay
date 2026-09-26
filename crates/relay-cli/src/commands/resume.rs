@@ -7,7 +7,8 @@ use std::{
 
 use clap::Parser as _;
 use relay_core::{
-    Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths, usage::UsageState,
+    Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
+    handoff::ExecutionIntent, usage::UsageState,
 };
 
 use crate::{
@@ -79,6 +80,24 @@ pub(crate) fn run(
     )?;
     let id = chosen.record.relay_session_id.clone();
 
+    // Issue #3: exactly which session is being resumed is now settled (the picker/`--session`/
+    // `--profile` filtering above already refused ambiguity), so an explicit `--autonomous`/
+    // `--interactive` is applied here — before anything is activated or launched, so the mode
+    // change is durable even if the launch attempt below fails. No flag: the session's existing
+    // mode is left exactly as it was (this is a resume, not a fresh launch).
+    if let Some(intent) = requested_intent(args) {
+        store.set_execution_intent(&id, intent)?;
+        if !json_mode {
+            println!(
+                "Execution mode: {}",
+                match intent {
+                    ExecutionIntent::Autonomous => "autonomous",
+                    ExecutionIntent::Interactive => "interactive",
+                }
+            );
+        }
+    }
+
     // A dormant session gets a fresh active lease on the profile it last ran on (history, not an
     // owner) before anything is launched; an active background job is attached to as it is.
     let (session, mut lease) = match chosen.lease.clone() {
@@ -123,6 +142,19 @@ pub(crate) fn run(
         sessions::release_after_exit(paths, &canonical_project, &id, &registered);
     }
     outcome
+}
+
+/// `None` means "leave the session's existing execution intent alone" — the default, and the only
+/// option before this flag existed. `clap`'s `conflicts_with` on both flags (see [`ResumeArgs`])
+/// already makes both-set unreachable here.
+fn requested_intent(args: &ResumeArgs) -> Option<ExecutionIntent> {
+    if args.autonomous {
+        Some(ExecutionIntent::Autonomous)
+    } else if args.interactive {
+        Some(ExecutionIntent::Interactive)
+    } else {
+        None
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

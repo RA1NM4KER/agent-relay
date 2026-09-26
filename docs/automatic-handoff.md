@@ -226,6 +226,40 @@ purely advisory artifact being healthy. It also never appears in a same-provider
 continuity — it is persisted regardless, so it is available the next time this session *does*
 cross providers.
 
+## Execution mode (Issue #3)
+
+Every Relay Session carries an execution mode, `interactive` (the default — normal conversational
+confirmation) or `autonomous` (continue pursuing the current task without asking merely because a
+step, or a handoff, occurred; still stops for a genuine blocker: missing information, an action
+needing explicit authorization, or an unsafe/ambiguous situation). **This is behavioral intent
+only — never a permission grant.** It never maps onto, sets, or implies a Claude permission flag, a
+Codex sandbox/approval setting, `--yolo`, or any passthrough provider argument; those stay exactly
+whatever you pass them as, completely independently of execution mode.
+
+Three equivalent ways to set it, all converging on the same durable field:
+
+```
+relay claude --autonomous ...          # at launch
+relay codex --autonomous ...           # at launch
+relay resume --autonomous              # while resuming a closed session (or --interactive)
+relay mode autonomous                  # live, on the current session (or `relay mode` to show it)
+```
+
+The same live change is also reachable from inside a managed conversation — `/relay:mode
+autonomous`/`/relay:mode interactive` for Claude, `$relay mode autonomous`/`$relay mode
+interactive` for Codex — and it takes effect immediately: unlike every other `/relay:*` command,
+which Relay answers without the model ever seeing the prompt, a `/relay:mode` change that actually
+changes something lets the prompt through with the new mode's meaning added as context, specifically
+so the already-running model acts on it starting with its very next step, not merely on the next
+handoff.
+
+Execution mode is set once at launch and otherwise changes only through one of the above — never as
+a side effect of a handoff, which always preserves whatever mode the session already had onto its
+new owner. An old session recorded before this field existed reads as `interactive`, the
+least-surprising default. `relay status --json` reports it (`execution_intent`, on every session
+row and on `current_session`) as a plain local field — never a reason for `status` to perform a
+live provider check.
+
 ## Limitations
 
 - The statusline only refreshes while an interactive Claude session is drawing it; headless

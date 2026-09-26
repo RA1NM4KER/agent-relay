@@ -145,9 +145,12 @@ pub struct RelaySessionRecord {
     /// ends is removed instead of remembered.
     #[serde(default)]
     pub provisional: bool,
-    /// Set once, at session creation, from the launching command's own flag — never changed by a
-    /// handoff. An old record predating this field safely deserializes as `Interactive`, the
-    /// least-surprising existing behavior.
+    /// Set at session creation from the launching command's own flag, and changeable afterward
+    /// only through [`SessionStore::set_execution_intent`] (`relay resume --autonomous`/
+    /// `--interactive`, `relay mode`, or the live Claude/Codex `mode` commands) — never as a side
+    /// effect of a handoff itself, which only ever preserves whatever value is already here. An
+    /// old record predating this field safely deserializes as `Interactive`, the least-surprising
+    /// existing behavior.
     #[serde(default)]
     pub execution_intent: ExecutionIntent,
 }
@@ -397,6 +400,32 @@ impl<'a> SessionStore<'a> {
         fs::create_dir_all(&dir).map_err(|source| io_error(&dir, source))?;
         let bytes = serde_json::to_vec_pretty(record).map_err(|_| Error::SerializationFailed)?;
         FsAtomicWriter.write_atomic(&dir.join(RECORD_FILE), &bytes)
+    }
+
+    /// Issue #3: the one place every entry point that can change a session's [`ExecutionIntent`]
+    /// after creation converges — `relay resume --autonomous`/`--interactive`, `relay mode`, and
+    /// the live Claude `/relay:mode`/Codex `$relay mode` commands all call this rather than each
+    /// reimplementing the read-modify-write. (Session *creation* sets the initial intent through
+    /// [`RelaySessionRecord::with_execution_intent`] instead, as part of the one atomic
+    /// record+lease write `create_active` already performs — there is no existing record yet for
+    /// this method's read-modify-write to operate on.)
+    ///
+    /// Self-locking (the per-session [`OrchestrationLock`], the same one a handoff transaction
+    /// holds) so a caller never has to think about it; idempotent (setting the intent a session
+    /// already has is a harmless rewrite, not an error).
+    pub fn set_execution_intent(
+        &self,
+        id: &RelaySessionId,
+        intent: ExecutionIntent,
+    ) -> Result<ExecutionIntent> {
+        self.session_lock(id).try_with(|| {
+            let Some(mut record) = self.load_record(id)? else {
+                return Err(Error::RelaySessionNotFound(id.to_string()));
+            };
+            record.execution_intent = intent;
+            self.save_record(&record)?;
+            Ok(intent)
+        })
     }
 
     /// Removes a whole session directory (provisional cleanup). Refuses while a lease exists.
@@ -867,5 +896,101 @@ mod tests {
         let after_handoff = store.load_record(&id).expect("load").expect("exists");
         assert_eq!(after_handoff.execution_intent, ExecutionIntent::Autonomous);
         assert_eq!(after_handoff.last_profile.as_str(), "bob");
+    }
+
+    #[test]
+    fn set_execution_intent_changes_an_existing_session() {
+        let root = tempdir().expect("root");
+        let paths = paths(root.path());
+        let store = SessionStore::new(&paths, project());
+        let record = record(&project(), "megan", "n1");
+        let id = record.relay_session_id.clone();
+        store
+            .create_active(&record, &lease(&project(), "megan", "n1"))
+            .expect("create");
+        assert_eq!(
+            store
+                .load_record(&id)
+                .expect("load")
+                .expect("exists")
+                .execution_intent,
+            ExecutionIntent::Interactive,
+            "created without a flag: still the safe default"
+        );
+
+        let returned = store
+            .set_execution_intent(&id, ExecutionIntent::Autonomous)
+            .expect("set");
+        assert_eq!(returned, ExecutionIntent::Autonomous);
+        assert_eq!(
+            store
+                .load_record(&id)
+                .expect("load")
+                .expect("exists")
+                .execution_intent,
+            ExecutionIntent::Autonomous
+        );
+    }
+
+    #[test]
+    fn set_execution_intent_is_idempotent() {
+        let root = tempdir().expect("root");
+        let paths = paths(root.path());
+        let store = SessionStore::new(&paths, project());
+        let record =
+            record(&project(), "megan", "n1").with_execution_intent(ExecutionIntent::Autonomous);
+        let id = record.relay_session_id.clone();
+        store
+            .create_active(&record, &lease(&project(), "megan", "n1"))
+            .expect("create");
+        // Setting the intent a session already has must succeed harmlessly, not error.
+        store
+            .set_execution_intent(&id, ExecutionIntent::Autonomous)
+            .expect("re-setting the same value is not an error");
+        assert_eq!(
+            store
+                .load_record(&id)
+                .expect("load")
+                .expect("exists")
+                .execution_intent,
+            ExecutionIntent::Autonomous
+        );
+    }
+
+    #[test]
+    fn set_execution_intent_on_an_unknown_session_fails_clearly() {
+        let root = tempdir().expect("root");
+        let paths = paths(root.path());
+        let store = SessionStore::new(&paths, project());
+        let ghost = RelaySessionId::generate().expect("id");
+        let error = store
+            .set_execution_intent(&ghost, ExecutionIntent::Autonomous)
+            .expect_err("no such session");
+        assert!(matches!(error, Error::RelaySessionNotFound(_)));
+    }
+
+    #[test]
+    fn set_execution_intent_survives_a_later_release_and_reactivate() {
+        // Proves the *mutation* path (not just the creation-time builder already covered by
+        // `execution_intent_persists_through_release_and_reactivate`) rides the same durable
+        // record a handoff reads, so a mode changed via `relay mode`/`relay resume --autonomous`
+        // is just as durable across a handoff as one set at launch time.
+        let root = tempdir().expect("root");
+        let paths = paths(root.path());
+        let store = SessionStore::new(&paths, project());
+        let record = record(&project(), "megan", "n1");
+        let id = record.relay_session_id.clone();
+        store
+            .create_active(&record, &lease(&project(), "megan", "n1"))
+            .expect("create");
+        store
+            .set_execution_intent(&id, ExecutionIntent::Autonomous)
+            .expect("set");
+        store.release(&id, 20, false).expect("release");
+        store
+            .activate(&id, &lease(&project(), "bob", "n2"))
+            .expect("activate");
+        let after_handoff = store.load_record(&id).expect("load").expect("exists");
+        assert_eq!(after_handoff.execution_intent, ExecutionIntent::Autonomous);
     }
 }

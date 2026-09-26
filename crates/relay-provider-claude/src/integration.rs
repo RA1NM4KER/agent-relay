@@ -80,6 +80,12 @@ const NAMESPACED_COMMANDS: &[NamespacedCommand] = &[
         argument_hint: "",
         fallback: "relay adopt",
     },
+    NamespacedCommand {
+        stem: "mode",
+        description: "Show or change this conversation's execution mode (autonomous/interactive)",
+        argument_hint: "[autonomous|interactive]",
+        fallback: "relay mode",
+    },
 ];
 
 /// The body every Relay command file shares. Claude's own `UserPromptSubmit` hook

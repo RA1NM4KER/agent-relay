@@ -165,6 +165,14 @@ pub(crate) enum Command {
     /// files, next actions). Agents never edit its storage file directly — this command owns
     /// validation, bounds, locking, and persistence.
     State(StateArgs),
+    /// Issue #3: show or change the current Relay Session's execution mode (`interactive` —
+    /// normal conversational confirmation — or `autonomous` — continue without asking merely to
+    /// proceed, still stopping for a genuine blocker). Behavioral intent only: never a provider
+    /// permission grant, and never mapped to one. `relay mode` alone shows the current mode;
+    /// `relay mode autonomous`/`relay mode interactive` sets it. The same underlying change is
+    /// also reachable live, mid-conversation, via the Claude `/relay:mode` command and the Codex
+    /// `$relay mode` skill — all three converge on the exact same persisted field.
+    Mode(ModeArgs),
     /// Internal: the detached, best-effort background process a human-facing command spawns to
     /// refresh the cached update-available check (see `crate::update_check`) — never invoked
     /// directly by a user, never prints anything, never fails visibly.
@@ -320,10 +328,40 @@ pub(crate) struct ResumeArgs {
     pub(crate) claude_executable: Option<PathBuf>,
     #[arg(long, value_name = "PATH")]
     pub(crate) codex_executable: Option<PathBuf>,
+    /// Resume in autonomous execution mode, changing (and persisting) the session's mode even if
+    /// it was Interactive before — behavioral intent only, never a permission grant. With neither
+    /// flag, the session's existing mode is preserved unchanged.
+    #[arg(long, conflicts_with = "interactive")]
+    pub(crate) autonomous: bool,
+    /// Resume in interactive execution mode, changing (and persisting) the session's mode even if
+    /// it was Autonomous before.
+    #[arg(long, conflicts_with = "autonomous")]
+    pub(crate) interactive: bool,
     /// Provider CLI arguments after `--`, for the provider that currently owns the session;
     /// replaces that provider's stored arguments for this project. Omit to reuse the stored ones.
     #[arg(last = true, allow_hyphen_values = true, value_name = "PROVIDER_ARGS")]
     pub(crate) provider_args: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct ModeArgs {
+    /// Set the current Relay Session's execution mode. Omit to just show the current mode.
+    pub(crate) mode: Option<ModeValue>,
+    #[arg(long = "project", value_name = "PATH")]
+    pub(crate) project_dir: Option<PathBuf>,
+    /// Which Relay session to affect (an id or unambiguous prefix from `relay status`). Needed
+    /// only when the project has several active sessions and there is no terminal to ask in.
+    #[arg(long, value_name = "ID")]
+    pub(crate) session: Option<String>,
+}
+
+/// GitHub Issue #3: behavioral intent only, exactly [`relay_core::handoff::ExecutionIntent`] under
+/// a CLI-friendly name — never a provider permission grant, and never converted to one.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+#[value(rename_all = "lower")]
+pub(crate) enum ModeValue {
+    Autonomous,
+    Interactive,
 }
 
 #[derive(Debug, Args)]
@@ -1003,7 +1041,7 @@ impl From<CliProvider> for ProviderKind {
 mod tests {
     use clap::Parser as _;
 
-    use super::{Cli, Command};
+    use super::{Cli, Command, ModeValue};
 
     /// GitHub Issue #3: `--autonomous` must never be confused with, or leak into, a
     /// provider-forwarded permission flag — even one typed on the very same command line. Parsing
@@ -1039,5 +1077,65 @@ mod tests {
             panic!("expected Codex subcommand");
         };
         assert!(!args.autonomous);
+    }
+
+    #[test]
+    fn resume_autonomous_and_interactive_are_mutually_exclusive() {
+        let error = Cli::try_parse_from(["relay", "resume", "--autonomous", "--interactive"])
+            .expect_err("clap must refuse both flags together");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn resume_with_neither_mode_flag_parses_as_no_requested_change() {
+        let cli = Cli::try_parse_from(["relay", "resume"]).expect("parses");
+        let Command::Resume(args) = cli.command else {
+            panic!("expected Resume subcommand");
+        };
+        assert!(!args.autonomous);
+        assert!(!args.interactive);
+    }
+
+    /// Same guarantee as `autonomous_flag_never_absorbs_or_implies_a_provider_permission_flag`,
+    /// for `relay resume`'s own `--autonomous`/passthrough-args pair.
+    #[test]
+    fn resume_autonomous_never_absorbs_or_implies_a_provider_permission_flag() {
+        let cli = Cli::try_parse_from([
+            "relay",
+            "resume",
+            "--autonomous",
+            "--",
+            "--dangerously-skip-permissions",
+        ])
+        .expect("parses");
+        let Command::Resume(args) = cli.command else {
+            panic!("expected Resume subcommand");
+        };
+        assert!(args.autonomous);
+        assert_eq!(
+            args.provider_args,
+            vec!["--dangerously-skip-permissions".to_owned()]
+        );
+    }
+
+    #[test]
+    fn mode_parses_show_and_both_set_values() {
+        let show = Cli::try_parse_from(["relay", "mode"]).expect("parses");
+        let Command::Mode(args) = show.command else {
+            panic!("expected Mode subcommand");
+        };
+        assert!(args.mode.is_none());
+
+        let autonomous = Cli::try_parse_from(["relay", "mode", "autonomous"]).expect("parses");
+        let Command::Mode(args) = autonomous.command else {
+            panic!("expected Mode subcommand");
+        };
+        assert!(matches!(args.mode, Some(ModeValue::Autonomous)));
+
+        let interactive = Cli::try_parse_from(["relay", "mode", "interactive"]).expect("parses");
+        let Command::Mode(args) = interactive.command else {
+            panic!("expected Mode subcommand");
+        };
+        assert!(matches!(args.mode, Some(ModeValue::Interactive)));
     }
 }

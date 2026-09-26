@@ -15,11 +15,12 @@ use std::{path::Path, time::Duration};
 
 use relay_core::{
     Error, Profile, ProfileService, ProviderKind, RelayPaths,
-    handoff::{ProcessIdentity, WriterLease},
+    handoff::{ExecutionIntent, ProcessIdentity, RelaySessionId, WriterLease},
 };
 use serde_json::json;
 
 use crate::{
+    commands::mode::render_set_message,
     control::{self, ControlDir, RequestKind},
     live::{self, AdoptionOutcome, HookEnv, HookInput, LiveSession},
     preferences::Preferences,
@@ -30,10 +31,48 @@ use crate::{
 /// How long the hook waits for the supervisor to accept or refuse a switch request.
 const SUPERVISOR_ANSWER_TIMEOUT: Duration = Duration::from_secs(25);
 
-/// The JSON a `UserPromptSubmit` hook prints to stop the prompt and show `text` to the user.
+/// The JSON a `UserPromptSubmit` hook prints to stop the prompt and show `text` to the user. The
+/// model never sees the command or this response — that is the point for every command except
+/// `mode` (see [`HookOutcome::ContinueWithContext`]).
 #[must_use]
 pub fn block_output(text: &str) -> String {
     json!({"decision": "block", "reason": text}).to_string()
+}
+
+/// The JSON a `UserPromptSubmit` hook prints to let the prompt reach the model as normal while
+/// adding `text` to what the model sees this same turn. Issue #3's `/relay:mode` is the one
+/// command that needs this instead of [`block_output`]: persisting the new [`ExecutionIntent`]
+/// alone does not change how an already-running model behaves, since a fully blocked prompt never
+/// reaches the model at all. `hookSpecificOutput.additionalContext` is the documented Claude Code
+/// `UserPromptSubmit` mechanism for adding context without blocking.
+#[must_use]
+fn continue_with_context(text: &str) -> String {
+    json!({
+        "continue": true,
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": text,
+        },
+    })
+    .to_string()
+}
+
+/// What answering a `/relay …` command produces, before it becomes hook JSON. Every command but
+/// `mode` blocks the prompt (the model never sees it); `mode`, when it actually changes something,
+/// must let the live model see the change to be effective immediately (see
+/// [`continue_with_context`]'s doc comment).
+enum HookOutcome {
+    Block(String),
+    ContinueWithContext(String),
+}
+
+impl HookOutcome {
+    fn into_hook_json(self) -> String {
+        match self {
+            Self::Block(text) => block_output(&text),
+            Self::ContinueWithContext(text) => continue_with_context(&text),
+        }
+    }
 }
 
 /// Splits either the namespaced form (`/relay:status`, `/relay:switch megan`, ...) or the legacy
@@ -64,13 +103,13 @@ pub fn parse_command(prompt: &str) -> Option<(String, Vec<String>)> {
 pub fn answer(paths: &RelayPaths, config_dir: &Path, stdin: &[u8]) -> Option<String> {
     let input = HookInput::parse(stdin)?;
     let (sub, args) = parse_command(input.prompt.as_deref()?)?;
-    let text = match live::identify(&input, config_dir, &HookEnv::from_process()) {
+    let outcome = match live::identify(&input, config_dir, &HookEnv::from_process()) {
         Ok(session) => run_subcommand(paths, &session, &sub, &args),
-        Err(error) => {
-            format!("Agent Relay cannot verify this conversation, so it did nothing.\n{error}")
-        }
+        Err(error) => HookOutcome::Block(format!(
+            "Agent Relay cannot verify this conversation, so it did nothing.\n{error}"
+        )),
     };
-    Some(block_output(&text))
+    Some(outcome.into_hook_json())
 }
 
 struct Context<'a> {
@@ -81,6 +120,11 @@ struct Context<'a> {
     preferences: Preferences,
     lease: Option<WriterLease>,
     state_dir: std::path::PathBuf,
+    /// `None` only when this conversation could not be matched to any Relay Session at all
+    /// (mirrors `lease`/`managed_owner`'s own "not managed" case) — every subcommand that needs to
+    /// read or change durable per-session state (`mode`) checks this the same way it already
+    /// checks `managed_owner()`.
+    relay_session_id: Option<RelaySessionId>,
 }
 
 impl Context<'_> {
@@ -100,13 +144,18 @@ impl Context<'_> {
     }
 }
 
-fn run_subcommand(paths: &RelayPaths, session: &LiveSession, sub: &str, args: &[String]) -> String {
+fn run_subcommand(
+    paths: &RelayPaths,
+    session: &LiveSession,
+    sub: &str,
+    args: &[String],
+) -> HookOutcome {
     let service = ProfileService::new(paths.clone());
     let Ok(registered) = service.list() else {
-        return "Agent Relay could not read its profiles.".to_owned();
+        return HookOutcome::Block("Agent Relay could not read its profiles.".to_owned());
     };
     let Ok(store) = sessions::open_store(paths, &session.project) else {
-        return "Agent Relay could not identify this project.".to_owned();
+        return HookOutcome::Block("Agent Relay could not identify this project.".to_owned());
     };
     // Reconciled first, exactly like `relay status`/`relay switch`, so this never disagrees with
     // them: a lease whose recorded process died is only folded to dormant if the same native
@@ -153,6 +202,9 @@ fn run_subcommand(paths: &RelayPaths, session: &LiveSession, sub: &str, args: &[
         || store.project_dir(),
         |view| store.session_dir(&view.record.relay_session_id),
     );
+    let relay_session_id = found
+        .as_ref()
+        .map(|view| view.record.relay_session_id.clone());
     let lease = found.and_then(|view| view.lease);
     let context = Context {
         paths,
@@ -165,18 +217,20 @@ fn run_subcommand(paths: &RelayPaths, session: &LiveSession, sub: &str, args: &[
             .unwrap_or_default(),
         lease,
         state_dir,
+        relay_session_id,
     };
     match sub {
-        "overview" => overview(),
-        "status" => status(&context),
-        "adopt" => adopt(&context),
-        "switch" => switch(&context, args),
-        "doctor" => doctor(&context),
-        "why" => why(&context),
-        other => format!(
+        "overview" => HookOutcome::Block(overview()),
+        "status" => HookOutcome::Block(status(&context)),
+        "adopt" => HookOutcome::Block(adopt(&context)),
+        "switch" => HookOutcome::Block(switch(&context, args)),
+        "doctor" => HookOutcome::Block(doctor(&context)),
+        "why" => HookOutcome::Block(why(&context)),
+        "mode" => mode(&context, args),
+        other => HookOutcome::Block(format!(
             "Unknown /relay command '{other}'. Try: /relay:status · /relay:switch [profile] · \
-             /relay:doctor · /relay:why · /relay:adopt"
-        ),
+             /relay:doctor · /relay:why · /relay:adopt · /relay:mode [autonomous|interactive]"
+        )),
     }
 }
 
@@ -188,7 +242,8 @@ fn overview() -> String {
      /relay:switch   Move this conversation to another profile\n\
      /relay:doctor   Check whether automatic handoff is ready\n\
      /relay:why      Explain Relay's current decision/state\n\
-     /relay:adopt    Bring this conversation under Relay"
+     /relay:adopt    Bring this conversation under Relay\n\
+     /relay:mode     Show or change execution mode (autonomous/interactive)"
         .to_owned()
 }
 
@@ -557,6 +612,63 @@ fn why(context: &Context<'_>) -> String {
     )
 }
 
+/// `/relay:mode [autonomous|interactive]`: Issue #3's live, in-conversation way to read or change
+/// this Relay Session's [`ExecutionIntent`] — the exact same
+/// [`relay_core::handoff::SessionStore::set_execution_intent`] `relay mode`/`relay resume
+/// --autonomous` use, and the exact same [`render_set_message`] text, so a change made from inside
+/// a conversation reads identically to one made from a terminal. Showing the current mode (no
+/// argument) blocks like every other read-only command; actually changing it uses
+/// [`HookOutcome::ContinueWithContext`] instead, because a fully blocked prompt never reaches the
+/// model, and a mode change that the live model never sees would not be effective immediately.
+fn mode(context: &Context<'_>, args: &[String]) -> HookOutcome {
+    if context.managed_owner().is_none() {
+        return HookOutcome::Block(
+            "Agent Relay: this conversation is not managed, so there is no execution mode to \
+             change. Use /relay:adopt first."
+                .to_owned(),
+        );
+    }
+    let Some(id) = &context.relay_session_id else {
+        return HookOutcome::Block(
+            "Agent Relay could not resolve this conversation's Relay session.".to_owned(),
+        );
+    };
+    let Ok(store) = sessions::open_store(context.paths, &context.session.project) else {
+        return HookOutcome::Block("Agent Relay could not identify this project.".to_owned());
+    };
+    let intent = match args.first().map(String::as_str) {
+        None => {
+            let current = store
+                .load_record(id)
+                .ok()
+                .flatten()
+                .map(|record| record.execution_intent)
+                .unwrap_or_default();
+            return HookOutcome::Block(format!(
+                "Execution mode: {}",
+                match current {
+                    ExecutionIntent::Autonomous => "autonomous",
+                    ExecutionIntent::Interactive => "interactive",
+                }
+            ));
+        }
+        Some("autonomous") => ExecutionIntent::Autonomous,
+        Some("interactive") => ExecutionIntent::Interactive,
+        Some(other) => {
+            return HookOutcome::Block(format!(
+                "Agent Relay: unknown mode '{other}'. Use /relay:mode autonomous or \
+                 /relay:mode interactive."
+            ));
+        }
+    };
+    match store.set_execution_intent(id, intent) {
+        Ok(set) => HookOutcome::ContinueWithContext(render_set_message(set)),
+        Err(error) => HookOutcome::Block(format!(
+            "Agent Relay could not change execution mode: {error}"
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -601,6 +713,16 @@ mod tests {
         assert_eq!(parse_command("/relayx status"), None);
         assert_eq!(parse_command("please /relay status"), None);
         assert_eq!(parse_command("hello"), None);
+        // Issue #3: parses exactly like every other namespaced command — no special-casing needed
+        // in `parse_command` itself.
+        assert_eq!(
+            parse_command("/relay:mode"),
+            Some(("mode".to_owned(), vec![]))
+        );
+        assert_eq!(
+            parse_command("/relay:mode autonomous"),
+            Some(("mode".to_owned(), vec!["autonomous".to_owned()]))
+        );
     }
 
     #[test]
@@ -608,5 +730,39 @@ mod tests {
         let out: serde_json::Value = serde_json::from_str(&block_output("hi")).unwrap();
         assert_eq!(out["decision"], "block");
         assert_eq!(out["reason"], "hi");
+    }
+
+    /// Issue #3: `mode`'s "actually changed something" path must let the prompt through with
+    /// additional context, never fully block it — a blocked prompt never reaches the model, which
+    /// would make a live mode change invisible to the very model it is meant to affect.
+    #[test]
+    fn continue_with_context_lets_the_prompt_through() {
+        let out: serde_json::Value =
+            serde_json::from_str(&continue_with_context("now autonomous")).unwrap();
+        assert_eq!(out["continue"], true);
+        assert_eq!(
+            out["hookSpecificOutput"]["hookEventName"],
+            "UserPromptSubmit"
+        );
+        assert_eq!(
+            out["hookSpecificOutput"]["additionalContext"],
+            "now autonomous"
+        );
+        // Specifically NOT the block shape - a real regression here would silently turn a live
+        // mode change back into something the model never sees.
+        assert!(out.get("decision").is_none());
+    }
+
+    #[test]
+    fn hook_outcome_maps_to_the_right_json_shape() {
+        let blocked: serde_json::Value =
+            serde_json::from_str(&HookOutcome::Block("x".to_owned()).into_hook_json()).unwrap();
+        assert_eq!(blocked["decision"], "block");
+
+        let continued: serde_json::Value = serde_json::from_str(
+            &HookOutcome::ContinueWithContext("y".to_owned()).into_hook_json(),
+        )
+        .unwrap();
+        assert_eq!(continued["continue"], true);
     }
 }

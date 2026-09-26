@@ -18,7 +18,7 @@ mod working_state;
 pub use continuity::{
     ContinuationBundle, ContinuityType, ConversationExcerpt, EXCERPT_BYTE_CAP, ExcerptRole,
     RECENT_CONTEXT_BYTE_BUDGET, RepoFacts, bound_recent_context, render_autonomous_notice,
-    render_bootstrap_prompt,
+    render_bootstrap_prompt, render_live_mode_notice,
 };
 pub use coordinator::{
     ContextCapturer, HandoffCoordinator, HandoffFailure, HandoffRequest, LaunchDirective,

@@ -156,6 +156,12 @@ pub(crate) fn run_status(
             "native_session_id": view.native_session_id(),
             "last_activity_unix_ms": view.record.last_activity_unix_ms,
             "handoff_in_progress": in_transaction,
+            // GitHub Issue #3: additive (every other field here already existed) — dormant
+            // sessions carry an execution intent too, set by `relay resume --autonomous`/`relay
+            // mode` while they were last active, and it is local metadata already in `view.record`
+            // either way, so there is no reason to expose it only for the one focused/active
+            // session `current_session` already covers.
+            "execution_intent": view.record.execution_intent,
         }));
     }
 

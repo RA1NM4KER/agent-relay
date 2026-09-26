@@ -874,6 +874,293 @@ fn autonomous_flag_is_persisted_and_surfaced_by_status() {
     assert!(human_status_output(root.path(), &project).contains("Execution: autonomous"));
 }
 
+/// GitHub Issue #3 extension: `relay mode` reads/writes the same durable field the launch-time
+/// flag does, through the real compiled binary. Uses `--no-attach` (a real, briefly-active
+/// placeholder lease, per `activate_session`'s own doc comment — well within its 60s staleness
+/// grace) since `relay mode` specifically requires an ACTIVE session, unlike `relay resume`.
+#[test]
+fn mode_show_and_set_round_trip_through_the_real_cli() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir").keep();
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "2.1.276",
+        "aaaa1111",
+        "33333333-3333-4333-8333-333333333333",
+    );
+    adopt_profile(root.path(), "alice", &claude);
+    accept_project_trust(root.path(), "alice", &project);
+    assert!(
+        relay(
+            root.path(),
+            &[
+                "setup",
+                "--non-interactive",
+                "--primary",
+                "alice",
+                "--usage-integration",
+                "true",
+                "--claude-executable",
+                &claude.path_text(),
+            ],
+        )
+        .status
+        .success()
+    );
+    assert!(
+        relay(
+            root.path(),
+            &[
+                "claude",
+                "--project-dir",
+                &project.to_string_lossy(),
+                "--no-attach",
+                "--claude-executable",
+                &claude.path_text(),
+                "hello there",
+            ],
+        )
+        .status
+        .success()
+    );
+
+    // Starts Interactive (no `--autonomous` at launch).
+    let show = relay(
+        root.path(),
+        &["mode", "--project", &project.to_string_lossy()],
+    );
+    assert!(
+        show.status.success(),
+        "{}",
+        String::from_utf8_lossy(&show.stderr)
+    );
+    assert_eq!(
+        json_stdout(&show)["data"]["execution_intent"],
+        "interactive"
+    );
+    assert_eq!(json_stdout(&show)["data"]["changed"], false);
+
+    // Sets it live.
+    let set = relay(
+        root.path(),
+        &[
+            "mode",
+            "autonomous",
+            "--project",
+            &project.to_string_lossy(),
+        ],
+    );
+    assert!(
+        set.status.success(),
+        "{}",
+        String::from_utf8_lossy(&set.stderr)
+    );
+    assert_eq!(json_stdout(&set)["data"]["execution_intent"], "autonomous");
+    assert_eq!(json_stdout(&set)["data"]["changed"], true);
+
+    // Persisted: an independent `relay status` sees it too, and a bare `relay mode` shows it.
+    let status = relay(
+        root.path(),
+        &["status", "--project", &project.to_string_lossy()],
+    );
+    assert_eq!(
+        json_stdout(&status)["data"]["current_session"]["execution_intent"],
+        "autonomous"
+    );
+    let show_again = relay(
+        root.path(),
+        &["mode", "--project", &project.to_string_lossy()],
+    );
+    assert_eq!(
+        json_stdout(&show_again)["data"]["execution_intent"],
+        "autonomous"
+    );
+
+    // Idempotent: setting the same value again is not an error.
+    let set_again = relay(
+        root.path(),
+        &[
+            "mode",
+            "autonomous",
+            "--project",
+            &project.to_string_lossy(),
+        ],
+    );
+    assert!(set_again.status.success());
+
+    // And back to interactive.
+    let back = relay(
+        root.path(),
+        &[
+            "mode",
+            "interactive",
+            "--project",
+            &project.to_string_lossy(),
+        ],
+    );
+    assert_eq!(
+        json_stdout(&back)["data"]["execution_intent"],
+        "interactive"
+    );
+
+    // Human output names the mode and, when set, includes the behavioral notice — never
+    // permission-shaped language.
+    let set_human = relay_human(
+        root.path(),
+        &[
+            "mode",
+            "autonomous",
+            "--project",
+            &project.to_string_lossy(),
+        ],
+    );
+    let human = String::from_utf8_lossy(&set_human.stdout);
+    assert!(human.contains("Execution mode: autonomous"));
+    assert!(human.contains("continue"));
+    assert!(!human.to_lowercase().contains("permission"));
+}
+
+/// GitHub Issue #3 extension: `relay resume --autonomous`/`--interactive` change (and persist) the
+/// mode of a genuinely DORMANT session — the fake `claude` fixture exits its attach/resume
+/// invocations instantly, so a plain (non `--no-attach`) `relay claude` launch here completes an
+/// entire attach lifecycle and leaves the session dormant by the time the process returns
+/// (`run_managed_terminal` releases synchronously on exit), which is exactly the state `relay
+/// resume` needs to react to.
+#[test]
+fn resume_autonomous_and_interactive_flags_change_and_persist_the_mode() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir").keep();
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "2.1.276",
+        "aaaa1111",
+        "44444444-4444-4444-8444-444444444444",
+    );
+    adopt_profile(root.path(), "alice", &claude);
+    accept_project_trust(root.path(), "alice", &project);
+    assert!(
+        relay(
+            root.path(),
+            &[
+                "setup",
+                "--non-interactive",
+                "--primary",
+                "alice",
+                "--usage-integration",
+                "true",
+                "--claude-executable",
+                &claude.path_text(),
+            ],
+        )
+        .status
+        .success()
+    );
+    // A real (attaching) launch: the fixture exits instantly, so this session is dormant by the
+    // time this call returns.
+    let launch = relay(
+        root.path(),
+        &[
+            "claude",
+            "--project-dir",
+            &project.to_string_lossy(),
+            "--claude-executable",
+            &claude.path_text(),
+            "hello there",
+        ],
+    );
+    assert!(
+        launch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launch.stderr)
+    );
+
+    let resume = relay(
+        root.path(),
+        &[
+            "resume",
+            "--project-dir",
+            &project.to_string_lossy(),
+            "--autonomous",
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(
+        resume.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resume.stderr)
+    );
+
+    // The fixture's own attach exits instantly, so by the time any of these `relay` calls return
+    // the session is dormant again - dormant sessions have no `current_session` (that is only ever
+    // the currently ACTIVE/focused one), so this reads the per-session `execution_intent` that is
+    // exposed on every row of `sessions` regardless of state.
+    let status = relay(
+        root.path(),
+        &["status", "--project", &project.to_string_lossy()],
+    );
+    assert_eq!(
+        json_stdout(&status)["data"]["sessions"][0]["execution_intent"],
+        "autonomous",
+        "the explicit --autonomous resume must be visible to an independent `relay status` call"
+    );
+
+    // Dormant again (the resume attach also exits instantly): a plain `relay resume` with NEITHER
+    // flag must PRESERVE the mode, not silently reset it back to Interactive.
+    let resume_again = relay(
+        root.path(),
+        &[
+            "resume",
+            "--project-dir",
+            &project.to_string_lossy(),
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(
+        resume_again.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resume_again.stderr)
+    );
+    let status_after = relay(
+        root.path(),
+        &["status", "--project", &project.to_string_lossy()],
+    );
+    assert_eq!(
+        json_stdout(&status_after)["data"]["sessions"][0]["execution_intent"],
+        "autonomous",
+        "resume with no mode flag must preserve the existing mode"
+    );
+
+    // And --interactive flips it back, again surviving on its own (dormant once more).
+    let resume_interactive = relay(
+        root.path(),
+        &[
+            "resume",
+            "--project-dir",
+            &project.to_string_lossy(),
+            "--interactive",
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(
+        resume_interactive.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resume_interactive.stderr)
+    );
+    let status_final = relay(
+        root.path(),
+        &["status", "--project", &project.to_string_lossy()],
+    );
+    assert_eq!(
+        json_stdout(&status_final)["data"]["sessions"][0]["execution_intent"],
+        "interactive"
+    );
+}
+
 /// Like [`relay`], but without the forced `--json`, for asserting on real human-terminal output.
 fn relay_human(root: &Path, arguments: &[&str]) -> std::process::Output {
     let path_with_bin = std::env::join_paths(

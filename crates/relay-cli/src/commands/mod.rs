@@ -16,6 +16,7 @@ pub(crate) mod history;
 pub(crate) mod integration;
 pub(crate) mod launch;
 pub(crate) mod lock;
+pub(crate) mod mode;
 pub(crate) mod profile;
 pub(crate) mod recover;
 pub(crate) mod resume;
@@ -140,6 +141,7 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
         Command::Why(args) => self::why::run(&service, &paths, args, cli.json),
         Command::History(args) => self::history::run(&service, &paths, args),
         Command::State(args) => self::state::run(&service, &paths, &args.command, cli.json),
+        Command::Mode(args) => self::mode::run(&service, &paths, args, cli.json),
         // Always intercepted in `main` before `dispatch` is ever called — see
         // `crate::update_check`. Kept here only so the match stays exhaustive.
         Command::InternalUpdateCheckRefresh => {

@@ -9,7 +9,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ProfileName, ProviderKind, handoff::WorkingStateSnapshot};
+use crate::{
+    ProfileName, ProviderKind,
+    handoff::{ExecutionIntent, WorkingStateSnapshot},
+};
 
 /// Mirrors the M6 spec's three continuity types. Recorded on every [`super::HandoffJournal`] so
 /// the transcript of what actually happened is never ambiguous, and so Claude and Codex are
@@ -242,6 +245,30 @@ pub const fn render_autonomous_notice() -> &'static str {
      user whether you should continue merely because a handoff occurred. Stop only when: the \
      task is complete, you are genuinely blocked on missing information, an action requires \
      explicit user authorization, or continuing would be unsafe or ambiguous."
+}
+
+/// Issue #3: the instruction shown to an ALREADY-RUNNING agent when its Relay Session's execution
+/// intent changes live — `relay mode`, the Claude `/relay:mode` hook command, and the Codex
+/// `$relay mode` skill all render this same text (see `relay-cli`'s `commands::mode` module, the
+/// one place that builds it) so a mode change means the same thing regardless of how it was made.
+/// Distinct from [`render_autonomous_notice`], which a *new* target reads once right after a
+/// handoff: this one never mentions a handoff, since none occurred, and it also covers the
+/// `Interactive` direction, which a handoff-time notice never needs to (a handoff only ever
+/// *adds* the autonomous notice; it never has to tell a target to go back to asking questions).
+#[must_use]
+pub const fn render_live_mode_notice(intent: ExecutionIntent) -> &'static str {
+    match intent {
+        ExecutionIntent::Autonomous => {
+            "Execution mode is now autonomous. From this point forward, continue the current \
+             task without asking whether you should proceed. Stop only when: the task is \
+             complete, you are genuinely blocked on missing information, an action requires \
+             explicit user authorization, or continuing would be unsafe or ambiguous."
+        }
+        ExecutionIntent::Interactive => {
+            "Execution mode is now interactive. Normal conversational confirmation is \
+             appropriate again — ask before taking significant next steps, as usual."
+        }
+    }
 }
 
 fn push_file_list(prompt: &mut String, label: &str, files: &[String]) {

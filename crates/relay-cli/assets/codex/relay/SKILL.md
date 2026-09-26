@@ -1,6 +1,6 @@
 ---
 name: relay
-description: Check Agent Relay status, handoff readiness, decisions, and history for the current managed conversation. Use for $relay, $relay doctor, $relay status, $relay why, $relay history, or Relay profile-switch questions. Not for developing the Relay repository.
+description: Check Agent Relay status, handoff readiness, decisions, history, and execution mode for the current managed conversation. Use for $relay, $relay doctor, $relay status, $relay why, $relay history, $relay mode, or Relay profile-switch questions. Not for developing the Relay repository.
 ---
 
 Use the installed Relay CLI to answer from actual state. Codex invokes this skill with `$relay`;
@@ -26,6 +26,30 @@ Report the relevant CLI output concisely. Doctor exit code 1 with a readiness re
 not ready, not an execution failure. Status lists multiple conversations: identify this one
 using `RELAY_SESSION_ID`, not merely the most recently active session. Never invent health,
 trust acceptance, quota, or a successful handoff. Report a sandbox denial as a denial.
+
+## $relay mode: show or change this conversation's execution mode
+
+`$relay mode` shows the current execution mode; `$relay mode autonomous`/`$relay mode
+interactive` changes and persists it on the current Relay Session. This is behavioral intent
+only (whether to keep working without asking to proceed) — it never changes a sandbox setting,
+an approval policy, or any provider permission.
+
+```sh
+"$RELAY_EXECUTABLE" --config-root "$RELAY_CONFIG_ROOT" --state-root "$RELAY_STATE_ROOT" mode --project "$RELAY_PROJECT_DIR" --session "$RELAY_SESSION_ID"
+"$RELAY_EXECUTABLE" --config-root "$RELAY_CONFIG_ROOT" --state-root "$RELAY_STATE_ROOT" mode autonomous --project "$RELAY_PROJECT_DIR" --session "$RELAY_SESSION_ID"
+"$RELAY_EXECUTABLE" --config-root "$RELAY_CONFIG_ROOT" --state-root "$RELAY_STATE_ROOT" mode interactive --project "$RELAY_PROJECT_DIR" --session "$RELAY_SESSION_ID"
+```
+
+When the command actually changes the mode, its own output states the new mode plus what it
+means in behavioral terms — e.g. "Execution mode is now autonomous. From this point forward,
+continue the current task without asking whether you should proceed. Stop only when: the task
+is complete, you are genuinely blocked on missing information, an action requires explicit user
+authorization, or continuing would be unsafe or ambiguous." Treat that as a real, immediate
+instruction for the rest of THIS conversation, not just a status line to relay to the user: if
+the mode just became autonomous, act on it starting with your very next step; if it became
+interactive, go back to asking before significant next steps as usual. An autonomous mode never
+means ignoring a genuine blocker, a destructive action needing approval, or an explicit user
+instruction.
 
 For switching to a *named* profile, never run `relay switch` inside the current agent shell
 directly: it is not the same process as the one Relay is supervising, and stopping it mid-command
