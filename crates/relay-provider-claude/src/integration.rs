@@ -75,6 +75,12 @@ const NAMESPACED_COMMANDS: &[NamespacedCommand] = &[
         fallback: "relay why",
     },
     NamespacedCommand {
+        stem: "history",
+        description: "Show this conversation's durable Relay history",
+        argument_hint: "",
+        fallback: "relay history",
+    },
+    NamespacedCommand {
         stem: "adopt",
         description: "Bring this conversation under Relay",
         argument_hint: "",
@@ -113,7 +119,7 @@ run `{fallback}` in a terminal.\" Do not run commands or guess anything about se
 
 fn overview_command_file_contents() -> String {
     command_file_body(
-        "Agent Relay: overview (status, switch, doctor, why, adopt)",
+        "Agent Relay: overview (status, switch, doctor, why, history, adopt)",
         "",
         "relay status",
     )
@@ -963,8 +969,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        apply_install, apply_uninstall, existing_chain, integration_status, load_manifest,
-        plan_install, plan_uninstall, stop_failure_executable,
+        COMMAND_FILE_MARKER, all_command_files, apply_install, apply_uninstall, existing_chain,
+        integration_status, load_manifest, plan_install, plan_uninstall, stop_failure_executable,
     };
 
     const RELAY: &str = "/opt/relay/bin/relay";
@@ -1224,10 +1230,10 @@ mod tests {
     }
 
     #[test]
-    fn install_writes_all_five_namespaced_commands_with_human_descriptions() {
+    fn install_writes_all_namespaced_commands_with_human_descriptions() {
         let dir = tempdir().unwrap();
         install(dir.path());
-        for stem in ["status", "switch", "doctor", "why", "adopt"] {
+        for stem in ["status", "switch", "doctor", "why", "history", "adopt"] {
             let path = dir.path().join("commands/relay").join(format!("{stem}.md"));
             let text = fs::read_to_string(&path)
                 .unwrap_or_else(|_| panic!("missing namespaced command file {}", path.display()));
@@ -1251,6 +1257,29 @@ mod tests {
         // Re-installing changes nothing.
         let plan = plan_install(dir.path(), Path::new(RELAY)).unwrap();
         assert!(plan.already_installed);
+    }
+
+    #[test]
+    fn history_command_is_planned_and_refreshes_a_relay_managed_file() {
+        let dir = tempdir().unwrap();
+        let files = all_command_files(dir.path());
+        assert!(files.iter().any(|(path, label, contents)| {
+            path == &dir.path().join("commands/relay/history.md")
+                && label == "/relay:history"
+                && contents.contains("Show this conversation's durable Relay history")
+                && contents.contains("run `relay history` in a terminal")
+        }));
+        install(dir.path());
+        let path = dir.path().join("commands/relay/history.md");
+        fs::write(
+            &path,
+            format!("---\ndescription: old\n---\n{COMMAND_FILE_MARKER}\nstale"),
+        )
+        .unwrap();
+        install(dir.path());
+        let refreshed = fs::read_to_string(path).unwrap();
+        assert!(refreshed.contains("Show this conversation's durable Relay history"));
+        assert!(refreshed.contains("relay history"));
     }
 
     #[test]
