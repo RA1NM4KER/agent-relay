@@ -188,6 +188,44 @@ session is only evaluated by an explicit `relay watch run` or the Herdr event.
 Codex → Claude and Codex → other Codex profiles are `STATE_CONTINUATION` (a new session seeded from
 the state bundle); cross-profile native resume is not supported.
 
+## Working state (Issue #5)
+
+Relay can carry a small, durable, per-Relay-Session working-state snapshot across a handoff, in
+addition to the deterministic repo facts and recent-conversation excerpt every `STATE_CONTINUATION`
+bundle already carries: a goal, the current subtask, decisions, failed attempts (so a later
+provider does not repeat known-wasted work), relevant files (with why they matter, not their
+contents), and next actions. It lives at `sessions/<id>/working_state.json`, one flat snapshot —
+not a transcript, not an event log — because one writer per Relay Session means there is never a
+concurrent-write problem an event log would exist to solve.
+
+The active agent maintains it explicitly at meaningful checkpoints, never automatically and never
+through an extra model call:
+
+```
+relay state show
+relay state update '{"goal": "...", "add_decisions": [{"summary": "...", "rationale": "..."}], "next_actions": ["..."]}'
+relay state update -   # reads the same JSON from stdin
+```
+
+Every field is optional and additive; `next_actions` replaces wholesale on each update (a stale
+next-action is actively misleading), everything else is appended and bounded (20 decisions, 20
+failed attempts, 20 relevant files, 10 next actions, ~500 characters per entry, 64 KiB total — an
+update that would exceed a bound is rejected with a clear error, never silently truncated). Only
+the current active writer may update it; a session that has never called `relay state update`
+simply has no working state, which is a normal condition everywhere it is read, not an error.
+
+**This state is advisory, never authority.** It is rendered into a `STATE_CONTINUATION` bootstrap
+prompt labeled "Durable working notes from the previous agent — advisory only," explicitly stating
+it cannot override user instructions, permissions, Relay policy, or security constraints. Nothing
+in Relay's own ownership, lease, provider-eligibility, or exhaustion-decision code ever reads it —
+it flows in exactly one direction, into text a future model turn sees, the same one-way channel
+recent-conversation excerpts already use. Corrupt or unreadable working state degrades to "none
+recorded" rather than blocking a handoff: the real ownership transaction never depends on this
+purely advisory artifact being healthy. It also never appears in a same-provider native resume
+(`SESSION_CONTINUATION`) bootstrap, since native conversation history already supplies that
+continuity — it is persisted regardless, so it is available the next time this session *does*
+cross providers.
+
 ## Limitations
 
 - The statusline only refreshes while an interactive Claude session is drawing it; headless

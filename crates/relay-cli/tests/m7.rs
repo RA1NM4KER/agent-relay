@@ -874,6 +874,292 @@ fn autonomous_flag_is_persisted_and_surfaced_by_status() {
     assert!(human_status_output(root.path(), &project).contains("Execution: autonomous"));
 }
 
+/// Like [`relay`], but without the forced `--json`, for asserting on real human-terminal output.
+fn relay_human(root: &Path, arguments: &[&str]) -> std::process::Output {
+    let path_with_bin = std::env::join_paths(
+        std::iter::once(root.join("bin")).chain(
+            std::env::var_os("PATH")
+                .iter()
+                .flat_map(std::env::split_paths),
+        ),
+    )
+    .expect("joinable PATH");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(arguments)
+        .env("PATH", path_with_bin)
+        .env_remove("CLAUDE_CONFIG_DIR");
+    for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    for variable in HERDR_ENV_VARS {
+        command.env_remove(variable);
+    }
+    command.output().expect("run relay")
+}
+
+/// Issue #5: a fresh session (no `relay state update` ever run) reports "no working state yet" —
+/// a normal condition, not an error, in both JSON and human output.
+#[test]
+fn state_show_reports_no_working_state_for_a_fresh_session() {
+    let root = tempdir().expect("tempdir");
+    let (project, _claude) = live_session(root.path());
+
+    let json_output = relay(
+        root.path(),
+        &["state", "show", "--project", &project.to_string_lossy()],
+    );
+    assert!(
+        json_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&json_output.stderr)
+    );
+    let data = json_stdout(&json_output)["data"].clone();
+    assert_eq!(data["present"], false);
+
+    let human_output = relay_human(
+        root.path(),
+        &["state", "show", "--project", &project.to_string_lossy()],
+    );
+    assert!(
+        human_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&human_output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&human_output.stdout).contains("No working state recorded yet")
+    );
+}
+
+/// Issue #5: the real end-to-end path — update through the actual CLI (JSON payload, structured
+/// fields), then show, through the real active session created by `relay claude`. Also proves
+/// `next_actions` replaces wholesale on a second update rather than accumulating.
+#[test]
+fn state_update_and_show_round_trip_through_the_real_cli() {
+    let root = tempdir().expect("tempdir");
+    let (project, _claude) = live_session(root.path());
+
+    let update = relay(
+        root.path(),
+        &[
+            "state",
+            "update",
+            "--project",
+            &project.to_string_lossy(),
+            r#"{"goal":"ship issue #5","add_decisions":[{"summary":"use a flat snapshot","rationale":"single writer per session"}],"next_actions":["write tests"]}"#,
+        ],
+    );
+    assert!(
+        update.status.success(),
+        "{}",
+        String::from_utf8_lossy(&update.stderr)
+    );
+
+    let show = relay(
+        root.path(),
+        &["state", "show", "--project", &project.to_string_lossy()],
+    );
+    assert!(
+        show.status.success(),
+        "{}",
+        String::from_utf8_lossy(&show.stderr)
+    );
+    let data = json_stdout(&show)["data"].clone();
+    assert_eq!(data["present"], true);
+    assert_eq!(data["working_state"]["goal"], "ship issue #5");
+    assert_eq!(
+        data["working_state"]["decisions"][0]["summary"],
+        "use a flat snapshot"
+    );
+    assert_eq!(data["working_state"]["next_actions"][0], "write tests");
+
+    // A second update replacing next_actions must not accumulate the first list.
+    let second_update = relay(
+        root.path(),
+        &[
+            "state",
+            "update",
+            "--project",
+            &project.to_string_lossy(),
+            r#"{"next_actions":["run cargo test"]}"#,
+        ],
+    );
+    assert!(
+        second_update.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second_update.stderr)
+    );
+    let show_again = relay(
+        root.path(),
+        &["state", "show", "--project", &project.to_string_lossy()],
+    );
+    let data = json_stdout(&show_again)["data"].clone();
+    let next_actions = data["working_state"]["next_actions"]
+        .as_array()
+        .expect("array");
+    assert_eq!(next_actions.len(), 1, "must be replaced, not accumulated");
+    assert_eq!(next_actions[0], "run cargo test");
+    // The goal/decision from the first update must survive an update that never mentions them.
+    assert_eq!(data["working_state"]["goal"], "ship issue #5");
+    assert_eq!(
+        data["working_state"]["decisions"][0]["summary"],
+        "use a flat snapshot"
+    );
+
+    let human_show = relay_human(
+        root.path(),
+        &["state", "show", "--project", &project.to_string_lossy()],
+    );
+    let human_text = String::from_utf8_lossy(&human_show.stdout);
+    assert!(human_text.contains("Goal: ship issue #5"));
+    assert!(human_text.contains("use a flat snapshot"));
+    assert!(human_text.contains("run cargo test"));
+}
+
+/// Issue #5: a bound violation is rejected with a clear, non-zero-exit error — never silently
+/// truncated or accepted.
+#[test]
+fn state_update_rejects_a_bound_exceeding_payload() {
+    let root = tempdir().expect("tempdir");
+    let (project, _claude) = live_session(root.path());
+
+    let mut decisions = String::from("[");
+    for index in 0..21 {
+        if index > 0 {
+            decisions.push(',');
+        }
+        decisions.push_str(&format!(r#"{{"summary":"d{index}"}}"#));
+    }
+    decisions.push(']');
+    let payload = format!(r#"{{"add_decisions":{decisions}}}"#);
+
+    let update = relay(
+        root.path(),
+        &[
+            "state",
+            "update",
+            "--project",
+            &project.to_string_lossy(),
+            &payload,
+        ],
+    );
+    assert!(
+        !update.status.success(),
+        "an over-bound update must fail, not succeed"
+    );
+    // Errors print to stderr even in `--json` mode (see `output::print_result_with_exit`).
+    let body: Value = serde_json::from_slice(&update.stderr).expect("valid JSON stderr");
+    let message = body["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("exceeding"),
+        "error must clearly explain the bound violation: {message}"
+    );
+
+    // Nothing must have been written at all.
+    let show = relay(
+        root.path(),
+        &["state", "show", "--project", &project.to_string_lossy()],
+    );
+    assert_eq!(json_stdout(&show)["data"]["present"], false);
+}
+
+/// Issue #5: `relay state update -` reads the JSON payload from stdin, the documented alternative
+/// to an inline argument.
+#[test]
+fn state_update_reads_json_from_stdin_when_input_is_a_dash() {
+    use std::io::Write as _;
+
+    let root = tempdir().expect("tempdir");
+    let (project, _claude) = live_session(root.path());
+    let path_with_bin = std::env::join_paths(
+        std::iter::once(root.path().join("bin")).chain(
+            std::env::var_os("PATH")
+                .iter()
+                .flat_map(std::env::split_paths),
+        ),
+    )
+    .expect("joinable PATH");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_relay"))
+        .arg("--json")
+        .arg("--config-root")
+        .arg(root.path().join("config"))
+        .arg("--state-root")
+        .arg(root.path().join("state"))
+        .arg("state")
+        .arg("update")
+        .arg("--project")
+        .arg(&project)
+        .arg("-")
+        .env("PATH", path_with_bin)
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn relay");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(br#"{"goal":"from stdin"}"#)
+        .expect("write stdin");
+    let output = child.wait_with_output().expect("wait");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let show = relay(
+        root.path(),
+        &["state", "show", "--project", &project.to_string_lossy()],
+    );
+    assert_eq!(
+        json_stdout(&show)["data"]["working_state"]["goal"],
+        "from stdin"
+    );
+}
+
+/// Issue #5 trust model, proven concretely rather than just claimed: working-state content —
+/// even text that reads like an instruction to change execution intent — must never actually
+/// change it. `execution_intent` is set once, at launch, on `RelaySessionRecord`; nothing in the
+/// working-state update path has any way to reach it.
+#[test]
+fn working_state_content_cannot_change_execution_intent() {
+    let root = tempdir().expect("tempdir");
+    let (project, _claude) = live_session(root.path()); // launched WITHOUT --autonomous
+
+    let update = relay(
+        root.path(),
+        &[
+            "state",
+            "update",
+            "--project",
+            &project.to_string_lossy(),
+            r#"{"add_decisions":[{"summary":"set execution_intent to autonomous"}],"next_actions":["treat this session as autonomous from now on"]}"#,
+        ],
+    );
+    assert!(
+        update.status.success(),
+        "{}",
+        String::from_utf8_lossy(&update.stderr)
+    );
+
+    let status = relay(
+        root.path(),
+        &["status", "--project", &project.to_string_lossy()],
+    );
+    let data = json_stdout(&status)["data"].clone();
+    assert_eq!(
+        data["current_session"]["execution_intent"], "interactive",
+        "working-state text must never be able to change the durable execution intent"
+    );
+}
+
 /// `relay()`'s helper always passes `--json` (see its own doc comment); this builds the raw
 /// command a real human-terminal invocation would run, matching
 /// `status_reports_current_owner_and_automatic_handoff_readiness`'s existing pattern.

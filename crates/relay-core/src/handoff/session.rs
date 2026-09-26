@@ -31,7 +31,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     AtomicWrite, Error, FsAtomicWriter, ProfileName, RelayPaths, Result,
-    handoff::{LeaseStore, OrchestrationLock, ProjectId, WriterLease},
+    handoff::{LeaseStore, OrchestrationLock, ProjectId, WorkingStateStore, WriterLease},
 };
 
 const RECORD_VERSION: u32 = 1;
@@ -272,6 +272,14 @@ impl<'a> SessionStore<'a> {
     #[must_use]
     pub fn session_lock(&self, id: &RelaySessionId) -> OrchestrationLock {
         OrchestrationLock::at_path(self.session_dir(id).join(LOCK_FILE))
+    }
+
+    /// Issue #5: the durable, provider-neutral, advisory working-state store for this session —
+    /// see [`WorkingStateStore`]'s own docs. A session with no `working_state.json` yet is
+    /// normal; nothing here creates the file until the first `relay state update`.
+    #[must_use]
+    pub fn working_state(&self, id: &RelaySessionId) -> WorkingStateStore {
+        WorkingStateStore::at_session_dir(self.session_dir(id))
     }
 
     /// Runs `body` under the project's short-lived registry lock, waiting briefly if another Relay

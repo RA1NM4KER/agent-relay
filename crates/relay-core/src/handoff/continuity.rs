@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ProfileName, ProviderKind};
+use crate::{ProfileName, ProviderKind, handoff::WorkingStateSnapshot};
 
 /// Mirrors the M6 spec's three continuity types. Recorded on every [`super::HandoffJournal`] so
 /// the transcript of what actually happened is never ambiguous, and so Claude and Codex are
@@ -113,6 +113,15 @@ pub struct ContinuationBundle {
     /// Bounded, verbatim, user/assistant-only excerpts of the most recent conversation, oldest
     /// first. Never exceeds [`RECENT_CONTEXT_BYTE_BUDGET`] bytes in total.
     pub recent_context: Vec<ConversationExcerpt>,
+    /// Issue #5: the durable, provider-neutral working-state snapshot for this Relay Session,
+    /// when one exists. Populated by [`super::HandoffCoordinator`] itself (not by
+    /// [`super::ContextCapturer`] implementations) from the session's own `working_state.json` —
+    /// see the coordinator's doc comment at the call site. `None` for a session that predates
+    /// this feature or has never recorded any semantic state; the bundle/prompt render exactly
+    /// as they did before this field existed in that case. Supplements `recent_context`, does
+    /// not replace it.
+    #[serde(default)]
+    pub working_state: Option<WorkingStateSnapshot>,
 }
 
 impl ContinuationBundle {
@@ -211,6 +220,9 @@ pub fn render_bootstrap_prompt(bundle: &ContinuationBundle) -> String {
             prompt.push_str(&format!("[{role}] {}\n", excerpt.text));
         }
     }
+    if let Some(working_state) = &bundle.working_state {
+        prompt.push_str(&working_state.render_section());
+    }
     prompt.push_str(
         "\nThis is Relay's bounded bootstrap turn. Do not continue the task yet and do not use \
          any tools in this turn. Record the context above by replying with the single word READY. \
@@ -243,8 +255,8 @@ fn push_file_list(prompt: &mut String, label: &str, files: &[String]) {
 mod tests {
     use super::{
         ContinuationBundle, ContinuityType, ConversationExcerpt, EXCERPT_BYTE_CAP, ExcerptRole,
-        RECENT_CONTEXT_BYTE_BUDGET, RepoFacts, bound_recent_context, render_autonomous_notice,
-        render_bootstrap_prompt,
+        RECENT_CONTEXT_BYTE_BUDGET, RepoFacts, WorkingStateSnapshot, bound_recent_context,
+        render_autonomous_notice, render_bootstrap_prompt,
     };
     use crate::{ProfileName, ProviderKind};
 
@@ -266,6 +278,7 @@ mod tests {
                 untracked_files: Vec::new(),
             },
             recent_context: Vec::new(),
+            working_state: None,
         }
     }
 
@@ -341,6 +354,35 @@ mod tests {
         bundle.repo.staged_files.clear();
         let prompt = render_bootstrap_prompt(&bundle);
         assert!(prompt.contains("working tree: clean"));
+    }
+
+    #[test]
+    fn bundle_without_working_state_renders_identically_to_before_the_field_existed() {
+        // A session predating Issue #5 (or one that never recorded any semantic state) must
+        // produce byte-for-byte the same prompt as before this field was added.
+        let bundle = sample_bundle();
+        assert!(bundle.working_state.is_none());
+        let prompt = render_bootstrap_prompt(&bundle);
+        assert!(!prompt.contains("Durable working notes"));
+        assert!(!prompt.to_lowercase().contains("advisory"));
+    }
+
+    #[test]
+    fn bundle_with_working_state_renders_the_advisory_section() {
+        let mut bundle = sample_bundle();
+        bundle.working_state = Some(WorkingStateSnapshot {
+            goal: Some("add a health check endpoint".to_owned()),
+            current_subtask: Some("wire the route".to_owned()),
+            active_decisions: vec!["return 200 with an empty body".to_owned()],
+            failed_attempts: Vec::new(),
+            relevant_files: Vec::new(),
+            next_actions: vec!["add a test".to_owned()],
+        });
+        let prompt = render_bootstrap_prompt(&bundle);
+        assert!(prompt.contains("Durable working notes"));
+        assert!(prompt.contains("wire the route"));
+        assert!(prompt.contains("return 200 with an empty body"));
+        assert!(prompt.contains("add a test"));
     }
 
     #[test]

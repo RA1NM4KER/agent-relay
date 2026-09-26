@@ -21,6 +21,7 @@ pub(crate) mod recover;
 pub(crate) mod resume;
 pub(crate) mod session;
 pub(crate) mod setup;
+pub(crate) mod state;
 pub(crate) mod status;
 pub(crate) mod switch;
 pub(crate) mod switch_request;
@@ -138,6 +139,7 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
         Command::Doctor(args) => self::doctor::run(&service, &paths, args, cli.json),
         Command::Why(args) => self::why::run(&service, &paths, args, cli.json),
         Command::History(args) => self::history::run(&service, &paths, args),
+        Command::State(args) => self::state::run(&service, &paths, &args.command, cli.json),
         // Always intercepted in `main` before `dispatch` is ever called — see
         // `crate::update_check`. Kept here only so the match stays exhaustive.
         Command::InternalUpdateCheckRefresh => {

@@ -160,6 +160,11 @@ pub(crate) enum Command {
     /// A readable timeline of recent Relay activity for this project (session starts, exhaustion,
     /// handoffs, recoveries) — derived entirely from existing durable state, never a new log.
     History(HistoryArgs),
+    /// Issue #5: the durable, provider-neutral, advisory working state Relay carries across
+    /// handoffs for a Relay Session (goal, current subtask, decisions, failed attempts, relevant
+    /// files, next actions). Agents never edit its storage file directly — this command owns
+    /// validation, bounds, locking, and persistence.
+    State(StateArgs),
     /// Internal: the detached, best-effort background process a human-facing command spawns to
     /// refresh the cached update-available check (see `crate::update_check`) — never invoked
     /// directly by a user, never prints anything, never fails visibly.
@@ -190,6 +195,48 @@ pub(crate) struct WhyArgs {
     pub(crate) claude_executable: Option<PathBuf>,
     #[arg(long, value_name = "PATH")]
     pub(crate) codex_executable: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct StateArgs {
+    #[command(subcommand)]
+    pub(crate) command: StateCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum StateCommand {
+    /// Show the current durable working state for a Relay Session. Defaults to this project's
+    /// active session; pass `--session` when the project has several.
+    Show {
+        #[arg(long = "project", value_name = "PATH")]
+        project_dir: Option<PathBuf>,
+        #[arg(long, value_name = "ID")]
+        session: Option<String>,
+    },
+    /// Apply an update to the active Relay Session's working state. Only the current writer may
+    /// update it. `input` is a JSON object (see `--help` for its shape), or `-` to read the same
+    /// JSON from stdin — e.g. `relay state update -` piped from a file or heredoc. Every field is
+    /// optional; omitted fields are left unchanged. `decisions`/`failed_attempts`/`relevant_files`
+    /// are appended (subject to bounds); `next_actions`, when present at all (even as `[]`), fully
+    /// replaces the existing list.
+    ///
+    /// {
+    ///   "goal": "...",
+    ///   "current_subtask": "...",
+    ///   "add_decisions": [{"summary": "...", "rationale": "..."}],
+    ///   "supersede_decision_ids": ["dec-..."],
+    ///   "add_failed_attempts": [{"approach": "...", "reason": "...", "relevant_files": ["..."]}],
+    ///   "add_relevant_files": [{"path": "...", "role": "..."}],
+    ///   "next_actions": ["..."]
+    /// }
+    Update {
+        #[arg(long = "project", value_name = "PATH")]
+        project_dir: Option<PathBuf>,
+        #[arg(long, value_name = "ID")]
+        session: Option<String>,
+        #[arg(value_name = "JSON_OR_-")]
+        input: String,
+    },
 }
 
 #[derive(Debug, Args)]

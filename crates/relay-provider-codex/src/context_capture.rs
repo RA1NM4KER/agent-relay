@@ -56,6 +56,9 @@ impl ContextCapturer for CodexContextCapturer {
             last_user_request,
             repo,
             recent_context,
+            // Populated later by `HandoffCoordinator` from the session's own durable
+            // `working_state.json` — this provider-specific capturer never touches it directly.
+            working_state: None,
         })
     }
 }

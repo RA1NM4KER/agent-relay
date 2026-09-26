@@ -479,7 +479,7 @@ impl HandoffCoordinator<'_> {
                     );
                 };
                 let phase_started = Instant::now();
-                let bundle = match capturer.capture(
+                let mut bundle = match capturer.capture(
                     &request.source_config_dir,
                     project_dir,
                     &request.session_id,
@@ -495,6 +495,30 @@ impl HandoffCoordinator<'_> {
                     ),
                 };
                 journal.record_timing("context_capture", phase_started.elapsed());
+                // Issue #5: merge in the session's own durable, advisory working state, if any —
+                // done here (provider-neutral) rather than inside `capturer`, since it has
+                // nothing to do with provider-specific capture logic. Corrupt or unreadable
+                // working state must never block or weaken the real ownership transaction: it is
+                // purely advisory, so any failure here degrades to `None`, identical to "no
+                // working state was ever recorded" for this session — but unlike ordinary absence,
+                // corruption is worth a journal note, since it is otherwise undiagnosable evidence
+                // an operator would have no way to discover after the fact.
+                if let Some(state_dir) = &request.state_dir {
+                    match super::WorkingStateStore::at_session_dir(state_dir.clone()).load() {
+                        Ok(state) => {
+                            bundle.working_state = state.map(|state| state.snapshot());
+                        }
+                        Err(_) => {
+                            bundle.working_state = None;
+                            journal.notes.push(
+                                "working state for this session was unreadable/corrupt; \
+                                 continuing without it (advisory data only, does not affect \
+                                 the handoff itself)"
+                                    .to_owned(),
+                            );
+                        }
+                    }
+                }
                 let phase_started = Instant::now();
                 let serialized = match serde_json::to_vec(&bundle) {
                     Ok(bytes) => bytes,

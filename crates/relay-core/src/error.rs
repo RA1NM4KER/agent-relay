@@ -43,6 +43,8 @@ pub enum Error {
     CorruptedState,
     #[error("state schema version {0} is unsupported")]
     UnsupportedStateVersion(u32),
+    #[error("working state update rejected: {0}")]
+    WorkingStateInvalid(String),
     #[error("atomic state write failed")]
     AtomicWriteFailed,
     #[error("provider is unavailable")]
@@ -268,6 +270,7 @@ impl Error {
             Self::WrongOwner(_) => "wrong_owner",
             Self::CorruptedState => "corrupted_state",
             Self::UnsupportedStateVersion(_) => "unsupported_state_version",
+            Self::WorkingStateInvalid(_) => "working_state_invalid",
             Self::AtomicWriteFailed => "atomic_write_failed",
             Self::ProviderUnavailable => "provider_unavailable",
             Self::ProviderStateCorrupted => "provider_state_corrupted",

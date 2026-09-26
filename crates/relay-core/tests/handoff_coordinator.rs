@@ -12,7 +12,7 @@ use relay_core::{
         HandoffTiming, JournalStore, LaunchDirective, LeaseStore, LivenessVerdict,
         OrchestrationLock, ProcessIdentity, ProjectId, SessionStager, SessionStopper,
         SourceLiveness, TargetLauncher, TargetVerification, TransactionId, TransferOutcome,
-        TransferredArtifact, WriterLease,
+        TransferredArtifact, WorkingStateStore, WorkingStateUpdate, WriterLease,
     },
 };
 use tempfile::tempdir;
@@ -1585,6 +1585,7 @@ impl relay_core::handoff::ContextCapturer for FixedBundleCapturer {
                 untracked_files: Vec::new(),
             },
             recent_context: Vec::new(),
+            working_state: None,
         })
     }
 }
@@ -1738,6 +1739,112 @@ fn target_launcher_diagnostics_are_persisted_without_affecting_verification() {
             .timings
             .iter()
             .any(|timing| timing.phase == "codex.thread_started" && timing.elapsed_ms == 7)
+    );
+}
+
+#[test]
+fn a_cross_provider_handoff_includes_durable_working_state_when_present() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let state_dir = root.path().join("session-state");
+    WorkingStateStore::at_session_dir(state_dir.clone())
+        .update(
+            WorkingStateUpdate {
+                goal: Some("prove working state reaches the bundle".to_owned()),
+                ..Default::default()
+            },
+            1_000,
+        )
+        .expect("seed working state");
+
+    let mut request = cross_provider_request(&project_dir);
+    request.state_dir = Some(state_dir);
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
+        stager: None,
+        context_capturer: Some(&FixedBundleCapturer),
+        launcher: &BootstrapEchoLauncher,
+    };
+    let with_state = coordinator
+        .run(request)
+        .expect("handoff with working state must succeed");
+
+    let mut request_without = cross_provider_request(&project_dir);
+    request_without.state_dir = None;
+    let without_state = coordinator
+        .run(request_without)
+        .expect("handoff without working state must succeed");
+
+    // The bundle itself is never returned by `run` (only a hash/size summary is journaled, by
+    // design — see the coordinator's own comment on why the bundle lives only in memory). A
+    // differing summary is real proof the merged bundle's content actually changed between the
+    // two runs, not just that the coordinator ran twice.
+    let with_summary = with_state.bundle_summary.expect("summary recorded");
+    let without_summary = without_state.bundle_summary.expect("summary recorded");
+    assert_ne!(
+        with_summary.sha256, without_summary.sha256,
+        "a bundle carrying working state must serialize differently than one without it"
+    );
+    assert!(with_summary.size_bytes > without_summary.size_bytes);
+}
+
+#[test]
+fn a_cross_provider_handoff_proceeds_when_working_state_is_corrupt() {
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    init_git_repo(&project_dir);
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let state_dir = root.path().join("session-state");
+    std::fs::create_dir_all(&state_dir).expect("state dir");
+    std::fs::write(state_dir.join("working_state.json"), b"not valid json")
+        .expect("write corrupt state");
+
+    let mut request = cross_provider_request(&project_dir);
+    request.state_dir = Some(state_dir);
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
+        stager: None,
+        context_capturer: Some(&FixedBundleCapturer),
+        launcher: &BootstrapEchoLauncher,
+    };
+
+    // Corrupt advisory state must never block or weaken the real ownership transaction — the
+    // handoff must complete exactly as if no working state existed at all.
+    let journal = coordinator
+        .run(request)
+        .expect("a corrupt advisory artifact must never fail the handoff");
+    assert_eq!(journal.state, HandoffState::Complete);
+
+    let mut request_without = cross_provider_request(&project_dir);
+    request_without.state_dir = None;
+    let baseline = coordinator
+        .run(request_without)
+        .expect("baseline handoff must succeed");
+    assert_eq!(
+        journal.bundle_summary.expect("summary").sha256,
+        baseline.bundle_summary.expect("summary").sha256,
+        "corrupt working state must degrade to exactly the same bundle as no working state"
+    );
+    // Unlike ordinary absence, corruption is real evidence an operator should be able to find —
+    // silently swallowing it entirely would make it undiagnosable after the fact.
+    assert!(
+        journal.notes.iter().any(|note| note.contains("corrupt")),
+        "a corrupted working state must leave a diagnosable trace in the journal notes: {:?}",
+        journal.notes
+    );
+    assert!(
+        !baseline.notes.iter().any(|note| note.contains("corrupt")),
+        "no working state at all is normal and must not be noted as if it were corruption"
     );
 }
 
