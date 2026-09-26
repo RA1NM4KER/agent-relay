@@ -7,12 +7,11 @@ set -euo pipefail
 
 file=".github/workflows/dogfood.yml"
 
-# Strip full-line comments first so the ownership note itself does not trip the guard. The one
-# permitted stable-path reference is the read-only `git diff` assertion immediately before the
-# dev-only commit; no writer command can name it.
+# Strip full-line comments first so the ownership note itself does not trip the guard. Runtime
+# stable-path protection lives in check-dogfood-tap-change-scope.sh; dogfood.yml itself must not
+# name the stable formula in executable content.
 if grep -v '^[[:space:]]*#' "$file" \
   | grep -E 'Formula/agent-relay\.rb' \
-  | grep -vFx '          test -z "$(git diff -- Formula/agent-relay.rb)"' \
   | grep -q .; then
   echo "FAIL: $file references Formula/agent-relay.rb." >&2
   echo "dogfood.yml may update only Formula/agent-relay-dev.rb; stable remains release-owned." >&2

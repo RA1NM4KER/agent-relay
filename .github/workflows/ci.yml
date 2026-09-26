@@ -15,6 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: ./scripts/check-no-dogfood-tap-write.sh
       - run: ./scripts/check-dev-formula-renames-binary.sh
+      - run: ./scripts/test-dogfood-tap-change-scope.sh
 
   quality:
     strategy:
@@ -32,4 +33,3 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         run: cargo test --workspace --no-fail-fast
-

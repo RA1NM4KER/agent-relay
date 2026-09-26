@@ -160,14 +160,9 @@ jobs:
           git clone --depth=1 git@github.com:RA1NM4KER/homebrew-tap.git tap
           ./scripts/render-dev-tap-formula.sh tap/Formula/agent-relay-dev.rb
           cd tap
-          # This is intentionally both a path allow-list and a stable-file assertion. Even if the
-          # renderer changes, this job cannot commit a change to Formula/agent-relay.rb.
-          test -z "$(git diff -- Formula/agent-relay.rb)"
-          changed="$(git diff --name-only)"
-          if [ "$changed" != "Formula/agent-relay-dev.rb" ]; then
-            echo "refusing to publish unexpected tap changes: ${changed:-none}" >&2
-            exit 1
-          fi
+          # Includes untracked files, so initial publication is accepted while every path other
+          # than Formula/agent-relay-dev.rb (including the stable formula) is refused.
+          ../scripts/check-dogfood-tap-change-scope.sh .
           git add -- Formula/agent-relay-dev.rb
           git diff --cached --quiet && exit 0
           git -c user.name='agent-relay dogfood bot' -c user.email='41899623+RA1NM4KER@users.noreply.github.com' \
