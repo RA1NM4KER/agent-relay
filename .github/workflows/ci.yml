@@ -14,6 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: ./scripts/check-no-dogfood-tap-write.sh
+      - run: ./scripts/check-dev-formula-renames-binary.sh
 
   quality:
     strategy:

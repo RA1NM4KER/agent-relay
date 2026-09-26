@@ -260,9 +260,12 @@ pub(crate) fn run(
     // Claude reports a rate limit through an installed hook + status line; Codex's quota is read
     // from Codex's own structured interface and needs nothing installed. So only Claude profiles
     // are offered the integration.
-    let claude_profiles: Vec<&Profile> = std::iter::once(&primary)
-        .chain(fallback.iter())
-        .filter_map(|name| registered.iter().find(|profile| &profile.name == name))
+    // Setup is also the dogfood alignment command: every registered Claude profile must point at
+    // the executable that is running setup, including profiles intentionally outside today's
+    // primary/fallback order. Never leave a dormant managed profile pointing at stable after
+    // `relay-dev setup` (or vice versa).
+    let claude_profiles: Vec<&Profile> = registered
+        .iter()
         .filter(|profile| profile.provider != ProviderKind::Codex)
         .collect();
     let enable_usage = if claude_profiles.is_empty() {
@@ -290,6 +293,13 @@ pub(crate) fn run(
         enable
     };
     preferences.usage_integration_enabled = Some(enable_usage);
+
+    // A managed Codex profile needs no usage hook, but its `$relay` skill is an executable-owned
+    // asset just like Claude's hook. Refresh every Relay-owned skill here so `relay-dev setup`
+    // and a later stable `relay setup` deliberately take ownership together, without waiting for
+    // a managed Codex attach. `install` preserves any user-edited skill by refusing to overwrite
+    // it, which is the same safety rule as the explicit integration command.
+    refresh_codex_skills(&registered)?;
 
     // --- Step 5: Herdr ---
     let enable_herdr = if herdr_probe.is_some() {
@@ -451,11 +461,7 @@ fn run_setup_non_interactive(
 
     if let Some(enable_usage) = args.usage_integration {
         if enable_usage {
-            for name in std::iter::once(&primary).chain(args.fallback.iter()) {
-                let profile = registered
-                    .iter()
-                    .find(|profile| &profile.name == name)
-                    .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+            for profile in &registered {
                 // The usage integration is a Claude hook + status line; Codex needs none.
                 if profile.provider == ProviderKind::Codex {
                     continue;
@@ -478,6 +484,8 @@ fn run_setup_non_interactive(
         }
         preferences.usage_integration_enabled = Some(enable_usage);
     }
+
+    refresh_codex_skills(&registered)?;
 
     if let Some(enable_herdr) = args.herdr {
         if enable_herdr {
@@ -585,6 +593,19 @@ fn install_usage_integration_interactive(
     let plan = plan_install(&profile.config_dir, &relay_executable)?;
     apply_install(&plan, current_unix_ms())?;
     println!("  \u{2713} usage detection enabled for {}", profile.name);
+    Ok(())
+}
+
+/// Refresh every Relay-owned Codex skill to the assets embedded in the executable currently
+/// running setup. The integration installer owns its overwrite protections: a user-edited or
+/// otherwise unowned skill is refused rather than replaced.
+fn refresh_codex_skills(registered: &[Profile]) -> Result<(), Error> {
+    for profile in registered
+        .iter()
+        .filter(|profile| profile.provider == ProviderKind::Codex)
+    {
+        crate::codex_integration::install(&profile.config_dir)?;
+    }
     Ok(())
 }
 

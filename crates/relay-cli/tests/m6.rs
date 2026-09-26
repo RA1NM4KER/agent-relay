@@ -805,6 +805,12 @@ fn setup_with_only_codex_reports_missing_project_trust_without_claude_remedies()
         .expect("codex-main registered");
     assert_eq!(row["provider"], "codex");
     assert_eq!(row["role"], "primary");
+    assert!(
+        root.path()
+            .join("config/profiles/codex-main/codex/skills/relay/SKILL.md")
+            .is_file(),
+        "setup must install the current executable's Relay Codex skill"
+    );
 }
 
 #[test]

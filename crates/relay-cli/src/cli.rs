@@ -381,8 +381,8 @@ pub(crate) struct SetupArgs {
     /// Non-interactive only: fallback profiles in priority order.
     #[arg(long)]
     pub(crate) fallback: Vec<ProfileName>,
-    /// Non-interactive only: enable/disable the Claude usage integration for the selected
-    /// profiles without prompting.
+    /// Non-interactive only: enable/disable the Claude usage integration for every registered
+    /// Claude profile without prompting.
     #[arg(long)]
     pub(crate) usage_integration: Option<bool>,
     /// Non-interactive only: enable/disable the Herdr integration without prompting.
@@ -572,6 +572,11 @@ pub(crate) struct IntegrationTarget {
     /// `CLAUDE_CONFIG_DIR` left unset) instead of a profile or an explicit directory.
     #[arg(long)]
     pub(crate) native_default: bool,
+    /// Target every registered Claude profile at once, aligning them all to the currently
+    /// running `relay` executable in a single command (e.g. after a dogfood upgrade) instead of
+    /// repeating this command once per profile.
+    #[arg(long)]
+    pub(crate) all: bool,
 }
 
 #[derive(Debug, Subcommand)]

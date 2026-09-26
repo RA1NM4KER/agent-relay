@@ -327,6 +327,7 @@ relay adopt --session <claude-session-id>
 relay integration claude install --profile claude-primary --dry-run
 relay integration claude install --profile claude-primary
 relay integration claude install --profile claude-backup
+# ...or every registered Claude profile at once: relay integration claude install --all
 
 # Start work as a Relay-managed writer, then let Relay watch it:
 relay launch --profile claude-primary --project-dir ~/repos/foo "your prompt"      # prints the session id
@@ -403,7 +404,9 @@ relay handoff run --from claude-primary --to claude-backup --project ~/repos/foo
   profile needs it installed too for a *second* hop), Herdr's status event, or a manual
   `relay watch run`. A profile without the integration installed cannot start an automatic
   handoff. Hooks record `relay`'s own path at install time, so after upgrading Relay re-run
-  `relay integration claude install` to point them at the new binary.
+  `relay integration claude install` (or `--all`, for every registered profile in one command) to
+  point them at the new binary. See `docs/maintainer-dogfood.md` for the separate `relay-dev`
+  install path if you're testing an unreleased build rather than upgrading stable.
 - Automatic continuation into the fallback happens in the terminal `relay claude`/`relay resume`
   is running in. A terminal that wasn't started through Relay is still handed off correctly, but
   it has to run `relay resume` itself.

@@ -33,6 +33,9 @@ relay integration claude install --profile profile-a --dry-run   # preview every
 relay integration claude install --profile profile-a
 relay integration claude install --profile profile-b
 relay integration claude status  --profile profile-a
+
+# or, for every registered Claude profile in one command (e.g. after a dogfood upgrade):
+relay integration claude install --all
 ```
 
 What gets installed, in that profile's `settings.json` only (never `~/.claude` unless you pass

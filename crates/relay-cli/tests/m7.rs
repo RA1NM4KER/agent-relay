@@ -340,8 +340,6 @@ fn doctor_missing_usage_integration_for_a_fallback_is_blocking() {
     let root = tempdir().expect("tempdir");
     let alice = FakeClaude::new(root.path(), "alice", "2.1.276", "aaaa1111", "s1");
     adopt_profile(root.path(), "alice", &alice);
-    let bob = FakeClaude::new(root.path(), "bob", "2.1.276", "bbbb2222", "s2");
-    adopt_profile(root.path(), "bob", &bob);
     // Install + enable for alice alone first...
     let setup1 = relay(
         root.path(),
@@ -357,8 +355,11 @@ fn doctor_missing_usage_integration_for_a_fallback_is_blocking() {
         ],
     );
     assert!(setup1.status.success());
-    // ...then add bob as a fallback without touching the usage-integration flag again, so bob
-    // never gets the integration installed.
+    // ...then register and add bob as a fallback without touching the usage-integration flag
+    // again, so bob never gets the integration installed. (`setup --usage-integration true` now
+    // correctly aligns every profile registered at that moment.)
+    let bob = FakeClaude::new(root.path(), "bob", "2.1.276", "bbbb2222", "s2");
+    adopt_profile(root.path(), "bob", &bob);
     let setup2 = relay(
         root.path(),
         &[
@@ -1750,4 +1751,164 @@ fn a_missing_fallback_trust_blocks_doctor_and_status_even_before_a_session_start
     );
     accept_project_trust(root.path(), "bob", project.path());
     assert!(doctor().status.success());
+}
+
+// =================================================================================================
+// INTEGRATION --ALL (Issue #9: dogfood/dev install path — align every Claude profile in one command)
+// =================================================================================================
+
+/// The real pain this closes: today's dev-testing workflow requires one `relay integration
+/// claude install --profile X` per registered profile. `--all` must install for every registered
+/// Claude profile in a single invocation, using the registered profile service — never scanning
+/// directories — and must report every profile's own result, not just the last one.
+#[test]
+fn integration_install_all_aligns_every_registered_claude_profile_in_one_command() {
+    let root = tempdir().expect("tempdir");
+    let alice = FakeClaude::new(root.path(), "alice", "2.1.276", "aaaa1111", "s1");
+    let bob = FakeClaude::new(root.path(), "bob", "2.1.276", "bbbb2222", "s2");
+    adopt_profile(root.path(), "alice", &alice);
+    adopt_profile(root.path(), "bob", &bob);
+
+    let install = relay(
+        root.path(),
+        &[
+            "integration",
+            "claude",
+            "install",
+            "--all",
+            "--allow-unverified-version",
+            "--claude-executable",
+            &alice.path_text(),
+        ],
+    );
+    assert!(
+        install.status.success(),
+        "{}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    let data = json_stdout(&install)["data"].clone();
+    let results = data["results"].as_array().expect("results array for --all");
+    assert_eq!(results.len(), 2, "one result per registered Claude profile");
+    for result in results {
+        assert_eq!(result["already_installed"], false);
+    }
+
+    // Confirm it actually landed on disk for both profiles, not just reported success.
+    for name in ["alice", "bob"] {
+        let status = relay(
+            root.path(),
+            &["integration", "claude", "status", "--profile", name],
+        );
+        assert!(status.status.success());
+        assert_eq!(
+            json_stdout(&status)["data"]["status"]["installed"],
+            true,
+            "{name} should have the integration installed"
+        );
+    }
+}
+
+/// A single explicit target must behave exactly as it did before `--all` existed: a flat
+/// `config_dir`/`status` JSON shape, not wrapped in a `results` array — existing scripts and the
+/// tests above that read `data["status"]` directly must not need to change.
+#[test]
+fn integration_status_single_target_keeps_the_flat_json_shape_not_all() {
+    let root = tempdir().expect("tempdir");
+    let alice = FakeClaude::new(root.path(), "alice", "2.1.276", "aaaa1111", "s1");
+    adopt_profile(root.path(), "alice", &alice);
+    let status = relay(
+        root.path(),
+        &["integration", "claude", "status", "--profile", "alice"],
+    );
+    assert!(status.status.success());
+    let data = json_stdout(&status)["data"].clone();
+    assert!(
+        data.get("results").is_none(),
+        "a single target must not be wrapped in a results array"
+    );
+    assert!(
+        data.get("status").is_some(),
+        "single target keeps its flat shape"
+    );
+}
+
+/// `--all` with zero registered Claude profiles must fail clearly, not silently succeed having
+/// done nothing.
+#[test]
+fn integration_install_all_with_no_claude_profiles_fails_clearly() {
+    let root = tempdir().expect("tempdir");
+    // A freshly-initialized state root: no profiles registered at all yet.
+    let install = relay(root.path(), &["integration", "claude", "install", "--all"]);
+    assert!(!install.status.success());
+}
+
+/// `--all` is mutually exclusive with `--profile`/`--config-dir`/`--native-default` — clap's own
+/// arg-group enforcement, exercised through the real CLI rather than assumed.
+#[test]
+fn integration_all_conflicts_with_an_explicit_profile_target() {
+    let root = tempdir().expect("tempdir");
+    let alice = FakeClaude::new(root.path(), "alice", "2.1.276", "aaaa1111", "s1");
+    adopt_profile(root.path(), "alice", &alice);
+    let install = relay(
+        root.path(),
+        &[
+            "integration",
+            "claude",
+            "install",
+            "--all",
+            "--profile",
+            "alice",
+        ],
+    );
+    assert!(!install.status.success());
+    let stderr = String::from_utf8_lossy(&install.stderr);
+    assert!(
+        stderr.contains("cannot be used with") || stderr.contains("conflict"),
+        "expected a clap conflict message, got: {stderr}"
+    );
+}
+
+/// `relay-dev setup` is the promised one-command channel alignment, not merely a shortcut for
+/// profiles selected as today's primary/fallback order. A registered Claude profile can be held
+/// outside that order for later use; it must still receive the hook path of the executable that
+/// ran setup.
+#[test]
+fn setup_usage_integration_aligns_every_registered_claude_profile() {
+    let root = tempdir().expect("tempdir");
+    let alice = FakeClaude::new(root.path(), "alice", "2.1.276", "aaaa1111", "s1");
+    let bob = FakeClaude::new(root.path(), "bob", "2.1.276", "bbbb2222", "s2");
+    adopt_profile(root.path(), "alice", &alice);
+    adopt_profile(root.path(), "bob", &bob);
+
+    // Deliberately omit bob from --fallback: setup must still align all registered profiles.
+    let setup = relay(
+        root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "alice",
+            "--usage-integration",
+            "true",
+            "--claude-executable",
+            &alice.path_text(),
+        ],
+    );
+    assert!(
+        setup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&setup.stderr)
+    );
+    for name in ["alice", "bob"] {
+        let status = relay(
+            root.path(),
+            &["integration", "claude", "status", "--profile", name],
+        );
+        assert!(status.status.success());
+        assert_eq!(
+            json_stdout(&status)["data"]["status"]["installed"],
+            true,
+            "setup should install the usage integration for {name}"
+        );
+    }
 }

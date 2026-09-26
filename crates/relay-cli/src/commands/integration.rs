@@ -77,33 +77,59 @@ pub(crate) fn run(
         }
         IntegrationCommand::Herdr(herdr) => run_herdr_integration(herdr, paths, json_mode),
         IntegrationCommand::Claude(claude) => {
-            let resolve =
-                |target: &IntegrationTarget| -> Result<(PathBuf, ClaudeConfigMode), Error> {
-                    if target.native_default {
-                        let dir = relay_provider_claude::native_default_dir()
-                            .ok_or(Error::MissingEnvironment("HOME"))?;
-                        return Ok((dir, ClaudeConfigMode::NativeDefault));
-                    }
-                    match (&target.profile, &target.config_dir) {
-                        (Some(name), None) => {
-                            let profile = service
-                                .list()?
-                                .into_iter()
-                                .find(|candidate| &candidate.name == name)
-                                .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
-                            if profile.provider != ProviderKind::Claude {
-                                return Err(Error::ProviderMismatch {
-                                    expected: "claude".to_owned(),
-                                    observed: format!("{:?}", profile.provider),
-                                });
-                            }
+            // One (config_dir, mode, reinstall-target label) per profile this invocation targets.
+            // `--all` fans this out to every registered Claude profile at once (reusing the
+            // profile service's own registry, never scanning directories) so a dogfood upgrade
+            // doesn't require one command per profile; every other target still resolves to
+            // exactly one entry, preserving the prior single-target behavior and output shape.
+            let resolve_targets = |target: &IntegrationTarget| -> Result<
+                Vec<(PathBuf, ClaudeConfigMode, Option<String>)>,
+                Error,
+            > {
+                if target.native_default {
+                    let dir = relay_provider_claude::native_default_dir()
+                        .ok_or(Error::MissingEnvironment("HOME"))?;
+                    return Ok(vec![(dir, ClaudeConfigMode::NativeDefault, None)]);
+                }
+                if target.all {
+                    let all: Vec<_> = service
+                        .list()?
+                        .into_iter()
+                        .filter(|profile| profile.provider == ProviderKind::Claude)
+                        .map(|profile| {
                             let mode = profile.effective_claude_config_mode();
-                            Ok((profile.config_dir, mode))
-                        }
-                        (None, Some(path)) => Ok((path.clone(), ClaudeConfigMode::Explicit)),
-                        _ => Err(Error::ProviderUnsupported),
+                            (profile.config_dir, mode, Some(profile.name.to_string()))
+                        })
+                        .collect();
+                    if all.is_empty() {
+                        return Err(Error::ProfileNotFound(
+                            "no registered Claude profiles".to_owned(),
+                        ));
                     }
-                };
+                    return Ok(all);
+                }
+                match (&target.profile, &target.config_dir) {
+                    (Some(name), None) => {
+                        let profile = service
+                            .list()?
+                            .into_iter()
+                            .find(|candidate| &candidate.name == name)
+                            .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+                        if profile.provider != ProviderKind::Claude {
+                            return Err(Error::ProviderMismatch {
+                                expected: "claude".to_owned(),
+                                observed: format!("{:?}", profile.provider),
+                            });
+                        }
+                        let mode = profile.effective_claude_config_mode();
+                        Ok(vec![(profile.config_dir, mode, Some(name.to_string()))])
+                    }
+                    (None, Some(path)) => {
+                        Ok(vec![(path.clone(), ClaudeConfigMode::Explicit, None)])
+                    }
+                    _ => Err(Error::ProviderUnsupported),
+                }
+            };
             match &claude.command {
                 ClaudeIntegrationCommand::Install {
                     target,
@@ -111,173 +137,222 @@ pub(crate) fn run(
                     allow_unverified_version,
                     claude_executable,
                 } => {
-                    let (config_dir, mode) = resolve(target)?;
-                    let install_progress =
-                        progress::Progress::start("Checking Claude Code version…", json_mode);
-                    let capabilities =
-                        assess_installed(claude_executable.as_deref(), &config_dir, mode)?;
-                    install_progress.finish();
-                    capabilities
-                        .usage_integration_ready(*allow_unverified_version)
-                        .map_err(Error::IntegrationRefused)?;
-                    let relay_executable = std::env::current_exe().map_err(|source| Error::Io {
-                        path: PathBuf::from("relay"),
-                        source,
-                    })?;
-                    let plan = plan_install(&config_dir, &relay_executable)?;
-                    if !dry_run {
-                        apply_install(&plan, current_unix_ms())?;
-                    }
-                    let human = format!(
-                        "{} for {}:\n{}{}",
-                        if *dry_run {
-                            "Dry run (nothing written): would install the Relay usage integration"
-                        } else if plan.already_installed {
-                            "Relay usage integration was already installed"
-                        } else {
-                            "Installed the Relay usage integration"
-                        },
-                        config_dir.display(),
-                        plan.changes
-                            .iter()
-                            .map(|change| format!("  - {change}"))
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                        if *dry_run || plan.already_installed {
-                            String::new()
-                        } else {
-                            "\nThe original settings were backed up under relay-integration/. \
-                             Undo with `relay integration claude uninstall`."
-                                .to_owned()
-                        }
-                    );
-                    success(
+                    let targets = resolve_targets(target)?;
+                    for_each_target(
+                        &targets,
                         "integration.install",
-                        human,
-                        json!({
-                            "config_dir": config_dir,
-                            "dry_run": dry_run,
-                            "already_installed": plan.already_installed,
-                            "changes": plan.changes,
-                            "claude_version": capabilities.version,
-                        }),
+                        |config_dir, mode, _label| {
+                            let install_progress = progress::Progress::start(
+                                "Checking Claude Code version…",
+                                json_mode,
+                            );
+                            let capabilities =
+                                assess_installed(claude_executable.as_deref(), config_dir, mode)?;
+                            install_progress.finish();
+                            capabilities
+                                .usage_integration_ready(*allow_unverified_version)
+                                .map_err(Error::IntegrationRefused)?;
+                            let relay_executable =
+                                std::env::current_exe().map_err(|source| Error::Io {
+                                    path: PathBuf::from("relay"),
+                                    source,
+                                })?;
+                            let plan = plan_install(config_dir, &relay_executable)?;
+                            if !dry_run {
+                                apply_install(&plan, current_unix_ms())?;
+                            }
+                            let human = format!(
+                                "{} for {}:\n{}{}",
+                                if *dry_run {
+                                    "Dry run (nothing written): would install the Relay usage integration"
+                                } else if plan.already_installed {
+                                    "Relay usage integration was already installed"
+                                } else {
+                                    "Installed the Relay usage integration"
+                                },
+                                config_dir.display(),
+                                plan.changes
+                                    .iter()
+                                    .map(|change| format!("  - {change}"))
+                                    .collect::<Vec<_>>()
+                                    .join("\n"),
+                                if *dry_run || plan.already_installed {
+                                    String::new()
+                                } else {
+                                    "\nThe original settings were backed up under relay-integration/. \
+                                 Undo with `relay integration claude uninstall`."
+                                    .to_owned()
+                                }
+                            );
+                            Ok((
+                                human,
+                                json!({
+                                    "config_dir": config_dir,
+                                    "dry_run": dry_run,
+                                    "already_installed": plan.already_installed,
+                                    "changes": plan.changes,
+                                    "claude_version": capabilities.version,
+                                }),
+                            ))
+                        },
                     )
                 }
                 ClaudeIntegrationCommand::Status {
                     target,
                     claude_executable,
                 } => {
-                    let (config_dir, mode) = resolve(target)?;
-                    let status_progress =
-                        progress::Progress::start("Checking integration status…", json_mode);
-                    let status = integration_status(&config_dir)?;
-                    let capabilities =
-                        assess_installed(claude_executable.as_deref(), &config_dir, mode).ok();
-                    status_progress.finish();
-                    let current_relay_executable =
-                        std::env::current_exe().map_err(|source| Error::Io {
-                            path: PathBuf::from("relay"),
-                            source,
-                        })?;
-                    let installed_hook_executable = status.stop_failure_executable.clone();
-                    let hook_binary_matches_current =
-                        installed_hook_executable.as_deref().map(|installed| {
-                            executable_paths_match(&current_relay_executable, installed)
-                        });
-                    let mismatch = hook_binary_matches_current == Some(false);
-                    let reinstall_target = target.profile.as_ref().map_or_else(
-                        || format!("--config-dir {}", shell_quote_path(&config_dir)),
-                        |profile| format!("--profile {profile}"),
-                    );
-                    let mismatch_notice = if mismatch {
-                        format!(
-                            "\n\nClaude hook binary mismatch\ncurrent Relay:   {}\ninstalled hook:  {}\n\nReinstall with:\n{} integration claude install {} --allow-unverified-version",
-                            current_relay_executable.display(),
-                            installed_hook_executable
-                                .as_ref()
-                                .expect("mismatch has executable")
-                                .display(),
-                            shell_quote_path(&current_relay_executable),
-                            reinstall_target,
-                        )
-                    } else {
-                        String::new()
-                    };
-                    let human = format!(
-                        "Config dir: {}\nInstalled: {}\nStopFailure hook: {}\nStatusLine: {}\n\
-                         Settings changed since install: {}\nHooks disabled: {}\n\
-                         Recorded: statusline snapshot={}, StopFailure events={}, rate_limit events={}\n\
-                         Claude Code: {}{}",
-                        config_dir.display(),
-                        status.installed,
-                        status.stop_failure_hook,
-                        status.statusline,
-                        status.settings_drifted_since_install,
-                        status.hooks_disabled,
-                        status.statusline_snapshot_present,
-                        status.recorded_stop_failures,
-                        status.recorded_rate_limit_events,
-                        capabilities.as_ref().map_or_else(
-                            || "could not be assessed".to_owned(),
-                            |report| format!(
-                                "{} ({})",
-                                report.version,
-                                if report.usage_integration_ready(false).is_ok() {
-                                    "verified"
-                                } else {
-                                    "NOT fully verified"
-                                }
-                            )
-                        ),
-                        mismatch_notice,
-                    );
-                    success(
-                        "integration.status",
-                        human,
-                        json!({
-                            "config_dir": config_dir,
-                            "status": status,
-                            "capabilities": capabilities,
-                            "current_relay_executable": current_relay_executable,
-                            "installed_stop_failure_executable": installed_hook_executable,
-                            "stop_failure_binary_matches_current": hook_binary_matches_current,
-                            "reinstall_command": mismatch.then(|| format!(
-                                "{} integration claude install {} --allow-unverified-version",
+                    let targets = resolve_targets(target)?;
+                    for_each_target(&targets, "integration.status", |config_dir, mode, label| {
+                        let status_progress =
+                            progress::Progress::start("Checking integration status…", json_mode);
+                        let status = integration_status(config_dir)?;
+                        let capabilities =
+                            assess_installed(claude_executable.as_deref(), config_dir, mode).ok();
+                        status_progress.finish();
+                        let current_relay_executable =
+                            std::env::current_exe().map_err(|source| Error::Io {
+                                path: PathBuf::from("relay"),
+                                source,
+                            })?;
+                        let installed_hook_executable = status.stop_failure_executable.clone();
+                        let hook_binary_matches_current =
+                            installed_hook_executable.as_deref().map(|installed| {
+                                executable_paths_match(&current_relay_executable, installed)
+                            });
+                        let mismatch = hook_binary_matches_current == Some(false);
+                        let reinstall_target = label.map_or_else(
+                            || format!("--config-dir {}", shell_quote_path(config_dir)),
+                            |name| format!("--profile {name}"),
+                        );
+                        let mismatch_notice = if mismatch {
+                            format!(
+                                "\n\nClaude hook binary mismatch\ncurrent Relay:   {}\ninstalled hook:  {}\n\nReinstall with:\n{} integration claude install {} --allow-unverified-version",
+                                current_relay_executable.display(),
+                                installed_hook_executable
+                                    .as_ref()
+                                    .expect("mismatch has executable")
+                                    .display(),
                                 shell_quote_path(&current_relay_executable),
                                 reinstall_target,
-                            )),
-                        }),
-                    )
+                            )
+                        } else {
+                            String::new()
+                        };
+                        let human = format!(
+                            "Config dir: {}\nInstalled: {}\nStopFailure hook: {}\nStatusLine: {}\n\
+                             Settings changed since install: {}\nHooks disabled: {}\n\
+                             Recorded: statusline snapshot={}, StopFailure events={}, rate_limit events={}\n\
+                             Claude Code: {}{}",
+                            config_dir.display(),
+                            status.installed,
+                            status.stop_failure_hook,
+                            status.statusline,
+                            status.settings_drifted_since_install,
+                            status.hooks_disabled,
+                            status.statusline_snapshot_present,
+                            status.recorded_stop_failures,
+                            status.recorded_rate_limit_events,
+                            capabilities.as_ref().map_or_else(
+                                || "could not be assessed".to_owned(),
+                                |report| format!(
+                                    "{} ({})",
+                                    report.version,
+                                    if report.usage_integration_ready(false).is_ok() {
+                                        "verified"
+                                    } else {
+                                        "NOT fully verified"
+                                    }
+                                )
+                            ),
+                            mismatch_notice,
+                        );
+                        Ok((
+                            human,
+                            json!({
+                                "config_dir": config_dir,
+                                "status": status,
+                                "capabilities": capabilities,
+                                "current_relay_executable": current_relay_executable,
+                                "installed_stop_failure_executable": installed_hook_executable,
+                                "stop_failure_binary_matches_current": hook_binary_matches_current,
+                                "reinstall_command": mismatch.then(|| format!(
+                                    "{} integration claude install {} --allow-unverified-version",
+                                    shell_quote_path(&current_relay_executable),
+                                    reinstall_target,
+                                )),
+                            }),
+                        ))
+                    })
                 }
                 ClaudeIntegrationCommand::Uninstall { target, dry_run } => {
-                    let (config_dir, _mode) = resolve(target)?;
-                    let plan = plan_uninstall(&config_dir)?;
-                    if !dry_run {
-                        apply_uninstall(&plan)?;
-                    }
-                    let human = format!(
-                        "{} for {}:\n{}",
-                        if *dry_run {
-                            "Dry run (nothing written): would uninstall"
-                        } else {
-                            "Uninstalled the Relay usage integration"
-                        },
-                        config_dir.display(),
-                        plan.changes
-                            .iter()
-                            .map(|change| format!("  - {change}"))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    );
-                    success(
+                    let targets = resolve_targets(target)?;
+                    for_each_target(
+                        &targets,
                         "integration.uninstall",
-                        human,
-                        json!({ "config_dir": config_dir, "dry_run": dry_run, "installed": plan.installed, "changes": plan.changes }),
+                        |config_dir, _mode, _label| {
+                            let plan = plan_uninstall(config_dir)?;
+                            if !dry_run {
+                                apply_uninstall(&plan)?;
+                            }
+                            let human = format!(
+                                "{} for {}:\n{}",
+                                if *dry_run {
+                                    "Dry run (nothing written): would uninstall"
+                                } else {
+                                    "Uninstalled the Relay usage integration"
+                                },
+                                config_dir.display(),
+                                plan.changes
+                                    .iter()
+                                    .map(|change| format!("  - {change}"))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            );
+                            Ok((
+                                human,
+                                json!({ "config_dir": config_dir, "dry_run": dry_run, "installed": plan.installed, "changes": plan.changes }),
+                            ))
+                        },
                     )
                 }
             }
         }
     }
+}
+
+/// Runs `one` once per resolved target and combines the results: a single target (the common
+/// case, unchanged from before `--all` existed) returns exactly that target's own human/json
+/// output, byte-for-byte as before; multiple targets (from `--all`) combine into one labeled
+/// human report and a `{"results": [...]}` json array instead of silently only reporting the
+/// last one.
+fn for_each_target(
+    targets: &[(PathBuf, ClaudeConfigMode, Option<String>)],
+    action: &'static str,
+    mut one: impl FnMut(&PathBuf, ClaudeConfigMode, Option<&str>) -> Result<(String, Value), Error>,
+) -> Result<CommandOutput, Error> {
+    let mut humans = Vec::with_capacity(targets.len());
+    let mut jsons = Vec::with_capacity(targets.len());
+    for (config_dir, mode, label) in targets {
+        let (human, json) = one(config_dir, *mode, label.as_deref())?;
+        humans.push((label.clone(), human));
+        jsons.push(json);
+    }
+    if let [(_, only_human)] = humans.as_slice() {
+        return success(
+            action,
+            only_human.clone(),
+            jsons.into_iter().next().expect("one target"),
+        );
+    }
+    let combined_human = humans
+        .iter()
+        .map(|(label, human)| match label {
+            Some(label) => format!("== {label} ==\n{human}"),
+            None => human.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    success(action, combined_human, json!({ "results": jsons }))
 }
 
 fn executable_paths_match(current: &Path, installed: &Path) -> bool {

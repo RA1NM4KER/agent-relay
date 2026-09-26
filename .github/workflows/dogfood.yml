@@ -7,13 +7,13 @@ name: Dogfood build
 # build is tied to one exact commit: the artifacts carry the short SHA in their file names and in
 # `relay --version`.
 #
-# OWNERSHIP: this workflow must NEVER write to `Formula/agent-relay.rb` in the tap
-# (RA1NM4KER/homebrew-tap). That file is owned exclusively by tagged releases (see
-# `.github/workflows/release.yml`), published deliberately by a maintainer, not by every green
-# push to `main`. It briefly did write there (pre-v0.4.0) and raced with a real tagged release,
-# silently reverting the public formula back to a dev build the next time anyone pushed to `main`
-# — see the v0.4.0 changelog / release commit history. `scripts/check-no-dogfood-tap-write.sh` (run
-# from CI, see `ci.yml`) fails the build if this file references the tap again.
+# OWNERSHIP: this workflow may update ONLY `Formula/agent-relay-dev.rb` in the tap
+# (RA1NM4KER/homebrew-tap). `Formula/agent-relay.rb` remains owned exclusively by tagged releases
+# (see `.github/workflows/release.yml`), published deliberately by a maintainer. The old dogfood
+# workflow wrote the stable formula (pre-v0.4.0), racing a real tagged release and silently
+# reverting the public formula to a dev build. The scoped update below verifies the sole changed
+# path before it commits, and `scripts/check-no-dogfood-tap-write.sh` keeps that invariant checked
+# in CI.
 
 on:
   workflow_run:
@@ -121,6 +121,9 @@ jobs:
       COUNT: ${{ needs.plan.outputs.count }}
       VERSION: ${{ needs.plan.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -141,9 +144,32 @@ jobs:
           gh release view dogfood --repo "$REPO" --json assets --jq '.assets|sort_by(.createdAt)|reverse|.[12:]|.[].name' | while read -r name; do
             gh release delete-asset dogfood "$name" --repo "$REPO" -y || true
           done
-      # Deliberately no Homebrew tap step here. `Formula/agent-relay.rb` in RA1NM4KER/homebrew-tap
-      # is owned exclusively by tagged releases (release.yml), published by a maintainer, not by
-      # every green push to main. See the OWNERSHIP note at the top of this file — the tap step
-      # used to live here and raced with a real tagged release. The rolling `dogfood` GitHub
-      # pre-release above is how a bleeding-edge build is obtained now: download its artifact
-      # directly, there is no `brew upgrade` path to it.
+      - name: Publish only the dev formula to the Homebrew tap
+        if: env.SKIP != '1'
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAP_DEPLOY_KEY" ]; then
+            echo "TAP_DEPLOY_KEY is required to publish Formula/agent-relay-dev.rb." >&2
+            exit 1
+          fi
+          eval "$(ssh-agent -s)"
+          trap 'ssh-agent -k >/dev/null' EXIT
+          ssh-add - <<<"$TAP_DEPLOY_KEY"
+          git clone --depth=1 git@github.com:RA1NM4KER/homebrew-tap.git tap
+          ./scripts/render-dev-tap-formula.sh tap/Formula/agent-relay-dev.rb
+          cd tap
+          # This is intentionally both a path allow-list and a stable-file assertion. Even if the
+          # renderer changes, this job cannot commit a change to Formula/agent-relay.rb.
+          test -z "$(git diff -- Formula/agent-relay.rb)"
+          changed="$(git diff --name-only)"
+          if [ "$changed" != "Formula/agent-relay-dev.rb" ]; then
+            echo "refusing to publish unexpected tap changes: ${changed:-none}" >&2
+            exit 1
+          fi
+          git add -- Formula/agent-relay-dev.rb
+          git diff --cached --quiet && exit 0
+          git -c user.name='agent-relay dogfood bot' -c user.email='41899623+RA1NM4KER@users.noreply.github.com' \
+            commit --only Formula/agent-relay-dev.rb -m "chore: update agent-relay-dev to ${SHORT}"
+          git push origin HEAD:main
