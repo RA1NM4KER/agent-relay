@@ -172,6 +172,8 @@ fn trigger_automatic_handoff(cli: &Cli, config_dir: &Path, stdin: &[u8]) {
         return;
     };
     if let Some(plan) = auto_handoff::plan(&paths, &service, &preferences, config_dir, stdin) {
-        auto_handoff::spawn_detached(&plan);
+        // The hook process exits right after this regardless of whether the detached evaluation
+        // has finished; only the supervised Codex terminal's poll scheduler needs the `Child`.
+        let _ignored = auto_handoff::spawn_detached(&plan);
     }
 }

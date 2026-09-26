@@ -17,7 +17,7 @@ use relay_provider_claude::{
 };
 use relay_provider_codex::{
     CodexContextCapturer, CodexSessionStopper, CodexSourceLiveness, CodexTargetLauncher,
-    CodexUsageSignal,
+    CodexUsageReading, CodexUsageSignal,
 };
 
 /// Explicit executables for controlled validation/testing, mirroring the existing
@@ -98,6 +98,19 @@ pub fn usage_signal_for(
                 .with_mode(claude_config_mode),
         ),
     }
+}
+
+/// The one authoritative Codex structured read, typed (GitHub #13): callers that need both the
+/// provider-neutral [`relay_core::usage::UsageObservation`] AND the sanitized adaptive-polling
+/// scheduling hint (a fresh pre-launch/resume read, so a session that starts near its limit can
+/// seed the fast cadence immediately) use this instead of the generic [`usage_signal_for`], which
+/// only returns the trait's narrower [`relay_core::usage::UsageObservation`].
+#[must_use]
+pub fn codex_usage_reading(
+    executables: &ExecutableOverrides,
+    config_dir: &Path,
+) -> CodexUsageReading {
+    CodexUsageSignal::new(executables.codex.clone()).read(config_dir)
 }
 
 /// Discovers whether `native_session_id` is CURRENTLY running under a NEW process for `provider`,

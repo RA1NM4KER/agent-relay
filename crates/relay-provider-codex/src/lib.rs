@@ -6,6 +6,7 @@ pub mod app_server;
 mod context_capture;
 mod handoff_adapters;
 mod inspection;
+pub mod polling;
 mod usage;
 
 pub use context_capture::CodexContextCapturer;
@@ -16,7 +17,7 @@ pub use handoff_adapters::{
 pub use inspection::{
     CodexAuthStatus, CodexInspector, VERIFIED_VERSIONS, VersionStatus, assess_version,
 };
-pub use usage::CodexUsageSignal;
+pub use usage::{CodexUsageReading, CodexUsageSignal};
 
 use std::{
     collections::BTreeMap,

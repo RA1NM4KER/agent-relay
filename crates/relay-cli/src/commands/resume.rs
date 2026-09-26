@@ -176,6 +176,10 @@ fn resume_session(
         .find(|profile| profile.name == resolved_profile)
         .ok_or_else(|| Error::ProfileNotFound(resolved_profile.to_string()))?;
 
+    // GitHub #13's adaptive-polling seed: `None` unless the preflight below actually runs a fresh
+    // Codex read (i.e. the resumed profile is Codex) and finds it trustworthy.
+    let mut codex_poll_seed: Option<u32> = None;
+
     // Immediate structured Codex preflight: an already-exhausted Codex thread is handed off NOW
     // (the same evaluation, hierarchy, ledger and transaction the periodic check would start)
     // instead of launching Codex into a quota failure and waiting for the next poll. `Unknown`
@@ -185,7 +189,9 @@ fn resume_session(
             claude: args.claude_executable.clone(),
             codex: args.codex_executable.clone(),
         };
-        let usage = codex_preflight(profile, &executables, &canonical_project, json_mode);
+        let reading = codex_preflight(profile, &executables, &canonical_project, json_mode);
+        codex_poll_seed = reading.max_used_percent;
+        let usage = reading.observation;
         if usage.state.is_blocking() {
             let preferences =
                 preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
@@ -285,20 +291,21 @@ fn resume_session(
     let lock = session.lock();
     let native = lease.session_id.clone();
     let record_process = |pid: u32| record_writer_process(&lease_store, &lock, &native, pid);
-    run_managed_terminal(
-        &ContinuationContext::new(
-            service,
-            paths,
-            &canonical_project,
-            session,
-            args.claude_executable.clone(),
-            args.codex_executable.clone(),
-            json_mode,
-        )?,
-        command,
-        resolved_profile,
-        Some(&record_process),
-    )
+    let context = ContinuationContext::new(
+        service,
+        paths,
+        &canonical_project,
+        session,
+        args.claude_executable.clone(),
+        args.codex_executable.clone(),
+        json_mode,
+    )?;
+    // `None` unless the preflight above found a trustworthy Codex reading for the profile this
+    // terminal is about to supervise; a mid-preflight handoff away from it correctly leaves this
+    // `None` (the conservative fallback — see the comment where it is set), and it is simply
+    // never consulted at all when the resolved owner is not Codex.
+    context.seed_codex_poll_schedule(codex_poll_seed);
+    run_managed_terminal(&context, command, resolved_profile, Some(&record_process))
 }
 
 /// Runs the same one-shot automatic-handoff evaluation `relay watch run` performs, in-process, for

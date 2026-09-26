@@ -209,26 +209,42 @@ pub(crate) fn run(
                 )
             };
 
-            // `--simulate-usage` fault-injects the SOURCE's own usage state only; fallback
-            // candidates are always checked for real.
-            let source_usage_signal: Box<dyn UsageSignal> = match simulate_usage {
-                Some(state) => Box::new(SimulatedUsageSignal {
-                    state: UsageState::from(*state),
-                    reset_unix_ms: *simulate_reset_unix_ms,
-                }),
-                None => signal_for(source),
-            };
-
             let usage_progress =
                 progress::Progress::start("Checking usage and fallbacks…", cli.json);
             trace_preflight("source_usage_check_started", &source.name, source.provider);
-            let source_usage = apply_provider_exhaustion(
-                paths,
-                source,
-                &executables,
-                source_usage_signal.detect(&source.config_dir, project_dir, session_id)?,
-                now,
-            )?;
+            // `--simulate-usage` fault-injects the SOURCE's own usage state only; fallback
+            // candidates are always checked for real. A real (non-simulated) Codex source is read
+            // directly rather than through the generic `UsageSignal` trait object so this, the
+            // one authoritative structured read `watch run` makes for it, can also capture GitHub
+            // #13's sanitized scheduling hint — never a second provider call purely to learn it.
+            let mut source_max_used_percent: Option<u32> = None;
+            let source_observation = match simulate_usage {
+                Some(state) => SimulatedUsageSignal {
+                    state: UsageState::from(*state),
+                    reset_unix_ms: *simulate_reset_unix_ms,
+                }
+                .detect(&source.config_dir, project_dir, session_id)?,
+                None if source.provider == ProviderKind::Codex => {
+                    let reading = providers::codex_usage_reading(&executables, &source.config_dir);
+                    source_max_used_percent = reading.max_used_percent;
+                    reading.observation
+                }
+                None => signal_for(source).detect(&source.config_dir, project_dir, session_id)?,
+            };
+            // GitHub #13: the supervised terminal cannot make this read itself (it must stay
+            // detached from the slow ~0.7-1.7s round trip) — this tiny, sanitized, bounded
+            // diagnostic is how it learns what this poll found, to schedule the next one. Only
+            // ever written for a Codex source: Claude stays fully event-driven and never polls.
+            if source.provider == ProviderKind::Codex {
+                crate::codex_poll::CodexPollDiagnostic::new(
+                    source_observation.observed_unix_ms,
+                    source_observation.state,
+                    source_max_used_percent,
+                )
+                .write(&project_state_dir);
+            }
+            let source_usage =
+                apply_provider_exhaustion(paths, source, &executables, source_observation, now)?;
             trace_preflight(
                 "source_usage_check_completed",
                 &source.name,

@@ -21,7 +21,7 @@
 use std::{
     ffi::OsString,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
 };
 
 use clap::Parser as _;
@@ -301,19 +301,17 @@ fn env_number(name: &str, default: u64) -> u64 {
 /// profile's `CLAUDE_CONFIG_DIR` (and, in current Claude Code, messaging/session variables that
 /// Relay's own authentication checks treat as conflicting overrides) — inherited as-is, every
 /// fallback profile would be judged unhealthy and the handoff would silently never happen.
-pub fn spawn_detached(plan: &AutoWatchPlan) {
-    let Ok(program) = std::env::current_exe() else {
-        return;
-    };
-    let Some(log) = open_log(&plan.log_path, plan.triggered_unix_ms, plan.trigger) else {
-        return;
-    };
-    let Ok(log_err) = log.try_clone() else {
-        return;
-    };
-    let Ok(mut trace) = log.try_clone() else {
-        return;
-    };
+///
+/// Returns the spawned [`Child`] (GitHub #13): the Claude `StopFailure` hook trigger ignores it
+/// (the hook process exits right after starting it regardless), but the supervised Codex
+/// terminal's [`crate::codex_poll::CodexPollScheduler`] holds it to know exactly when this one-shot
+/// evaluation finishes and to guarantee at most one is ever in flight — never a second provider
+/// read merely to check that. `None` only on a spawn failure that never started anything.
+pub fn spawn_detached(plan: &AutoWatchPlan) -> Option<Child> {
+    let program = std::env::current_exe().ok()?;
+    let log = open_log(&plan.log_path, plan.triggered_unix_ms, plan.trigger)?;
+    let log_err = log.try_clone().ok()?;
+    let mut trace = log.try_clone().ok()?;
     let mut command = Command::new(program);
     command
         .args(&plan.args)
@@ -330,14 +328,14 @@ pub fn spawn_detached(plan: &AutoWatchPlan) {
         use std::os::unix::process::CommandExt as _;
         command.process_group(0);
     }
-    if command.spawn().is_ok() {
-        use std::io::Write as _;
-        let _ignored = writeln!(
-            trace,
-            "[trace unix_ms={}] auto_watch_spawned",
-            crate::util::current_unix_ms()
-        );
-    }
+    let child = command.spawn().ok()?;
+    use std::io::Write as _;
+    let _ignored = writeln!(
+        trace,
+        "[trace unix_ms={}] auto_watch_spawned",
+        crate::util::current_unix_ms()
+    );
+    Some(child)
 }
 
 /// Records when the foreground supervisor observes its Claude child exit. The detached watcher

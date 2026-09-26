@@ -392,8 +392,11 @@ relay handoff run --from claude-primary --to claude-backup --project ~/repos/foo
   typed interface (`codex app-server` → `account/rateLimits/read`, `ordinaryUsageAllowed`), never
   from error text; anything unavailable or ambiguous is `UNKNOWN` and moves nothing. Codex has no
   limit event to hook, so while you are inside a supervised `relay resume`/`relay switch` Codex
-  session Relay checks that interface every 2 minutes (`RELAY_CODEX_POLL_SECS`, `0` disables) — only
-  for as long as that terminal is open. Codex → Claude (and Codex → another Codex profile, tested with fakes only) hand over as state
+  session Relay checks that interface periodically, only for as long as that terminal is open — and
+  adaptively: every 2 minutes at comfortable usage, tightening to 15s once a trustworthy read
+  reports 90%+ used and 5s at 98%+, so a near-limit account is caught in roughly 5s instead of
+  waiting out a full 2-minute interval (`RELAY_CODEX_POLL_SECS`, `0` disables, `N > 0` pins a fixed
+  interval instead). Codex → Claude (and Codex → another Codex profile, tested with fakes only) hand over as state
   continuation, never as the same native conversation; only same-profile Codex resume is native, and
   Relay confirms the thread with Codex before resuming it.
 - Before Relay enters a Codex terminal it checks Codex's structured usage immediately, so an already

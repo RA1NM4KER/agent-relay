@@ -25,6 +25,7 @@ use serde_json::Value;
 
 use crate::{
     auto_handoff,
+    codex_poll::CodexPollScheduler,
     control::{self},
     launch::record_writer_process,
     output::CommandOutput,
@@ -53,11 +54,6 @@ pub(crate) fn continuation_prompt(intent: ExecutionIntent) -> String {
     }
 }
 
-/// How often a supervised *Codex* session asks Codex's structured usage interface whether it is
-/// exhausted (Codex has no limit event to hook). Seconds; `RELAY_CODEX_POLL_SECS=0` disables.
-const CODEX_POLL_DEFAULT_SECS: u64 = 120;
-const CODEX_POLL_ENV: &str = "RELAY_CODEX_POLL_SECS";
-
 /// Everything [`run_managed_terminal`] needs to continue a conversation on whichever profile
 /// owns the project's lease *now*, without re-deriving anything from the configured primary.
 pub(crate) struct ContinuationContext<'a> {
@@ -74,6 +70,13 @@ pub(crate) struct ContinuationContext<'a> {
     /// `relay claude --resume`: where the `SessionStart` hook records whether the resumed
     /// conversation was adopted, so a failure can be explained when the session ends.
     pub(crate) adopt_result: Option<PathBuf>,
+    /// GitHub #13's adaptive-polling seed: a Codex profile's trustworthy `usedPercent` from the
+    /// fresh pre-launch/resume structured read the caller already had to make (see
+    /// `commands::codex::codex_usage_now`), if any. Consumed exactly once, by whichever
+    /// continuation of this terminal first supervises a Codex owner — see
+    /// [`Self::seed_codex_poll_schedule`] and [`Self::take_seeded_codex_max_used_percent`].
+    /// `None` for every Claude launch and whenever no fresh reading was available.
+    seeded_codex_max_used_percent: std::cell::Cell<Option<u32>>,
 }
 
 impl<'a> ContinuationContext<'a> {
@@ -96,7 +99,18 @@ impl<'a> ContinuationContext<'a> {
             paths: paths.clone(),
             preferences: preferences::Preferences::load(paths.config_root())?.unwrap_or_default(),
             adopt_result: None,
+            seeded_codex_max_used_percent: std::cell::Cell::new(None),
         })
+    }
+
+    /// Seeds GitHub #13's adaptive-polling initial cadence from a fresh Codex structured read the
+    /// caller already made for another reason (pre-launch/resume preflight, or an explicit
+    /// switch's target preflight) — never a second read purely to initialize the scheduler. A
+    /// no-op call with `None` (Claude launches; a Codex read that came back untrustworthy) simply
+    /// leaves the scheduler to start on the conservative default, exactly as if this were never
+    /// called.
+    pub(crate) fn seed_codex_poll_schedule(&self, max_used_percent: Option<u32>) {
+        self.seeded_codex_max_used_percent.set(max_used_percent);
     }
 }
 
@@ -140,6 +154,15 @@ impl ContinuationContext<'_> {
     }
     fn control(&self) -> control::ControlDir {
         self.session.borrow().control()
+    }
+    /// Consumes the poll-schedule seed (see [`Self::seed_codex_poll_schedule`]) — taken exactly
+    /// once, by the first continuation of this terminal that actually supervises a Codex owner. A
+    /// later continuation (e.g. a Claude fallback that itself later hands off to Codex) correctly
+    /// finds this already `None` and starts that scheduler on the conservative default instead —
+    /// documented, smallest-safe-fallback behavior per GitHub #13, not an oversight: reusing a
+    /// seed from a different owner's read would misrepresent whose usage it measured.
+    fn take_seeded_codex_max_used_percent(&self) -> Option<u32> {
+        self.seeded_codex_max_used_percent.take()
     }
 
     /// `relay claude --resume`: once the `SessionStart` hook has reported which Relay session the
@@ -517,38 +540,6 @@ fn run_managed_terminal_inner(
 
     for continuation in 0..=MAX_CONTINUATIONS {
         let _ = std::io::stdout().flush();
-        // A Codex session has no "limit reached" event to hang a trigger on, so while the user's
-        // own terminal session is running, periodically start the same one-shot evaluation the
-        // Claude hook starts. It only *evaluates*: any handoff goes through the unchanged
-        // coordinator, lock, cooldown and ledger.
-        let poll_secs = std::env::var(CODEX_POLL_ENV)
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(CODEX_POLL_DEFAULT_SECS);
-        let poll_action = || {
-            let Ok(Some(lease)) = context.lease_store().load() else {
-                return;
-            };
-            let Ok(registered) = context.service.list() else {
-                return;
-            };
-            let Some(profile) = registered
-                .iter()
-                .find(|candidate| candidate.name == lease.owner_profile)
-            else {
-                return;
-            };
-            if let Some(plan) = auto_handoff::plan_poll(
-                &context.paths,
-                &context.preferences,
-                &registered,
-                profile,
-                &lease,
-                &context.canonical_project,
-            ) {
-                auto_handoff::spawn_detached(&plan);
-            }
-        };
         let owner_is_codex = context.service.list().is_ok_and(|registered| {
             registered
                 .iter()
@@ -609,10 +600,19 @@ fn run_managed_terminal_inner(
         }
         // One 300ms tick serves both duties, each on its own cadence: the in-agent control
         // channel (a request is answered within a fraction of a second) and, for Codex only, the
-        // periodic usage evaluation.
+        // adaptive usage-poll evaluation (GitHub #13). Claude stays fully event-driven
+        // (`StopFailure` hook) and is never put on this scheduler — `codex_poll` is only ever
+        // `Some` for a Codex owner. The seed is consumed at most once per terminal invocation, by
+        // whichever continuation first supervises a Codex owner (see
+        // `ContinuationContext::take_seeded_codex_max_used_percent`'s own doc comment).
         let child_identity: std::cell::RefCell<Option<ProcessIdentity>> =
             std::cell::RefCell::new(None);
-        let mut last_codex_poll = std::time::Instant::now();
+        let mut codex_poll = owner_is_codex.then(|| {
+            CodexPollScheduler::new(
+                context.state_dir(),
+                context.take_seeded_codex_max_used_percent(),
+            )
+        });
         let mut pending_switch: Option<std::thread::JoinHandle<()>> = None;
         let mut tick_action = || {
             context.rebind_from_adoption();
@@ -632,12 +632,25 @@ fn run_managed_terminal_inner(
                     child_identity.borrow().clone(),
                 );
             }
-            if owner_is_codex
-                && poll_secs > 0
-                && last_codex_poll.elapsed() >= std::time::Duration::from_secs(poll_secs)
-            {
-                last_codex_poll = std::time::Instant::now();
-                poll_action();
+            if let Some(scheduler) = codex_poll.as_mut() {
+                scheduler.tick(
+                    || {
+                        let lease = context.lease_store().load().ok().flatten()?;
+                        let registered = context.service.list().ok()?;
+                        let profile = registered
+                            .iter()
+                            .find(|candidate| candidate.name == lease.owner_profile)?;
+                        auto_handoff::plan_poll(
+                            &context.paths,
+                            &context.preferences,
+                            &registered,
+                            profile,
+                            &lease,
+                            &context.canonical_project,
+                        )
+                    },
+                    auto_handoff::spawn_detached,
+                );
             }
             // Cheap (one small local file read), so it runs every tick rather than only on the
             // Codex poll cadence: a Claude session's own `StopFailure`-hook-triggered evaluation

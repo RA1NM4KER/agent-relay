@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use relay_core::{
-    ClaudeConfigMode, Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
+    Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
     automation::{AutomationDecision, AutomationPolicy, LedgerStore, ProfileCandidate, decide},
     handoff::{ExecutionIntent, ProjectId},
     usage::UsageState,
@@ -25,40 +25,31 @@ use crate::{
 use super::claude::run as run_claude;
 
 /// Starting `codex app-server` takes a moment: shown while it is checked, never in `--json` mode.
+/// The returned reading's `max_used_percent` is GitHub #13's adaptive-polling seed: whichever
+/// call site attaches the resulting interactive terminal (`relay codex`, `relay resume`, `relay
+/// switch`) reuses it via [`crate::terminal_session::ContinuationContext::seed_codex_poll_schedule`]
+/// instead of spending a second structured read purely to initialize the scheduler.
 pub(crate) fn codex_preflight(
     profile: &Profile,
     executables: &providers::ExecutableOverrides,
     project_dir: &Path,
     json_mode: bool,
-) -> relay_core::usage::UsageObservation {
+) -> relay_provider_codex::CodexUsageReading {
     // Starting `codex app-server` takes a moment: show an interactive human that Relay is working
     // (nothing at all in --json mode or when output is not a terminal).
     let progress = progress::Progress::start("Checking Codex availability…", json_mode);
-    let observation = codex_usage_now(profile, executables, project_dir);
+    let reading = codex_usage_now(profile, executables, project_dir);
     progress.finish();
-    observation
+    reading
 }
 
 pub(crate) fn codex_usage_now(
     profile: &Profile,
     executables: &providers::ExecutableOverrides,
     project_dir: &Path,
-) -> relay_core::usage::UsageObservation {
-    providers::usage_signal_for(
-        ProviderKind::Codex,
-        executables,
-        false,
-        None,
-        ClaudeConfigMode::default(),
-    )
-    .detect(&profile.config_dir, project_dir, "")
-    .unwrap_or_else(|_| relay_core::usage::UsageObservation {
-        state: UsageState::Unknown,
-        evidence: relay_core::usage::UsageEvidence::ProviderRateLimitApi,
-        detected_via: "codex usage check failed".to_owned(),
-        observed_unix_ms: current_unix_ms(),
-        reset_unix_ms: None,
-    })
+) -> relay_provider_codex::CodexUsageReading {
+    let _ = project_dir; // the structured rate-limit read is project-independent.
+    providers::codex_usage_reading(executables, &profile.config_dir)
 }
 
 /// Pre-launch routing for a fresh `relay codex` whose chosen profile is already exhausted. There
@@ -296,11 +287,16 @@ fn run_codex_inner(
     // rate-limit read also proves the profile is logged in, so the slow `codex doctor` inspection
     // is only run afterwards, to explain a failure.
     progress.set_label("Checking Codex availability…");
+    let preflight_reading = codex_usage_now(profile, &executables, &canonical_project);
+    // GitHub #13's adaptive-polling seed: this profile's own trustworthy usedPercent from the
+    // read this preflight already had to make, so a session that starts near its limit begins
+    // supervision on the fast cadence immediately rather than waiting for a first 120s-away poll.
+    let codex_poll_seed = preflight_reading.max_used_percent;
     let usage = apply_provider_exhaustion(
         paths,
         profile,
         &executables,
-        codex_usage_now(profile, &executables, &canonical_project),
+        preflight_reading.observation,
         current_unix_ms(),
     )?;
     if usage.state.is_blocking() {
@@ -394,16 +390,18 @@ fn run_codex_inner(
     let lock = session.lock();
     let native = lease.session_id.clone();
     let record_process = |pid: u32| record_writer_process(&lease_store, &lock, &native, pid);
+    let context = ContinuationContext::new(
+        service,
+        paths,
+        &canonical_project,
+        &session,
+        args.claude_executable.clone(),
+        args.codex_executable.clone(),
+        json_mode,
+    )?;
+    context.seed_codex_poll_schedule(codex_poll_seed);
     let result = run_managed_terminal(
-        &ContinuationContext::new(
-            service,
-            paths,
-            &canonical_project,
-            &session,
-            args.claude_executable.clone(),
-            args.codex_executable.clone(),
-            json_mode,
-        )?,
+        &context,
         command,
         profile.name.clone(),
         Some(&record_process),

@@ -38,11 +38,47 @@ pub struct CodexUsageSignal {
     executable: Option<PathBuf>,
 }
 
+/// One authoritative Codex structured read, typed to serve both consumers it must feed (GitHub
+/// #13): the existing provider-neutral [`UsageObservation`] safety/routing decision, and a
+/// sanitized scheduling hint for adaptive polling cadence. Never a second provider call — both
+/// fields come from the same [`app_server::read_rate_limits`] round trip.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CodexUsageReading {
+    pub observation: UsageObservation,
+    /// The highest window `usedPercent` seen in this read. Trustworthy for adaptive polling
+    /// cadence ONLY — `Some` exactly when [`Self::observation`] is a validated
+    /// `ordinaryUsageAllowed == true` reading (`Available`/`NearLimit`); `None` for `Exhausted`
+    /// (scheduling is moot — a handoff evaluation follows) and for `Unknown` (never inferred from
+    /// a percentage). Never used, and must never be used, to decide exhaustion itself.
+    pub max_used_percent: Option<u32>,
+}
+
 impl CodexUsageSignal {
     /// `executable` overrides discovery (`PATH`), as elsewhere in Relay.
     #[must_use]
     pub fn new(executable: Option<PathBuf>) -> Self {
         Self { executable }
+    }
+
+    /// The full typed reading — observation plus the sanitized scheduling hint. Infallible: any
+    /// failure to reach or parse the app-server collapses to [`UsageState::Unknown`], exactly as
+    /// [`UsageSignal::detect`] does.
+    #[must_use]
+    pub fn read(&self, config_dir: &Path) -> CodexUsageReading {
+        let now = now_unix_ms();
+        let outcome = CodexInspector::discover(self.executable.as_deref())
+            .map_err(|_| "codex executable not found".to_owned())
+            .and_then(|inspector| {
+                app_server::read_rate_limits(inspector.executable(), config_dir)
+                    .map_err(|error| error.to_string())
+            });
+        match outcome {
+            Ok(report) => interpret(&report, now),
+            Err(reason) => CodexUsageReading {
+                observation: unknown(now, &format!("codex usage unavailable: {reason}")),
+                max_used_percent: None,
+            },
+        }
     }
 }
 
@@ -53,34 +89,31 @@ impl UsageSignal for CodexUsageSignal {
         _project_dir: &Path,
         _session_id: &str,
     ) -> Result<UsageObservation> {
-        let now = now_unix_ms();
-        let outcome = CodexInspector::discover(self.executable.as_deref())
-            .map_err(|_| "codex executable not found".to_owned())
-            .and_then(|inspector| {
-                app_server::read_rate_limits(inspector.executable(), config_dir)
-                    .map_err(|error| error.to_string())
-            });
-        Ok(match outcome {
-            Ok(report) => interpret(&report, now),
-            Err(reason) => unknown(now, &format!("codex usage unavailable: {reason}")),
-        })
+        Ok(self.read(config_dir).observation)
     }
 }
 
-/// Pure mapping from a parsed report to Relay's usage model.
+/// Pure mapping from a parsed report to Relay's usage model, plus the sanitized scheduling hint
+/// derived from the same report.
 #[must_use]
-pub fn interpret(report: &RateLimitsReport, now_unix_ms: u64) -> UsageObservation {
+pub fn interpret(report: &RateLimitsReport, now_unix_ms: u64) -> CodexUsageReading {
     if report.account_kind.as_deref() != Some("chatgpt") {
-        return unknown(
-            now_unix_ms,
-            "codex account is not a plan-based ChatGPT account; no usage windows to read",
-        );
+        return CodexUsageReading {
+            observation: unknown(
+                now_unix_ms,
+                "codex account is not a plan-based ChatGPT account; no usage windows to read",
+            ),
+            max_used_percent: None,
+        };
     }
     if !report.account_identified {
-        return unknown(
-            now_unix_ms,
-            "codex usage snapshot did not identify its account",
-        );
+        return CodexUsageReading {
+            observation: unknown(
+                now_unix_ms,
+                "codex usage snapshot did not identify its account",
+            ),
+            max_used_percent: None,
+        };
     }
     let via = "codex app-server account/rateLimits/read";
     let max_used = report
@@ -99,33 +132,46 @@ pub fn interpret(report: &RateLimitsReport, now_unix_ms: u64) -> UsageObservatio
                 .map(|seconds| seconds.saturating_mul(1000))
                 .filter(|reset| *reset > now_unix_ms)
                 .max();
-            UsageObservation {
-                state: UsageState::Exhausted,
-                evidence: UsageEvidence::ProviderRateLimitApi,
-                detected_via: format!("{via}: ordinaryUsageAllowed=false"),
-                observed_unix_ms: now_unix_ms,
-                reset_unix_ms: reset,
+            CodexUsageReading {
+                observation: UsageObservation {
+                    state: UsageState::Exhausted,
+                    evidence: UsageEvidence::ProviderRateLimitApi,
+                    detected_via: format!("{via}: ordinaryUsageAllowed=false"),
+                    observed_unix_ms: now_unix_ms,
+                    reset_unix_ms: reset,
+                },
+                // Exhausted routes straight to a handoff evaluation; cadence is moot.
+                max_used_percent: None,
             }
         }
-        Some(true) if report.reached_type.is_some() => unknown(
-            now_unix_ms,
-            "codex usage snapshot contradicts itself (usage allowed but a limit is reported reached)",
-        ),
-        Some(true) => UsageObservation {
-            state: if max_used >= NEAR_LIMIT_PERCENT {
-                UsageState::NearLimit
-            } else {
-                UsageState::Available
-            },
-            evidence: UsageEvidence::ProviderRateLimitApi,
-            detected_via: format!("{via}: ordinaryUsageAllowed=true"),
-            observed_unix_ms: now_unix_ms,
-            reset_unix_ms: None,
+        Some(true) if report.reached_type.is_some() => CodexUsageReading {
+            observation: unknown(
+                now_unix_ms,
+                "codex usage snapshot contradicts itself (usage allowed but a limit is reported reached)",
+            ),
+            max_used_percent: None,
         },
-        None => unknown(
-            now_unix_ms,
-            "codex reported no ordinaryUsageAllowed verdict; not inferring from percentages",
-        ),
+        Some(true) => CodexUsageReading {
+            observation: UsageObservation {
+                state: if max_used >= NEAR_LIMIT_PERCENT {
+                    UsageState::NearLimit
+                } else {
+                    UsageState::Available
+                },
+                evidence: UsageEvidence::ProviderRateLimitApi,
+                detected_via: format!("{via}: ordinaryUsageAllowed=true"),
+                observed_unix_ms: now_unix_ms,
+                reset_unix_ms: None,
+            },
+            max_used_percent: Some(max_used),
+        },
+        None => CodexUsageReading {
+            observation: unknown(
+                now_unix_ms,
+                "codex reported no ordinaryUsageAllowed verdict; not inferring from percentages",
+            ),
+            max_used_percent: None,
+        },
     }
 }
 
@@ -172,23 +218,25 @@ mod tests {
 
     #[test]
     fn allowed_with_headroom_is_available() {
-        let o = interpret(&report(Some(true), &[(10, None), (40, None)]), NOW);
-        assert_eq!(o.state, UsageState::Available);
-        assert!(!o.state.is_blocking());
+        let reading = interpret(&report(Some(true), &[(10, None), (40, None)]), NOW);
+        assert_eq!(reading.observation.state, UsageState::Available);
+        assert!(!reading.observation.state.is_blocking());
+        assert_eq!(reading.max_used_percent, Some(40));
     }
 
     #[test]
     fn allowed_but_a_window_at_ninety_percent_is_near_limit_and_still_not_blocking() {
-        let o = interpret(&report(Some(true), &[(10, None), (95, None)]), NOW);
-        assert_eq!(o.state, UsageState::NearLimit);
-        assert!(!o.state.is_blocking());
+        let reading = interpret(&report(Some(true), &[(10, None), (95, None)]), NOW);
+        assert_eq!(reading.observation.state, UsageState::NearLimit);
+        assert!(!reading.observation.state.is_blocking());
+        assert_eq!(reading.max_used_percent, Some(95));
     }
 
     #[test]
     fn not_allowed_is_exhausted_with_the_latest_future_reset_of_the_full_windows() {
         let future_short = NOW / 1000 + 3_600;
         let future_long = NOW / 1000 + 86_400;
-        let o = interpret(
+        let reading = interpret(
             &report(
                 Some(false),
                 &[
@@ -199,36 +247,48 @@ mod tests {
             ),
             NOW,
         );
-        assert_eq!(o.state, UsageState::Exhausted);
-        assert!(o.state.is_blocking());
-        assert_eq!(o.reset_unix_ms, Some(future_long * 1000));
+        assert_eq!(reading.observation.state, UsageState::Exhausted);
+        assert!(reading.observation.state.is_blocking());
+        assert_eq!(reading.observation.reset_unix_ms, Some(future_long * 1000));
+        // Exhausted routes straight to a handoff evaluation; cadence is never derived from it.
+        assert_eq!(reading.max_used_percent, None);
     }
 
     #[test]
     fn not_allowed_with_only_a_past_or_missing_reset_has_no_reset_time_and_stays_blocking() {
-        let o = interpret(&report(Some(false), &[(100, Some(NOW / 1000 - 5))]), NOW);
-        assert_eq!(o.state, UsageState::Exhausted);
-        assert_eq!(o.reset_unix_ms, None);
+        let reading = interpret(&report(Some(false), &[(100, Some(NOW / 1000 - 5))]), NOW);
+        assert_eq!(reading.observation.state, UsageState::Exhausted);
+        assert_eq!(reading.observation.reset_unix_ms, None);
     }
 
     #[test]
     fn a_missing_verdict_is_unknown_even_when_every_window_shows_full() {
-        let o = interpret(&report(None, &[(100, Some(NOW / 1000 + 60))]), NOW);
-        assert_eq!(o.state, UsageState::Unknown);
-        assert!(!o.state.is_blocking());
+        let reading = interpret(&report(None, &[(100, Some(NOW / 1000 + 60))]), NOW);
+        assert_eq!(reading.observation.state, UsageState::Unknown);
+        assert!(!reading.observation.state.is_blocking());
+        // UNKNOWN must never carry a percentage forward for scheduling either.
+        assert_eq!(reading.max_used_percent, None);
     }
 
     #[test]
     fn a_contradictory_snapshot_an_api_key_account_or_no_account_is_unknown() {
         let mut contradictory = report(Some(true), &[(10, None)]);
         contradictory.reached_type = Some("rate_limit_reached".to_owned());
-        assert_eq!(interpret(&contradictory, NOW).state, UsageState::Unknown);
+        let reading = interpret(&contradictory, NOW);
+        assert_eq!(reading.observation.state, UsageState::Unknown);
+        assert_eq!(reading.max_used_percent, None);
         let mut api_key = report(Some(false), &[(100, None)]);
         api_key.account_kind = Some("apiKey".to_owned());
-        assert_eq!(interpret(&api_key, NOW).state, UsageState::Unknown);
+        assert_eq!(
+            interpret(&api_key, NOW).observation.state,
+            UsageState::Unknown
+        );
         let mut anonymous = report(Some(false), &[(100, None)]);
         anonymous.account_identified = false;
-        assert_eq!(interpret(&anonymous, NOW).state, UsageState::Unknown);
+        assert_eq!(
+            interpret(&anonymous, NOW).observation.state,
+            UsageState::Unknown
+        );
     }
 
     fn fixture(limits: &str) -> tempfile::TempDir {
@@ -243,6 +303,11 @@ mod tests {
         CodexUsageSignal::new(Some(exe))
             .detect(dir.path(), Path::new("/project"), "thread")
             .expect("detect never errors")
+    }
+
+    fn read(dir: &tempfile::TempDir) -> CodexUsageReading {
+        let exe = fake::install(dir.path());
+        CodexUsageSignal::new(Some(exe)).read(dir.path())
     }
 
     #[test]
@@ -280,5 +345,31 @@ mod tests {
             .detect(dir.path(), Path::new("/p"), "t")
             .expect("detect");
         assert_eq!(o.state, UsageState::Unknown);
+    }
+
+    /// GitHub #13: `read()` is the one authoritative call adaptive polling seeds itself from — it
+    /// must expose the same observation `detect()` would, plus the trustworthy percentage, from a
+    /// single round trip.
+    #[test]
+    fn read_exposes_the_scheduling_hint_alongside_the_same_observation_detect_returns() {
+        let near_limit = fixture(
+            r#"{"ordinaryUsageAllowed":true,"accountId":"a","rateLimits":{"primary":{"usedPercent":99,"resetsAt":4000000000}}}"#,
+        );
+        let reading = read(&near_limit);
+        assert_eq!(reading.observation.state, UsageState::NearLimit);
+        assert_eq!(reading.max_used_percent, Some(99));
+
+        let exhausted = fixture(
+            r#"{"ordinaryUsageAllowed":false,"accountId":"a","rateLimits":{"primary":{"usedPercent":100,"resetsAt":4000000000}}}"#,
+        );
+        let reading = read(&exhausted);
+        assert_eq!(reading.observation.state, UsageState::Exhausted);
+        assert_eq!(reading.max_used_percent, None);
+
+        let dead = fixture("{}");
+        std::fs::write(dead.path().join("mode"), "exit").unwrap();
+        let reading = read(&dead);
+        assert_eq!(reading.observation.state, UsageState::Unknown);
+        assert_eq!(reading.max_used_percent, None);
     }
 }

@@ -70,9 +70,20 @@ process's RSS and cumulative CPU time via `ps` every 500ms for 5 seconds.
 
 This is the cost of the 300ms control-channel poll loop (`terminal_session.rs`) that every
 Relay-managed interactive session runs, for **Claude**. A supervised **Codex** session adds one
-more periodic cost on top: a structured usage read every `RELAY_CODEX_POLL_SECS` (default 120s) —
-see §5 for that read's own real cost (~0.7–1.7s each, so at the default interval it adds well under
-0.1% average CPU of its own).
+more periodic cost on top: a structured usage read, whose cadence is now *adaptive* (GitHub #13,
+`crates/relay-cli/src/codex_poll.rs`) rather than a single fixed interval:
+
+| Highest trustworthy `usedPercent` | Cadence |
+|---|---|
+| `< 90%` (comfortable), or unknown/untrustworthy | 120s (unchanged default) |
+| `90–97%` | 15s |
+| `>= 98%` | 5s |
+
+`ordinaryUsageAllowed == false` always routes straight to the existing handoff evaluation
+regardless of cadence; `RELAY_CODEX_POLL_SECS=0` still disables polling entirely, and
+`RELAY_CODEX_POLL_SECS=N` (`N > 0`) is still a deterministic fixed override, unchanged from before.
+See §5a for that read's own real cost (~0.7–1.7s each) and what each cadence costs relative to the
+interval it runs on.
 
 ## 4. Handoff latency
 
@@ -140,13 +151,33 @@ RELAY_BENCH_CODEX_HOME=~/.config/agent-relay/profiles/<name>/codex \
   cargo test --release -p relay-provider-codex --lib app_server::tests::bench_real_read_rate_limits -- --ignored --nocapture
 ```
 
-This is the structured, typed, schema-generated call `RELAY_CODEX_POLL_SECS` uses while a Codex
-terminal is supervised, and what `relay resume`/`relay codex` use for the pre-launch exhaustion
-check.
+This is the structured, typed, schema-generated call the adaptive poll scheduler (§3,
+`codex_poll.rs`) uses while a Codex terminal is supervised, and what `relay resume`/`relay codex`
+use for the pre-launch exhaustion check — the same read also seeds that scheduler's *initial*
+cadence (GitHub #13), so a session that starts already near its limit begins on the fast cadence
+immediately instead of waiting out one full 120s interval first.
 
 | | Result |
 |---|---|
-| n=5, real account | min **686ms**, median **802ms**, max **1699ms** |
+| n=5, real account (original measurement) | min **686ms**, median **802ms**, max **1699ms** |
+| n=5, real account (re-measured for GitHub #13) | min **701.6ms**, median **717.9ms**, max **1030.2ms** |
+
+**Overhead at each adaptive cadence**, using the re-measured median (717.9ms) as representative —
+this is wall-clock time the detached one-shot evaluation's read spends per interval, not CPU (the
+process is mostly waiting on `codex app-server`, per §3's existing ~0.1%-CPU-at-120s finding):
+
+| Cadence | Read time ÷ interval |
+|---|---|
+| 120s (comfortable/unknown) | ~0.6% |
+| 15s (90–97% used) | ~4.8% |
+| 5s (≥98% used) | ~14.4% |
+
+The fast cadences are a deliberate trade: a Codex account within 2% of its limit spends roughly 14%
+of wall-clock time on this read (still bounded, still detached, still self-terminating every
+cycle — never more than one in flight, per `codex_poll::CodexPollScheduler`) in exchange for a
+worst-case exhaustion-detection delay of ~5s plus this read's own latency, instead of the up to
+~120s the fixed default allowed. Normal/comfortable usage (the overwhelming majority of a Codex
+account's lifetime) is completely unaffected — it stays on the original 120s/~0.6% cadence.
 
 ### 5b. The readiness/auth check (slow) — `codex doctor --json`
 

@@ -185,9 +185,16 @@ target exists before `codex resume` runs). Anything unavailable, contradictory o
 account is `UNKNOWN`. Relay never reads `auth.json` and never matches English error text.
 
 Because Codex has no hook for "the limit was hit", a supervised Codex terminal (`relay resume`,
-`relay switch`) starts the same bounded one-shot evaluation the Claude hook starts, every 2
-minutes while that terminal is open (`RELAY_CODEX_POLL_SECS`; `0` disables). An unsupervised Codex
-session is only evaluated by an explicit `relay watch run` or the Herdr event.
+`relay switch`) starts the same bounded one-shot evaluation the Claude hook starts, while that
+terminal is open. The interval is adaptive (GitHub #13): 2 minutes at comfortable usage (the
+default, unchanged), tightening to 15s once a trustworthy read reports 90%+ used and 5s at 98%+ —
+never inferring exhaustion from a percentage itself, only how soon to look again; the
+`ordinaryUsageAllowed == false` verdict above remains the sole authoritative signal, and a fresh
+lower reading after a reset relaxes the cadence back to 2 minutes. `RELAY_CODEX_POLL_SECS=0` still
+disables polling entirely; `RELAY_CODEX_POLL_SECS=N` (`N > 0`) is still a deterministic fixed
+interval that disables adaptive cadence for that process. See
+`crates/relay-cli/src/codex_poll.rs`. An unsupervised Codex session is only evaluated by an
+explicit `relay watch run` or the Herdr event.
 Codex → Claude and Codex → other Codex profiles are `STATE_CONTINUATION` (a new session seeded from
 the state bundle); cross-profile native resume is not supported.
 

@@ -108,8 +108,12 @@ pub(crate) fn run(
     }
     // An explicit switch to Codex is preflighted before anything is committed: an exhausted (or
     // unverifiable) target is refused outright — manual intent is never silently rerouted.
+    // GitHub #13's adaptive-polling seed for the target terminal this switch may attach below.
+    let mut codex_poll_seed: Option<u32> = None;
     if target.provider == ProviderKind::Codex {
-        let usage = codex_preflight(target, &executables, &canonical_project, json_mode);
+        let reading = codex_preflight(target, &executables, &canonical_project, json_mode);
+        codex_poll_seed = reading.max_used_percent;
+        let usage = reading.observation;
         if usage.state.is_blocking() {
             return Err(Error::TargetProfileExhausted(target.name.to_string()));
         }
@@ -230,20 +234,17 @@ pub(crate) fn run(
                     chosen.record.execution_intent,
                 )),
             )?;
-            run_managed_terminal(
-                &ContinuationContext::new(
-                    service,
-                    paths,
-                    &canonical_project,
-                    &session,
-                    args.claude_executable.clone(),
-                    args.codex_executable.clone(),
-                    json_mode,
-                )?,
-                command,
-                target.name.clone(),
-                None,
-            )
+            let context = ContinuationContext::new(
+                service,
+                paths,
+                &canonical_project,
+                &session,
+                args.claude_executable.clone(),
+                args.codex_executable.clone(),
+                json_mode,
+            )?;
+            context.seed_codex_poll_schedule(codex_poll_seed);
+            run_managed_terminal(&context, command, target.name.clone(), None)
         }
         ProviderKind::Claude | ProviderKind::Fake => success(
             "switch",

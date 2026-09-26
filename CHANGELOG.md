@@ -4,6 +4,25 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+### Codex exhaustion detection
+
+- **Adaptive Codex polling cadence near quota limits (GitHub #13).** A supervised Codex terminal's
+  periodic structured usage check (Codex has no `StopFailure`-style exhaustion event to hook) now
+  speeds up as the account's own read reports it getting closer to its limit — 120s at comfortable
+  usage (unchanged default), 15s at 90–97% trustworthy usage, 5s at 98%+ — instead of a single fixed
+  120s interval regardless of how close the account is to being exhausted. A real live incident
+  found this let 10-20s of already-exhausted Codex UI pass, visibly, before Relay ever reacted; the
+  fast cadence cuts the worst case to roughly 5s plus the read's own latency (~0.7-1.7s). The
+  `ordinaryUsageAllowed == false` verdict remains the *only* authoritative exhaustion signal — a
+  percentage only ever selects how soon to look again, never whether the account is exhausted — and
+  a fresh lower reading after a reset relaxes the cadence again rather than staying sticky.
+  `RELAY_CODEX_POLL_SECS` keeps its existing meaning: unset now means adaptive (previously a fixed
+  120s), `0` still disables polling, and `N > 0` is still a deterministic fixed override. A Codex
+  session's own pre-launch/resume preflight read seeds the *initial* cadence when it is already
+  near the limit, so a session that starts at 98% does not wait out one comfortable interval before
+  its first fast poll. See `crates/relay-cli/src/codex_poll.rs` and
+  `crates/relay-provider-codex/src/polling.rs`.
+
 ## v0.4.1 — 2026-09-25
 
 A CLI-UX and polish release. No handoff, exhaustion, or provider-auth semantics changed — the

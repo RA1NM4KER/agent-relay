@@ -13,6 +13,9 @@
 //! - `sessions.rs`, `target.rs`, `live.rs`, `providers.rs`, `control.rs`, `terminal.rs`,
 //!   `preferences.rs`, `provider_args.rs`, `progress.rs`, `badge.rs`, `agent_cmd.rs`,
 //!   `auto_handoff.rs` — provider-neutral supporting modules, each already scoped to one concern.
+//! - `codex_poll.rs` — Codex-only: the adaptive polling cadence a supervised Codex terminal uses
+//!   between structured usage reads, and the sanitized file-based feedback path that lets a
+//!   detached one-shot evaluation (`auto_handoff`) report what it read back to the supervisor.
 
 mod agent_cmd;
 mod auth;
@@ -20,6 +23,7 @@ mod auto_handoff;
 mod badge;
 mod cli;
 mod codex_integration;
+mod codex_poll;
 mod commands;
 mod control;
 mod hook;
