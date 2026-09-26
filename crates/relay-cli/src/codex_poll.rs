@@ -218,7 +218,28 @@ impl CodexPollScheduler {
                         Instant::now() + Duration::from_secs(poll_interval_secs(percent));
                 }
             }
+            // A dead observer carries no cadence/urgency information of its own — the caller
+            // (`crate::codex_runtime::EventDrivenRuntime::tick`) intercepts this variant itself to
+            // drive reconnection and never forwards it here in practice; this arm exists only so
+            // this match stays exhaustive if a future caller passes events through unfiltered.
+            ObserverEvent::Disconnected(_) => {}
         }
+    }
+
+    /// GitHub #18: the *result* of a successful observer reconnect — not itself a signal about
+    /// usage, just "an unknown-length gap in event coverage just ended, so re-establish ground
+    /// truth once" (agent-relay#17 live-verified this single read is sufficient regardless of how
+    /// much was missed during the gap). Deliberately its own method rather than a third
+    /// `ObserverEvent` variant routed through [`Self::notify_event`]: reconnecting is not itself
+    /// an observed provider signal, and conflating the two would blur why the read is happening
+    /// when read back from a diagnostic later. Shares every safety property `notify_event`
+    /// already has: respects `Disabled`, and never queues a second evaluation while one is
+    /// already in flight (single-flight, unchanged).
+    pub(crate) fn request_reconciliation(&mut self) {
+        if matches!(self.mode, PollMode::Disabled) || self.child.is_some() {
+            return;
+        }
+        self.next_poll_at = Instant::now();
     }
 
     fn fallback_secs(&self) -> u64 {
@@ -337,6 +358,93 @@ mod tests {
             scheduler.next_poll_at <= Instant::now(),
             "a real usage-limit signal still pre-empts even a fixed override"
         );
+    }
+
+    // --- GitHub #18: observer-reconnect reconciliation ---
+
+    #[test]
+    fn a_disconnected_event_is_inert_on_its_own() {
+        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), None);
+        let before = scheduler.next_poll_at;
+        scheduler.notify_event(ObserverEvent::Disconnected(
+            relay_provider_codex::observer::DisconnectReason::ReadError,
+        ));
+        assert_eq!(
+            scheduler.next_poll_at, before,
+            "Disconnected alone must never change scheduling — the caller drives reconnection"
+        );
+    }
+
+    #[test]
+    fn a_successful_reconnect_requests_exactly_one_immediate_evaluation() {
+        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), None);
+        scheduler.request_reconciliation();
+        assert!(scheduler.next_poll_at <= Instant::now());
+    }
+
+    #[test]
+    fn reconciliation_is_ignored_while_disabled() {
+        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Disabled, PathBuf::new(), None);
+        let before = scheduler.next_poll_at;
+        scheduler.request_reconciliation();
+        assert_eq!(scheduler.next_poll_at, before);
+    }
+
+    #[test]
+    fn reconciliation_never_queues_a_second_evaluation_while_one_is_in_flight() {
+        let mut scheduler = due_scheduler(PollMode::Fixed(60), PathBuf::new());
+        let fake_plan = || {
+            Some(AutoWatchPlan {
+                args: Vec::new(),
+                log_path: PathBuf::new(),
+                triggered_unix_ms: 0,
+                trigger: "test",
+            })
+        };
+        scheduler.tick(fake_plan, |_| Some(sleeper_child()));
+        assert!(scheduler.child.is_some());
+        let before = scheduler.next_poll_at;
+        scheduler.request_reconciliation();
+        assert_eq!(
+            scheduler.next_poll_at, before,
+            "must never queue a second evaluation while one is already in flight"
+        );
+        if let Some(child) = scheduler.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    #[test]
+    fn a_usage_limit_event_and_a_reconciliation_request_together_still_queue_only_one_evaluation() {
+        // GitHub #18 test #13 (reconnect + simultaneous usageLimitExceeded does not produce two
+        // parallel reads): both triggers can plausibly fire around the same moment (an observer
+        // reconnects right as a fresh usage-limit error also arrives) — single-flight must hold
+        // regardless of which order they land in, or whether the in-flight evaluation was started
+        // by the timer, an event, or a reconnect.
+        let mut scheduler = due_scheduler(PollMode::Fixed(60), PathBuf::new());
+        let fake_plan = || {
+            Some(AutoWatchPlan {
+                args: Vec::new(),
+                log_path: PathBuf::new(),
+                triggered_unix_ms: 0,
+                trigger: "test",
+            })
+        };
+        scheduler.tick(fake_plan, |_| Some(sleeper_child()));
+        assert!(scheduler.child.is_some());
+        let before = scheduler.next_poll_at;
+        scheduler.request_reconciliation();
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        scheduler.request_reconciliation();
+        assert_eq!(
+            scheduler.next_poll_at, before,
+            "neither trigger, nor both together, may queue a second evaluation in flight"
+        );
+        if let Some(child) = scheduler.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 
     // --- RELAY_CODEX_POLL_SECS compatibility (never mutates real process env — see

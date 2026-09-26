@@ -553,13 +553,16 @@ fn run_managed_terminal_inner(
                 .into_iter()
                 .find(|profile| profile.name == owner.0)
                 .ok_or_else(|| Error::ProfileNotFound(owner.0.to_string()))?;
-            // GitHub #16, off by default (`RELAY_CODEX_EVENT_DRIVEN`): best-effort only, and only
-            // for a resume (`command.args` is `["resume", thread_id, ...]`, built by
-            // `plan_codex_resume`) — a fresh launch has no known thread id yet, and
-            // `EventDrivenRuntime::start` deliberately declines that case entirely (see its own
-            // doc comment for the live-confirmed reason). Any failure here (unverified version,
-            // spawn/handshake failure) leaves `command` untouched and `event_driven` `None`, so
-            // this Codex owner supervises exactly as it always has, on GitHub #13's polling alone.
+            // GitHub #16/#17/#18, off by default (`RELAY_CODEX_EVENT_DRIVEN`): best-effort only.
+            // A resume already knows its thread id (`command.args` is `["resume", thread_id,
+            // ...]`, built by `plan_codex_resume`); a fresh launch does not, and — as of #18 —
+            // that is fine: `EventDrivenRuntime::start` never blocks on attaching, so the
+            // interactive command launches immediately either way, and its background worker
+            // learns/attaches to the thread once the interactive client actually creates one and
+            // starts a turn on it (see `codex_runtime`'s own module doc for the state machine).
+            // Any failure up to and including the app-server spawn itself leaves `command`
+            // untouched and `event_driven` `None`, so this Codex owner supervises exactly as it
+            // always has, on GitHub #13's polling alone.
             let known_thread_id = (command.args.first().map(std::ffi::OsString::as_os_str)
                 == Some(std::ffi::OsStr::new("resume")))
             .then(|| command.args.get(1))
@@ -577,8 +580,13 @@ fn run_managed_terminal_inner(
             ) {
                 if !context.json_mode {
                     eprintln!(
-                        "[Relay] event-driven Codex observation active (thread {})",
-                        runtime.thread_id()
+                        "{}",
+                        match known_thread_id {
+                            Some(id) => format!(
+                                "[Relay] event-driven Codex observation attaching (thread {id})"
+                            ),
+                            None => "[Relay] event-driven Codex observation will attach once the first turn starts".to_owned(),
+                        }
                     );
                 }
                 command.args.extend(runtime.remote_args());
@@ -665,8 +673,8 @@ fn run_managed_terminal_inner(
                 );
             }
             if let Some(scheduler) = codex_poll.as_mut() {
-                if let Some(runtime) = event_driven.as_ref() {
-                    runtime.tick(scheduler);
+                if let Some(runtime) = event_driven.as_mut() {
+                    report_event_driven_transition(runtime.tick(scheduler), context.json_mode);
                 }
                 scheduler.tick(
                     || {
@@ -926,6 +934,32 @@ fn automatic_handoff_progress_label(source: &ProfileName, target: Option<&Profil
     match target {
         Some(target) => format!("[Relay] Switching {source} → {target}…"),
         None => format!("[Relay] Switching {source}…"),
+    }
+}
+
+/// GitHub #18: a one-time, best-effort diagnostic for the event-driven runtime's own attach
+/// state — never a safety-relevant signal (nothing here decides ownership/handoff), purely so a
+/// user watching the terminal knows whether structured wake-up is currently active. Silent in
+/// `--json` mode, exactly like the rest of this file's terminal-only progress output.
+fn report_event_driven_transition(event: crate::codex_runtime::TickEvent, json_mode: bool) {
+    if json_mode {
+        return;
+    }
+    match event {
+        crate::codex_runtime::TickEvent::Nothing => {}
+        crate::codex_runtime::TickEvent::Attached(thread_id) => {
+            eprintln!("[Relay] event-driven Codex observation attached (thread {thread_id})");
+        }
+        crate::codex_runtime::TickEvent::Reconnecting(thread_id) => {
+            eprintln!(
+                "[Relay] event-driven Codex observer disconnected; reconnecting (thread {thread_id})"
+            );
+        }
+        crate::codex_runtime::TickEvent::GaveUp => {
+            eprintln!(
+                "[Relay] event-driven Codex observation ended; GitHub #13's polling remains active"
+            );
+        }
     }
 }
 

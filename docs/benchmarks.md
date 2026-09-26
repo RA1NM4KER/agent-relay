@@ -221,23 +221,29 @@ pay the full cost by design (they exist to actively verify, not to be fast); thi
 previously-noted "out of scope for this benchmarking pass" work, now done. See
 `crates/relay-cli/src/readiness.rs`'s `assess_for_project_reporting` doc comment for the mechanism.
 
-## 6. GitHub #16: the experimental event-driven Codex path — not yet a real benchmark
+## 6. GitHub #16/#17/#18: the experimental event-driven Codex path — not yet a real benchmark
 
-A live smoke test (`RELAY_BENCH_CODEX_HOME=… cargo test --release -p relay-provider-codex --lib
-observer::tests::live_smoke_test_against_the_real_app_server -- --ignored --nocapture`) proved the
-mechanism end-to-end against `codex-cli 0.155.0` and a real authenticated account: spawn the
-external app-server, attach the observer to an already-populated thread, drive a second real turn
-from an independent connection, and decode the resulting live `account/rateLimits/updated`
-notification — the whole run took **~10s**, dominated by the real model turn itself, not by any
-part of this mechanism. That is **not** a latency measurement of the thing this feature actually
-exists to speed up: emission-to-observer-receipt timing was not instrumented to millisecond
-precision, so no specific number is claimed here for "how much faster than #13's ~0.7-1.7s read
-plus up to 5s/15s/120s cadence" this is. Qualitatively, the notification arrived in the same burst
-as `turn/completed` over a local socket, so the added latency this mechanism itself introduces is
-expected to be small relative to the model turn's own duration — but "expected to be small" is not
-a number, and this section will be replaced with one once that instrumentation exists. Do not treat
-this feature as measured-fast; treat it as measured-real (it works, live, against the real binary)
-and not yet measured-fast.
+Three live tests against `codex-cli 0.155.0` and a real authenticated account (all
+`#[ignore]`d, run explicitly with `RELAY_BENCH_CODEX_HOME=…`) proved the mechanism end-to-end:
+`observer::tests::live_smoke_test_against_the_real_app_server` (attach to an already-populated
+thread, drive a second real turn, decode the resulting notification — **~10s**),
+`live_reconnect_after_disconnect_against_the_real_app_server` (kill an attached observer abruptly
+mid-session, reconnect while a second real turn is already in flight, receive its remainder —
+**~10s**), and `live_fresh_thread_activation_against_the_real_app_server` (attach with no known
+thread id against a freshly-started app-server, learn the thread from the real broadcast, resume
+once — and only once — a real driver's first turn actually starts — **~6s**). All three runs were
+dominated by the real model turn itself, not by any part of this mechanism.
+
+None of this is a latency measurement of the thing this feature actually exists to speed up:
+emission-to-observer-receipt timing, and disconnect-to-reconnect-to-reconciliation-read timing,
+were not instrumented to millisecond precision, so no specific number is claimed here for "how
+much faster than #13's ~0.7-1.7s read plus up to 5s/15s/120s cadence" this is. Qualitatively, the
+notification arrived in the same burst as `turn/completed` over a local socket, and reconnection
+(a local socket connect + handshake) is visibly sub-second in every manual observation made during
+this work — but "visibly sub-second" is not a number, and this section will be replaced with one
+once that instrumentation exists. Do not treat this feature as measured-fast; treat it as
+measured-real (it works, live, against the real binary, including its disconnect/reconnect and
+fresh-launch paths) and not yet measured-fast.
 
 ## Known gaps in this pass
 

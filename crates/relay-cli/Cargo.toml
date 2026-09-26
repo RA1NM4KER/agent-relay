@@ -26,6 +26,7 @@ toml.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+tungstenite.workspace = true
 
 [lints]
 workspace = true

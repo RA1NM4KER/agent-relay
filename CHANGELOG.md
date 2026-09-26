@@ -23,23 +23,34 @@ All notable changes to Agent Relay will be documented here.
   its first fast poll. See `crates/relay-cli/src/codex_poll.rs` and
   `crates/relay-provider-codex/src/polling.rs`.
 
-- **Experimental, opt-in event-driven Codex wake-up (GitHub #16), off by default.** Set
-  `RELAY_CODEX_EVENT_DRIVEN=1` to let a *resumed* supervised Codex terminal (a fresh launch is
-  unaffected — see below) wake up on Codex's own structured turn-failure error
-  (`usageLimitExceeded`) or its `account/rateLimits/updated` notification, instead of only ever
-  finding out on GitHub #13's own next poll. Unset (the default), every Codex launch/resume/switch
-  path is byte-for-byte unchanged; #13's adaptive polling remains fully active as the watchdog
-  either way, and this feature never becomes authoritative on its own — every event still triggers
-  the same existing `account/rateLimits/read` evaluation, and `ordinaryUsageAllowed == false`
-  remains the sole exhaustion verdict. Requires the exact Codex CLI version this was live-verified
-  against (`assess_version`'s `VERIFIED_VERSIONS`); an unverified version silently declines rather
-  than guessing at flags a different release may not support. A fresh launch (no thread id known
-  yet) never activates this path — the only way to learn a fresh thread's id (waiting for its
-  `thread/started` broadcast) races a live-confirmed server rule that rejects `thread/resume` for a
-  thread with no completed turns yet; fixing that needs an open-ended retry out of scope for this
-  pass. See `crates/relay-provider-codex/src/{events,observer,runtime}.rs` and
-  `crates/relay-cli/src/codex_runtime.rs` for the mechanism, and the research/implementation
-  history in GitHub #15/#16 for what was and was not live-verified.
+- **Experimental, opt-in event-driven Codex wake-up (GitHub #16/#17/#18), off by default.** Set
+  `RELAY_CODEX_EVENT_DRIVEN=1` to let a supervised Codex terminal wake up on Codex's own structured
+  turn-failure error (`usageLimitExceeded`) or its `account/rateLimits/updated` notification,
+  instead of only ever finding out on GitHub #13's own next poll. Unset (the default), every Codex
+  launch/resume/switch path is byte-for-byte unchanged; #13's adaptive polling remains fully active
+  as the watchdog either way, and this feature never becomes authoritative on its own — every
+  event, and every successful (re)attach, only ever triggers the same existing
+  `account/rateLimits/read` evaluation, and `ordinaryUsageAllowed == false` remains the sole
+  exhaustion verdict. Requires the exact Codex CLI version this was live-verified against
+  (`assess_version`'s `VERIFIED_VERSIONS`); an unverified version silently declines rather than
+  guessing at flags a different release may not support.
+  - **Fresh-launch activation (#18, reversing #16's own limitation).** Live-verified: `thread/
+    resume` succeeds once a thread's first turn has *started*, not completed. A fresh launch (no
+    thread id known yet) now waits for the real `thread/started` broadcast, then retries
+    `thread/resume` on a cheap local interval (never a provider call) until it succeeds — no fixed
+    timeout, since a real user may take any amount of time to send their first message.
+  - **Observer disconnect detection + automatic reconnect + reconciliation (#18).** A dead observer
+    connection is now a deterministic local signal (`ObserverEvent::Disconnected`), not silence
+    indistinguishable from "nothing happened yet." Detected disconnects (live-tested, including
+    abruptly mid-turn) trigger a local reconnect (same bounded backoff as fresh-launch activation,
+    reusing the already-known thread id — never re-learned) and, on success, exactly one
+    authoritative `account/rateLimits/read` before resuming event-driven operation — live-verified
+    to correctly pick up the remainder of a turn missed mid-flight.
+  - See `crates/relay-provider-codex/src/{events,observer,runtime}.rs` and
+    `crates/relay-cli/src/{codex_poll,codex_runtime}.rs` for the mechanism, and the
+    research/implementation history in GitHub #15/#16/#17/#18 for what was and was not
+    live-verified. Periodic polling itself has **not** been removed or reduced by this — see #18
+    for what remains before that can happen.
 
 ## v0.4.1 — 2026-09-25
 

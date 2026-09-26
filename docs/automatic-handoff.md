@@ -200,32 +200,42 @@ the state bundle); cross-profile native resume is not supported.
 
 ### Experimental: event-driven wake-up (GitHub #16), opt-in only
 
-Set `RELAY_CODEX_EVENT_DRIVEN=1` to let a *resumed* supervised Codex terminal wake up immediately
-on Codex's own structured turn-failure error (`usageLimitExceeded`) or its
-`account/rateLimits/updated` notification, rather than only ever finding out on the next poll
-above. Unset (the default), nothing here changes: every launch/resume/switch behaves exactly as
-already described. `#13`'s polling is never disabled or reduced by this — it remains the watchdog
-either way, and this feature never becomes authoritative on its own: either signal only ever
-triggers the same `account/rateLimits/read` evaluation, and `ordinaryUsageAllowed == false` remains
-the sole exhaustion verdict.
+Set `RELAY_CODEX_EVENT_DRIVEN=1` to let a supervised Codex terminal wake up immediately on Codex's
+own structured turn-failure error (`usageLimitExceeded`) or its `account/rateLimits/updated`
+notification, rather than only ever finding out on the next poll above. Unset (the default),
+nothing here changes: every launch/resume/switch behaves exactly as already described. `#13`'s
+polling is never disabled or reduced by this — it remains the watchdog either way, and this
+feature never becomes authoritative on its own: either signal, and a successful (re)connect (see
+below), only ever triggers the same `account/rateLimits/read` evaluation, and
+`ordinaryUsageAllowed == false` remains the sole exhaustion verdict.
 
 Mechanically: enabling this starts an external `codex app-server --listen unix://…` (a private,
 owner-only socket, deliberately not a nested path under the profile's own state directory — a real
-macOS `SUN_LEN` path-length failure was hit doing that during research), adds `--remote unix://…`
-to the resumed interactive command so it becomes a client of that runtime instead of embedding its
-own private one, and attaches Relay's own passive observer to the same runtime by resuming the
-known thread (agent-relay#15 live-verified this delivers the full notification stream to a
-subscribed connection without disturbing whichever connection is actually driving turns). Both the
-app-server and the observer are torn down synchronously as part of normal session cleanup.
+macOS `SUN_LEN` path-length failure was hit doing that during research) and adds `--remote
+unix://…` to the interactive command so it becomes a client of that runtime instead of embedding
+its own private one — this happens immediately and never blocks the interactive command from
+starting. Relay's own passive observer attaches to the same runtime in the background:
 
-Two things this deliberately does **not** attempt in its current form:
+- **A resume** (Relay's own lease already names the thread) attaches directly.
+- **A fresh launch** (no thread exists yet) waits for the real `thread/started` broadcast to learn
+  the id, then retries `thread/resume` on a cheap local interval — live-verified (GitHub #17) that
+  this succeeds as soon as the thread's *first* turn has *started*, not completed, so the observer
+  reliably catches that first turn's own outcome (including a real `usageLimitExceeded`, were the
+  account already exhausted) rather than being excluded the way it was in #16.
+- **If the observer's connection dies** (crash, dropped connection, anything short of the
+  app-server itself dying) — live-verified with a genuine abrupt disconnect, including mid-turn —
+  Relay detects this locally (no provider call) and reconnects on the same cheap local interval,
+  reusing the now-known thread id (never re-learned; the broadcast only fires once). **Every
+  successful (re)attach — the first one or any later reconnect — triggers exactly one authoritative
+  `account/rateLimits/read`** before resuming event-driven operation, so a gap of any length is
+  always reconciled against current truth rather than assumed benign. The retry/reconnect interval
+  never grows large enough to matter (bounded at a few seconds) and is entirely local socket
+  activity — never a provider call — so it costs nothing meaningful even across an arbitrarily long
+  wait for a real user's first message.
 
-- **A fresh launch never activates this.** The only way to learn a brand-new thread's id (waiting
-  for its `thread/started` broadcast) races a live-confirmed server rule that rejects `thread/
-  resume` for a thread with no completed turns yet — a real user may take any amount of time to
-  send their first message, and retrying that indefinitely was out of scope for this pass. Only a
-  resume (Relay's own lease already names the thread, which by definition already has history) is
-  covered.
+Both the app-server and the observer (or its still-retrying background worker) are torn down
+synchronously as part of normal session cleanup. What this still deliberately does **not** attempt:
+
 - **A hard Relay crash (`SIGKILL`) can orphan the app-server.** There is no `PR_SET_PDEATHSIG`
   equivalent on macOS, no protocol-level shutdown method, and it does not exit on stdin EOF — all
   three were live-tested, not assumed. Normal/handled exit (including `SIGTERM`/`SIGINT`) always
@@ -234,6 +244,11 @@ Two things this deliberately does **not** attempt in its current form:
   pid+start-time fingerprint proof every other stale-process check in this codebase already
   requires — never a bare pid or socket-path match, and never guessed at if that proof is
   ambiguous.
+- **Periodic provider polling has not been removed.** #13's adaptive cadence table is unchanged and
+  remains the only mechanism whenever this feature is off, fails to attach, or hasn't reconnected
+  yet — see GitHub #17/#18 for the research behind why removing it entirely may eventually be safe,
+  and why that has not happened yet (it requires a real natural exhaustion observed end-to-end
+  through this path first).
 
 Only activates for a Codex CLI version this was live-verified against
 (`relay_provider_codex::VERIFIED_VERSIONS`); any other version silently declines and #13 alone
