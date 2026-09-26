@@ -725,12 +725,12 @@ fn history_shows_the_session_start_event() {
     );
     let payload = json_stdout(&output);
     let events = payload["data"]["events"].as_array().expect("events");
-    assert!(
-        events
-            .iter()
-            .any(|event| event["summary"] == "Session started on alice")
-    );
-    assert!(payload["data"]["events"][0]["summary"] != Value::Null);
+    assert!(events.iter().any(|event| {
+        event["kind"] == "session_started"
+            && event["actor"] == "relay"
+            && event["profile"] == "alice"
+    }));
+    assert!(payload["data"]["events"][0]["timestamp_unix_ms"] != Value::Null);
 }
 
 #[test]
