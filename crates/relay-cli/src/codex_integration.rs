@@ -198,6 +198,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn embedded_skill_routes_history_to_the_current_relay_session() {
+        assert!(SKILL.contains("$relay history"));
+        assert!(
+            SKILL.contains(
+                "history --project \"$RELAY_PROJECT_DIR\" --session \"$RELAY_SESSION_ID\""
+            )
+        );
+    }
+
+    #[test]
     fn install_is_idempotent_and_uninstall_preserves_edits_and_neighbors() {
         let dir = tempfile::tempdir().unwrap();
         install(dir.path()).unwrap();

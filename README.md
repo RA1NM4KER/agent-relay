@@ -92,6 +92,11 @@ providers without leaving your coding workflow:
   It falls back to printing that manual command only when no verified Relay supervisor can be
   reached. Live Codex adoption is not offered — use `relay codex` to start through Relay.
 
+`relay history` is a fast, local read-only timeline for the most recent Relay Session in the
+current project (or use `--session` for a dormant session). It shows durable operational evidence
+such as handoff phases and selected profiles; it is provider-neutral and **not** conversation or
+transcript history. It never starts a provider or contacts the network.
+
 - **Relay supervises conversations, not repositories.** A project can hold many *Relay sessions*
   — each one a conversation with its own stable id, running on one profile at a time. Two sessions
   may run on the same profile; one may be Claude and another Codex; some may be closed. Each *live*

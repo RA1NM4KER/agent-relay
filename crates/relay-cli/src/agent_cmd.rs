@@ -20,6 +20,7 @@ use relay_core::{
 use serde_json::json;
 
 use crate::{
+    cli::HistoryArgs,
     commands::mode::render_set_message,
     control::{self, ControlDir, RequestKind},
     live::{self, AdoptionOutcome, HookEnv, HookInput, LiveSession},
@@ -104,6 +105,10 @@ pub fn answer(paths: &RelayPaths, config_dir: &Path, stdin: &[u8]) -> Option<Str
     let input = HookInput::parse(stdin)?;
     let (sub, args) = parse_command(input.prompt.as_deref()?)?;
     let outcome = match live::identify(&input, config_dir, &HookEnv::from_process()) {
+        // History is deliberately handled before the normal in-agent command context.  Building
+        // that context reconciles provider state for commands such as status/switch; history is
+        // diagnostic local storage only and must not spawn or query a provider.
+        Ok(session) if sub == "history" => HookOutcome::Block(history(paths, &session, &args)),
         Ok(session) => run_subcommand(paths, &session, &sub, &args),
         Err(error) => HookOutcome::Block(format!(
             "Agent Relay cannot verify this conversation, so it did nothing.\n{error}"
@@ -229,7 +234,8 @@ fn run_subcommand(
         "mode" => mode(&context, args),
         other => HookOutcome::Block(format!(
             "Unknown /relay command '{other}'. Try: /relay:status · /relay:switch [profile] · \
-             /relay:doctor · /relay:why · /relay:adopt · /relay:mode [autonomous|interactive]"
+             /relay:doctor · /relay:why · /relay:history · /relay:adopt · \
+             /relay:mode [autonomous|interactive]"
         )),
     }
 }
@@ -242,9 +248,46 @@ fn overview() -> String {
      /relay:switch   Move this conversation to another profile\n\
      /relay:doctor   Check whether automatic handoff is ready\n\
      /relay:why      Explain Relay's current decision/state\n\
+     /relay:history  Show this conversation's durable Relay timeline\n\
      /relay:adopt    Bring this conversation under Relay\n\
      /relay:mode     Show or change execution mode (autonomous/interactive)"
         .to_owned()
+}
+
+/// `/relay:history`: invoke the same CLI read model as terminal and Codex history, scoped to
+/// this verified native conversation's Relay Session.  No reconciliation, auth, usage, or
+/// provider call is permitted here: this is only a local diagnostic read.
+fn history(paths: &RelayPaths, session: &LiveSession, args: &[String]) -> String {
+    if !args.is_empty() {
+        return "Agent Relay: /relay:history takes no arguments.".to_owned();
+    }
+    let Ok(store) = sessions::open_store(paths, &session.project) else {
+        return "Agent Relay could not identify this project.".to_owned();
+    };
+    let id = store.list_read_only().ok().and_then(|views| {
+        views.into_iter().find_map(|view| {
+            (view.native_session_id() == Some(session.session_id.as_str()))
+                .then_some(view.record.relay_session_id)
+        })
+    });
+    let Some(id) = id else {
+        return "Agent Relay: this conversation is not managed, so it has no Relay history."
+            .to_owned();
+    };
+    let service = ProfileService::new(paths.clone());
+    match crate::commands::history::run(
+        &service,
+        paths,
+        &HistoryArgs {
+            project_dir: Some(session.project.clone()),
+            session: Some(id.to_string()),
+            // Keep hook output compact while preserving one complete ordinary handoff.
+            limit: 20,
+        },
+    ) {
+        Ok(output) => output.human,
+        Err(error) => format!("Agent Relay could not read this conversation's history: {error}"),
+    }
 }
 
 fn project_name(path: &Path) -> String {
@@ -707,6 +750,10 @@ mod tests {
             Some(("why".to_owned(), vec![]))
         );
         assert_eq!(
+            parse_command("/relay:history"),
+            Some(("history".to_owned(), vec![]))
+        );
+        assert_eq!(
             parse_command("/relay:adopt"),
             Some(("adopt".to_owned(), vec![]))
         );
@@ -723,6 +770,7 @@ mod tests {
             parse_command("/relay:mode autonomous"),
             Some(("mode".to_owned(), vec!["autonomous".to_owned()]))
         );
+        assert!(overview().contains("/relay:history"));
     }
 
     #[test]

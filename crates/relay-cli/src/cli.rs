@@ -157,8 +157,9 @@ pub(crate) enum Command {
     /// from the same durable state (usage, ledger, target eligibility) automatic handoff itself
     /// reads. Never guesses beyond what that state actually shows.
     Why(WhyArgs),
-    /// A readable timeline of recent Relay activity for this project (session starts, exhaustion,
-    /// handoffs, recoveries) — derived entirely from existing durable state, never a new log.
+    /// Inspect durable, local operational history for a Relay Session (not conversation history).
+    /// Reads session records and handoff journals only; it never contacts a provider or changes
+    /// Relay's ownership, recovery, or automation state.
     History(HistoryArgs),
     /// Issue #5: the durable, provider-neutral, advisory working state Relay carries across
     /// handoffs for a Relay Session (goal, current subtask, decisions, failed attempts, relevant
@@ -255,8 +256,8 @@ pub(crate) struct HistoryArgs {
     /// and there is no terminal to ask in.
     #[arg(long, value_name = "ID")]
     pub(crate) session: Option<String>,
-    /// How many recent events to show.
-    #[arg(long, default_value_t = 10)]
+    /// How many recent observations to show (newest observations are retained).
+    #[arg(long, default_value_t = 200)]
     pub(crate) limit: usize,
 }
 

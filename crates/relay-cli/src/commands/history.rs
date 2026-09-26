@@ -1,25 +1,30 @@
-//! `relay history`: a readable timeline of recent Relay activity for this project, derived
-//! entirely from existing durable state (Relay Session records, the automation ledger, and
-//! handoff journals) — no new event database, and nothing beyond what's already recorded ever
-//! leaks here (no transcript contents, no provider output, no credentials).
-
-use relay_core::{
-    Error, ProfileService, RelayPaths,
-    automation::LedgerStore,
-    handoff::{HandoffState, JournalStore},
-};
-use serde_json::json;
-
+//! Local, read-only operational provenance. Journals and session records stay authoritative.
 use crate::{
     cli::HistoryArgs,
     output::{CommandOutput, success},
     sessions,
 };
+use relay_core::{
+    Error, ProfileService, RelayPaths,
+    automation::LedgerStore,
+    handoff::{HandoffJournal, JournalStore, RelaySessionView},
+};
+use serde::Serialize;
 
+#[derive(Clone, Serialize)]
 struct Event {
-    unix_ms: u64,
-    summary: String,
-    detail: Option<String>,
+    timestamp_unix_ms: u64,
+    sequence: u64,
+    kind: String,
+    actor: String,
+    profile: Option<String>,
+    handoff_id: Option<String>,
+    /// The coordinator state that supplied this observation, when applicable.  This is kept
+    /// separate from the normalized kind so JSON consumers do not need to parse display prose.
+    state: Option<String>,
+    /// A wall-clock duration only when the journal supplies both endpoints.  It is diagnostic,
+    /// not a scheduler or recovery input.
+    handoff_elapsed_ms: Option<u64>,
 }
 
 pub(crate) fn run(
@@ -27,186 +32,332 @@ pub(crate) fn run(
     paths: &RelayPaths,
     args: &HistoryArgs,
 ) -> Result<CommandOutput, Error> {
-    let project_dir = match &args.project_dir {
-        Some(path) => path.clone(),
-        None => std::env::current_dir().map_err(|source| Error::Io {
-            path: std::path::PathBuf::from("."),
+    let requested = args
+        .project_dir
+        .clone()
+        .unwrap_or(std::env::current_dir().map_err(|source| Error::Io {
+            path: ".".into(),
             source,
-        })?,
-    };
-    let canonical_project = std::fs::canonicalize(&project_dir).map_err(|source| Error::Io {
-        path: project_dir.clone(),
+        })?);
+    let project = std::fs::canonicalize(&requested).map_err(|source| Error::Io {
+        path: requested,
         source,
     })?;
-    let store = sessions::open_store(paths, &canonical_project)?;
-    let mut views = store.list()?;
-    if let Some(selector) = &args.session {
-        views.retain(|view| {
-            view.record
-                .relay_session_id
-                .as_str()
-                .starts_with(selector.as_str())
-                || view
-                    .record
-                    .relay_session_id
-                    .short()
-                    .starts_with(selector.as_str())
-        });
-        if views.is_empty() {
-            return Err(Error::RelaySessionNotFound(selector.clone()));
-        }
-    }
-
-    let mut events: Vec<Event> = Vec::new();
-    for view in &views {
-        let dir = store.session_dir(&view.record.relay_session_id);
-        let short = view.record.relay_session_id.short().to_owned();
-
-        events.push(Event {
-            unix_ms: view.record.created_unix_ms,
-            summary: format!("Session started on {}", view.record.last_profile),
-            detail: Some(format!("session {short}")),
-        });
-
-        if let Ok(ledger) = LedgerStore::at_path(dir.join("automation_state.json")).load() {
-            for handoff in &ledger.recent_handoffs {
+    let store = sessions::open_store(paths, &project)?;
+    let view = if let Some(id) = &args.session {
+        store.resolve_read_only(id)?
+    } else {
+        let mut views = store.list_read_only()?;
+        views.sort_by_key(|v| std::cmp::Reverse(v.record.last_activity_unix_ms));
+        views.into_iter().next().ok_or_else(|| {
+            Error::RelaySessionNotFound("no Relay sessions for this project".into())
+        })?
+    };
+    let dir = store.session_dir(&view.record.relay_session_id);
+    let mut events = vec![Event {
+        timestamp_unix_ms: view.record.created_unix_ms,
+        sequence: 0,
+        kind: "session_started".into(),
+        actor: "relay".into(),
+        profile: Some(view.record.last_profile.to_string()),
+        handoff_id: None,
+        state: None,
+        handoff_elapsed_ms: None,
+    }];
+    let mut warnings = Vec::new();
+    match LedgerStore::at_path(dir.join("automation_state.json")).load() {
+        Ok(ledger) => {
+            for exhausted in ledger.known_exhausted {
                 events.push(Event {
-                    unix_ms: handoff.unix_ms,
-                    summary: format!("Conversation moved {} → {}", handoff.source, handoff.target),
-                    detail: handoff
-                        .transaction_id
-                        .as_ref()
-                        .map(|id| format!("transaction {id}")),
-                });
-            }
-            for exhausted in &ledger.known_exhausted {
-                events.push(Event {
-                    unix_ms: exhausted.observed_unix_ms,
-                    summary: format!("{} marked exhausted", exhausted.profile),
-                    detail: Some(exhausted.detected_via.clone()),
+                    timestamp_unix_ms: exhausted.observed_unix_ms,
+                    sequence: 1,
+                    kind: "exhaustion_detected".into(),
+                    actor: exhausted.profile.to_string(),
+                    profile: Some(exhausted.profile.to_string()),
+                    handoff_id: None,
+                    state: None,
+                    handoff_elapsed_ms: None,
                 });
             }
         }
-
-        if let Ok(entries) = std::fs::read_dir(dir.join("handoffs")) {
-            for entry in entries.flatten() {
-                if entry.path().extension().is_none_or(|ext| ext != "json") {
-                    continue;
-                }
-                let Ok(journal) = JournalStore::at_path(entry.path()).load() else {
-                    continue;
-                };
-                match &journal.state {
-                    HandoffState::Complete => events.push(Event {
-                        unix_ms: journal.updated_unix_ms,
-                        summary: format!(
-                            "Conversation moved {} → {}",
-                            journal.source_profile, journal.target_profile
-                        ),
-                        detail: Some(format!("transaction {}", journal.transaction_id)),
-                    }),
-                    HandoffState::Failed { reason, .. } => events.push(Event {
-                        unix_ms: journal.updated_unix_ms,
-                        summary: "Automatic handoff failed".to_owned(),
-                        detail: Some(reason.clone()),
-                    }),
-                    HandoffState::RecoveryRequired { reason } => events.push(Event {
-                        unix_ms: journal.updated_unix_ms,
-                        summary: "Handoff needs recovery".to_owned(),
-                        detail: Some(reason.clone()),
-                    }),
-                    _ => {}
-                }
+        Err(Error::Io { .. }) => (),
+        Err(_) => warnings.push("automation ledger could not be read"),
+    }
+    if let Ok(entries) = std::fs::read_dir(dir.join("handoffs")) {
+        for entry in entries.flatten() {
+            if entry.path().extension().is_none_or(|x| x != "json") {
+                continue;
+            }
+            match JournalStore::at_path(entry.path()).load() {
+                Ok(journal) => add_journal(&mut events, &journal),
+                Err(_) => warnings.push("a handoff journal could not be read"),
             }
         }
     }
-
-    events.sort_by_key(|event| std::cmp::Reverse(event.unix_ms));
-    events.dedup_by(|left, right| left.unix_ms == right.unix_ms && left.summary == right.summary);
-    events.truncate(args.limit);
-
-    let human = render_human(&events);
-    let data = json!({
-        "events": events
-            .iter()
-            .map(|event| json!({
-                "unix_ms": event.unix_ms,
-                "summary": event.summary,
-                "detail": event.detail,
-            }))
-            .collect::<Vec<_>>(),
+    events.sort_by(|a, b| {
+        (a.timestamp_unix_ms, a.sequence, &a.handoff_id, &a.kind).cmp(&(
+            b.timestamp_unix_ms,
+            b.sequence,
+            &b.handoff_id,
+            &b.kind,
+        ))
     });
-    success("history", human, data)
+    // The command is a chronology, so a finite view keeps the newest observations.  A limit of
+    // zero is useful to scripts that only need the session header.
+    if events.len() > args.limit {
+        let keep_from = events.len() - args.limit;
+        events.drain(..keep_from);
+    }
+    let human = render(&view, &events, &project);
+    success(
+        "history",
+        human,
+        serde_json::json!({"session": {"id": view.record.relay_session_id, "execution_intent": view.record.execution_intent, "created_unix_ms": view.record.created_unix_ms, "last_profile": view.record.last_profile}, "events": events, "warnings": warnings}),
+    )
 }
 
-fn render_human(events: &[Event]) -> String {
-    if events.is_empty() {
-        return "Recent Relay activity\n\nNothing recorded yet.".to_owned();
+fn add_journal(events: &mut Vec<Event>, journal: &HandoffJournal) {
+    events.push(Event {
+        timestamp_unix_ms: journal.created_unix_ms,
+        sequence: 2,
+        kind: "fallback_selected".into(),
+        actor: journal.target_profile.to_string(),
+        profile: Some(journal.target_profile.to_string()),
+        handoff_id: Some(journal.transaction_id.to_string()),
+        state: None,
+        handoff_elapsed_ms: None,
+    });
+    for (index, point) in journal.state_timestamps.iter().enumerate() {
+        let (kind, actor, profile) = match point.state.as_str() {
+            "PREPARING" => ("handoff_preparing", "relay".to_owned(), None),
+            "CHECKPOINTED" => ("working_state_captured", "relay".to_owned(), None),
+            "SOURCE_STOPPING" => (
+                "source_stopping",
+                journal.source_profile.to_string(),
+                Some(journal.source_profile.to_string()),
+            ),
+            "SOURCE_STOPPED" => (
+                "source_stopped",
+                journal.source_profile.to_string(),
+                Some(journal.source_profile.to_string()),
+            ),
+            "SESSION_TRANSFERRING" => ("session_transferring", "relay".to_owned(), None),
+            "SESSION_TRANSFERRED" => ("session_transferred", "relay".to_owned(), None),
+            "TARGET_STARTING" => (
+                "target_starting",
+                journal.target_profile.to_string(),
+                Some(journal.target_profile.to_string()),
+            ),
+            "TARGET_VERIFIED" => (
+                "target_verified",
+                journal.target_profile.to_string(),
+                Some(journal.target_profile.to_string()),
+            ),
+            "COMPLETE" => ("handoff_complete", "relay".to_owned(), None),
+            "FAILED" | "RECOVERY_REQUIRED" => ("handoff_failed", "relay".to_owned(), None),
+            _ => continue,
+        };
+        events.push(Event {
+            timestamp_unix_ms: point.unix_ms,
+            sequence: 10 + index as u64,
+            kind: kind.into(),
+            actor,
+            profile,
+            handoff_id: Some(journal.transaction_id.to_string()),
+            state: Some(point.state.clone()),
+            handoff_elapsed_ms: (point.state == "COMPLETE")
+                .then(|| point.unix_ms.saturating_sub(journal.created_unix_ms)),
+        });
     }
-    let mut lines = vec!["Recent Relay activity".to_owned(), String::new()];
+}
+fn render(view: &RelaySessionView, events: &[Event], project: &std::path::Path) -> String {
+    let intent = match view.record.execution_intent {
+        relay_core::handoff::ExecutionIntent::Autonomous => "autonomous",
+        relay_core::handoff::ExecutionIntent::Interactive => "interactive",
+    };
+    let mut lines = vec![
+        format!("Relay Session: {}", view.record.relay_session_id),
+        format!(
+            "Project: {}",
+            project.file_name().unwrap_or_default().to_string_lossy()
+        ),
+        format!("Execution: {intent}"),
+        format!(
+            "Started: {} UTC (exact timestamp in --json)",
+            clock(view.record.created_unix_ms)
+        ),
+        String::new(),
+    ];
+    let mut handoff = None;
     for event in events {
-        lines.push(format!(
-            "{}  {}",
-            format_clock(event.unix_ms),
-            event.summary
-        ));
-        if let Some(detail) = &event.detail {
-            lines.push(format!("       {detail}"));
+        if event.handoff_id.as_deref() != handoff {
+            if let Some(id) = event.handoff_id.as_deref() {
+                lines.push(String::new());
+                lines.push(format!("Handoff: {id}"));
+            }
+            handoff = event.handoff_id.as_deref();
         }
+        lines.push(format!(
+            "{}  {:<14} {}{}",
+            clock(event.timestamp_unix_ms),
+            event.actor,
+            human_kind(&event.kind),
+            event
+                .handoff_elapsed_ms
+                .map(|duration| format!(" ({:.1}s)", duration as f64 / 1_000.0))
+                .unwrap_or_default(),
+        ));
     }
     lines.join("\n")
 }
 
-/// `HH:MM` UTC (no calendar/timezone crate in this workspace, so this is deliberately not
-/// converted to local time) — `--json`'s `unix_ms` is the source of truth for anything that needs
-/// to be exact.
-fn format_clock(unix_ms: u64) -> String {
-    let secs_since_midnight_utc = (unix_ms / 1000) % 86400;
-    let hours = secs_since_midnight_utc / 3600;
-    let minutes = (secs_since_midnight_utc % 3600) / 60;
-    format!("{hours:02}:{minutes:02}")
+fn human_kind(kind: &str) -> String {
+    let mut text = kind.replace('_', " ");
+    if let Some(first) = text.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    text
+}
+fn clock(ms: u64) -> String {
+    let s = (ms / 1000) % 86_400;
+    format!("{:02}:{:02}:{:02}", s / 3600, (s % 3600) / 60, s % 60)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Event, format_clock, render_human};
+    use relay_core::{
+        ProfileName,
+        handoff::{
+            ContinuityType, HandoffJournal, HandoffStateTimestamp, ProjectId, TransactionId,
+        },
+    };
 
-    #[test]
-    fn format_clock_renders_hh_mm_utc_and_wraps_at_midnight() {
-        assert_eq!(format_clock(0), "00:00");
-        assert_eq!(format_clock((15 * 3600 + 56 * 60) * 1000), "15:56");
-        assert_eq!(format_clock((23 * 3600 + 59 * 60) * 1000), "23:59");
-        // A second day's worth of ms still reads as a time of day, not an overflowed one.
-        assert_eq!(format_clock((86_400 + 14 * 3600 + 27 * 60) * 1000), "14:27");
+    use super::{Event, add_journal, clock};
+
+    fn journal(source: &str, target: &str, id: &str, states: &[(&str, u64)]) -> HandoffJournal {
+        let mut journal = HandoffJournal::new(
+            TransactionId::parse(id).expect("transaction id"),
+            ProjectId::for_canonical_path(std::path::Path::new("/tmp/history-test"))
+                .expect("project id"),
+            "/tmp/history-test".into(),
+            ProfileName::new(source).expect("source"),
+            ProfileName::new(target).expect("target"),
+            "/tmp/target".into(),
+            "native-session".into(),
+            ContinuityType::StateContinuation,
+        );
+        journal.created_unix_ms = states[0].1;
+        journal.state_timestamps = states
+            .iter()
+            .map(|(state, unix_ms)| HandoffStateTimestamp {
+                state: (*state).into(),
+                unix_ms: *unix_ms,
+            })
+            .collect();
+        journal
     }
 
     #[test]
-    fn render_human_has_a_friendly_empty_state() {
-        let human = render_human(&[]);
-        assert_eq!(human, "Recent Relay activity\n\nNothing recorded yet.");
-    }
-
-    #[test]
-    fn render_human_shows_clock_summary_and_an_indented_detail_line() {
-        let events = vec![
+    fn equal_timestamps_order_by_durable_sequence_then_identity() {
+        let mut events = [
             Event {
-                unix_ms: (15 * 3600 + 56 * 60) * 1000,
-                summary: "Conversation moved Erika \u{2192} Megan".to_owned(),
-                detail: None,
+                timestamp_unix_ms: 10,
+                sequence: 2,
+                kind: "target_starting".into(),
+                actor: "b".into(),
+                profile: None,
+                handoff_id: Some("b".into()),
+                state: None,
+                handoff_elapsed_ms: None,
             },
             Event {
-                unix_ms: (14 * 3600 + 43 * 60) * 1000,
-                summary: "Automatic handoff failed".to_owned(),
-                detail: Some("Claude transcript not found".to_owned()),
+                timestamp_unix_ms: 10,
+                sequence: 1,
+                kind: "source_stopped".into(),
+                actor: "a".into(),
+                profile: None,
+                handoff_id: Some("a".into()),
+                state: None,
+                handoff_elapsed_ms: None,
             },
         ];
-        let human = render_human(&events);
-        assert_eq!(
-            human,
-            "Recent Relay activity\n\n\
-             15:56  Conversation moved Erika \u{2192} Megan\n\
-             14:43  Automatic handoff failed\n\
-             \u{20}      Claude transcript not found"
+        events.sort_by(|a, b| {
+            (a.timestamp_unix_ms, a.sequence, &a.handoff_id, &a.kind).cmp(&(
+                b.timestamp_unix_ms,
+                b.sequence,
+                &b.handoff_id,
+                &b.kind,
+            ))
+        });
+        assert_eq!(events[0].kind, "source_stopped");
+        assert_eq!(clock((15 * 3600 + 56 * 60 + 7) * 1000), "15:56:07");
+    }
+
+    #[test]
+    fn preserves_two_handoffs_and_never_reorders_source_stop_after_target_start() {
+        let first = journal(
+            "codex-main",
+            "claude-main",
+            "ho-0000000000000001-00001",
+            &[
+                ("PREPARING", 100),
+                ("SOURCE_STOPPED", 110),
+                ("TARGET_STARTING", 120),
+                ("COMPLETE", 130),
+            ],
         );
+        let second = journal(
+            "claude-main",
+            "codex-backup",
+            "ho-0000000000000002-00002",
+            &[("PREPARING", 200), ("COMPLETE", 210)],
+        );
+        let mut events = Vec::new();
+        add_journal(&mut events, &second);
+        add_journal(&mut events, &first);
+        events.sort_by(|a, b| {
+            (a.timestamp_unix_ms, a.sequence, &a.handoff_id, &a.kind).cmp(&(
+                b.timestamp_unix_ms,
+                b.sequence,
+                &b.handoff_id,
+                &b.kind,
+            ))
+        });
+
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.kind == "handoff_complete")
+                .count(),
+            2
+        );
+        let stopped = events
+            .iter()
+            .position(|event| event.kind == "source_stopped")
+            .expect("source stopped event");
+        let starting = events
+            .iter()
+            .position(|event| event.kind == "target_starting")
+            .expect("target starting event");
+        assert!(stopped < starting);
+    }
+
+    #[test]
+    fn failed_handoff_is_not_rendered_as_complete() {
+        let failed = journal(
+            "codex-main",
+            "claude-main",
+            "ho-0000000000000003-00003",
+            &[
+                ("PREPARING", 100),
+                ("SOURCE_STOPPED", 110),
+                ("TARGET_STARTING", 120),
+                ("FAILED", 130),
+            ],
+        );
+        let mut events = Vec::new();
+        add_journal(&mut events, &failed);
+        assert!(events.iter().any(|event| event.kind == "handoff_failed"));
+        assert!(!events.iter().any(|event| event.kind == "handoff_complete"));
     }
 }

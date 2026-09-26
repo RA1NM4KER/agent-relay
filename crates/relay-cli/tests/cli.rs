@@ -5,7 +5,11 @@ use tempfile::tempdir;
 
 use relay_core::{
     Availability, AvailabilityObservation, IdentityMetadata, Profile, ProfileName, ProfileOrigin,
-    ProfileState, ProfileStore, ProviderKind,
+    ProfileState, ProfileStore, ProviderKind, RelayPaths,
+    handoff::{
+        ContinuityType, ExecutionIntent, HandoffJournal, HandoffStateTimestamp, JournalStore,
+        ProjectId, RelaySessionId, RelaySessionRecord, SessionStore, TransactionId,
+    },
 };
 use relay_provider_claude::AUTHENTICATION_OVERRIDE_VARIABLES;
 use relay_provider_claude::ClaudeIdentityPin;
@@ -26,8 +30,385 @@ fn relay(root: &Path, arguments: &[&str]) -> std::process::Output {
     command.output().expect("run relay")
 }
 
+fn relay_from(root: &Path, cwd: &Path, arguments: &[&str]) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+    command
+        .current_dir(cwd)
+        .arg("--json")
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(arguments)
+        .env_remove("CLAUDE_CONFIG_DIR");
+    for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    command.output().expect("run relay")
+}
+
+fn relay_human(root: &Path, arguments: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_relay"))
+        .arg("--config-root")
+        .arg(root.join("config"))
+        .arg("--state-root")
+        .arg(root.join("state"))
+        .args(arguments)
+        .output()
+        .expect("run relay")
+}
+
+fn snapshot_tree(root: &Path) -> Vec<(std::path::PathBuf, Vec<u8>, std::time::SystemTime)> {
+    fn visit(
+        root: &Path,
+        path: &Path,
+        out: &mut Vec<(std::path::PathBuf, Vec<u8>, std::time::SystemTime)>,
+    ) {
+        for entry in std::fs::read_dir(path).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                visit(root, &path, out);
+            } else {
+                let metadata = entry.metadata().unwrap();
+                out.push((
+                    path.strip_prefix(root).unwrap().to_path_buf(),
+                    std::fs::read(&path).unwrap(),
+                    metadata.modified().unwrap(),
+                ));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    visit(root, root, &mut out);
+    out.sort_by(|left, right| left.0.cmp(&right.0));
+    out
+}
+
 fn json_stdout(output: &std::process::Output) -> Value {
     serde_json::from_slice(&output.stdout).expect("valid JSON stdout")
+}
+
+fn history_record(
+    paths: &RelayPaths,
+    project: &Path,
+    name: &str,
+    activity: u64,
+    intent: ExecutionIntent,
+) -> RelaySessionRecord {
+    let canonical = std::fs::canonicalize(project).expect("canonical project");
+    let project_id = ProjectId::for_canonical_path(&canonical).expect("project id");
+    let record = RelaySessionRecord::new(
+        RelaySessionId::generate().expect("session id"),
+        project_id.clone(),
+        ProfileName::new(name).expect("profile"),
+        Some("codex".into()),
+        Some(format!("native-{name}")),
+        false,
+        activity,
+    )
+    .with_execution_intent(intent);
+    SessionStore::new(paths, project_id)
+        .save_record(&record)
+        .expect("record");
+    record
+}
+
+#[test]
+fn history_cli_selects_sessions_and_preserves_safe_journal_evidence() {
+    let root = tempdir().expect("root");
+    let project = tempdir().expect("project");
+    let paths =
+        RelayPaths::new(root.path().join("config"), root.path().join("state")).expect("paths");
+    let first = history_record(
+        &paths,
+        project.path(),
+        "codex-main",
+        100,
+        ExecutionIntent::Interactive,
+    );
+    let second = history_record(
+        &paths,
+        project.path(),
+        "claude-main",
+        200,
+        ExecutionIntent::Autonomous,
+    );
+    let canonical = std::fs::canonicalize(project.path()).unwrap();
+    let store = SessionStore::new(&paths, ProjectId::for_canonical_path(&canonical).unwrap());
+    let journal_path = store
+        .session_dir(&second.relay_session_id)
+        .join("handoffs/ho-0000000000000001-00001.json");
+    std::fs::create_dir_all(journal_path.parent().unwrap()).unwrap();
+    let mut failed = HandoffJournal::new(
+        TransactionId::parse("ho-0000000000000001-00001").unwrap(),
+        store.project_id().clone(),
+        canonical.clone(),
+        ProfileName::new("codex-main").unwrap(),
+        ProfileName::new("claude-main").unwrap(),
+        "/tmp/target".into(),
+        "native".into(),
+        ContinuityType::StateContinuation,
+    );
+    failed.created_unix_ms = 1_000;
+    failed
+        .notes
+        .push("PROMPT_SECRET MODEL_OUTPUT email@example.test token=SECRET provider output".into());
+    failed.state_timestamps = vec![
+        HandoffStateTimestamp {
+            state: "PREPARING".into(),
+            unix_ms: 1_000,
+        },
+        HandoffStateTimestamp {
+            state: "SOURCE_STOPPED".into(),
+            unix_ms: 1_010,
+        },
+        HandoffStateTimestamp {
+            state: "TARGET_STARTING".into(),
+            unix_ms: 1_020,
+        },
+        HandoffStateTimestamp {
+            state: "FAILED".into(),
+            unix_ms: 1_030,
+        },
+    ];
+    JournalStore::at_path(journal_path).save(&failed).unwrap();
+    let mut complete = failed.clone();
+    complete.transaction_id = TransactionId::parse("ho-0000000000000002-00002").unwrap();
+    complete.created_unix_ms = 2_000;
+    complete.state_timestamps = vec![
+        HandoffStateTimestamp {
+            state: "PREPARING".into(),
+            unix_ms: 2_000,
+        },
+        HandoffStateTimestamp {
+            state: "SOURCE_STOPPED".into(),
+            unix_ms: 2_010,
+        },
+        HandoffStateTimestamp {
+            state: "TARGET_STARTING".into(),
+            unix_ms: 2_020,
+        },
+        HandoffStateTimestamp {
+            state: "COMPLETE".into(),
+            unix_ms: 2_030,
+        },
+    ];
+    JournalStore::at_path(
+        store
+            .session_dir(&second.relay_session_id)
+            .join("handoffs/ho-0000000000000002-00002.json"),
+    )
+    .save(&complete)
+    .unwrap();
+    let project_text = project.path().to_string_lossy().to_string();
+    let out = relay(root.path(), &["history", "--project", &project_text]);
+    assert!(out.status.success());
+    let json = json_stdout(&out);
+    assert_eq!(json["command"], "history");
+    assert_eq!(
+        json["data"]["session"]["id"],
+        second.relay_session_id.to_string()
+    );
+    assert_eq!(json["data"]["session"]["execution_intent"], "autonomous");
+    let serialized = serde_json::to_string(&json).unwrap();
+    for secret in [
+        "PROMPT_SECRET",
+        "MODEL_OUTPUT",
+        "email@example.test",
+        "token=SECRET",
+        "provider output",
+    ] {
+        assert!(!serialized.contains(secret));
+    }
+    let session_dir = store.session_dir(&second.relay_session_id);
+    std::fs::write(session_dir.join("working_state.json"), "WORKING_STATE_GOAL WORKING_STATE_SUBTASK account-fingerprint-SECRET auth-token-SECRET provider-output-SECRET").unwrap();
+    std::fs::write(
+        session_dir.join("provider_output.json"),
+        "MODEL_RESPONSE_SECRET provider-output-SECRET",
+    )
+    .unwrap();
+    let before_tree = snapshot_tree(&session_dir);
+    let human = relay_human(root.path(), &["history", "--project", &project_text]);
+    assert!(human.status.success());
+    let human_text = String::from_utf8_lossy(&human.stdout);
+    for secret in [
+        "WORKING_STATE_GOAL",
+        "WORKING_STATE_SUBTASK",
+        "account-fingerprint-SECRET",
+        "auth-token-SECRET",
+        "provider-output-SECRET",
+        "MODEL_RESPONSE_SECRET",
+        "PROMPT_SECRET",
+        "email@example.test",
+    ] {
+        assert!(!human_text.contains(secret));
+    }
+    let hostile_json = relay(root.path(), &["history", "--project", &project_text]);
+    let hostile_json_text = String::from_utf8_lossy(&hostile_json.stdout);
+    for secret in [
+        "WORKING_STATE_GOAL",
+        "WORKING_STATE_SUBTASK",
+        "account-fingerprint-SECRET",
+        "auth-token-SECRET",
+        "provider-output-SECRET",
+        "MODEL_RESPONSE_SECRET",
+        "PROMPT_SECRET",
+        "email@example.test",
+    ] {
+        assert!(!hostile_json_text.contains(secret));
+    }
+    let after_tree = snapshot_tree(&session_dir);
+    assert_eq!(
+        before_tree, after_tree,
+        "history must not mutate any session evidence"
+    );
+    let events = json["data"]["events"].as_array().unwrap();
+    assert!(events.iter().any(|event| event["kind"] == "handoff_failed"));
+    assert!(
+        events
+            .iter()
+            .any(|event| event["kind"] == "handoff_complete")
+    );
+    let stopped = events
+        .iter()
+        .find(|event| event["state"] == "SOURCE_STOPPED")
+        .unwrap()["timestamp_unix_ms"]
+        .as_u64()
+        .unwrap();
+    let starting = events
+        .iter()
+        .find(|event| event["state"] == "TARGET_STARTING")
+        .unwrap()["timestamp_unix_ms"]
+        .as_u64()
+        .unwrap();
+    assert!(stopped < starting);
+    let default = relay_from(root.path(), project.path(), &["history"]);
+    assert!(default.status.success());
+    assert_eq!(
+        json_stdout(&default)["data"]["session"]["id"],
+        second.relay_session_id.to_string()
+    );
+    let explicit = relay(
+        root.path(),
+        &[
+            "history",
+            "--project",
+            &project_text,
+            "--session",
+            first.relay_session_id.as_str(),
+        ],
+    );
+    assert!(explicit.status.success());
+    assert_eq!(
+        json_stdout(&explicit)["data"]["session"]["id"],
+        first.relay_session_id.to_string()
+    );
+    let unknown = relay(
+        root.path(),
+        &[
+            "history",
+            "--project",
+            &project_text,
+            "--session",
+            "deadbeef",
+        ],
+    );
+    assert!(!unknown.status.success());
+
+    let corrupt = store
+        .session_dir(&second.relay_session_id)
+        .join("handoffs/corrupt.json");
+    std::fs::write(&corrupt, "{not json").unwrap();
+    let before = std::fs::read(&corrupt).unwrap();
+    let degraded = relay(root.path(), &["history", "--project", &project_text]);
+    assert!(degraded.status.success());
+    assert_eq!(
+        std::fs::read(&corrupt).unwrap(),
+        before,
+        "history never repairs evidence"
+    );
+    assert!(
+        json_stdout(&degraded)["data"]["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning == "a handoff journal could not be read")
+    );
+    let ledger_path = store
+        .session_dir(&second.relay_session_id)
+        .join("automation_state.json");
+    std::fs::write(&ledger_path, "{not json").unwrap();
+    let ledger_before = std::fs::read(&ledger_path).unwrap();
+    let ledger_degraded = relay(root.path(), &["history", "--project", &project_text]);
+    assert!(ledger_degraded.status.success());
+    assert_eq!(std::fs::read(&ledger_path).unwrap(), ledger_before);
+    assert!(
+        json_stdout(&ledger_degraded)["data"]["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning == "automation ledger could not be read")
+    );
+
+    let record_path = store
+        .session_dir(&first.relay_session_id)
+        .join("session.json");
+    let mut legacy: Value = serde_json::from_slice(&std::fs::read(&record_path).unwrap()).unwrap();
+    legacy.as_object_mut().unwrap().remove("execution_intent");
+    std::fs::write(&record_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let legacy_out = relay(
+        root.path(),
+        &[
+            "history",
+            "--project",
+            &project_text,
+            "--session",
+            first.relay_session_id.as_str(),
+        ],
+    );
+    assert!(legacy_out.status.success());
+    assert_eq!(
+        json_stdout(&legacy_out)["data"]["session"]["execution_intent"],
+        "interactive"
+    );
+    let record_before = std::fs::read(&record_path).unwrap();
+    let _ = relay(
+        root.path(),
+        &[
+            "history",
+            "--project",
+            &project_text,
+            "--session",
+            first.relay_session_id.as_str(),
+        ],
+    );
+    assert_eq!(
+        std::fs::read(&record_path).unwrap(),
+        record_before,
+        "history is read-only"
+    );
+    std::fs::write(&record_path, "{not json").unwrap();
+    let bad_record = relay(
+        root.path(),
+        &[
+            "history",
+            "--project",
+            &project_text,
+            "--session",
+            first.relay_session_id.as_str(),
+        ],
+    );
+    assert!(!bad_record.status.success());
+    assert_eq!(std::fs::read(&record_path).unwrap(), b"{not json");
+    let empty = tempdir().unwrap();
+    assert!(
+        !relay(
+            root.path(),
+            &["history", "--project", empty.path().to_str().unwrap()]
+        )
+        .status
+        .success()
+    );
 }
 
 #[test]

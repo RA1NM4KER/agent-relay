@@ -334,6 +334,17 @@ impl<'a> SessionStore<'a> {
     /// first.
     pub fn list(&self) -> Result<Vec<RelaySessionView>> {
         self.ensure_migrated()?;
+        self.list_records()
+    }
+
+    /// Reads only session records already present on disk.  Diagnostic commands use this rather
+    /// than [`Self::list`] so merely inspecting history never runs the legacy-layout migration or
+    /// otherwise changes durable state.
+    pub fn list_read_only(&self) -> Result<Vec<RelaySessionView>> {
+        self.list_records()
+    }
+
+    fn list_records(&self) -> Result<Vec<RelaySessionView>> {
         let root = self.project_dir().join("sessions");
         let entries = match fs::read_dir(&root) {
             Ok(entries) => entries,
@@ -370,6 +381,22 @@ impl<'a> SessionStore<'a> {
     pub fn resolve(&self, selector: &str) -> Result<RelaySessionView> {
         let selector = selector.trim().to_ascii_lowercase();
         let views = self.list()?;
+        Self::resolve_from_views(selector, views)
+    }
+
+    /// Read-only counterpart of [`Self::resolve`].  It intentionally does not migrate old
+    /// single-lease state, because queries must not acquire locks or rewrite a project merely to
+    /// display diagnostic information.
+    pub fn resolve_read_only(&self, selector: &str) -> Result<RelaySessionView> {
+        let selector = selector.trim().to_ascii_lowercase();
+        let views = self.list_read_only()?;
+        Self::resolve_from_views(selector, views)
+    }
+
+    fn resolve_from_views(
+        selector: String,
+        views: Vec<RelaySessionView>,
+    ) -> Result<RelaySessionView> {
         let matching: Vec<&RelaySessionView> = views
             .iter()
             .filter(|view| {
@@ -809,6 +836,21 @@ mod tests {
         assert_eq!(
             again[0].record.relay_session_id,
             view.record.relay_session_id
+        );
+    }
+
+    #[test]
+    fn read_only_listing_does_not_migrate_a_legacy_project() {
+        let root = tempdir().expect("root");
+        let paths = paths(root.path());
+        let dir = write_legacy(&paths, "megan", "native-history");
+        let store = SessionStore::new(&paths, project());
+
+        assert!(store.list_read_only().expect("read only list").is_empty());
+        assert!(dir.join("lease.json").exists(), "legacy lease is untouched");
+        assert!(
+            !dir.join("sessions").exists(),
+            "a diagnostic read must not create session storage"
         );
     }
 
