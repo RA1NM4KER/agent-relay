@@ -1008,6 +1008,163 @@ mod tests {
         handle.terminate();
     }
 
+    /// GitHub #18 research question: does a REAL, currently-EXHAUSTED Codex account's real
+    /// app-server turn actually emit the structured `usageLimitExceeded` notification this crate's
+    /// `Observer` decodes as [`ObserverEvent::UsageLimitExceeded`]? Every other test in this module
+    /// only proves that decoding against a scripted fake server (`install_fake_server`) — this is
+    /// the one thing only a genuinely exhausted real account can answer, and #16/#17/#18's whole
+    /// event-driven design assumes the answer is yes without ever having live-verified it. This
+    /// test observes whatever actually happens and reports it, including a negative result, which
+    /// is itself important research data — it never substitutes a rate-limit percentage,
+    /// `ordinaryUsageAllowed=false` from a separate read, terminal text, or a synthetic
+    /// notification for the real thing.
+    ///
+    /// **This spends/attempts real Codex usage** against whatever account `RELAY_BENCH_CODEX_HOME`
+    /// points at — it is intended only for a deliberate, explicit run against an account already
+    /// known to be exhausted (never run in the default `cargo test` gate, and never run
+    /// automatically by CI). **It validates provider-protocol emission only** — the real backend
+    /// really does emit the real structured event this crate's `Observer` expects — and proves
+    /// nothing about `CodexPollScheduler`, trigger provenance, the durable auto-handoff trace, or
+    /// an actual Codex → Claude handoff, all of which live one layer up in `relay-cli` and still
+    /// require their own real natural-exhaustion validation (see GitHub #18's own standing
+    /// acceptance criteria). Live-proved 2026-09-27 against `codex-cli 0.155.0`: `turn/start` was
+    /// accepted and `ObserverEvent::UsageLimitExceeded` arrived ~4.35s later via the async
+    /// notification stream (see GitHub #18 comment 5860754508 for the full result).
+    ///
+    /// Mirrors [`live_fresh_thread_activation_against_the_real_app_server`]'s exact fresh-thread
+    /// attach/retry sequencing (already live-verified against a healthy account) — the only
+    /// difference here is the account's own quota state and that the turn's own JSON-RPC response
+    /// is captured and reported rather than asserted to succeed, in case the account is rejected at
+    /// that step instead of via an asynchronous notification. Sends exactly one trivial turn;
+    /// never retried, never repeated. Never prints raw provider payloads, account ids, or
+    /// credentials — only decoded event variants, a JSON-RPC error `code` if one occurs, and local
+    /// timing.
+    ///
+    /// `RELAY_BENCH_CODEX_HOME=~/.config/agent-relay/profiles/<name>/codex cargo test --release -p
+    /// relay-provider-codex --lib
+    /// observer::tests::live_exhausted_turn_emits_usage_limit_event -- --ignored --nocapture`
+    #[test]
+    #[ignore = "requires a real, currently-EXHAUSTED, already-authenticated Codex profile — see the doc comment"]
+    fn live_exhausted_turn_emits_usage_limit_event() {
+        use crate::runtime::{AppServerHandle, allocate_endpoint};
+
+        let Ok(codex_home) = std::env::var("RELAY_BENCH_CODEX_HOME") else {
+            eprintln!(
+                "skipped: set RELAY_BENCH_CODEX_HOME to a real, authenticated, exhausted CODEX_HOME"
+            );
+            return;
+        };
+        let executable =
+            std::env::var("RELAY_BENCH_CODEX_EXE").unwrap_or_else(|_| "codex".to_owned());
+        let codex_home = std::path::PathBuf::from(codex_home);
+        let executable = std::path::PathBuf::from(executable);
+        let endpoint = allocate_endpoint().expect("endpoint");
+
+        let handle = AppServerHandle::spawn(&executable, &codex_home, &endpoint)
+            .expect("spawn real app-server");
+
+        // Same fresh-thread driver shape as `live_fresh_thread_activation_against_the_real_app_server`:
+        // a brand-new thread on an app-server that has never had any other thread, so the
+        // subsequent `Observer::attach(None)` path is exercised identically to that already-proven
+        // test — the only variable this test changes is the account's own quota state.
+        let endpoint_for_driver = endpoint.clone();
+        let driver = thread::spawn(move || {
+            let stream = UnixStream::connect(&endpoint_for_driver).expect("connect driver");
+            stream
+                .set_read_timeout(Some(ATTACH_POLL_INTERVAL))
+                .expect("set read timeout");
+            let mut socket = tungstenite::client("ws://localhost/", stream)
+                .expect("driver handshake")
+                .0;
+            driver_handshake(&mut socket, "driver-init-exhausted");
+            thread::sleep(Duration::from_millis(300));
+            let thread_id = driver_start_thread(&mut socket, "driver-thread-exhausted");
+            let turn_response = send_one_turn_capturing_response(
+                &mut socket,
+                &thread_id,
+                "driver-turn-exhausted",
+                "Reply with exactly: OK",
+            );
+            (thread_id, turn_response)
+        });
+
+        let mut known_thread_id: Option<String> = None;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let observer = loop {
+            match Observer::attach(&endpoint, &codex_home, known_thread_id.as_deref()) {
+                Ok(observer) => break observer,
+                Err(ObserverError::ResumeNotYetReady(id)) => known_thread_id = Some(id),
+                Err(error) if Instant::now() < deadline => {
+                    eprintln!("exhausted-turn attach attempt failed, retrying: {error:?}");
+                }
+                Err(error) => {
+                    panic!("attach with no known thread id (exhausted-turn test): {error:?}")
+                }
+            }
+            thread::sleep(Duration::from_millis(300));
+        };
+        let turn_attempted_at = Instant::now();
+        let (driven_thread_id, turn_response) = driver.join().expect("driver thread");
+        assert_eq!(
+            observer.thread_id, driven_thread_id,
+            "the observer must have learned and attached to the exact thread the driver created"
+        );
+
+        if let Some(error) = turn_response.get("error") {
+            println!(
+                "LIVE FINDING: turn/start itself returned a JSON-RPC error (code={:?}) instead of \
+                 an accepted turn — the account may be rejected before any structured \
+                 usageLimitExceeded notification stream begins.",
+                error.get("code")
+            );
+        } else {
+            println!("turn/start was accepted; waiting for the async notification stream.");
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut saw_usage_limit_event = false;
+        let mut saw_rate_limits_hint = false;
+        let mut usage_limit_event_after: Option<Duration> = None;
+        while Instant::now() < deadline && !saw_usage_limit_event {
+            for event in observer.drain_events() {
+                match event {
+                    ObserverEvent::UsageLimitExceeded => {
+                        saw_usage_limit_event = true;
+                        usage_limit_event_after = Some(turn_attempted_at.elapsed());
+                    }
+                    ObserverEvent::RateLimitsHint(_) => saw_rate_limits_hint = true,
+                    ObserverEvent::Disconnected(reason) => {
+                        println!("observer disconnected while waiting: {reason:?}");
+                    }
+                }
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        println!("saw_rate_limits_hint={saw_rate_limits_hint}");
+        if saw_usage_limit_event {
+            println!(
+                "LIVE PROOF: ObserverEvent::UsageLimitExceeded received ({:?} after the turn attempt)",
+                usage_limit_event_after.unwrap_or_default()
+            );
+        } else {
+            println!(
+                "LIVE FINDING: no ObserverEvent::UsageLimitExceeded arrived within 30s of a real \
+                 attempted turn against an account expected to be exhausted."
+            );
+        }
+
+        observer.stop();
+        handle.terminate();
+
+        assert!(
+            saw_usage_limit_event,
+            "expected the real exhausted account's turn to produce \
+             ObserverEvent::UsageLimitExceeded; see stdout (rerun with --nocapture) for what was \
+             actually observed"
+        );
+    }
+
     /// Connects a minimal raw driver client (deliberately not `Observer` itself), creates a fresh
     /// thread, runs one trivial turn to full completion, and disconnects — leaving a real,
     /// persisted, already-populated thread behind, exactly the state a thread being *resumed* is
@@ -1083,6 +1240,48 @@ mod tests {
         )
         .expect("send turn/start");
         read_matching_result(socket, id).expect("turn/start result");
+    }
+
+    /// Like [`driver_run_turn`], but for `live_exhausted_turn_emits_usage_limit_event`: an already-
+    /// exhausted real account might reject the turn immediately as a JSON-RPC error rather than
+    /// accepting it and rejecting it later via the async notification stream — an outcome that
+    /// specific test must observe and report, not treat as a panic. Returns the full raw JSON-RPC
+    /// response object (`{"id":..,"result":..}` or `{"id":..,"error":..}`) so the caller can
+    /// inspect which shape actually occurred.
+    #[cfg(test)]
+    fn send_one_turn_capturing_response(
+        socket: &mut WebSocket<UnixStream>,
+        thread_id: &str,
+        id: &str,
+        message: &str,
+    ) -> Value {
+        send_json(
+            socket,
+            &json!({
+                "jsonrpc": "2.0", "id": id, "method": "turn/start",
+                "params": {"threadId": thread_id, "input": [{"type": "text", "text": message}]},
+            }),
+        )
+        .expect("send turn/start");
+        let deadline = Instant::now() + ATTACH_TIMEOUT;
+        while Instant::now() < deadline {
+            let msg = match socket.read() {
+                Ok(msg) => msg,
+                Err(error) if is_timeout(&error) => continue,
+                Err(error) => {
+                    panic!("socket read failed waiting for turn/start response: {error:?}")
+                }
+            };
+            let Message::Text(text) = msg else { continue };
+            let Ok(value) = serde_json::from_str::<Value>(&text) else {
+                continue;
+            };
+            if value.get("id").and_then(Value::as_str) != Some(id) {
+                continue;
+            }
+            return value;
+        }
+        panic!("no JSON-RPC response for turn/start within the attach timeout");
     }
 
     /// Reads notifications (tolerating the socket's own read timeout, exactly like
