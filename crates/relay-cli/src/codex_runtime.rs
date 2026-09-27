@@ -185,6 +185,10 @@ pub(crate) struct EventDrivenRuntime {
     handle: AppServerHandle,
     codex_home: PathBuf,
     state_dir: PathBuf,
+    /// GitHub #18: where this project's durable auto-handoff trace lives — used only to record
+    /// event-receipt/reconciliation-request provenance (see [`Self::tick`]), never for the
+    /// `codex_runtime.json` liveness record (that stays keyed off `state_dir`, unchanged).
+    project_state_dir: PathBuf,
     state: AttachState,
 }
 
@@ -202,6 +206,7 @@ impl EventDrivenRuntime {
         codex_executable: &Path,
         config_dir: &Path,
         state_dir: &Path,
+        project_state_dir: &Path,
         thread_id: Option<&str>,
         json_mode: bool,
     ) -> Option<Self> {
@@ -233,6 +238,7 @@ impl EventDrivenRuntime {
             handle,
             codex_home: config_dir.to_path_buf(),
             state_dir: state_dir.to_path_buf(),
+            project_state_dir: project_state_dir.to_path_buf(),
             state,
         })
     }
@@ -267,7 +273,13 @@ impl EventDrivenRuntime {
                     // GitHub #18's reconciliation requirement: a successful (re)attach — whether
                     // the very first one or a reconnect after a gap of unknown length — always
                     // triggers exactly one authoritative evaluation through the existing
-                    // single-flight machinery, never a handoff decision on its own.
+                    // single-flight machinery, never a handoff decision on its own. Recorded
+                    // *before* handing it to the scheduler so the durable trace can never show the
+                    // resulting evaluation without also showing why it was requested.
+                    crate::auto_handoff::trace_event(
+                        &self.project_state_dir,
+                        "codex_reconnect_reconciliation_requested",
+                    );
                     scheduler.request_reconciliation();
                     self.state = AttachState::Attached(observer);
                     TickEvent::Attached(thread_id)
@@ -284,6 +296,13 @@ impl EventDrivenRuntime {
                     if matches!(event, ObserverEvent::Disconnected(_)) {
                         disconnected = true;
                     } else {
+                        // GitHub #18: durable proof that Relay actually received this event, recorded
+                        // at the point it is drained/accepted from the observer — before it is ever
+                        // handed to the scheduler, so a later evaluation can never be misattributed
+                        // to timing alone.
+                        if let Some(label) = event_receipt_trace_label(&event) {
+                            crate::auto_handoff::trace_event(&self.project_state_dir, label);
+                        }
                         scheduler.notify_event(event);
                     }
                 }
@@ -327,6 +346,19 @@ impl EventDrivenRuntime {
         self.handle.terminate();
         clear_record(&self.state_dir);
     }
+}
+
+/// GitHub #18: which drained [`ObserverEvent`], if any, is itself durable-trace-worthy on receipt
+/// alone — a pure decision, deliberately separated from [`EventDrivenRuntime::tick`]'s own I/O, so
+/// it stays trivially testable. Only `UsageLimitExceeded` qualifies: a `RateLimitsHint` is a
+/// scheduling nudge, not a signal worth a durable receipt record on its own (see
+/// `crate::codex_poll::CodexPollScheduler::notify_event`'s own doc comment), and `Disconnected` is
+/// handled entirely by the reconnect path above, never forwarded here. Returning `None` for both
+/// is what guarantees a timer expiry or a reconnect can never masquerade as this event: neither of
+/// them ever flows through this function at all.
+#[must_use]
+fn event_receipt_trace_label(event: &ObserverEvent) -> Option<&'static str> {
+    matches!(event, ObserverEvent::UsageLimitExceeded).then_some("codex_usage_limit_event_received")
 }
 
 /// Spawns the background attach/reconnect worker and returns the `Attaching` state a caller
@@ -514,10 +546,37 @@ mod tests {
             Path::new("/definitely/not/codex"),
             dir.path(),
             dir.path(),
+            dir.path(),
             Some("thread-1"),
             true,
         );
         assert!(result.is_none());
+    }
+
+    // --- GitHub #18: event receipt is recorded exactly at the point it is drained ---
+
+    #[test]
+    fn only_usage_limit_exceeded_is_ever_event_receipt_trace_worthy() {
+        assert_eq!(
+            event_receipt_trace_label(&ObserverEvent::UsageLimitExceeded),
+            Some("codex_usage_limit_event_received")
+        );
+        assert_eq!(
+            event_receipt_trace_label(&ObserverEvent::RateLimitsHint(Some(90))),
+            None,
+            "a scheduling hint must never masquerade as a real usage-limit event receipt"
+        );
+        assert_eq!(
+            event_receipt_trace_label(&ObserverEvent::RateLimitsHint(None)),
+            None
+        );
+        assert_eq!(
+            event_receipt_trace_label(&ObserverEvent::Disconnected(
+                relay_provider_codex::observer::DisconnectReason::ReadError
+            )),
+            None,
+            "disconnects are handled entirely by the reconnect path, never this one"
+        );
     }
 
     // --- GitHub #18: the attach/reconnect worker's own retry-loop behavior, tested directly ---

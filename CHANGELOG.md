@@ -55,6 +55,18 @@ All notable changes to Agent Relay will be documented here.
     reusing the already-known thread id — never re-learned) and, on success, exactly one
     authoritative `account/rateLimits/read` before resuming event-driven operation — live-verified
     to correctly pick up the remainder of a turn missed mid-flight.
+  - **Trigger-provenance tracing (#18).** A real natural exhaustion (dogfooded with two concurrent
+    Codex Relay Sessions) proved end-to-end handoff worked, but the durable trace could not prove
+    *why* the deciding evaluation ran — the periodic timer, a real `usageLimitExceeded` event, and
+    a post-reconnect reconciliation read all collapsed into the same generic `codex_poll` string.
+    The scheduler now carries a typed reason (`codex_timer_poll` / `codex_usage_limit_event` /
+    `codex_reconnect_reconciliation`), recorded verbatim in the durable auto-handoff log instead of
+    inferred later from timing; a `usageLimitExceeded` event is separately traced the moment it is
+    drained from the observer (`codex_usage_limit_event_received`), and an event that arrives while
+    an evaluation is already in flight is traced as coalesced into it rather than silently dropped
+    or starting a second read. No routing, polling, or handoff behavior changed — this only makes
+    the existing behavior provable after the fact. See `crates/relay-cli/src/{auto_handoff,
+    codex_poll,codex_runtime}.rs`.
   - See `crates/relay-provider-codex/src/{events,observer,runtime}.rs` and
     `crates/relay-cli/src/{codex_poll,codex_runtime}.rs` for the mechanism, and the
     research/implementation history in GitHub #15/#16/#17/#18 for what was and was not

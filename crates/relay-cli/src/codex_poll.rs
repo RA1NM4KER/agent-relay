@@ -21,6 +21,16 @@
 //! outcome (`relay_core::automation` remains the sole authority for that, unchanged) — it only
 //! ever decides how long to wait before asking again, and guarantees at most one such evaluation
 //! is ever in flight for the terminal it belongs to.
+//!
+//! GitHub #18 (observability): a real natural exhaustion found that the durable trace could not
+//! prove *why* an evaluation ran — the periodic timer, a real `usageLimitExceeded` observer event
+//! (GitHub #16/#17), and a post-reconnect reconciliation read all collapsed into the same generic
+//! `codex_poll` string. [`crate::auto_handoff::CodexEvaluationTrigger`] is this scheduler's typed
+//! record of which one actually happened; [`Self::notify_event`]/[`Self::request_reconciliation`]
+//! set it, and [`Self::tick`] hands it to the plan closure so it lands in
+//! `AutoWatchPlan::trigger` and the durable auto-handoff log verbatim — never inferred later from
+//! timing. This changes no routing/handoff/polling behavior; it only makes the existing behavior
+//! provable after the fact.
 
 use std::{
     path::{Path, PathBuf},
@@ -32,7 +42,7 @@ use relay_core::usage::UsageState;
 use relay_provider_codex::polling::{COMFORTABLE_POLL_SECS, poll_interval_secs};
 use serde::{Deserialize, Serialize};
 
-use crate::auto_handoff::AutoWatchPlan;
+use crate::auto_handoff::{self, AutoWatchPlan, CodexEvaluationTrigger};
 
 /// Preserved diagnostic/operator override, unchanged in spelling from before GitHub #13. Absent:
 /// adaptive cadence. `0`: periodic polling stays disabled, exactly as before. `N > 0`: a fixed
@@ -119,8 +129,17 @@ fn poll_mode_from_value(value: Option<&str>) -> PollMode {
 pub(crate) struct CodexPollScheduler {
     mode: PollMode,
     state_dir: PathBuf,
+    /// GitHub #18: where this project's durable auto-handoff trace lives — used only to record
+    /// event receipt/coalescing provenance ([`Self::notify_event`]), never for the diagnostic file
+    /// itself (that stays keyed off `state_dir`, unchanged from GitHub #13).
+    project_state_dir: PathBuf,
     child: Option<Child>,
     next_poll_at: Instant,
+    /// GitHub #18: why the evaluation that runs at `next_poll_at` is due — set whenever something
+    /// pre-empts the plain timer ([`Self::notify_event`], [`Self::request_reconciliation`]) and
+    /// consumed (reset back to [`CodexEvaluationTrigger::Timer`]) the moment [`Self::tick`] actually
+    /// hands it to a plan. Never inferred later from timing.
+    pending_trigger: CodexEvaluationTrigger,
 }
 
 impl CodexPollScheduler {
@@ -130,11 +149,25 @@ impl CodexPollScheduler {
     /// begins on the fast cadence immediately, instead of waiting out one full comfortable
     /// interval before its first poll ever runs.
     #[must_use]
-    pub(crate) fn new(state_dir: PathBuf, seed_max_used_percent: Option<u32>) -> Self {
-        Self::with_mode(poll_mode_from_env(), state_dir, seed_max_used_percent)
+    pub(crate) fn new(
+        state_dir: PathBuf,
+        project_state_dir: PathBuf,
+        seed_max_used_percent: Option<u32>,
+    ) -> Self {
+        Self::with_mode(
+            poll_mode_from_env(),
+            state_dir,
+            project_state_dir,
+            seed_max_used_percent,
+        )
     }
 
-    fn with_mode(mode: PollMode, state_dir: PathBuf, seed_max_used_percent: Option<u32>) -> Self {
+    fn with_mode(
+        mode: PollMode,
+        state_dir: PathBuf,
+        project_state_dir: PathBuf,
+        seed_max_used_percent: Option<u32>,
+    ) -> Self {
         let initial_secs = match mode {
             PollMode::Disabled => 0,
             PollMode::Fixed(fixed) => fixed,
@@ -143,8 +176,10 @@ impl CodexPollScheduler {
         Self {
             mode,
             state_dir,
+            project_state_dir,
             child: None,
             next_poll_at: Instant::now() + Duration::from_secs(initial_secs),
+            pending_trigger: CodexEvaluationTrigger::Timer,
         }
     }
 
@@ -154,7 +189,7 @@ impl CodexPollScheduler {
     /// detached and must return the child so at most one can ever be in flight here.
     pub(crate) fn tick(
         &mut self,
-        plan: impl FnOnce() -> Option<AutoWatchPlan>,
+        plan: impl FnOnce(CodexEvaluationTrigger) -> Option<AutoWatchPlan>,
         spawn: impl FnOnce(&AutoWatchPlan) -> Option<Child>,
     ) {
         if matches!(self.mode, PollMode::Disabled) {
@@ -179,7 +214,12 @@ impl CodexPollScheduler {
         if Instant::now() < self.next_poll_at {
             return;
         }
-        let Some(plan) = plan() else {
+        // GitHub #18: consumed here, exactly once, regardless of whether a plan actually gets
+        // built below — whatever pre-empted the timer to make this cycle due is "used up" the
+        // moment this cycle is evaluated, so a later ordinary timer expiry never masquerades as
+        // the earlier event/reconnect.
+        let trigger = std::mem::replace(&mut self.pending_trigger, CodexEvaluationTrigger::Timer);
+        let Some(plan) = plan(trigger) else {
             // Nothing to evaluate right now (no fallback configured, or the lease moved under us)
             // — no read happened, so there is nothing fresh to schedule from.
             self.next_poll_at = Instant::now() + Duration::from_secs(self.fallback_secs());
@@ -207,16 +247,37 @@ impl CodexPollScheduler {
     /// a real failure signal, not a scheduling opinion.
     pub(crate) fn notify_event(&mut self, event: relay_provider_codex::observer::ObserverEvent) {
         use relay_provider_codex::observer::ObserverEvent;
-        if matches!(self.mode, PollMode::Disabled) || self.child.is_some() {
-            return;
-        }
         match event {
-            ObserverEvent::UsageLimitExceeded => self.next_poll_at = Instant::now(),
+            ObserverEvent::UsageLimitExceeded => {
+                if matches!(self.mode, PollMode::Disabled) {
+                    return;
+                }
+                if self.child.is_some() {
+                    // GitHub #18's single-flight semantics, made honest in the trace: the
+                    // authoritative read already in flight is sufficient to establish ground
+                    // truth for this event too (agent-relay#17 live-verified a read's result
+                    // covers everything up to the moment it runs) — never start a second,
+                    // parallel read merely because this event also arrived.
+                    auto_handoff::trace_event(
+                        &self.project_state_dir,
+                        "codex_usage_limit_event_coalesced_into_in_flight_evaluation",
+                    );
+                    return;
+                }
+                self.pending_trigger = CodexEvaluationTrigger::UsageLimitEvent;
+                self.next_poll_at = Instant::now();
+            }
             ObserverEvent::RateLimitsHint(percent) => {
+                if matches!(self.mode, PollMode::Disabled) || self.child.is_some() {
+                    return;
+                }
                 if matches!(self.mode, PollMode::Adaptive) {
                     self.next_poll_at =
                         Instant::now() + Duration::from_secs(poll_interval_secs(percent));
                 }
+                // Deliberately never touches `pending_trigger`: a scheduling-cadence hint is not
+                // itself a reason an evaluation is due (GitHub #18 test requirement — a hint must
+                // never be able to masquerade as a real usage-limit event).
             }
             // A dead observer carries no cadence/urgency information of its own — the caller
             // (`crate::codex_runtime::EventDrivenRuntime::tick`) intercepts this variant itself to
@@ -239,6 +300,7 @@ impl CodexPollScheduler {
         if matches!(self.mode, PollMode::Disabled) || self.child.is_some() {
             return;
         }
+        self.pending_trigger = CodexEvaluationTrigger::ReconnectReconciliation;
         self.next_poll_at = Instant::now();
     }
 
@@ -277,7 +339,8 @@ mod tests {
 
     #[test]
     fn a_usage_limit_event_makes_the_very_next_tick_due() {
-        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), None);
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
         assert!(scheduler.next_poll_at > Instant::now());
         scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
         assert!(scheduler.next_poll_at <= Instant::now());
@@ -285,7 +348,8 @@ mod tests {
 
     #[test]
     fn a_disabled_scheduler_ignores_every_event() {
-        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Disabled, PathBuf::new(), None);
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Disabled, PathBuf::new(), PathBuf::new(), None);
         let before = scheduler.next_poll_at;
         scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
         assert_eq!(scheduler.next_poll_at, before);
@@ -293,8 +357,9 @@ mod tests {
 
     #[test]
     fn a_usage_limit_event_is_ignored_while_a_poll_is_already_in_flight() {
-        let mut scheduler = due_scheduler(PollMode::Adaptive, PathBuf::new());
-        let fake_plan = || {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut scheduler = due_scheduler(PollMode::Adaptive, dir.path().to_path_buf());
+        let fake_plan = |_trigger: CodexEvaluationTrigger| {
             Some(AutoWatchPlan {
                 args: Vec::new(),
                 log_path: PathBuf::new(),
@@ -318,7 +383,8 @@ mod tests {
 
     #[test]
     fn a_rate_limits_hint_tightens_adaptive_cadence_via_the_existing_policy() {
-        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), None);
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
         scheduler.notify_event(ObserverEvent::RateLimitsHint(Some(99)));
         let delay = scheduler
             .next_poll_at
@@ -331,7 +397,8 @@ mod tests {
 
     #[test]
     fn a_rate_limits_hint_relaxes_adaptive_cadence_back_down_too() {
-        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), None);
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
         scheduler.notify_event(ObserverEvent::RateLimitsHint(Some(99)));
         scheduler.notify_event(ObserverEvent::RateLimitsHint(Some(10)));
         let delay = scheduler
@@ -345,8 +412,12 @@ mod tests {
 
     #[test]
     fn a_fixed_override_ignores_rate_limit_hints_but_not_usage_limit_events() {
-        let mut scheduler =
-            CodexPollScheduler::with_mode(PollMode::Fixed(45), PathBuf::new(), None);
+        let mut scheduler = CodexPollScheduler::with_mode(
+            PollMode::Fixed(45),
+            PathBuf::new(),
+            PathBuf::new(),
+            None,
+        );
         let before = scheduler.next_poll_at;
         scheduler.notify_event(ObserverEvent::RateLimitsHint(Some(99)));
         assert_eq!(
@@ -364,7 +435,8 @@ mod tests {
 
     #[test]
     fn a_disconnected_event_is_inert_on_its_own() {
-        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), None);
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
         let before = scheduler.next_poll_at;
         scheduler.notify_event(ObserverEvent::Disconnected(
             relay_provider_codex::observer::DisconnectReason::ReadError,
@@ -377,14 +449,193 @@ mod tests {
 
     #[test]
     fn a_successful_reconnect_requests_exactly_one_immediate_evaluation() {
-        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), None);
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
         scheduler.request_reconciliation();
         assert!(scheduler.next_poll_at <= Instant::now());
     }
 
+    // --- GitHub #18: trigger provenance ---
+
+    #[test]
+    fn a_fresh_scheduler_defaults_to_the_timer_trigger() {
+        let scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
+        assert_eq!(scheduler.pending_trigger, CodexEvaluationTrigger::Timer);
+    }
+
+    #[test]
+    fn a_usage_limit_event_sets_the_usage_limit_event_trigger() {
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        assert_eq!(
+            scheduler.pending_trigger,
+            CodexEvaluationTrigger::UsageLimitEvent
+        );
+    }
+
+    #[test]
+    fn a_rate_limits_hint_never_sets_a_pending_trigger() {
+        // GitHub #18 requirement: a scheduling-cadence hint must never be able to masquerade as a
+        // real usage-limit event.
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
+        scheduler.notify_event(ObserverEvent::RateLimitsHint(Some(99)));
+        assert_eq!(scheduler.pending_trigger, CodexEvaluationTrigger::Timer);
+    }
+
+    #[test]
+    fn a_reconnect_request_sets_the_reconnect_reconciliation_trigger() {
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
+        scheduler.request_reconciliation();
+        assert_eq!(
+            scheduler.pending_trigger,
+            CodexEvaluationTrigger::ReconnectReconciliation
+        );
+    }
+
+    #[test]
+    fn timer_expiry_alone_hands_the_timer_trigger_to_the_plan_closure() {
+        let mut scheduler = due_scheduler(PollMode::Fixed(60), PathBuf::new());
+        let mut seen_trigger = None;
+        scheduler.tick(
+            |trigger| {
+                seen_trigger = Some(trigger);
+                None
+            },
+            |_| panic!("no plan means nothing to spawn"),
+        );
+        assert_eq!(seen_trigger, Some(CodexEvaluationTrigger::Timer));
+    }
+
+    #[test]
+    fn a_usage_limit_event_hands_its_own_trigger_to_the_plan_closure_not_the_timer() {
+        let mut scheduler = due_scheduler(PollMode::Fixed(60), PathBuf::new());
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        let mut seen_trigger = None;
+        scheduler.tick(
+            |trigger| {
+                seen_trigger = Some(trigger);
+                None
+            },
+            |_| panic!("no plan means nothing to spawn"),
+        );
+        assert_eq!(seen_trigger, Some(CodexEvaluationTrigger::UsageLimitEvent));
+    }
+
+    #[test]
+    fn a_reconnect_reconciliation_hands_its_own_trigger_to_the_plan_closure_not_the_timer() {
+        let mut scheduler = due_scheduler(PollMode::Fixed(60), PathBuf::new());
+        scheduler.request_reconciliation();
+        let mut seen_trigger = None;
+        scheduler.tick(
+            |trigger| {
+                seen_trigger = Some(trigger);
+                None
+            },
+            |_| panic!("no plan means nothing to spawn"),
+        );
+        assert_eq!(
+            seen_trigger,
+            Some(CodexEvaluationTrigger::ReconnectReconciliation)
+        );
+    }
+
+    #[test]
+    fn after_an_event_triggered_evaluation_the_next_cycle_defaults_back_to_the_timer_trigger() {
+        let mut scheduler = due_scheduler(PollMode::Fixed(60), PathBuf::new());
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        scheduler.tick(
+            |trigger| {
+                Some(AutoWatchPlan {
+                    args: Vec::new(),
+                    log_path: PathBuf::new(),
+                    triggered_unix_ms: 0,
+                    trigger: trigger.as_str(),
+                })
+            },
+            |_| Some(quick_child()),
+        );
+        assert_eq!(
+            scheduler.pending_trigger,
+            CodexEvaluationTrigger::Timer,
+            "a consumed trigger must never stick around for a later, unrelated cycle"
+        );
+    }
+
+    #[test]
+    fn an_in_flight_evaluation_coalesces_a_usage_limit_event_and_traces_it_honestly() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut scheduler = due_scheduler(PollMode::Adaptive, dir.path().to_path_buf());
+        let fake_plan = |_trigger: CodexEvaluationTrigger| {
+            Some(AutoWatchPlan {
+                args: Vec::new(),
+                log_path: PathBuf::new(),
+                triggered_unix_ms: 0,
+                trigger: "test",
+            })
+        };
+        scheduler.tick(fake_plan, |_| Some(sleeper_child()));
+        assert!(
+            scheduler.child.is_some(),
+            "the timer's own read must be in flight"
+        );
+
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        assert_eq!(
+            scheduler.pending_trigger,
+            CodexEvaluationTrigger::Timer,
+            "the event must not silently claim credit for the read already in flight"
+        );
+
+        let log = std::fs::read_to_string(dir.path().join(auto_handoff::LOG_FILE_NAME))
+            .expect("coalescing must be durably recorded");
+        assert!(
+            log.contains("codex_usage_limit_event_coalesced_into_in_flight_evaluation"),
+            "expected an honest coalescing record, got {log}"
+        );
+        if let Some(child) = scheduler.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    #[test]
+    fn two_projects_schedulers_never_share_trigger_or_trace_state() {
+        // GitHub #18 test: concurrent Codex sessions (different projects) must maintain
+        // independent trigger provenance.
+        let dir_a = tempfile::tempdir().expect("tempdir a");
+        let dir_b = tempfile::tempdir().expect("tempdir b");
+        let mut scheduler_a = CodexPollScheduler::with_mode(
+            PollMode::Adaptive,
+            PathBuf::new(),
+            dir_a.path().to_path_buf(),
+            None,
+        );
+        let scheduler_b = CodexPollScheduler::with_mode(
+            PollMode::Adaptive,
+            PathBuf::new(),
+            dir_b.path().to_path_buf(),
+            None,
+        );
+        scheduler_a.notify_event(ObserverEvent::UsageLimitExceeded);
+        assert_eq!(
+            scheduler_a.pending_trigger,
+            CodexEvaluationTrigger::UsageLimitEvent
+        );
+        assert_eq!(scheduler_b.pending_trigger, CodexEvaluationTrigger::Timer);
+        assert!(
+            !dir_b.path().join(auto_handoff::LOG_FILE_NAME).exists(),
+            "one project's event must never write into another project's trace"
+        );
+    }
+
     #[test]
     fn reconciliation_is_ignored_while_disabled() {
-        let mut scheduler = CodexPollScheduler::with_mode(PollMode::Disabled, PathBuf::new(), None);
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Disabled, PathBuf::new(), PathBuf::new(), None);
         let before = scheduler.next_poll_at;
         scheduler.request_reconciliation();
         assert_eq!(scheduler.next_poll_at, before);
@@ -393,7 +644,7 @@ mod tests {
     #[test]
     fn reconciliation_never_queues_a_second_evaluation_while_one_is_in_flight() {
         let mut scheduler = due_scheduler(PollMode::Fixed(60), PathBuf::new());
-        let fake_plan = || {
+        let fake_plan = |_trigger: CodexEvaluationTrigger| {
             Some(AutoWatchPlan {
                 args: Vec::new(),
                 log_path: PathBuf::new(),
@@ -422,8 +673,9 @@ mod tests {
         // reconnects right as a fresh usage-limit error also arrives) — single-flight must hold
         // regardless of which order they land in, or whether the in-flight evaluation was started
         // by the timer, an event, or a reconnect.
-        let mut scheduler = due_scheduler(PollMode::Fixed(60), PathBuf::new());
-        let fake_plan = || {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut scheduler = due_scheduler(PollMode::Fixed(60), dir.path().to_path_buf());
+        let fake_plan = |_trigger: CodexEvaluationTrigger| {
             Some(AutoWatchPlan {
                 args: Vec::new(),
                 log_path: PathBuf::new(),
@@ -477,13 +729,19 @@ mod tests {
 
     #[test]
     fn adaptive_mode_seeds_the_fast_cadence_from_a_trustworthy_initial_reading() {
-        let scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), Some(99));
+        let scheduler = CodexPollScheduler::with_mode(
+            PollMode::Adaptive,
+            PathBuf::new(),
+            PathBuf::new(),
+            Some(99),
+        );
         assert!(scheduler.next_poll_at <= Instant::now() + Duration::from_secs(5));
     }
 
     #[test]
     fn adaptive_mode_without_a_seed_starts_on_the_comfortable_default() {
-        let scheduler = CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), None);
+        let scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
         let delay = scheduler
             .next_poll_at
             .saturating_duration_since(Instant::now());
@@ -492,7 +750,12 @@ mod tests {
 
     #[test]
     fn a_fixed_override_ignores_any_seed() {
-        let scheduler = CodexPollScheduler::with_mode(PollMode::Fixed(7), PathBuf::new(), Some(99));
+        let scheduler = CodexPollScheduler::with_mode(
+            PollMode::Fixed(7),
+            PathBuf::new(),
+            PathBuf::new(),
+            Some(99),
+        );
         let delay = scheduler
             .next_poll_at
             .saturating_duration_since(Instant::now());
@@ -540,7 +803,7 @@ mod tests {
     }
 
     fn due_scheduler(mode: PollMode, state_dir: PathBuf) -> CodexPollScheduler {
-        let mut scheduler = CodexPollScheduler::with_mode(mode, state_dir, None);
+        let mut scheduler = CodexPollScheduler::with_mode(mode, state_dir.clone(), state_dir, None);
         scheduler.next_poll_at = Instant::now();
         scheduler
     }
@@ -549,7 +812,7 @@ mod tests {
     fn a_disabled_scheduler_never_builds_a_plan_or_spawns() {
         let mut scheduler = due_scheduler(PollMode::Disabled, PathBuf::new());
         scheduler.tick(
-            || panic!("disabled must never plan"),
+            |_trigger| panic!("disabled must never plan"),
             |_| panic!("disabled must never spawn"),
         );
     }
@@ -557,7 +820,7 @@ mod tests {
     #[test]
     fn at_most_one_poll_is_ever_in_flight() {
         let mut scheduler = due_scheduler(PollMode::Fixed(60), PathBuf::new());
-        let fake_plan = || {
+        let fake_plan = |_trigger: CodexEvaluationTrigger| {
             Some(AutoWatchPlan {
                 args: Vec::new(),
                 log_path: PathBuf::new(),
@@ -570,7 +833,7 @@ mod tests {
         // Still due (nothing advanced `next_poll_at`), but a child is in flight: must not spawn
         // a second one, and must not even build a new plan.
         scheduler.tick(
-            || panic!("must not plan again while a poll is in flight"),
+            |_trigger| panic!("must not plan again while a poll is in flight"),
             |_| panic!("must not spawn again while a poll is in flight"),
         );
         if let Some(child) = scheduler.child.as_mut() {
@@ -583,7 +846,7 @@ mod tests {
     fn poll_completion_reschedules_adaptively_from_the_published_diagnostic() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut scheduler = due_scheduler(PollMode::Adaptive, dir.path().to_path_buf());
-        let fake_plan = || {
+        let fake_plan = |_trigger: CodexEvaluationTrigger| {
             Some(AutoWatchPlan {
                 args: Vec::new(),
                 log_path: PathBuf::new(),
@@ -598,7 +861,7 @@ mod tests {
         CodexPollDiagnostic::new(2_000, UsageState::NearLimit, Some(99)).write(dir.path());
         wait_until(|| {
             scheduler.tick(
-                || panic!("must not plan while reaping the in-flight child"),
+                |_trigger| panic!("must not plan while reaping the in-flight child"),
                 |_| panic!("must not spawn while reaping the in-flight child"),
             );
             scheduler.child.is_none()
@@ -616,7 +879,7 @@ mod tests {
     fn a_fixed_override_reschedules_at_the_same_interval_regardless_of_the_diagnostic() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut scheduler = due_scheduler(PollMode::Fixed(45), dir.path().to_path_buf());
-        let fake_plan = || {
+        let fake_plan = |_trigger: CodexEvaluationTrigger| {
             Some(AutoWatchPlan {
                 args: Vec::new(),
                 log_path: PathBuf::new(),
@@ -629,7 +892,7 @@ mod tests {
         // ignored entirely under a fixed override.
         CodexPollDiagnostic::new(2_000, UsageState::NearLimit, Some(99)).write(dir.path());
         wait_until(|| {
-            scheduler.tick(|| None, |_| None);
+            scheduler.tick(|_trigger| None, |_| None);
             scheduler.child.is_none()
         });
         let delay = scheduler
@@ -641,7 +904,10 @@ mod tests {
     #[test]
     fn no_fallback_configured_still_reschedules_rather_than_spinning() {
         let mut scheduler = due_scheduler(PollMode::Fixed(30), PathBuf::new());
-        scheduler.tick(|| None, |_| panic!("spawn must never run without a plan"));
+        scheduler.tick(
+            |_trigger| None,
+            |_| panic!("spawn must never run without a plan"),
+        );
         assert!(scheduler.child.is_none());
         let delay = scheduler
             .next_poll_at

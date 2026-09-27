@@ -575,6 +575,7 @@ fn run_managed_terminal_inner(
                     .unwrap_or_else(|| Path::new("codex")),
                 &profile.config_dir,
                 &context.state_dir(),
+                &context.project_state_dir(),
                 known_thread_id,
                 context.json_mode,
             ) {
@@ -650,6 +651,7 @@ fn run_managed_terminal_inner(
         let mut codex_poll = owner_is_codex.then(|| {
             CodexPollScheduler::new(
                 context.state_dir(),
+                context.project_state_dir(),
                 context.take_seeded_codex_max_used_percent(),
             )
         });
@@ -677,7 +679,7 @@ fn run_managed_terminal_inner(
                     report_event_driven_transition(runtime.tick(scheduler), context.json_mode);
                 }
                 scheduler.tick(
-                    || {
+                    |trigger| {
                         let lease = context.lease_store().load().ok().flatten()?;
                         let registered = context.service.list().ok()?;
                         let profile = registered
@@ -690,6 +692,7 @@ fn run_managed_terminal_inner(
                             profile,
                             &lease,
                             &context.canonical_project,
+                            trigger,
                         )
                     },
                     auto_handoff::spawn_detached,

@@ -55,6 +55,37 @@ pub struct AutoWatchPlan {
     pub trigger: &'static str,
 }
 
+/// GitHub #18: why the scheduler decided a Codex authoritative evaluation is due right now — never
+/// inferred later from timing. A real natural exhaustion (2026-09-27) found the durable trace could
+/// not distinguish `ObserverEvent::UsageLimitExceeded` pre-empting the timer from the timer simply
+/// expiring on its own — both collapsed into the same generic `codex_poll` trigger string. This
+/// type is threaded from wherever the scheduler learns the reason (see
+/// `crate::codex_poll::CodexPollScheduler`) through to [`AutoWatchPlan::trigger`], so the durable
+/// auto-handoff trace records the real cause instead of a name that could be either.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum CodexEvaluationTrigger {
+    /// The periodic adaptive/fixed cadence timer expired with nothing else pre-empting it.
+    Timer,
+    /// `relay_provider_codex::observer::ObserverEvent::UsageLimitExceeded` pre-empted the timer.
+    UsageLimitEvent,
+    /// A successful observer attach/reconnect requested one reconciliation read (GitHub #18's
+    /// existing `CodexPollScheduler::request_reconciliation`) — covers both a fresh launch's first
+    /// attach and a reconnect after a gap, deliberately not distinguished further (see
+    /// `codex_runtime`'s own module doc for why).
+    ReconnectReconciliation,
+}
+
+impl CodexEvaluationTrigger {
+    #[must_use]
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Timer => "codex_timer_poll",
+            Self::UsageLimitEvent => "codex_usage_limit_event",
+            Self::ReconnectReconciliation => "codex_reconnect_reconciliation",
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct WatchSchedule {
     attempts: u64,
@@ -128,18 +159,23 @@ pub fn plan(
     ))
 }
 
-/// The plan for one poll of a supervised session whose provider has no limit event to hang a
-/// trigger on (Codex): the same bounded one-shot evaluation as the hook trigger, but a single
-/// attempt with no retry window, for the session the lease says this profile owns right now.
-/// `None` when the profile has nothing to fall back to.
+/// The plan for one evaluation of a supervised session whose provider has no limit event to hang a
+/// trigger on the old way (Codex): the same bounded one-shot evaluation as the Claude hook trigger,
+/// but a single attempt with no retry window, for the session the lease says this profile owns
+/// right now. `trigger` is GitHub #18's typed provenance for *why* this evaluation is due — the
+/// periodic timer, a real `usageLimitExceeded` event, or a post-reconnect reconciliation read (see
+/// [`CodexEvaluationTrigger`]) — recorded verbatim into the durable auto-handoff trace via
+/// [`AutoWatchPlan::trigger`], never inferred later from timing. `None` when the profile has
+/// nothing to fall back to.
 #[must_use]
-pub fn plan_poll(
+pub(crate) fn plan_poll(
     paths: &RelayPaths,
     preferences: &Preferences,
     registered: &[relay_core::Profile],
     profile: &relay_core::Profile,
     lease: &relay_core::handoff::WriterLease,
     project: &Path,
+    trigger: CodexEvaluationTrigger,
 ) -> Option<AutoWatchPlan> {
     if lease.owner_profile != profile.name {
         return None;
@@ -160,7 +196,7 @@ pub fn plan_poll(
         WatchSchedule {
             attempts: 1,
             interval_ms: 0,
-            trigger: "codex_poll",
+            trigger: trigger.as_str(),
         },
         paths.project_state_dir(&project_id).join(LOG_FILE_NAME),
     ))
@@ -359,6 +395,42 @@ pub fn record_supervisor_child_exit(state_dir: &Path) {
     );
 }
 
+/// GitHub #18: a durable, sanitized, single-line record of an event Relay itself observed —
+/// distinct from [`open_log`]'s own "an evaluation was triggered" header, and written *before* it
+/// when the two are causally related (e.g. a real `usageLimitExceeded` observer event that goes on
+/// to pre-empt the timer). Created if it does not yet exist: an observed event can be the very
+/// first thing worth recording for a project, before any evaluation has ever run for it. `label`
+/// must always be one of this module's own fixed trace vocabulary (a `codex_*_received`/`_
+/// requested`/`_coalesced_*` string) — never raw provider output, an account id, or conversation
+/// content, so this is safe to call unconditionally.
+pub(crate) fn trace_event(project_state_dir: &Path, label: &str) {
+    use std::io::Write as _;
+    // An empty path (a test placeholder that never intended to touch the filesystem) must never
+    // silently resolve to a relative `auto-handoff.log` in whatever the current directory happens
+    // to be — `create_dir_all("")` succeeds as a no-op, so this must be checked explicitly.
+    if project_state_dir.as_os_str().is_empty() {
+        return;
+    }
+    if std::fs::create_dir_all(project_state_dir).is_err() {
+        return;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let Ok(mut file) = options.open(project_state_dir.join(LOG_FILE_NAME)) else {
+        return;
+    };
+    let _ignored = writeln!(
+        file,
+        "[trace unix_ms={}] {label}",
+        crate::util::current_unix_ms()
+    );
+}
+
 fn open_log(path: &Path, triggered_unix_ms: u64, trigger: &str) -> Option<std::fs::File> {
     use std::io::Write as _;
     let too_large = std::fs::metadata(path).is_ok_and(|meta| meta.len() > LOG_TRUNCATE_ABOVE_BYTES);
@@ -399,6 +471,70 @@ mod tests {
             .into_iter()
             .map(ToString::to_string)
             .collect()
+    }
+
+    // --- GitHub #18: trigger provenance ---
+
+    #[test]
+    fn each_codex_trigger_has_a_distinct_stable_string() {
+        assert_eq!(CodexEvaluationTrigger::Timer.as_str(), "codex_timer_poll");
+        assert_eq!(
+            CodexEvaluationTrigger::UsageLimitEvent.as_str(),
+            "codex_usage_limit_event"
+        );
+        assert_eq!(
+            CodexEvaluationTrigger::ReconnectReconciliation.as_str(),
+            "codex_reconnect_reconciliation"
+        );
+        let strings = [
+            CodexEvaluationTrigger::Timer.as_str(),
+            CodexEvaluationTrigger::UsageLimitEvent.as_str(),
+            CodexEvaluationTrigger::ReconnectReconciliation.as_str(),
+        ];
+        assert_ne!(strings[0], strings[1]);
+        assert_ne!(strings[0], strings[2]);
+        assert_ne!(strings[1], strings[2]);
+    }
+
+    #[test]
+    fn open_log_records_whichever_trigger_string_it_is_given_never_a_generic_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let log_path = dir.path().join(LOG_FILE_NAME);
+        for trigger in [
+            CodexEvaluationTrigger::Timer.as_str(),
+            CodexEvaluationTrigger::UsageLimitEvent.as_str(),
+            CodexEvaluationTrigger::ReconnectReconciliation.as_str(),
+            "stop_failure_received",
+        ] {
+            open_log(&log_path, 1_000, trigger).expect("log");
+            let contents = std::fs::read_to_string(&log_path).expect("read log");
+            assert!(
+                contents.contains(&format!("] {trigger}")),
+                "expected {trigger} recorded verbatim in {contents}"
+            );
+            std::fs::remove_file(&log_path).expect("reset log between cases");
+        }
+    }
+
+    #[test]
+    fn trace_event_appends_a_timestamped_line_creating_the_log_if_missing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(!dir.path().join(LOG_FILE_NAME).exists());
+        trace_event(dir.path(), "codex_usage_limit_event_received");
+        let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).expect("log");
+        assert!(contents.contains("codex_usage_limit_event_received"));
+        assert_eq!(contents.lines().count(), 1);
+
+        trace_event(
+            dir.path(),
+            "codex_usage_limit_event_coalesced_into_in_flight_evaluation",
+        );
+        let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).expect("log");
+        assert_eq!(
+            contents.lines().count(),
+            2,
+            "each call appends a new line, never overwrites the last one"
+        );
     }
 
     #[test]
