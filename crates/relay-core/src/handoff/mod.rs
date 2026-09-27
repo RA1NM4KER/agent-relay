@@ -23,11 +23,11 @@ pub use continuity::{
 pub use coordinator::{
     ContextCapturer, HandoffCoordinator, HandoffFailure, HandoffRequest, LaunchDirective,
     LaunchOutcome, LivenessVerdict, SessionStager, SessionStopper, SourceLiveness, TargetLauncher,
-    TargetVerification, TransferOutcome, TransferredArtifact,
+    TargetVerification, TransferOutcome, TransferResolution, TransferredArtifact,
 };
 pub use journal::{
-    ArtifactRecord, Checkpoint, HandoffJournal, HandoffStateTimestamp, HandoffTiming, JournalStore,
-    TargetLaunchRecord, VerificationRecord,
+    ArtifactRecord, ArtifactResolutionRecord, Checkpoint, HandoffJournal, HandoffStateTimestamp,
+    HandoffTiming, JournalStore, TargetLaunchRecord, VerificationRecord,
 };
 pub use lease::{LeaseStore, WriterLease};
 pub use lock::{OrchestrationLock, ProcessIdentity};

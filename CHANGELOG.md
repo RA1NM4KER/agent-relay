@@ -4,6 +4,15 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+### Claude session continuation
+
+- **Safe Claude profile round-trips.** Automatic native-session staging now handles a dormant
+  target artifact only when it proves the target is an exact stale ancestor of the current source
+  across the complete transferable artifact set. Relay backs up and hash-verifies every displaced
+  artifact, journals the classification, hashes and backup location, then resumes the same native
+  session. Divergent, ahead, active, unreadable, or ambiguous artifacts remain fail-closed; this
+  is not transcript merging.
+
 ### Codex exhaustion detection
 
 - **Adaptive Codex polling cadence near quota limits (GitHub #13).** A supervised Codex terminal's

@@ -12,8 +12,8 @@ use relay_core::{
     ClaudeConfigMode, Error, Result,
     handoff::{
         LaunchDirective, LivenessVerdict, ProcessIdentity, SessionStager, SessionStopper,
-        SourceLiveness, TargetLauncher, TargetVerification, TransferOutcome, TransferredArtifact,
-        render_bootstrap_prompt,
+        SourceLiveness, TargetLauncher, TargetVerification, TransferOutcome, TransferResolution,
+        TransferredArtifact, render_bootstrap_prompt,
     },
 };
 use serde_json::Value;
@@ -437,8 +437,33 @@ impl SessionStager for ClaudeSessionStager {
         project_dir: &Path,
         session_id: &str,
         source_mode: ClaudeConfigMode,
-        _target_mode: ClaudeConfigMode,
+        target_mode: ClaudeConfigMode,
     ) -> Result<TransferOutcome> {
+        // The coordinator has authoritatively stopped the source before entering this method.
+        // Re-establish that fact before any target mutation, then let the shared conflict
+        // resolver replace only a complete set of provable stale ancestors. This is what makes a
+        // normal main -> backup -> main round-trip safe without granting overwrite permission to
+        // genuine sibling histories.
+        session_transfer::stage_preflight(
+            &SystemProcessLister,
+            source_config_dir,
+            project_dir,
+            session_id,
+            None,
+            source_mode,
+        )?;
+        let mut target_is_active = || {
+            Ok(ClaudeSourceLiveness::new(None, target_mode)
+                .check(target_config_dir, project_dir, session_id, None)?
+                .active)
+        };
+        let resolution = crate::conflict::resolve_stale_session_ancestors(
+            source_config_dir,
+            target_config_dir,
+            project_dir,
+            session_id,
+            &mut target_is_active,
+        )?;
         let report = session_transfer::stage_transfer(
             &SystemProcessLister,
             source_config_dir,
@@ -455,6 +480,25 @@ impl SessionStager for ClaudeSessionStager {
                     relative_path: artifact.relative_path,
                     sha256: artifact.sha256,
                     size_bytes: artifact.size_bytes,
+                })
+                .collect(),
+            resolutions: resolution
+                .resolutions
+                .into_iter()
+                .filter_map(|resolution| {
+                    let crate::ConflictClassification::TargetStaleAncestor {
+                        target_sha256, ..
+                    } = resolution.report.classification
+                    else {
+                        return None;
+                    };
+                    Some(TransferResolution {
+                        relative_path: resolution.report.relative_path,
+                        classification: "target_stale_ancestor".to_owned(),
+                        original_target_sha256: target_sha256,
+                        replacement_sha256: resolution.report.source_sha256,
+                        backup_path: resolution.backup_path?,
+                    })
                 })
                 .collect(),
         })

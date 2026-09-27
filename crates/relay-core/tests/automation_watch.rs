@@ -77,6 +77,7 @@ impl SessionStager for Ports {
                 sha256: "deadbeef".to_owned(),
                 size_bytes: 1,
             }],
+            resolutions: Vec::new(),
         })
     }
 }

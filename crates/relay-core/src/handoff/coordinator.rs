@@ -102,9 +102,21 @@ pub struct TransferredArtifact {
     pub size_bytes: u64,
 }
 
+/// Sanitized evidence for an automatic stale-ancestor replacement. Transcript bytes are never
+/// journaled; hashes, path and preserved backup are sufficient for recovery and audit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransferResolution {
+    pub relative_path: String,
+    pub classification: String,
+    pub original_target_sha256: String,
+    pub replacement_sha256: String,
+    pub backup_path: PathBuf,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct TransferOutcome {
     pub artifacts: Vec<TransferredArtifact>,
+    pub resolutions: Vec<TransferResolution>,
 }
 
 /// Stages the session's artifacts from source to target. `relay-provider-claude` implements this
@@ -657,6 +669,17 @@ impl HandoffCoordinator<'_> {
                         relative_path: artifact.relative_path.clone(),
                         sha256: artifact.sha256.clone(),
                         size_bytes: artifact.size_bytes,
+                    })
+                    .collect();
+                journal.transfer_resolutions = transfer
+                    .resolutions
+                    .iter()
+                    .map(|resolution| crate::handoff::ArtifactResolutionRecord {
+                        relative_path: resolution.relative_path.clone(),
+                        classification: resolution.classification.clone(),
+                        original_target_sha256: resolution.original_target_sha256.clone(),
+                        replacement_sha256: resolution.replacement_sha256.clone(),
+                        backup_path: resolution.backup_path.clone(),
                     })
                     .collect();
             }

@@ -345,11 +345,14 @@ pub fn discover_session(
             .filter_map(|entry| {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                (name.starts_with(&sidecar_prefix) && name.ends_with(".jsonl"))
-                    .then(|| entry.path())
+                let path = entry.path();
+                (name.starts_with(&sidecar_prefix) && name.ends_with(".jsonl")).then_some(path)
             })
             .collect();
         sidecars.sort();
+        for sidecar in &sidecars {
+            reject_symlink(sidecar)?;
+        }
         artifacts.extend(sidecars);
     }
     Ok(artifacts)

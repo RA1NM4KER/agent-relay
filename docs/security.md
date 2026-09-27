@@ -156,7 +156,13 @@ Mitigations:
 - stop and verify the source before discovery/copy;
 - compute artifact hashes and sizes before and after copy;
 - stage on the destination filesystem, sync, and atomically rename;
-- detect an existing destination and refuse if it is not byte-identical;
+- detect an existing destination and refuse if it is not byte-identical, except for a complete
+  Claude artifact set whose every differing destination artifact is cryptographically proven to
+  be an exact stale prefix of its source and whose target session is proven dormant;
+- for that narrow stale-ancestor case, preserve and hash-verify a backup before atomically
+  replacing each artifact, record the hashes/classification/backup path in the handoff journal,
+  and re-check target liveness immediately before mutation; ahead, divergent, active, unreadable,
+  or ambiguous artifacts still refuse;
 - retain the source and use backups for Relay-created destination artifacts;
 - version-gate layouts and refuse unknown schemas;
 - test crash points around every artifact transition.

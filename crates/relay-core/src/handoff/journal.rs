@@ -68,6 +68,16 @@ pub struct ArtifactRecord {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ArtifactResolutionRecord {
+    pub relative_path: String,
+    pub classification: String,
+    pub original_target_sha256: String,
+    pub replacement_sha256: String,
+    pub backup_path: PathBuf,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerificationRecord {
     pub target_profile: ProfileName,
     pub target_session_id: String,
@@ -110,6 +120,8 @@ pub struct HandoffJournal {
     pub updated_unix_ms: u64,
     pub checkpoint: Option<Checkpoint>,
     pub transferred_artifacts: Vec<ArtifactRecord>,
+    #[serde(default)]
+    pub transfer_resolutions: Vec<ArtifactResolutionRecord>,
     /// Set only for `STATE_CONTINUATION` transactions, once the bundle has been built. Content
     /// is never stored here — see [`BundleSummary`].
     #[serde(default)]
@@ -161,6 +173,7 @@ impl HandoffJournal {
             updated_unix_ms: now,
             checkpoint: None,
             transferred_artifacts: Vec::new(),
+            transfer_resolutions: Vec::new(),
             bundle_summary: None,
             verification: None,
             target_launch: None,

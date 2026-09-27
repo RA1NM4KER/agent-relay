@@ -12,7 +12,8 @@ use relay_core::{
         HandoffTiming, JournalStore, LaunchDirective, LeaseStore, LivenessVerdict,
         OrchestrationLock, ProcessIdentity, ProjectId, SessionStager, SessionStopper,
         SourceLiveness, TargetLauncher, TargetVerification, TransactionId, TransferOutcome,
-        TransferredArtifact, WorkingStateStore, WorkingStateUpdate, WriterLease,
+        TransferResolution, TransferredArtifact, WorkingStateStore, WorkingStateUpdate,
+        WriterLease,
     },
 };
 use tempfile::tempdir;
@@ -129,6 +130,13 @@ impl SessionStager for OkStager {
                 relative_path: format!("projects/proj/{session_id}.jsonl"),
                 sha256: "deadbeef".to_owned(),
                 size_bytes: 42,
+            }],
+            resolutions: vec![TransferResolution {
+                relative_path: format!("projects/proj/{session_id}.jsonl"),
+                classification: "target_stale_ancestor".to_owned(),
+                original_target_sha256: "old".to_owned(),
+                replacement_sha256: "deadbeef".to_owned(),
+                backup_path: PathBuf::from("/safe/backup.jsonl"),
             }],
         })
     }
@@ -260,6 +268,11 @@ fn successful_handoff_reaches_complete_and_updates_the_lease() {
 
     assert_eq!(journal.state, HandoffState::Complete);
     assert_eq!(journal.transferred_artifacts.len(), 1);
+    assert_eq!(journal.transfer_resolutions.len(), 1);
+    assert_eq!(
+        journal.transfer_resolutions[0].classification,
+        "target_stale_ancestor"
+    );
     assert!(journal.verification.is_some());
     assert!(journal.checkpoint.is_some());
     assert_eq!(journal.continuity_type, ContinuityType::SessionContinuation);

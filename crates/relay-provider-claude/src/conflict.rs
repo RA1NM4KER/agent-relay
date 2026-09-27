@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::SystemProcessLister;
-use crate::session_transfer::{escape_project_path, stage_transfer, validate_session_id};
+use crate::session_transfer::{
+    discover_session, escape_project_path, stage_transfer, validate_session_id,
+};
 
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
@@ -138,6 +140,14 @@ pub struct ConflictResolution {
     pub action: String,
     pub backup_path: Option<PathBuf>,
     pub dry_run: bool,
+}
+
+/// Resolution records produced while staging a complete native Claude session.  Automatic
+/// handoff uses this rather than treating the primary transcript as a special case: a sidecar
+/// that is not equally safe makes the whole operation refuse before any target is changed.
+#[derive(Clone, Debug, Serialize)]
+pub struct SessionConflictResolution {
+    pub resolutions: Vec<ConflictResolution>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -275,11 +285,30 @@ fn backup_and_replace(
         "projects/{}/{session_id}.jsonl",
         escape_project_path(project_dir)
     );
-    let source_bytes =
-        fs::read(source_config_dir.join(&relative_path)).map_err(|source| Error::Io {
-            path: source_config_dir.join(&relative_path),
-            source,
-        })?;
+    let source_path = source_config_dir.join(&relative_path);
+    let source_bytes = fs::read(&source_path).map_err(|source| Error::Io {
+        path: source_path,
+        source,
+    })?;
+    backup_and_replace_artifact(
+        target_config_dir,
+        target_path,
+        project_dir,
+        session_id,
+        &source_bytes,
+    )
+}
+
+/// Back up one already-classified target artifact and atomically install the exact source bytes.
+/// The caller must have planned the *entire* artifact set first; this helper deliberately does no
+/// classification of its own so it cannot accidentally make a partial decision.
+fn backup_and_replace_artifact(
+    target_config_dir: &Path,
+    target_path: &Path,
+    project_dir: &Path,
+    session_id: &str,
+    source_bytes: &[u8],
+) -> Result<PathBuf> {
     let existing_target_bytes = fs::read(target_path).map_err(|source| Error::Io {
         path: target_path.to_path_buf(),
         source,
@@ -306,16 +335,133 @@ fn backup_and_replace(
         return Err(Error::TransferVerificationFailed);
     }
 
-    FsAtomicWriter.write_atomic(target_path, &source_bytes)?;
+    FsAtomicWriter.write_atomic(target_path, source_bytes)?;
     let written = fs::read(target_path).map_err(|source| Error::Io {
         path: target_path.to_path_buf(),
         source,
     })?;
-    if sha256_hex(&written) != sha256_hex(&source_bytes) {
+    if sha256_hex(&written) != sha256_hex(source_bytes) {
         return Err(Error::TransferVerificationFailed);
     }
 
     Ok(backup_path)
+}
+
+/// Resolve only proven stale ancestors across the complete artifact set for one Claude native
+/// session. The callback is intentionally invoked before planning and again immediately before
+/// every mutation: an active or unobservable target is never overwritten. Missing and identical
+/// artifacts are left for ordinary `stage_transfer`; every other relationship refuses.
+pub fn resolve_stale_session_ancestors(
+    source_config_dir: &Path,
+    target_config_dir: &Path,
+    project_dir: &Path,
+    session_id: &str,
+    target_is_active: &mut dyn FnMut() -> Result<bool>,
+) -> Result<SessionConflictResolution> {
+    validate_session_id(session_id)?;
+    if target_is_active()? {
+        return Err(Error::ConflictRequiresResolution(
+            "target session is currently active and cannot be touched".to_owned(),
+        ));
+    }
+
+    struct Planned {
+        report: ConflictReport,
+        target_path: PathBuf,
+        source_bytes: Vec<u8>,
+    }
+    let mut planned = Vec::new();
+    for source_path in discover_session(source_config_dir, project_dir, session_id)? {
+        let relative = source_path
+            .strip_prefix(source_config_dir)
+            .map_err(|_| Error::SessionNotFound)?
+            .to_string_lossy()
+            .into_owned();
+        let source_bytes = fs::read(&source_path).map_err(|source| Error::Io {
+            path: source_path.clone(),
+            source,
+        })?;
+        let target_path = target_config_dir.join(&relative);
+        if fs::symlink_metadata(&target_path)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return Err(Error::SymbolicLink(target_path));
+        }
+        let classification = match fs::read(&target_path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                ConflictClassification::TargetMissing
+            }
+            Err(source) => {
+                return Err(Error::Io {
+                    path: target_path,
+                    source,
+                });
+            }
+            Ok(target_bytes) if target_bytes == source_bytes => {
+                ConflictClassification::TargetIdentical
+            }
+            Ok(target_bytes) if source_bytes.starts_with(&target_bytes) => {
+                ConflictClassification::TargetStaleAncestor {
+                    target_sha256: sha256_hex(&target_bytes),
+                    target_size_bytes: target_bytes.len() as u64,
+                }
+            }
+            Ok(target_bytes) => ConflictClassification::TargetDivergent {
+                target_sha256: sha256_hex(&target_bytes),
+                target_size_bytes: target_bytes.len() as u64,
+            },
+        };
+        if matches!(
+            classification,
+            ConflictClassification::TargetDivergent { .. }
+        ) {
+            return Err(Error::TargetArtifactDiverges);
+        }
+        planned.push(Planned {
+            report: ConflictReport {
+                relative_path: relative,
+                source_sha256: sha256_hex(&source_bytes),
+                source_size_bytes: source_bytes.len() as u64,
+                classification,
+            },
+            target_path,
+            source_bytes,
+        });
+    }
+
+    let mut resolutions = Vec::new();
+    for artifact in planned {
+        if !artifact.report.classification.is_safe_to_replace() {
+            continue;
+        }
+        if target_is_active()? {
+            return Err(Error::ConflictRequiresResolution(
+                "target session became active before stale artifact replacement".to_owned(),
+            ));
+        }
+        let backup = backup_and_replace_artifact(
+            target_config_dir,
+            &artifact.target_path,
+            project_dir,
+            session_id,
+            &artifact.source_bytes,
+        )?;
+        write_resolution_record(
+            target_config_dir,
+            project_dir,
+            session_id,
+            &artifact.report,
+            "backed_up_and_replaced_stale_ancestor",
+            Some(&backup),
+        )?;
+        resolutions.push(ConflictResolution {
+            report: artifact.report,
+            action: "backed_up_and_replaced_stale_ancestor".to_owned(),
+            backup_path: Some(backup),
+            dry_run: false,
+        });
+    }
+    Ok(SessionConflictResolution { resolutions })
 }
 
 fn write_resolution_record(
@@ -424,7 +570,7 @@ mod tests {
 
     use super::{
         ConflictClassification, ResolveDecision, inspect_conflict, read_resolution_record,
-        resolve_conflict, rollback_conflict,
+        resolve_conflict, resolve_stale_session_ancestors, rollback_conflict,
     };
     use crate::escape_project_path;
 
@@ -439,6 +585,20 @@ mod tests {
             .join(escape_project_path(project_dir));
         std::fs::create_dir_all(&dir).expect("dir");
         std::fs::write(dir.join(format!("{session_id}.jsonl")), bytes).expect("write");
+    }
+
+    fn seed_sidecar(
+        config_dir: &std::path::Path,
+        project_dir: &std::path::Path,
+        session_id: &str,
+        suffix: &str,
+        bytes: &[u8],
+    ) {
+        let dir = config_dir
+            .join("projects")
+            .join(escape_project_path(project_dir));
+        std::fs::create_dir_all(&dir).expect("dir");
+        std::fs::write(dir.join(format!("{session_id}-{suffix}.jsonl")), bytes).expect("write");
     }
 
     const SESSION_ID: &str = "11111111-2222-3333-4444-555555555555";
@@ -606,6 +766,91 @@ mod tests {
         )
         .expect("target replaced");
         assert_eq!(target_bytes, b"line1\nline2\n");
+    }
+
+    #[test]
+    fn automatic_resolution_replaces_a_complete_set_of_stale_ancestors() {
+        let root = tempdir().expect("temp dir");
+        let source = root.path().join("source");
+        let target = root.path().join("target");
+        let project = root.path().join("proj");
+        seed(&source, &project, SESSION_ID, b"main-a\nmain-b\n");
+        seed(&target, &project, SESSION_ID, b"main-a\n");
+        seed_sidecar(&source, &project, SESSION_ID, "agent", b"side-a\nside-b\n");
+        seed_sidecar(&target, &project, SESSION_ID, "agent", b"side-a\n");
+
+        let mut dormant = || Ok(false);
+        let resolution =
+            resolve_stale_session_ancestors(&source, &target, &project, SESSION_ID, &mut dormant)
+                .expect("resolve all stale artifacts");
+        assert_eq!(resolution.resolutions.len(), 2);
+        let session_dir = target.join("projects").join(escape_project_path(&project));
+        assert_eq!(
+            std::fs::read(session_dir.join(format!("{SESSION_ID}.jsonl"))).unwrap(),
+            b"main-a\nmain-b\n"
+        );
+        assert_eq!(
+            std::fs::read(session_dir.join(format!("{SESSION_ID}-agent.jsonl"))).unwrap(),
+            b"side-a\nside-b\n"
+        );
+        assert!(
+            resolution
+                .resolutions
+                .iter()
+                .all(|item| item.backup_path.as_ref().is_some_and(|path| path.is_file()))
+        );
+    }
+
+    #[test]
+    fn automatic_resolution_refuses_everything_when_a_sidecar_diverges() {
+        let root = tempdir().expect("temp dir");
+        let source = root.path().join("source");
+        let target = root.path().join("target");
+        let project = root.path().join("proj");
+        seed(&source, &project, SESSION_ID, b"main-a\nmain-b\n");
+        seed(&target, &project, SESSION_ID, b"main-a\n");
+        seed_sidecar(&source, &project, SESSION_ID, "agent", b"side-a\nside-b\n");
+        seed_sidecar(&target, &project, SESSION_ID, "agent", b"unrelated\n");
+
+        let mut dormant = || Ok(false);
+        let error =
+            resolve_stale_session_ancestors(&source, &target, &project, SESSION_ID, &mut dormant)
+                .expect_err("sidecar conflict must refuse before replacing the primary");
+        assert_eq!(error.code(), "target_artifact_diverges");
+        let target_primary = target
+            .join("projects")
+            .join(escape_project_path(&project))
+            .join(format!("{SESSION_ID}.jsonl"));
+        assert_eq!(std::fs::read(target_primary).unwrap(), b"main-a\n");
+    }
+
+    #[test]
+    fn automatic_resolution_rechecks_liveness_before_mutation() {
+        let root = tempdir().expect("temp dir");
+        let source = root.path().join("source");
+        let target = root.path().join("target");
+        let project = root.path().join("proj");
+        seed(&source, &project, SESSION_ID, b"line1\nline2\n");
+        seed(&target, &project, SESSION_ID, b"line1\n");
+        let mut checks = 0;
+        let mut changes_to_active = || {
+            checks += 1;
+            Ok(checks > 1)
+        };
+        let error = resolve_stale_session_ancestors(
+            &source,
+            &target,
+            &project,
+            SESSION_ID,
+            &mut changes_to_active,
+        )
+        .expect_err("a target that becomes active must not be replaced");
+        assert_eq!(error.code(), "conflict_requires_resolution");
+        let target_primary = target
+            .join("projects")
+            .join(escape_project_path(&project))
+            .join(format!("{SESSION_ID}.jsonl"));
+        assert_eq!(std::fs::read(target_primary).unwrap(), b"line1\n");
     }
 
     #[test]
