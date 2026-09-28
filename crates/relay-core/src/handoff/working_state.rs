@@ -118,6 +118,10 @@ pub struct FailedAttempt {
     pub reason: String,
     #[serde(default)]
     pub relevant_files: Option<Vec<String>>,
+    /// Relay assigns this when it applies a caller-supplied update. It remains required in the
+    /// persisted snapshot, but callers must not need to manufacture an internal timestamp just
+    /// to record a failed attempt.
+    #[serde(default)]
     pub recorded_unix_ms: u64,
 }
 
@@ -580,6 +584,24 @@ mod tests {
         assert_eq!(loaded.decisions.len(), 1);
         assert_eq!(loaded.decisions[0].status, EntryStatus::Active);
         assert_eq!(loaded.updated_unix_ms, 1_000);
+    }
+
+    #[test]
+    fn failed_attempt_update_does_not_require_a_caller_supplied_timestamp() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let s = store(dir.path());
+        let update: WorkingStateUpdate = serde_json::from_value(serde_json::json!({
+            "add_failed_attempts": [{
+                "approach": "refresh Homebrew",
+                "reason": "the Cellar is not writable"
+            }]
+        }))
+        .expect("the documented update shape must deserialize");
+
+        s.update(update, 1_234).expect("update");
+        let loaded = s.load().expect("load").expect("present");
+        assert_eq!(loaded.failed_attempts.len(), 1);
+        assert_eq!(loaded.failed_attempts[0].recorded_unix_ms, 1_234);
     }
 
     #[test]
