@@ -313,6 +313,21 @@ pub struct InstallPlan {
     command_files: Vec<(PathBuf, CommandFilePlan, String)>,
 }
 
+impl InstallPlan {
+    /// Whether applying this plan would write Relay-owned state. Informational messages about a
+    /// foreign command file deliberately do not count: refresh must report it without making
+    /// repeated refreshes look like changes.
+    #[must_use]
+    pub fn has_pending_writes(&self) -> bool {
+        !self.already_installed
+            && (self.original.as_deref() != Some(self.new_settings.as_slice())
+                || self
+                    .command_files
+                    .iter()
+                    .any(|(_, plan, _)| *plan == CommandFilePlan::Write))
+    }
+}
+
 fn refuse(message: impl Into<String>) -> Error {
     Error::IntegrationRefused(message.into())
 }
@@ -1324,5 +1339,26 @@ mod tests {
         apply_uninstall(&plan_uninstall(dir.path()).unwrap()).unwrap();
         assert!(!dir.path().join("commands/relay").exists());
         assert!(!dir.path().join("commands/relay.md").exists());
+    }
+
+    #[test]
+    fn a_foreign_command_is_reported_but_does_not_make_refresh_non_idempotent() {
+        let dir = tempdir().unwrap();
+        install(dir.path());
+        let foreign = dir.path().join("commands/relay/status.md");
+        fs::write(&foreign, "user-owned status command\n").unwrap();
+
+        let first = plan_install(dir.path(), Path::new(RELAY)).unwrap();
+        assert!(
+            first
+                .changes
+                .iter()
+                .any(|change| change.contains("untouched"))
+        );
+        assert!(!first.has_pending_writes());
+        assert_eq!(
+            fs::read_to_string(foreign).unwrap(),
+            "user-owned status command\n"
+        );
     }
 }

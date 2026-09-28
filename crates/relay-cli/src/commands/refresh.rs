@@ -27,9 +27,11 @@ pub(crate) fn run(service: &ProfileService) -> Result<CommandOutput, Error> {
                     continue;
                 }
                 let plan = plan_install(&profile.config_dir, &executable)?;
-                let changed = !plan.already_installed;
+                let changed = plan.has_pending_writes();
                 let changes = plan.changes.clone();
-                apply_install(&plan, current_unix_ms())?;
+                if changed {
+                    apply_install(&plan, current_unix_ms())?;
+                }
                 results.push(json!({"profile": profile.name, "provider": "claude", "status": if changed { "refreshed" } else { "current" }, "changes": changes}));
             }
             ProviderKind::Codex => {
