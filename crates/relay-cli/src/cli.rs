@@ -223,6 +223,19 @@ pub(crate) enum TaskCommand {
         #[arg(long)]
         summary: String,
     },
+    /// Consume an explicit durable result for an already-claimed task. This is the only command
+    /// that may apply the narrowly defined GitHub lifecycle transition for that result.
+    ApplyResult {
+        issue: u64,
+        /// Must be exactly `refs/heads/relay/claims/<issue>`.
+        #[arg(long)]
+        claim_ref: String,
+        /// Relay Session bound into the durable result evidence.
+        #[arg(long)]
+        session: String,
+        #[arg(long = "project", value_name = "PATH")]
+        project_dir: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -1239,5 +1252,30 @@ mod tests {
         assert_eq!(issue, 21);
         assert!(matches!(result, super::TaskResultValue::Continuing));
         assert!(Cli::try_parse_from(["relay", "task", "result", "21"]).is_err());
+    }
+
+    #[test]
+    fn task_apply_result_requires_every_explicit_binding() {
+        let cli = Cli::try_parse_from([
+            "relay",
+            "task",
+            "apply-result",
+            "21",
+            "--claim-ref",
+            "refs/heads/relay/claims/21",
+            "--session",
+            "11111111-1111-4111-8111-111111111111",
+            "--project",
+            "/tmp/project",
+        ])
+        .expect("parses");
+        let Command::Task(args) = cli.command else {
+            panic!("expected Task");
+        };
+        let super::TaskCommand::ApplyResult { issue, .. } = args.command else {
+            panic!("expected apply-result subcommand");
+        };
+        assert_eq!(issue, 21);
+        assert!(Cli::try_parse_from(["relay", "task", "apply-result", "21"]).is_err());
     }
 }

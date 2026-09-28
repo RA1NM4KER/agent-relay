@@ -53,3 +53,22 @@ The record is evidence only. It does not delete the claim ref, edit labels/comme
 Issue, start a provider, advance the queue, or infer PR/review state. `continuing` is explicit
 permission only to continue the same task; `blocked` and `completed` are evidence a later explicit
 lifecycle command may consume after independently verifying the same claim.
+
+## Applying explicit results
+
+`relay task apply-result <issue> --claim-ref refs/heads/relay/claims/<issue> --session
+<relay-session> --project <path>` is the explicit consumer. It first loads the exact local
+`task_result.json` binding with `TaskResultStore::require_for`, then independently verifies the
+same remote ref, Relay-owned claim comment, and visible Issue state. Missing, corrupt, stale, or
+mismatched evidence is a hard stop; it never infers a result from a provider, transcript, working
+state, branch, or CI.
+
+- `continuing` changes nothing on GitHub and reports that the same active claim may continue.
+- `blocked` adds `relay:blocked`, removes only `relay:claimed`, and retains the deterministic
+  claim ref and Relay comment. Foreign labels remain untouched. A partially applied attempt is
+  visible as both Relay labels; rerunning the same validated command may finish only that exact
+  label transition. A fully blocked state is idempotent.
+- `completed` validates the evidence and active claim but changes nothing. #7 has not defined a
+  review-ready GitHub state, an authoritative PR identity check, or a safe claim-release rule;
+  closing the Issue, guessing a PR, or deleting the ref would invent authority. A later explicit
+  contract must define those facts before this result can transition further.
