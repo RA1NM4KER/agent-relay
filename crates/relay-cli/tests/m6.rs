@@ -8,6 +8,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tempfile::tempdir;
 
 use relay_provider_claude::AUTHENTICATION_OVERRIDE_VARIABLES as CLAUDE_AUTH_OVERRIDE_VARIABLES;
@@ -1041,6 +1042,147 @@ fn refresh_only_reconciles_previously_installed_relay_assets() {
         std::fs::read(root.path().join("config/profiles.toml")).unwrap(),
         profiles_before
     );
+}
+
+/// Issue #14's refresh contract is intentionally broader than the active fallback set: every
+/// registered profile with a proven Relay-owned integration is reconciled, while a profile that
+/// merely happens to be registered remains untouched.  This also models a binary-channel change
+/// by replacing the old executable path in managed Claude settings before invoking the currently
+/// running test binary.
+#[test]
+fn refresh_reconciles_owned_assets_across_profiles_without_changing_user_configuration() {
+    let root = tempdir().unwrap();
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    let codex = FakeCodex::new(root.path(), "codex-main", "thread-refresh-owned");
+    let spare = FakeCodex::new(root.path(), "codex-spare", "thread-refresh-spare");
+    login_claude(root.path(), "alice", &claude);
+    login_codex(root.path(), "codex-main", &codex);
+    login_codex(root.path(), "codex-spare", &spare);
+
+    let installed = relay(
+        root.path(),
+        &[
+            "integration",
+            "claude",
+            "install",
+            "--profile",
+            "alice",
+            "--claude-executable",
+            &claude.path_text(),
+        ],
+    );
+    assert!(installed.status.success(), "{:?}", installed);
+    let installed = relay(
+        root.path(),
+        &["integration", "codex", "install", "--profile", "codex-main"],
+    );
+    assert!(installed.status.success(), "{:?}", installed);
+
+    // Model a prior Relay binary's skill.  Its sidecar hash proves it is Relay-owned and
+    // unedited, which is the only case refresh may replace.
+    let codex_dir = root.path().join("config/profiles/codex-main/codex");
+    let codex_skill = codex_dir.join("skills/relay/SKILL.md");
+    let old_skill = "# old Relay skill\n";
+    std::fs::write(&codex_skill, old_skill).unwrap();
+    let old_skill_hash = format!("{:x}", Sha256::digest(old_skill.as_bytes()));
+    std::fs::write(
+        codex_dir.join("skills/relay/.relay-managed.json"),
+        serde_json::json!({"version": 1, "sha256": old_skill_hash}).to_string(),
+    )
+    .unwrap();
+
+    let profiles = root.path().join("config/profiles.toml");
+    let profiles_before = std::fs::read(&profiles).unwrap();
+    let claude_dir = root.path().join("config/profiles/alice/claude");
+    let settings_path = claude_dir.join("settings.json");
+    let mut settings: Value =
+        serde_json::from_slice(&std::fs::read(&settings_path).unwrap()).unwrap();
+    let old = "/usr/local/bin/relay";
+    let statusline = settings["statusLine"]["command"]
+        .as_str()
+        .unwrap()
+        .replace(env!("CARGO_BIN_EXE_relay"), old);
+    settings["statusLine"]["command"] = Value::String(statusline);
+    let hook = settings["hooks"]["StopFailure"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap()
+        .replace(env!("CARGO_BIN_EXE_relay"), old);
+    settings["hooks"]["StopFailure"][0]["hooks"][0]["command"] = Value::String(hook);
+    std::fs::write(&settings_path, serde_json::to_vec(&settings).unwrap()).unwrap();
+
+    // A newly introduced managed command is restored, while an independently-owned command at
+    // another Relay command path is never overwritten.
+    let restored_command = claude_dir.join("commands/relay/history.md");
+    std::fs::remove_file(&restored_command).unwrap();
+    let foreign_command = claude_dir.join("commands/relay/status.md");
+    std::fs::write(&foreign_command, "my status command\n").unwrap();
+
+    let output = relay(root.path(), &["refresh"]);
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let results = json_stdout(&output)["data"]["results"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(results.len(), 3);
+    assert!(
+        results
+            .iter()
+            .any(|result| result["profile"] == "alice" && result["status"] == "refreshed")
+    );
+    assert!(
+        results
+            .iter()
+            .any(|result| result["profile"] == "codex-main" && result["status"] == "refreshed")
+    );
+    assert!(
+        results
+            .iter()
+            .any(|result| result["profile"] == "codex-spare" && result["status"] == "skipped")
+    );
+    let refreshed = std::fs::read_to_string(&settings_path).unwrap();
+    assert!(
+        refreshed.contains(env!("CARGO_BIN_EXE_relay")),
+        "{refreshed}"
+    );
+    assert!(!refreshed.contains(old), "{refreshed}");
+    assert!(restored_command.exists());
+    assert!(
+        std::fs::read_to_string(&codex_skill)
+            .unwrap()
+            .contains("$relay")
+    );
+    assert_eq!(
+        std::fs::read_to_string(&foreign_command).unwrap(),
+        "my status command\n"
+    );
+    assert_eq!(std::fs::read(&profiles).unwrap(), profiles_before);
+
+    // The foreign-file report is informational rather than a write, so a second refresh is a
+    // genuine no-op despite continuing to surface the protected file to the user.
+    let after_first = std::fs::read(&settings_path).unwrap();
+    let second = relay(root.path(), &["refresh"]);
+    assert!(second.status.success());
+    let results = &json_stdout(&second)["data"]["results"];
+    assert!(
+        results
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| { result["profile"] == "alice" && result["status"] == "current" })
+    );
+    assert_eq!(std::fs::read(&settings_path).unwrap(), after_first);
+    assert_eq!(std::fs::read(&profiles).unwrap(), profiles_before);
 }
 
 #[test]
