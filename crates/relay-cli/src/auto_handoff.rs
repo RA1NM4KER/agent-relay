@@ -450,9 +450,12 @@ pub fn record_supervisor_child_exit(state_dir: &Path) {
 /// when the two are causally related (e.g. a real `usageLimitExceeded` observer event that goes on
 /// to pre-empt the timer). Created if it does not yet exist: an observed event can be the very
 /// first thing worth recording for a project, before any evaluation has ever run for it. `label`
-/// must always be one of this module's own fixed trace vocabulary (a `codex_*_received`/`_
-/// requested`/`_coalesced_*` string) — never raw provider output, an account id, or conversation
-/// content, so this is safe to call unconditionally.
+/// must always be one of this module's/`codex_runtime`'s own fixed trace vocabulary (a bounded,
+/// hand-written `codex_*` string naming what happened, e.g. `_received`/`_requested`/
+/// `_coalesced_*` for an observer event, or `_failed`/`_spawned`/`_gave_up`/`_disconnected`/
+/// `_error_*` for the event-driven runtime's own lifecycle — see `codex_runtime`'s call sites) —
+/// never raw provider output, an account id, or conversation content, so this is safe to call
+/// unconditionally.
 pub(crate) fn trace_event(project_state_dir: &Path, label: &str) {
     use std::io::Write as _;
     // An empty path (a test placeholder that never intended to touch the filesystem) must never

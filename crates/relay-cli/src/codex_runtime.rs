@@ -20,6 +20,16 @@
 //! rejected) falls back to launching the interactive command exactly as before, and is never
 //! surfaced as a startup failure.
 //!
+//! **Observability (GitHub #18 follow-up).** A real natural exhaustion, dogfooded under
+//! `RELAY_CODEX_EVENT_DRIVEN=1`, produced zero durable trace of this module's own attach lifecycle
+//! — only ephemeral stderr — leaving no way to tell "never opted in," "never got past spawn," and
+//! "spawned but never once attached" apart after the fact. Every early exit/failure in
+//! [`EventDrivenRuntime::start`] past the env-gate check, every [`TickEvent::GaveUp`]/
+//! [`TickEvent::Reconnecting`] transition, and every *distinct* [`ObserverError`] kind the attach
+//! worker sees (coalesced, not one line per retry) now writes one bounded, sanitized
+//! `crate::auto_handoff::trace_event` line — never changes what runs, only what can be proven
+//! about it afterward.
+//!
 //! ## Attach/reconnect state machine (GitHub #18)
 //!
 //! ```text
@@ -202,6 +212,15 @@ impl EventDrivenRuntime {
     /// failure up to and including the app-server spawn itself, silently — callers must always
     /// still launch the interactive command, just without `--remote`, exactly as before GitHub
     /// #16.
+    ///
+    /// GitHub #18 (observability follow-up): a real natural exhaustion, dogfooded under
+    /// `RELAY_CODEX_EVENT_DRIVEN=1`, produced zero `codex_usage_limit_event_received` or
+    /// `codex_reconnect_reconciliation_requested` trace lines across the entire supervised
+    /// session, and this method's own silent-`None` design meant there was no durable way to tell
+    /// "never even attempted" from "attempted and failed" after the fact. Every early exit past
+    /// the env-gate check (an operator's own explicit opt-out, not worth a trace) now leaves a
+    /// bounded, durable breadcrumb — never raw provider output, an account id, or conversation
+    /// content — so the *next* natural exhaustion can prove exactly how far this got.
     pub(crate) fn start(
         codex_executable: &Path,
         config_dir: &Path,
@@ -214,12 +233,32 @@ impl EventDrivenRuntime {
             return None;
         }
         if !version_verified(codex_executable) {
+            crate::auto_handoff::trace_event(
+                project_state_dir,
+                "codex_event_driven_version_unverified",
+            );
             return None;
         }
         reconcile_before_launch(state_dir, json_mode);
 
-        let endpoint = allocate_endpoint().ok()?;
-        let handle = AppServerHandle::spawn(codex_executable, config_dir, &endpoint).ok()?;
+        let Ok(endpoint) = allocate_endpoint() else {
+            crate::auto_handoff::trace_event(
+                project_state_dir,
+                "codex_event_driven_endpoint_allocation_failed",
+            );
+            return None;
+        };
+        let Ok(handle) = AppServerHandle::spawn(codex_executable, config_dir, &endpoint) else {
+            crate::auto_handoff::trace_event(
+                project_state_dir,
+                "codex_event_driven_app_server_spawn_failed",
+            );
+            return None;
+        };
+        crate::auto_handoff::trace_event(
+            project_state_dir,
+            "codex_event_driven_app_server_spawned",
+        );
         write_record(
             state_dir,
             &CodexRuntimeRecord {
@@ -233,6 +272,7 @@ impl EventDrivenRuntime {
             config_dir.to_path_buf(),
             thread_id.map(str::to_owned),
             handle.identity.clone(),
+            project_state_dir.to_path_buf(),
         );
         Some(Self {
             handle,
@@ -285,6 +325,13 @@ impl EventDrivenRuntime {
                     TickEvent::Attached(thread_id)
                 }
                 Ok(AttachOutcome::GaveUp) => {
+                    // GitHub #18 (observability follow-up): previously only an ephemeral stderr
+                    // print — a session that gave up permanently before ever attaching left no
+                    // durable trace distinguishing it from "never opted in at all."
+                    crate::auto_handoff::trace_event(
+                        &self.project_state_dir,
+                        "codex_event_driven_attach_worker_gave_up",
+                    );
                     self.state = AttachState::Dead;
                     TickEvent::GaveUp
                 }
@@ -308,11 +355,18 @@ impl EventDrivenRuntime {
                 }
                 if disconnected {
                     let known_thread_id = observer.thread_id.clone();
+                    // GitHub #18 (observability follow-up): a mid-session disconnect previously
+                    // left the same kind of durable gap as a `GaveUp` that never attached.
+                    crate::auto_handoff::trace_event(
+                        &self.project_state_dir,
+                        "codex_event_driven_observer_disconnected",
+                    );
                     self.state = spawn_attach_worker(
                         self.handle.endpoint.clone(),
                         self.codex_home.clone(),
                         Some(known_thread_id.clone()),
                         self.handle.identity.clone(),
+                        self.project_state_dir.clone(),
                     );
                     TickEvent::Reconnecting(known_thread_id)
                 } else {
@@ -368,6 +422,7 @@ fn spawn_attach_worker(
     codex_home: PathBuf,
     known_thread_id: Option<String>,
     app_server_identity: ProcessIdentity,
+    project_state_dir: PathBuf,
 ) -> AttachState {
     let (outcome_tx, outcome_rx) = mpsc::channel();
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -380,11 +435,30 @@ fn spawn_attach_worker(
             &app_server_identity,
             &worker_stop,
             &outcome_tx,
+            &project_state_dir,
         );
     });
     AttachState::Attaching {
         outcome_rx,
         stop_flag,
+    }
+}
+
+/// GitHub #18 (observability follow-up): a short, bounded label for why a single attach attempt
+/// failed — never the offending payload/path itself, only which of [`ObserverError`]'s own
+/// variants it was. `ResumeNotYetReady` carries a learned thread id that must never be logged
+/// (it is not sensitive, but this vocabulary stays deliberately payload-free across every variant
+/// so no future variant addition can accidentally start leaking one).
+#[must_use]
+fn attach_error_label(error: &ObserverError) -> &'static str {
+    match error {
+        ObserverError::Connect => "codex_event_driven_attach_error_connect",
+        ObserverError::Handshake => "codex_event_driven_attach_error_handshake",
+        ObserverError::HomeMismatch => "codex_event_driven_attach_error_home_mismatch",
+        ObserverError::NoThread => "codex_event_driven_attach_error_no_thread",
+        ObserverError::ResumeNotYetReady(_) => {
+            "codex_event_driven_attach_error_resume_not_yet_ready"
+        }
     }
 }
 
@@ -394,6 +468,13 @@ fn spawn_attach_worker(
 /// hang for that call's own full internal timeout, since the broadcast never repeats). Stops
 /// retrying the moment any of the following becomes true: attach succeeds; `stop_flag` is set;
 /// the app-server is confirmed (not merely unconfirmable) gone.
+///
+/// GitHub #18 (observability follow-up): a real natural exhaustion left no durable evidence of
+/// *why* this loop never once succeeded — only ephemeral stderr, never captured. Every *distinct*
+/// failure kind is now traced durably the first time this generation of the loop sees it (never
+/// per-retry, which at this loop's backoff could otherwise write hundreds of near-identical lines
+/// over a long wait) — enough to prove, after the fact, whether the loop ever got past connect,
+/// handshake, or resume, without flooding the trace.
 fn attach_worker_loop(
     endpoint: &Path,
     codex_home: &Path,
@@ -401,8 +482,10 @@ fn attach_worker_loop(
     app_server_identity: &ProcessIdentity,
     stop_flag: &AtomicBool,
     outcome_tx: &mpsc::Sender<AttachOutcome>,
+    project_state_dir: &Path,
 ) {
     let mut backoff = RECONNECT_BACKOFF_MIN;
+    let mut last_traced_error: Option<&'static str> = None;
     loop {
         if stop_flag.load(Ordering::Relaxed) {
             let _ignored = outcome_tx.send(AttachOutcome::GaveUp);
@@ -421,8 +504,16 @@ fn attach_worker_loop(
                 let _ignored = outcome_tx.send(AttachOutcome::Attached(observer));
                 return;
             }
-            Err(ObserverError::ResumeNotYetReady(id)) => known_thread_id = Some(id),
-            Err(_) => {} // connect/handshake/no-thread-yet: keep retrying at the same backoff.
+            Err(error) => {
+                let label = attach_error_label(&error);
+                if last_traced_error != Some(label) {
+                    crate::auto_handoff::trace_event(project_state_dir, label);
+                    last_traced_error = Some(label);
+                }
+                if let ObserverError::ResumeNotYetReady(id) = error {
+                    known_thread_id = Some(id);
+                }
+            }
         }
         sleep_checking_stop(backoff, stop_flag);
         backoff = (backoff * 2).min(RECONNECT_BACKOFF_MAX);
@@ -661,6 +752,7 @@ mod tests {
             &identity,
             &stop_flag,
             &tx,
+            scratch.path(),
         );
         match rx.recv().expect("outcome") {
             AttachOutcome::Attached(observer) => {
@@ -669,6 +761,17 @@ mod tests {
             }
             AttachOutcome::GaveUp => panic!("must eventually succeed once resume stops failing"),
         }
+        // GitHub #18 (observability follow-up): the two `ResumeNotYetReady` failures before the
+        // eventual success must be traced durably, but coalesced to exactly one line, not one per
+        // retry.
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert_eq!(
+            log.matches("codex_event_driven_attach_error_resume_not_yet_ready")
+                .count(),
+            1,
+            "repeated identical attach failures must be coalesced to one durable trace line: {log}"
+        );
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -686,6 +789,7 @@ mod tests {
         let stop_flag = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::channel();
         let worker_stop = stop_flag.clone();
+        let project_state_dir = scratch.path().to_path_buf();
         let handle = thread::spawn(move || {
             attach_worker_loop(
                 &socket_path,
@@ -694,6 +798,7 @@ mod tests {
                 &identity,
                 &worker_stop,
                 &tx,
+                &project_state_dir,
             );
         });
         thread::sleep(Duration::from_millis(50));
@@ -725,6 +830,7 @@ mod tests {
             &dead,
             &stop_flag,
             &tx,
+            scratch.path(),
         );
         let outcome = rx.recv_timeout(Duration::from_secs(2)).expect("outcome");
         assert!(matches!(outcome, AttachOutcome::GaveUp));
