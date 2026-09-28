@@ -80,6 +80,9 @@ pub(crate) enum Command {
     /// choose one priority order, and optionally enable integrations. Safe to re-run any time;
     /// it reuses what already exists.
     Setup(SetupArgs),
+    /// Reconcile only Relay-owned integration assets to this running Relay binary. This never
+    /// performs onboarding or changes profiles, authentication, or fallback preferences.
+    Refresh,
     /// Start a new Relay-managed Claude conversation in this project and open Claude directly
     /// (type your first message inside Claude). Options after `--` go straight to `claude`.
     Claude(ClaudeArgs),

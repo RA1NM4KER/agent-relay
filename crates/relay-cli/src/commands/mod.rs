@@ -19,6 +19,7 @@ pub(crate) mod lock;
 pub(crate) mod mode;
 pub(crate) mod profile;
 pub(crate) mod recover;
+pub(crate) mod refresh;
 pub(crate) mod resume;
 pub(crate) mod session;
 pub(crate) mod setup;
@@ -99,6 +100,7 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
         }
         Command::Watch(watch) => self::watch::run(&service, &paths, watch, cli),
         Command::Setup(args) => self::setup::run(&service, &paths, args, cli.json),
+        Command::Refresh => self::refresh::run(&service),
         Command::Claude(args) => self::claude::run(&service, &paths, args, cli.json),
         Command::Codex(args) => self::codex::run(&service, &paths, args, cli.json),
         Command::Status { project_dir, live } => {

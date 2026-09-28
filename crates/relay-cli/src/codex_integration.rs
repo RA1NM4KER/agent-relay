@@ -50,7 +50,7 @@ pub(crate) fn installed(config_dir: &Path) -> bool {
 /// skill body than [`SKILL`], but proven unmodified since, via the sidecar marker's recorded hash.
 /// `false` for a file with no marker at all (a pre-existing file of unknown origin, or an install
 /// from before this marker existed) — that ambiguity is never resolved in Relay's favor.
-fn is_relay_managed_and_unmodified(config_dir: &Path) -> bool {
+pub(crate) fn is_relay_managed_and_unmodified(config_dir: &Path) -> bool {
     let Ok(current) = std::fs::read_to_string(skill_path(config_dir)) else {
         return false;
     };

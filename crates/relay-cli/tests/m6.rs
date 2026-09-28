@@ -1009,6 +1009,41 @@ fn codex_skill_can_be_installed_inspected_and_removed_without_touching_config() 
 }
 
 #[test]
+fn refresh_only_reconciles_previously_installed_relay_assets() {
+    let root = tempdir().unwrap();
+    let codex = FakeCodex::new(root.path(), "codex-main", "thread-refresh");
+    let spare = FakeCodex::new(root.path(), "codex-spare", "thread-spare");
+    login_codex(root.path(), "codex-main", &codex);
+    login_codex(root.path(), "codex-spare", &spare);
+    let installed = relay(
+        root.path(),
+        &["integration", "codex", "install", "--profile", "codex-main"],
+    );
+    assert!(installed.status.success());
+    let profiles_before = std::fs::read(root.path().join("config/profiles.toml")).unwrap();
+    let output = relay(root.path(), &["refresh"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let results = &json_stdout(&output)["data"]["results"];
+    assert_eq!(results.as_array().unwrap().len(), 2);
+    assert_eq!(results[0]["status"], "current");
+    assert_eq!(results[1]["status"], "skipped");
+    assert!(
+        !root
+            .path()
+            .join("config/profiles/codex-spare/codex/skills/relay/SKILL.md")
+            .exists()
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("config/profiles.toml")).unwrap(),
+        profiles_before
+    );
+}
+
+#[test]
 fn codex_doctor_blocks_untrusted_projects_and_passes_after_explicit_trust() {
     let root = tempdir().unwrap();
     let project = tempdir().unwrap();
