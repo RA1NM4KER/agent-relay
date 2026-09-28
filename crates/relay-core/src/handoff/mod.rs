@@ -13,6 +13,7 @@ mod lock;
 mod project;
 mod session;
 mod state;
+mod task_result;
 mod working_state;
 
 pub use continuity::{
@@ -37,6 +38,9 @@ pub use session::{
     SessionStore,
 };
 pub use state::{FailedPhase, HandoffState, TransactionId};
+pub use task_result::{
+    MAX_SUMMARY_CHARS as MAX_TASK_RESULT_SUMMARY_CHARS, TaskResult, TaskResultKind, TaskResultStore,
+};
 pub use working_state::{
     Decision, DecisionId, EntryStatus, FailedAttempt, MAX_DECISIONS, MAX_ENTRY_CHARS,
     MAX_FAILED_ATTEMPTS, MAX_NEXT_ACTIONS, MAX_RELEVANT_FILES, MAX_SERIALIZED_BYTES,

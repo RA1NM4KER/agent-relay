@@ -5,12 +5,17 @@
 
 use std::process::{Command, Stdio};
 
-use relay_core::Error;
+use relay_core::{
+    Error, RelayPaths,
+    handoff::{SessionState, TaskResult, TaskResultKind},
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cli::TaskCommand,
+    cli::{TaskCommand, TaskResultValue},
     output::{CommandOutput, header, success},
+    sessions,
+    util::current_unix_ms,
 };
 
 const REPOSITORY: &str = "RA1NM4KER/agent-relay";
@@ -56,6 +61,9 @@ trait ClaimBackend {
         worker: &str,
         reference: &str,
     ) -> Result<bool, ()>;
+    /// True only when the existing visible Issue state and deterministic remote ref still prove
+    /// an active Relay claim. This is read-only; result recording never mutates GitHub.
+    fn verify_current_claim(&mut self, number: u64, reference: &str) -> Result<bool, ()>;
 }
 
 fn eligible(issue: &GitHubIssue) -> bool {
@@ -238,6 +246,48 @@ impl ClaimBackend for GhClaimBackend {
         let expected = format!("Relay task claim: worker={worker}; ref={reference}");
         Ok(comments.iter().any(|comment| comment.body == expected))
     }
+
+    fn verify_current_claim(&mut self, number: u64, reference: &str) -> Result<bool, ()> {
+        let issue = self.read_issue(number)?;
+        if issue.pull_request.is_some() {
+            return Ok(false);
+        }
+        let labels = issue
+            .labels
+            .iter()
+            .filter_map(|label| match label {
+                GitHubLabel::Named { name } => Some(name.as_str()),
+                GitHubLabel::Foreign { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        if !labels.contains(&CLAIMED) || labels.contains(&READY) {
+            return Ok(false);
+        }
+        // A missing ref is stale claim state. Any GitHub read failure also fails closed by
+        // returning false: neither case permits a local result to be written.
+        let ref_path = reference.strip_prefix("refs/").ok_or(())?;
+        let ref_output = self.api(&[
+            "-X",
+            "GET",
+            &format!("repos/{REPOSITORY}/git/ref/{ref_path}"),
+        ])?;
+        if !ref_output.status.success() {
+            return Ok(false);
+        }
+        #[derive(Deserialize)]
+        struct Comment {
+            body: String,
+        }
+        let comments: Vec<Comment> = self.successful_json(&[
+            "-X",
+            "GET",
+            &format!("repos/{REPOSITORY}/issues/{number}/comments?per_page=100"),
+        ])?;
+        Ok(comments.iter().any(|comment| {
+            comment.body.starts_with("Relay task claim: worker=")
+                && comment.body.ends_with(&format!("; ref={reference}"))
+        }))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -267,11 +317,117 @@ struct SelectedIssue {
     url: String,
 }
 
-pub(crate) fn run(command: &TaskCommand) -> Result<CommandOutput, Error> {
+pub(crate) fn run(paths: &RelayPaths, command: &TaskCommand) -> Result<CommandOutput, Error> {
     match command {
         TaskCommand::Next => next(),
         TaskCommand::Claim { issue, worker } => claim_live(*issue, worker),
+        TaskCommand::Result {
+            issue,
+            claim_ref: supplied_ref,
+            session,
+            project_dir,
+            result,
+            summary,
+        } => record_result(
+            paths,
+            *issue,
+            supplied_ref,
+            session,
+            project_dir,
+            *result,
+            summary,
+        ),
     }
+}
+
+fn task_result_kind(value: TaskResultValue) -> TaskResultKind {
+    match value {
+        TaskResultValue::Completed => TaskResultKind::Completed,
+        TaskResultValue::Blocked => TaskResultKind::Blocked,
+        TaskResultValue::Continuing => TaskResultKind::Continuing,
+    }
+}
+
+fn record_result(
+    paths: &RelayPaths,
+    issue: u64,
+    supplied_ref: &str,
+    session: &str,
+    project_dir: &std::path::Path,
+    result: TaskResultValue,
+    summary: &str,
+) -> Result<CommandOutput, Error> {
+    let expected_ref = claim_ref(issue);
+    if supplied_ref != expected_ref {
+        return Err(Error::WorkingStateInvalid(format!(
+            "task claim ref must be exactly {expected_ref}"
+        )));
+    }
+    let canonical_project = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
+        path: project_dir.to_path_buf(),
+        source,
+    })?;
+    let store = sessions::open_store(paths, &canonical_project)?;
+    let view = store.resolve(session)?;
+    if view.state() != SessionState::Active {
+        return Err(Error::RelaySessionDormant(
+            view.record.relay_session_id.short().to_owned(),
+        ));
+    }
+    let mut backend = GhClaimBackend;
+    let record = TaskResult::new(
+        issue,
+        supplied_ref.to_owned(),
+        view.record.relay_session_id.clone(),
+        task_result_kind(result),
+        summary.to_owned(),
+        current_unix_ms(),
+    )?;
+    record_verified_result(
+        &mut backend,
+        &store.task_result(&view.record.relay_session_id),
+        record,
+    )
+    .and_then(|record| task_result_output(&record))
+}
+
+fn record_verified_result<B: ClaimBackend>(
+    backend: &mut B,
+    store: &relay_core::handoff::TaskResultStore,
+    record: TaskResult,
+) -> Result<TaskResult, Error> {
+    if record.claim_ref != claim_ref(record.issue) {
+        return Err(Error::WorkingStateInvalid(
+            "task result claim ref does not match issue".into(),
+        ));
+    }
+    if !backend
+        .verify_current_claim(record.issue, &record.claim_ref)
+        .unwrap_or(false)
+    {
+        return Err(Error::WorkingStateInvalid(
+            "task claim is missing, stale, or not visibly Relay-owned; no result was recorded"
+                .into(),
+        ));
+    }
+    store.write(record)
+}
+
+fn task_result_output(record: &TaskResult) -> Result<CommandOutput, Error> {
+    let kind = match record.result {
+        TaskResultKind::Completed => "completed",
+        TaskResultKind::Blocked => "blocked",
+        TaskResultKind::Continuing => "continuing",
+    };
+    success(
+        "task.result",
+        format!(
+            "{}Recorded explicit {kind} result for GitHub Issue #{}.",
+            header("Relay task result"),
+            record.issue
+        ),
+        serde_json::json!({"issue": record.issue, "claim_ref": record.claim_ref, "session": record.relay_session_id, "result": kind, "summary": record.summary, "recorded_unix_ms": record.recorded_unix_ms}),
+    )
 }
 
 fn claim_live(number: u64, worker: &str) -> Result<CommandOutput, Error> {
@@ -547,6 +703,25 @@ mod tests {
                     comment == &format!("Relay task claim: worker={worker}; ref={reference}")
                 }))
         }
+
+        fn verify_current_claim(&mut self, number: u64, reference: &str) -> Result<bool, ()> {
+            Ok(number == self.issue.number
+                && self.refs.contains(reference)
+                && self
+                    .issue
+                    .labels
+                    .iter()
+                    .any(|label| matches!(label, GitHubLabel::Named { name } if name == CLAIMED))
+                && !self
+                    .issue
+                    .labels
+                    .iter()
+                    .any(|label| matches!(label, GitHubLabel::Named { name } if name == READY))
+                && self.comments.iter().any(|comment| {
+                    comment.starts_with("Relay task claim: worker=")
+                        && comment.ends_with(&format!("; ref={reference}"))
+                }))
+        }
     }
 
     fn claims(issue: GitHubIssue) -> FakeClaims {
@@ -645,5 +820,194 @@ mod tests {
         assert!(backend.issue.labels.iter().any(|label| {
             matches!(label, GitHubLabel::Foreign { _value } if _value == &serde_json::json!({"untrusted": true}))
         }));
+    }
+
+    fn claimed_backend(number: u64) -> FakeClaims {
+        let mut backend = claims(issue(number, &[CLAIMED]));
+        let reference = claim_ref(number);
+        backend.refs.insert(reference.clone());
+        backend
+            .comments
+            .push(format!("Relay task claim: worker=worker; ref={reference}"));
+        backend
+    }
+
+    fn result_store() -> (
+        tempfile::TempDir,
+        relay_core::handoff::TaskResultStore,
+        relay_core::handoff::RelaySessionId,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let session =
+            relay_core::handoff::RelaySessionId::parse("11111111-1111-4111-8111-111111111111")
+                .unwrap();
+        let store =
+            relay_core::handoff::TaskResultStore::at_session_dir(dir.path().join("session"));
+        (dir, store, session)
+    }
+
+    fn result_record(
+        issue: u64,
+        reference: String,
+        session: relay_core::handoff::RelaySessionId,
+        kind: TaskResultKind,
+        summary: &str,
+        now: u64,
+    ) -> TaskResult {
+        TaskResult::new(issue, reference, session, kind, summary.into(), now).unwrap()
+    }
+
+    #[test]
+    fn explicit_continuing_blocked_and_completed_results_are_durable_and_deterministic() {
+        for (kind, expected) in [
+            (TaskResultKind::Continuing, "continuing"),
+            (TaskResultKind::Blocked, "blocked"),
+            (TaskResultKind::Completed, "completed"),
+        ] {
+            let (_dir, store, session) = result_store();
+            let record = record_verified_result(
+                &mut claimed_backend(21),
+                &store,
+                result_record(
+                    21,
+                    claim_ref(21),
+                    session,
+                    kind,
+                    "explicit operator attestation",
+                    42,
+                ),
+            )
+            .unwrap();
+            let output = task_result_output(&record).unwrap();
+            assert_eq!(output.json["data"]["result"], expected);
+            assert_eq!(output.json["data"]["recorded_unix_ms"], 42);
+            assert!(output.human.contains(expected));
+            assert_eq!(store.load().unwrap().unwrap(), record);
+        }
+    }
+
+    #[test]
+    fn result_refuses_wrong_issue_ref_session_or_stale_claim_without_writing() {
+        let (_dir, store, session) = result_store();
+        let mut backend = claimed_backend(21);
+        assert!(
+            record_verified_result(
+                &mut backend,
+                &store,
+                result_record(
+                    21,
+                    "refs/heads/relay/claims/22".into(),
+                    session.clone(),
+                    TaskResultKind::Continuing,
+                    "x",
+                    1
+                )
+            )
+            .is_err()
+        );
+        assert!(store.load().unwrap().is_none());
+
+        let mut wrong_issue = claimed_backend(22);
+        assert!(
+            record_verified_result(
+                &mut wrong_issue,
+                &store,
+                result_record(
+                    21,
+                    claim_ref(21),
+                    session.clone(),
+                    TaskResultKind::Continuing,
+                    "x",
+                    1
+                )
+            )
+            .is_err()
+        );
+        assert!(store.load().unwrap().is_none());
+
+        let other =
+            relay_core::handoff::RelaySessionId::parse("22222222-2222-4222-8222-222222222222")
+                .unwrap();
+        store
+            .write(
+                TaskResult::new(
+                    21,
+                    claim_ref(21),
+                    other,
+                    TaskResultKind::Continuing,
+                    "prior".into(),
+                    1,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(
+            record_verified_result(
+                &mut claimed_backend(21),
+                &store,
+                result_record(
+                    21,
+                    claim_ref(21),
+                    session,
+                    TaskResultKind::Completed,
+                    "x",
+                    2
+                )
+            )
+            .is_err()
+        );
+
+        let (_dir, empty, session) = result_store();
+        assert!(
+            record_verified_result(
+                &mut claims(issue(21, &[CLAIMED])),
+                &empty,
+                result_record(21, claim_ref(21), session, TaskResultKind::Blocked, "x", 1)
+            )
+            .is_err()
+        );
+        assert!(empty.load().unwrap().is_none());
+    }
+
+    #[test]
+    fn recording_a_result_never_mutates_the_github_claim_lifecycle() {
+        let (_dir, store, session) = result_store();
+        let mut backend = claimed_backend(21);
+        let labels_before = backend
+            .issue
+            .labels
+            .iter()
+            .filter_map(|label| match label {
+                GitHubLabel::Named { name } => Some(name.clone()),
+                GitHubLabel::Foreign { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        let refs_before = backend.refs.clone();
+        let comments_before = backend.comments.clone();
+        record_verified_result(
+            &mut backend,
+            &store,
+            result_record(
+                21,
+                claim_ref(21),
+                session,
+                TaskResultKind::Completed,
+                "explicit completion evidence",
+                7,
+            ),
+        )
+        .unwrap();
+        let labels_after = backend
+            .issue
+            .labels
+            .iter()
+            .filter_map(|label| match label {
+                GitHubLabel::Named { name } => Some(name.clone()),
+                GitHubLabel::Foreign { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(labels_after, labels_before);
+        assert_eq!(backend.refs, refs_before);
+        assert_eq!(backend.comments, comments_before);
     }
 }

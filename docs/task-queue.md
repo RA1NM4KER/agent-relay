@@ -39,3 +39,17 @@ target and its identity record. If visibility failed before the comment was writ
 guess the owner from a timestamp or ref target: it remains a manual recovery boundary. Staleness is
 never inferred from elapsed time; automated stale-claim recovery requires an explicit durable
 task-result/recovery proof, which is part of Issue #21.
+
+## Explicit task results
+
+`relay task result <issue> --claim-ref refs/heads/relay/claims/<issue> --session <relay-session>
+--project <path> --result continuing|blocked|completed --summary <text>` records a bounded,
+typed local attestation in that Relay Session's state directory. Before writing it reads GitHub to
+prove that the exact deterministic ref and visible Relay claim still exist. A missing, stale,
+ambiguous, corrupt, or mismatched binding is rejected; Relay never infers a result from a provider
+exit, checkpoint, working-state text, or conversation content.
+
+The record is evidence only. It does not delete the claim ref, edit labels/comments, close an
+Issue, start a provider, advance the queue, or infer PR/review state. `continuing` is explicit
+permission only to continue the same task; `blocked` and `completed` are evidence a later explicit
+lifecycle command may consume after independently verifying the same claim.

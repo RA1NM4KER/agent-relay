@@ -31,7 +31,9 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     AtomicWrite, Error, FsAtomicWriter, ProfileName, RelayPaths, Result,
-    handoff::{LeaseStore, OrchestrationLock, ProjectId, WorkingStateStore, WriterLease},
+    handoff::{
+        LeaseStore, OrchestrationLock, ProjectId, TaskResultStore, WorkingStateStore, WriterLease,
+    },
 };
 
 const RECORD_VERSION: u32 = 1;
@@ -283,6 +285,13 @@ impl<'a> SessionStore<'a> {
     #[must_use]
     pub fn working_state(&self, id: &RelaySessionId) -> WorkingStateStore {
         WorkingStateStore::at_session_dir(self.session_dir(id))
+    }
+
+    /// The explicit task-result evidence attached to this Relay Session. It is intentionally
+    /// separate from advisory working state and from the GitHub claim itself.
+    #[must_use]
+    pub fn task_result(&self, id: &RelaySessionId) -> TaskResultStore {
+        TaskResultStore::at_session_dir(self.session_dir(id))
     }
 
     /// Runs `body` under the project's short-lived registry lock, waiting briefly if another Relay

@@ -102,7 +102,7 @@ pub(crate) fn dispatch(cli: &Cli) -> Result<CommandOutput, Error> {
         Command::Watch(watch) => self::watch::run(&service, &paths, watch, cli),
         Command::Setup(args) => self::setup::run(&service, &paths, args, cli.json),
         Command::Refresh => self::refresh::run(&service),
-        Command::Task(args) => self::task::run(&args.command),
+        Command::Task(args) => self::task::run(&paths, &args.command),
         Command::Claude(args) => self::claude::run(&service, &paths, args, cli.json),
         Command::Codex(args) => self::codex::run(&service, &paths, args, cli.json),
         Command::Status { project_dir, live } => {

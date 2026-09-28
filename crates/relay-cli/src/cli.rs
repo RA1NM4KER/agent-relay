@@ -205,6 +205,31 @@ pub(crate) enum TaskCommand {
         #[arg(long)]
         worker: String,
     },
+    /// Record an explicit, bounded result for an already-visible Relay task claim. This writes
+    /// local evidence only; it never changes GitHub Issue lifecycle state or starts a provider.
+    Result {
+        issue: u64,
+        /// Must be exactly `refs/heads/relay/claims/<issue>`.
+        #[arg(long)]
+        claim_ref: String,
+        /// Relay Session that performed the claimed work.
+        #[arg(long)]
+        session: String,
+        #[arg(long = "project", value_name = "PATH")]
+        project_dir: PathBuf,
+        #[arg(long, value_enum)]
+        result: TaskResultValue,
+        /// Explicit bounded operator/agent attestation; never inferred from provider output.
+        #[arg(long)]
+        summary: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub(crate) enum TaskResultValue {
+    Completed,
+    Blocked,
+    Continuing,
 }
 
 #[derive(Debug, Args)]
@@ -1184,5 +1209,35 @@ mod tests {
         assert_eq!(issue, 7);
         assert_eq!(worker, "run_1");
         assert!(Cli::try_parse_from(["relay", "task", "claim", "7"]).is_err());
+    }
+
+    #[test]
+    fn task_result_requires_every_explicit_binding_and_typed_outcome() {
+        let cli = Cli::try_parse_from([
+            "relay",
+            "task",
+            "result",
+            "21",
+            "--claim-ref",
+            "refs/heads/relay/claims/21",
+            "--session",
+            "11111111-1111-4111-8111-111111111111",
+            "--project",
+            "/tmp/project",
+            "--result",
+            "continuing",
+            "--summary",
+            "explicitly continuing",
+        ])
+        .expect("parses");
+        let Command::Task(args) = cli.command else {
+            panic!("expected Task");
+        };
+        let super::TaskCommand::Result { issue, result, .. } = args.command else {
+            panic!("expected task result");
+        };
+        assert_eq!(issue, 21);
+        assert!(matches!(result, super::TaskResultValue::Continuing));
+        assert!(Cli::try_parse_from(["relay", "task", "result", "21"]).is_err());
     }
 }
