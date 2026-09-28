@@ -68,7 +68,20 @@ state, branch, or CI.
   claim ref and Relay comment. Foreign labels remain untouched. A partially applied attempt is
   visible as both Relay labels; rerunning the same validated command may finish only that exact
   label transition. A fully blocked state is idempotent.
-- `completed` validates the evidence and active claim but changes nothing. #7 has not defined a
-  review-ready GitHub state, an authoritative PR identity check, or a safe claim-release rule;
-  closing the Issue, guessing a PR, or deleting the ref would invent authority. A later explicit
-  contract must define those facts before this result can transition further.
+- `completed` proves review-ready identity itself before mutating anything: it reads the claim
+  ref's current commit SHA, lists this repository's own open pull requests whose head branch is
+  exactly `relay/claims/<issue>`, and re-reads the claim ref SHA again. Only when that lookup
+  finds exactly one such pull request — not a draft, from this repository (never a fork), with a
+  head SHA that matched both ref reads — does it add `relay:review-ready` and remove only
+  `relay:claimed`; the claim ref, Relay claim comment, and foreign labels are never touched or
+  deleted. Zero matching pull requests is a normal, non-error "not yet provable" outcome with no
+  mutation (the evidence exists; GitHub does not show the review side yet). More than one matching
+  pull request, or the claim ref moving between the two reads, fails closed with an error rather
+  than guessing which PR was meant. A partially applied attempt (label added, `claimed` not yet
+  removed) is idempotently finished on rerun; a fully review-ready state is a no-op rerun. This
+  contract never infers PR identity from a title, commit message, branch-name similarity to
+  anything other than the exact claim ref, or "the latest PR" — only the deterministic claim
+  branch GitHub itself reports as a pull request's head. Closing the Issue, merging/editing the
+  PR, and releasing the claim ref remain a later, still-undefined authority boundary (tracked on
+  #21); this transition deliberately keeps the ref alive as the durable proof binding the PR back
+  to this claim.

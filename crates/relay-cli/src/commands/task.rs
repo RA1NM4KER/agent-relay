@@ -1,9 +1,11 @@
 //! Deterministic GitHub Issue queue discovery.
 //!
 //! GitHub labels remain the source of task state; a deterministic remote Git ref is the exclusive
-//! serialization point for claiming. Task-result consumption has only the explicitly documented
-//! blocked transition; review/completion remains a fail-closed boundary until its GitHub contract
-//! exists.
+//! serialization point for claiming. Task-result consumption applies the blocked transition, and
+//! the review-ready transition once GitHub itself proves exactly one open, non-draft,
+//! same-repository pull request whose head is the exact claim branch with a stable head SHA.
+//! Nothing here ever closes an Issue, merges/edits a pull request, or deletes a claim ref; those
+//! remain an undefined authority boundary tracked on GitHub issue #21.
 
 use std::process::{Command, Stdio};
 
@@ -21,15 +23,22 @@ use crate::{
 };
 
 const REPOSITORY: &str = "RA1NM4KER/agent-relay";
+const REPOSITORY_OWNER: &str = "RA1NM4KER";
 const READY: &str = "relay:ready";
 const CLAIMED: &str = "relay:claimed";
 const BLOCKED: &str = "relay:blocked";
+const REVIEW_READY: &str = "relay:review-ready";
 
 /// The remote, repository-wide serialization point for a task claim. A branch creation is the
 /// only operation in this protocol that decides ownership; labels and comments are visibility
 /// records written strictly after ownership exists.
 fn claim_ref(number: u64) -> String {
     format!("refs/heads/relay/claims/{number}")
+}
+
+/// The branch name portion of a claim ref, as GitHub's pull-request `head` field reports it.
+fn claim_branch(number: u64) -> String {
+    format!("relay/claims/{number}")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +67,19 @@ enum RemoteClaimState {
     /// `relay:blocked` was added, but an interrupted earlier attempt did not remove `claimed`.
     BlockedPartial,
     Blocked,
+    /// `relay:review-ready` was added, but an interrupted earlier attempt did not remove
+    /// `claimed`.
+    ReviewReadyPartial,
+    ReviewReady,
+}
+
+/// The exact, durable proof that one open pull request originates from this claim: the sole open,
+/// non-draft, same-repository PR whose head branch is exactly the claim ref, with a head SHA that
+/// matched two independent reads of the claim ref taken immediately before and after the lookup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReviewReadyPullRequest {
+    number: u64,
+    head_sha: String,
 }
 
 /// Deliberately narrow boundary around the GitHub operations needed for an atomic claim. Its fake
@@ -78,6 +100,20 @@ trait ClaimBackend {
     /// The sole defined result-consumer mutation: add Relay's blocked label and remove only its
     /// claimed label. The ref, comment, Issue state, and all foreign labels remain untouched.
     fn mark_blocked(&mut self, number: u64) -> Result<(), ()>;
+    /// Proves, or refuses to prove, exactly one review-ready pull request for this claim. `Ok(None)`
+    /// means the proof does not exist *yet* (zero qualifying PRs) and is not an error. `Err(())`
+    /// means the remote state could not be read, or was ambiguous/unstable (more than one
+    /// qualifying PR, or the claim ref moved between the two reads bracketing the lookup); the
+    /// caller must never guess which PR was meant.
+    fn review_ready_pull_request(
+        &mut self,
+        number: u64,
+        reference: &str,
+    ) -> Result<Option<ReviewReadyPullRequest>, ()>;
+    /// The sole defined completion mutation: add Relay's review-ready label and remove only its
+    /// claimed label. The ref, comment, Issue state, and all foreign labels remain untouched; the
+    /// claim ref is never deleted by this transition.
+    fn mark_review_ready(&mut self, number: u64) -> Result<(), ()>;
 }
 
 fn eligible(issue: &GitHubIssue) -> bool {
@@ -143,6 +179,26 @@ impl GhClaimBackend {
             return Err(());
         }
         serde_json::from_slice(&output.stdout).map_err(|_| ())
+    }
+
+    /// The current commit SHA a git ref points at. Used to bracket a PR lookup with two
+    /// independent reads so a mid-lookup force-push cannot be proven as review-ready.
+    fn ref_sha(&self, reference: &str) -> Result<String, ()> {
+        #[derive(Deserialize)]
+        struct RefObject {
+            object: Sha,
+        }
+        #[derive(Deserialize)]
+        struct Sha {
+            sha: String,
+        }
+        let ref_path = reference.strip_prefix("refs/").ok_or(())?;
+        let reference: RefObject = self.successful_json(&[
+            "-X",
+            "GET",
+            &format!("repos/{REPOSITORY}/git/ref/{ref_path}"),
+        ])?;
+        Ok(reference.object.sha)
     }
 }
 
@@ -304,10 +360,13 @@ impl ClaimBackend for GhClaimBackend {
             labels.contains(&READY),
             labels.contains(&CLAIMED),
             labels.contains(&BLOCKED),
+            labels.contains(&REVIEW_READY),
         ) {
-            (false, true, false) => Ok(RemoteClaimState::Active),
-            (false, true, true) => Ok(RemoteClaimState::BlockedPartial),
-            (false, false, true) => Ok(RemoteClaimState::Blocked),
+            (false, true, false, false) => Ok(RemoteClaimState::Active),
+            (false, true, true, false) => Ok(RemoteClaimState::BlockedPartial),
+            (false, false, true, false) => Ok(RemoteClaimState::Blocked),
+            (false, true, false, true) => Ok(RemoteClaimState::ReviewReadyPartial),
+            (false, false, false, true) => Ok(RemoteClaimState::ReviewReady),
             _ => Err(()),
         }
     }
@@ -330,6 +389,103 @@ impl ClaimBackend for GhClaimBackend {
         ])?;
         remove_claimed.status.success().then_some(()).ok_or(())
     }
+
+    fn review_ready_pull_request(
+        &mut self,
+        number: u64,
+        reference: &str,
+    ) -> Result<Option<ReviewReadyPullRequest>, ()> {
+        let branch = claim_branch(number);
+        let before = self.ref_sha(reference)?;
+        let candidates: Vec<PullRequestSummary> = self.successful_json(&[
+            "-X",
+            "GET",
+            &format!(
+                "repos/{REPOSITORY}/pulls?head={REPOSITORY_OWNER}:{branch}&state=open&per_page=100"
+            ),
+        ])?;
+        let after = self.ref_sha(reference)?;
+        if before != after {
+            // The claim branch moved during the lookup window; no read can be trusted as current.
+            return Err(());
+        }
+        let matching: Vec<&PullRequestSummary> = candidates
+            .iter()
+            .filter(|pr| {
+                pr.state == "open"
+                    && pr.head.ref_name == branch
+                    && pr
+                        .head
+                        .repo
+                        .as_ref()
+                        .is_some_and(|repo| repo.full_name == REPOSITORY)
+                    && pr
+                        .base
+                        .repo
+                        .as_ref()
+                        .is_some_and(|repo| repo.full_name == REPOSITORY)
+            })
+            .collect();
+        match matching.as_slice() {
+            [] => Ok(None),
+            [pull] => {
+                if pull.draft || pull.head.sha != before {
+                    // Not yet safe to prove: either still a draft, or GitHub's cached PR head lags
+                    // the ref we just read. Both are legitimate not-ready-yet states, not errors.
+                    return Ok(None);
+                }
+                Ok(Some(ReviewReadyPullRequest {
+                    number: pull.number,
+                    head_sha: pull.head.sha.clone(),
+                }))
+            }
+            // More than one open PR against the exact exclusive claim branch is not a case this
+            // contract may resolve by guessing; it fails closed for manual investigation.
+            _ => Err(()),
+        }
+    }
+
+    fn mark_review_ready(&mut self, number: u64) -> Result<(), ()> {
+        let add_review_ready = self.api(&[
+            "-X",
+            "POST",
+            &format!("repos/{REPOSITORY}/issues/{number}/labels"),
+            "-f",
+            &format!("labels[]={REVIEW_READY}"),
+        ])?;
+        if !add_review_ready.status.success() {
+            return Err(());
+        }
+        let remove_claimed = self.api(&[
+            "-X",
+            "DELETE",
+            &format!("repos/{REPOSITORY}/issues/{number}/labels/relay%3Aclaimed"),
+        ])?;
+        remove_claimed.status.success().then_some(()).ok_or(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PullRequestSummary {
+    number: u64,
+    state: String,
+    #[serde(default)]
+    draft: bool,
+    head: PullRequestRef,
+    base: PullRequestRef,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PullRequestRef {
+    #[serde(rename = "ref")]
+    ref_name: String,
+    sha: String,
+    repo: Option<PullRequestRepo>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PullRequestRepo {
+    full_name: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -502,11 +658,20 @@ fn validated_result_evidence(
     store.require_for(issue, claim_ref, relay_session_id)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ResultApplyOutcome {
     Continuing,
     Blocked,
-    CompletionReviewContractMissing,
+    /// The claimed state is active, but GitHub does not yet show exactly one open, non-draft,
+    /// same-repository pull request whose head is the exact claim branch with a stable head SHA.
+    /// This is an expected, non-error waiting state, not a missing contract.
+    CompletionAwaitingReviewProof,
+    ReviewReady {
+        /// `None` on an idempotent rerun against an already review-ready claim, where GitHub's
+        /// current label state alone is authoritative and re-proving the PR is unnecessary.
+        pr_number: Option<u64>,
+        pr_head_sha: Option<String>,
+    },
 }
 
 /// The result consumer's sole authority boundary. It reads [`TaskResultStore::require_for`] at
@@ -551,17 +716,51 @@ fn consume_result<B: ClaimBackend>(
                 }
                 Ok(ResultApplyOutcome::Blocked)
             }
-        },
-        TaskResultKind::Completed => {
-            if state != RemoteClaimState::Active {
-                return Err(Error::WorkingStateInvalid(
-                    "completed evidence requires the exact active claimed state".into(),
-                ));
+            RemoteClaimState::ReviewReadyPartial | RemoteClaimState::ReviewReady => {
+                Err(Error::WorkingStateInvalid(
+                    "blocked evidence requires the exact active or blocked claimed state, not a review-ready one".into(),
+                ))
             }
-            // #7 defines no review-ready label, PR identity proof, or claim-release contract.
-            // Completing an Issue or releasing the ref here would invent lifecycle authority.
-            Ok(ResultApplyOutcome::CompletionReviewContractMissing)
-        }
+        },
+        TaskResultKind::Completed => match state {
+            RemoteClaimState::ReviewReady => Ok(ResultApplyOutcome::ReviewReady {
+                pr_number: None,
+                pr_head_sha: None,
+            }),
+            RemoteClaimState::Active | RemoteClaimState::ReviewReadyPartial => {
+                let pull_request = backend
+                    .review_ready_pull_request(evidence.issue, &evidence.claim_ref)
+                    .map_err(|_| {
+                        Error::WorkingStateInvalid(
+                            "completed evidence requires an unambiguous, stable review-ready pull request; GitHub state was ambiguous or unstable".into(),
+                        )
+                    })?;
+                let Some(pull_request) = pull_request else {
+                    return Ok(ResultApplyOutcome::CompletionAwaitingReviewProof);
+                };
+                backend.mark_review_ready(evidence.issue).map_err(|_| {
+                    Error::ConflictRequiresResolution(
+                        "review-ready transition may be partially applied; rerun the same explicit command after verifying GitHub".into(),
+                    )
+                })?;
+                if backend
+                    .claim_state(evidence.issue, &evidence.claim_ref)
+                    .ok()
+                    != Some(RemoteClaimState::ReviewReady)
+                {
+                    return Err(Error::ConflictRequiresResolution(
+                        "review-ready transition did not reach its exact visible state; no further action was taken".into(),
+                    ));
+                }
+                Ok(ResultApplyOutcome::ReviewReady {
+                    pr_number: Some(pull_request.number),
+                    pr_head_sha: Some(pull_request.head_sha),
+                })
+            }
+            _ => Err(Error::WorkingStateInvalid(
+                "completed evidence requires the exact active or review-ready claimed state".into(),
+            )),
+        },
     }
 }
 
@@ -570,7 +769,7 @@ fn task_apply_output(
     claim_ref: &str,
     outcome: &ResultApplyOutcome,
 ) -> Result<CommandOutput, Error> {
-    let (result, mutated, human) = match outcome {
+    let (result, mutated, human, extra) = match outcome {
         ResultApplyOutcome::Continuing => (
             "continuing",
             false,
@@ -578,6 +777,7 @@ fn task_apply_output(
                 "{}Same claimed task may continue; GitHub lifecycle state was not changed.",
                 header("Relay task result")
             ),
+            serde_json::json!({}),
         ),
         ResultApplyOutcome::Blocked => (
             "blocked",
@@ -586,21 +786,46 @@ fn task_apply_output(
                 "{}Applied Relay blocked state for GitHub Issue #{issue}; the claim ref remains intact.",
                 header("Relay task result")
             ),
+            serde_json::json!({}),
         ),
-        ResultApplyOutcome::CompletionReviewContractMissing => (
+        ResultApplyOutcome::CompletionAwaitingReviewProof => (
             "completed",
             false,
             format!(
-                "{}Validated completed evidence for GitHub Issue #{issue}, but no review-ready lifecycle contract exists; no GitHub state changed.",
+                "{}Validated completed evidence for GitHub Issue #{issue}, but GitHub does not yet show exactly one open, non-draft, same-repository pull request from the exact claim branch; no GitHub state changed.",
                 header("Relay task result")
             ),
+            serde_json::json!({}),
+        ),
+        ResultApplyOutcome::ReviewReady {
+            pr_number,
+            pr_head_sha,
+        } => (
+            "review_ready",
+            pr_number.is_some(),
+            match pr_number {
+                Some(number) => format!(
+                    "{}Applied Relay review-ready state for GitHub Issue #{issue} from pull request #{number}; the claim ref remains intact.",
+                    header("Relay task result")
+                ),
+                None => format!(
+                    "{}GitHub Issue #{issue} is already Relay review-ready; no further action was taken.",
+                    header("Relay task result")
+                ),
+            },
+            serde_json::json!({"pr_number": pr_number, "pr_head_sha": pr_head_sha}),
         ),
     };
-    success(
-        "task.apply_result",
-        human,
-        serde_json::json!({"issue": issue, "claim_ref": claim_ref, "result": result, "lifecycle_mutated": mutated}),
-    )
+    let mut data = serde_json::json!({"issue": issue, "claim_ref": claim_ref, "result": result, "lifecycle_mutated": mutated});
+    data.as_object_mut()
+        .expect("data is always a JSON object")
+        .extend(
+            extra
+                .as_object()
+                .expect("extra is always a JSON object")
+                .clone(),
+        );
+    success("task.apply_result", human, data)
 }
 
 fn task_result_output(record: &TaskResult) -> Result<CommandOutput, Error> {
@@ -815,6 +1040,17 @@ mod tests {
         ));
     }
 
+    #[derive(Clone)]
+    struct FakePullRequest {
+        number: u64,
+        state: &'static str,
+        draft: bool,
+        head_ref: String,
+        head_sha: String,
+        head_repo: Option<&'static str>,
+        base_repo: Option<&'static str>,
+    }
+
     struct FakeClaims {
         issue: GitHubIssue,
         refs: BTreeSet<String>,
@@ -827,6 +1063,12 @@ mod tests {
         block_calls: usize,
         visible_claims: usize,
         comments: Vec<String>,
+        claim_ref_sha: String,
+        open_prs: Vec<FakePullRequest>,
+        ref_sha_moves_during_lookup: bool,
+        review_ready_lookup_calls: usize,
+        review_ready_remove_failures: usize,
+        review_ready_calls: usize,
     }
 
     impl ClaimBackend for FakeClaims {
@@ -912,10 +1154,12 @@ mod tests {
                     .iter()
                     .any(|label| matches!(label, GitHubLabel::Named { name } if name == expected))
             };
-            match (has(READY), has(CLAIMED), has(BLOCKED)) {
-                (false, true, false) => Ok(RemoteClaimState::Active),
-                (false, true, true) => Ok(RemoteClaimState::BlockedPartial),
-                (false, false, true) => Ok(RemoteClaimState::Blocked),
+            match (has(READY), has(CLAIMED), has(BLOCKED), has(REVIEW_READY)) {
+                (false, true, false, false) => Ok(RemoteClaimState::Active),
+                (false, true, true, false) => Ok(RemoteClaimState::BlockedPartial),
+                (false, false, true, false) => Ok(RemoteClaimState::Blocked),
+                (false, true, false, true) => Ok(RemoteClaimState::ReviewReadyPartial),
+                (false, false, false, true) => Ok(RemoteClaimState::ReviewReady),
                 _ => Err(()),
             }
         }
@@ -944,6 +1188,73 @@ mod tests {
                 .retain(|label| !matches!(label, GitHubLabel::Named { name } if name == CLAIMED));
             Ok(())
         }
+
+        fn review_ready_pull_request(
+            &mut self,
+            number: u64,
+            reference: &str,
+        ) -> Result<Option<ReviewReadyPullRequest>, ()> {
+            if number != self.issue.number || !self.refs.contains(reference) {
+                return Err(());
+            }
+            self.review_ready_lookup_calls += 1;
+            let before = self.claim_ref_sha.clone();
+            if self.ref_sha_moves_during_lookup {
+                self.claim_ref_sha = format!("{before}-moved");
+            }
+            if self.claim_ref_sha != before {
+                return Err(());
+            }
+            let branch = claim_branch(number);
+            let matching: Vec<&FakePullRequest> = self
+                .open_prs
+                .iter()
+                .filter(|pr| {
+                    pr.state == "open"
+                        && pr.head_ref == branch
+                        && pr.head_repo == Some(REPOSITORY)
+                        && pr.base_repo == Some(REPOSITORY)
+                })
+                .collect();
+            match matching.as_slice() {
+                [] => Ok(None),
+                [pull] => {
+                    if pull.draft || pull.head_sha != before {
+                        return Ok(None);
+                    }
+                    Ok(Some(ReviewReadyPullRequest {
+                        number: pull.number,
+                        head_sha: pull.head_sha.clone(),
+                    }))
+                }
+                _ => Err(()),
+            }
+        }
+
+        fn mark_review_ready(&mut self, number: u64) -> Result<(), ()> {
+            if number != self.issue.number {
+                return Err(());
+            }
+            self.review_ready_calls += 1;
+            if !self
+                .issue
+                .labels
+                .iter()
+                .any(|label| matches!(label, GitHubLabel::Named { name } if name == REVIEW_READY))
+            {
+                self.issue.labels.push(GitHubLabel::Named {
+                    name: REVIEW_READY.into(),
+                });
+            }
+            if self.review_ready_remove_failures > 0 {
+                self.review_ready_remove_failures -= 1;
+                return Err(());
+            }
+            self.issue
+                .labels
+                .retain(|label| !matches!(label, GitHubLabel::Named { name } if name == CLAIMED));
+            Ok(())
+        }
     }
 
     fn claims(issue: GitHubIssue) -> FakeClaims {
@@ -959,6 +1270,24 @@ mod tests {
             block_calls: 0,
             visible_claims: 0,
             comments: Vec::new(),
+            claim_ref_sha: "claim-sha".into(),
+            open_prs: Vec::new(),
+            ref_sha_moves_during_lookup: false,
+            review_ready_lookup_calls: 0,
+            review_ready_remove_failures: 0,
+            review_ready_calls: 0,
+        }
+    }
+
+    fn review_ready_pr(number: u64, issue: u64, head_sha: &str) -> FakePullRequest {
+        FakePullRequest {
+            number,
+            state: "open",
+            draft: false,
+            head_ref: claim_branch(issue),
+            head_sha: head_sha.into(),
+            head_repo: Some(REPOSITORY),
+            base_repo: Some(REPOSITORY),
         }
     }
 
@@ -1317,7 +1646,7 @@ mod tests {
     }
 
     #[test]
-    fn completed_requires_exact_completed_evidence_and_stops_at_review_boundary() {
+    fn completed_without_a_provable_pull_request_awaits_review_proof_without_mutation() {
         let (_dir, store, session) = stored_evidence(TaskResultKind::Completed);
         let evidence = validated_result_evidence(&store, 21, &claim_ref(21), &session).unwrap();
         let mut backend = claimed_backend(21);
@@ -1326,12 +1655,183 @@ mod tests {
         let comments = backend.comments.clone();
         assert_eq!(
             consume_result(&mut backend, evidence).unwrap(),
-            ResultApplyOutcome::CompletionReviewContractMissing
+            ResultApplyOutcome::CompletionAwaitingReviewProof
         );
         assert_eq!(backend.issue.labels, labels);
         assert_eq!(backend.refs, refs);
         assert_eq!(backend.comments, comments);
         assert_eq!(backend.block_calls, 0);
+        assert_eq!(backend.review_ready_calls, 0);
+    }
+
+    #[test]
+    fn completed_ignores_a_draft_pull_request_and_awaits_review_proof() {
+        let (_dir, store, session) = stored_evidence(TaskResultKind::Completed);
+        let evidence = validated_result_evidence(&store, 21, &claim_ref(21), &session).unwrap();
+        let mut backend = claimed_backend(21);
+        let mut pr = review_ready_pr(9, 21, "claim-sha");
+        pr.draft = true;
+        backend.open_prs.push(pr);
+        assert_eq!(
+            consume_result(&mut backend, evidence).unwrap(),
+            ResultApplyOutcome::CompletionAwaitingReviewProof
+        );
+        assert_eq!(backend.review_ready_calls, 0);
+    }
+
+    #[test]
+    fn completed_ignores_a_pull_request_whose_head_sha_lags_the_claim_ref() {
+        let (_dir, store, session) = stored_evidence(TaskResultKind::Completed);
+        let evidence = validated_result_evidence(&store, 21, &claim_ref(21), &session).unwrap();
+        let mut backend = claimed_backend(21);
+        backend
+            .open_prs
+            .push(review_ready_pr(9, 21, "stale-sha-behind-the-ref"));
+        assert_eq!(
+            consume_result(&mut backend, evidence).unwrap(),
+            ResultApplyOutcome::CompletionAwaitingReviewProof
+        );
+        assert_eq!(backend.review_ready_calls, 0);
+    }
+
+    #[test]
+    fn completed_ignores_a_pull_request_from_a_foreign_repository_or_branch() {
+        let (_dir, store, session) = stored_evidence(TaskResultKind::Completed);
+        let evidence = validated_result_evidence(&store, 21, &claim_ref(21), &session).unwrap();
+        let mut backend = claimed_backend(21);
+        let mut foreign_repo = review_ready_pr(9, 21, "claim-sha");
+        foreign_repo.head_repo = Some("someone-else/agent-relay");
+        backend.open_prs.push(foreign_repo);
+        let mut foreign_branch = review_ready_pr(10, 21, "claim-sha");
+        foreign_branch.head_ref = "totally-unrelated-branch".into();
+        backend.open_prs.push(foreign_branch);
+        assert_eq!(
+            consume_result(&mut backend, evidence).unwrap(),
+            ResultApplyOutcome::CompletionAwaitingReviewProof
+        );
+        assert_eq!(backend.review_ready_calls, 0);
+    }
+
+    #[test]
+    fn completed_fails_closed_on_more_than_one_matching_open_pull_request() {
+        let (_dir, store, session) = stored_evidence(TaskResultKind::Completed);
+        let evidence = validated_result_evidence(&store, 21, &claim_ref(21), &session).unwrap();
+        let mut backend = claimed_backend(21);
+        backend.open_prs.push(review_ready_pr(9, 21, "claim-sha"));
+        backend.open_prs.push(review_ready_pr(10, 21, "claim-sha"));
+        let labels = backend.issue.labels.clone();
+        assert!(consume_result(&mut backend, evidence).is_err());
+        assert_eq!(backend.issue.labels, labels);
+        assert_eq!(backend.review_ready_calls, 0);
+    }
+
+    #[test]
+    fn completed_fails_closed_when_the_claim_ref_moves_during_the_lookup_window() {
+        let (_dir, store, session) = stored_evidence(TaskResultKind::Completed);
+        let evidence = validated_result_evidence(&store, 21, &claim_ref(21), &session).unwrap();
+        let mut backend = claimed_backend(21);
+        backend.open_prs.push(review_ready_pr(9, 21, "claim-sha"));
+        backend.ref_sha_moves_during_lookup = true;
+        let labels = backend.issue.labels.clone();
+        assert!(consume_result(&mut backend, evidence).is_err());
+        assert_eq!(backend.issue.labels, labels);
+        assert_eq!(backend.review_ready_calls, 0);
+    }
+
+    #[test]
+    fn completed_transitions_to_review_ready_and_preserves_the_claim_ref_and_foreign_labels() {
+        let (_dir, store, session) = stored_evidence(TaskResultKind::Completed);
+        let evidence = validated_result_evidence(&store, 21, &claim_ref(21), &session).unwrap();
+        let mut backend = claimed_backend(21);
+        backend.issue.labels.push(GitHubLabel::Named {
+            name: "foreign:keep".into(),
+        });
+        backend.open_prs.push(review_ready_pr(9, 21, "claim-sha"));
+        let refs = backend.refs.clone();
+        let comments = backend.comments.clone();
+        assert_eq!(
+            consume_result(&mut backend, evidence).unwrap(),
+            ResultApplyOutcome::ReviewReady {
+                pr_number: Some(9),
+                pr_head_sha: Some("claim-sha".into()),
+            }
+        );
+        assert!(
+            backend
+                .issue
+                .labels
+                .iter()
+                .any(|label| matches!(label, GitHubLabel::Named { name } if name == REVIEW_READY))
+        );
+        assert!(
+            !backend
+                .issue
+                .labels
+                .iter()
+                .any(|label| matches!(label, GitHubLabel::Named { name } if name == CLAIMED))
+        );
+        assert!(
+            backend.issue.labels.iter().any(
+                |label| matches!(label, GitHubLabel::Named { name } if name == "foreign:keep")
+            )
+        );
+        // The claim ref/comment are the durable proof of Relay's authorship; this transition
+        // never deletes or edits them.
+        assert_eq!(backend.refs, refs);
+        assert_eq!(backend.comments, comments);
+        let output = task_apply_output(
+            21,
+            &claim_ref(21),
+            &ResultApplyOutcome::ReviewReady {
+                pr_number: Some(9),
+                pr_head_sha: Some("claim-sha".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(output.json["data"]["result"], "review_ready");
+        assert_eq!(output.json["data"]["lifecycle_mutated"], true);
+        assert_eq!(output.json["data"]["pr_number"], 9);
+        assert_eq!(output.json["data"]["pr_head_sha"], "claim-sha");
+    }
+
+    #[test]
+    fn review_ready_transition_is_idempotent_and_recovers_only_its_partial_state() {
+        let (_dir, store, session) = stored_evidence(TaskResultKind::Completed);
+        let evidence = validated_result_evidence(&store, 21, &claim_ref(21), &session).unwrap();
+        let mut backend = claimed_backend(21);
+        backend.open_prs.push(review_ready_pr(9, 21, "claim-sha"));
+        backend.review_ready_remove_failures = 1;
+        assert!(consume_result(&mut backend, evidence.clone()).is_err());
+        assert_eq!(
+            backend.claim_state(21, &claim_ref(21)).unwrap(),
+            RemoteClaimState::ReviewReadyPartial
+        );
+        assert_eq!(backend.review_ready_calls, 1);
+
+        assert_eq!(
+            consume_result(&mut backend, evidence.clone()).unwrap(),
+            ResultApplyOutcome::ReviewReady {
+                pr_number: Some(9),
+                pr_head_sha: Some("claim-sha".into()),
+            }
+        );
+        assert_eq!(
+            backend.claim_state(21, &claim_ref(21)).unwrap(),
+            RemoteClaimState::ReviewReady
+        );
+        assert_eq!(backend.review_ready_calls, 2);
+
+        // Once fully review-ready, a rerun is a pure no-op: no further PR lookup or mutation.
+        let lookups_before = backend.review_ready_lookup_calls;
+        assert_eq!(
+            consume_result(&mut backend, evidence).unwrap(),
+            ResultApplyOutcome::ReviewReady {
+                pr_number: None,
+                pr_head_sha: None,
+            }
+        );
+        assert_eq!(backend.review_ready_calls, 2);
+        assert_eq!(backend.review_ready_lookup_calls, lookups_before);
     }
 
     #[test]
