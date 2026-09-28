@@ -7,7 +7,10 @@ use relay_core::{
 };
 use relay_herdr::herdr_client::HerdrCliClient;
 use relay_herdr::install as herdr_install;
-use relay_provider_claude::{ClaudeInspector, apply_install, assess_installed, plan_install};
+use relay_provider_claude::{
+    ClaudeInspector, apply_install, assess_installed, integration_status,
+    native_default_statusline, plan_install, plan_install_seeding_statusline,
+};
 use serde_json::json;
 
 use crate::{
@@ -551,9 +554,9 @@ fn start_commands_for(providers: impl Iterator<Item = ProviderKind>) -> Vec<&'st
     commands
 }
 
-/// Shared by the interactive and non-interactive setup paths: installs the usage integration for
-/// one profile via the unchanged `plan_install`/`apply_install`, explaining (never silently
-/// bypassing) an unverified Claude Code version per M4.1 Step 4.
+/// Installs the usage integration for one profile in the interactive setup flow. An isolated
+/// profile deliberately does not inherit `~/.claude` settings, but a user can explicitly choose
+/// to seed an otherwise-empty status line from there before Relay wraps it.
 fn install_usage_integration_interactive(
     profile: &Profile,
     claude_executable: Option<&Path>,
@@ -590,7 +593,28 @@ fn install_usage_integration_interactive(
         path: PathBuf::from("relay"),
         source,
     })?;
-    let plan = plan_install(&profile.config_dir, &relay_executable)?;
+    let default_statusline = (profile.effective_claude_config_mode() == ClaudeConfigMode::Explicit)
+        .then(native_default_statusline)
+        .flatten();
+    let target_has_no_statusline =
+        integration_status(&profile.config_dir).is_ok_and(|status| status.statusline == "none");
+    let plan = if let Some(statusline) = default_statusline.filter(|_| target_has_no_statusline) {
+        let copy = prompt_yes_no(
+            &format!(
+                "  Your default Claude config has a custom status line. This isolated profile \
+                 does not inherit it. Copy it to '{}' and let Relay wrap it?",
+                profile.name
+            ),
+            false,
+        )?;
+        if copy {
+            plan_install_seeding_statusline(&profile.config_dir, &relay_executable, statusline)?
+        } else {
+            plan_install(&profile.config_dir, &relay_executable)?
+        }
+    } else {
+        plan_install(&profile.config_dir, &relay_executable)?
+    };
     apply_install(&plan, current_unix_ms())?;
     println!("  \u{2713} usage detection enabled for {}", profile.name);
     Ok(())

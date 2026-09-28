@@ -198,7 +198,11 @@ every refresh, so it changes owner after a handoff without a new terminal, and i
 ordinary Claude session, or in one whose conversation has since moved to another provider. It rides on
 the status line the usage integration already installs, which wraps — never replaces — your own
 status line (your command's output is kept byte for byte and the badge is appended to its last
-line; `relay integration claude uninstall` restores your original settings).
+line; `relay integration claude uninstall` restores your original settings). Isolated profiles
+  intentionally do not inherit `~/.claude/settings.json`; during interactive `relay setup`, if
+  your default Claude config has a command status line and an isolated profile has none, Relay
+  explicitly offers to copy and wrap it. Declining leaves profiles isolated and uses Relay's
+  compact rate-limit line.
 
 Codex gets the same amber owner badge plus the Relay session id and `$relay` command hints in
 the terminal on each attach, including resume and handoff. This is a launch banner, not a live

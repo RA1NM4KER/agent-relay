@@ -738,6 +738,9 @@ fn run_setup_wizard(
         .arg("setup")
         .env_remove("CLAUDE_CONFIG_DIR")
         .env_remove("CODEX_HOME")
+        // Keep the optional native-default statusline source fully inside this fixture, never
+        // coupled to the developer or CI worker's real ~/.claude settings.
+        .env("HOME", root)
         .env("PATH", "/nonexistent")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -845,6 +848,52 @@ fn setup_works_with_only_claude_installed_and_offers_only_relay_claude() {
     assert!(
         stdout.contains("Start with:\n  relay claude") && !stdout.contains("relay codex"),
         "{stdout}"
+    );
+}
+
+#[test]
+fn setup_offers_to_copy_a_default_statusline_into_an_empty_isolated_profile() {
+    let root = tempdir().expect("tempdir");
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    login_claude(root.path(), "alice", &claude);
+    std::fs::create_dir_all(root.path().join(".claude")).unwrap();
+    std::fs::write(
+        root.path().join(".claude/settings.json"),
+        r#"{"statusLine":{"type":"command","command":"my-default-status","padding":2}}"#,
+    )
+    .unwrap();
+    let cwd = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+    std::fs::write(root.path().join("config/profiles/alice/claude/.claude.json"),
+        serde_json::to_vec(&serde_json::json!({"projects": {cwd.to_str().unwrap(): {"hasTrustDialogAccepted": true}}})).unwrap()).unwrap();
+
+    // Use existing, do not add, enable usage integration, then explicitly accept the copy.
+    let output = run_setup_wizard(root.path(), Some(&claude), None, "y\nn\ny\ny\n");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("does not inherit it. Copy it"), "{stdout}");
+    let settings: Value = serde_json::from_slice(
+        &std::fs::read(
+            root.path()
+                .join("config/profiles/alice/claude/settings.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(settings["statusLine"]["padding"], 2);
+    assert!(
+        settings["statusLine"]["command"]
+            .as_str()
+            .is_some_and(|command| command.contains("--chain 'my-default-status'"))
     );
 }
 

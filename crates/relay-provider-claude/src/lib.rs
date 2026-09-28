@@ -40,7 +40,7 @@ pub use capabilities::{
 pub use config_mode::{apply as apply_config_mode, native_default_dir};
 pub use conflict::{
     ConflictClassification, ConflictReport, ConflictResolution, ResolveDecision, inspect_conflict,
-    resolve_conflict, rollback_conflict,
+    resolve_conflict, resolve_stale_session_ancestors, rollback_conflict,
 };
 pub use context_capture::ClaudeContextCapturer;
 pub use handoff_adapters::{
@@ -55,8 +55,8 @@ pub use inspection::{
 };
 pub use integration::{
     InstallPlan, IntegrationManifest, IntegrationStatus, StatusLineMode, UninstallPlan,
-    apply_install, apply_uninstall, integration_status, load_manifest, plan_install,
-    plan_uninstall,
+    apply_install, apply_uninstall, integration_status, load_manifest, native_default_statusline,
+    plan_install, plan_install_seeding_statusline, plan_uninstall,
 };
 pub use process_scope::{ClassifiedProcess, ProcessRole, WriterScope};
 pub use session_registry::{AgentSessionRecord, find_live_pid_for_session, query_active_sessions};

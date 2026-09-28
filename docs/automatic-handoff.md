@@ -51,6 +51,12 @@ What gets installed, in that profile's `settings.json` only (never `~/.claude` u
 Existing hooks are preserved. Install refuses on an unverified/unsupported Claude Code version
 (`--allow-unverified-version` accepts a newer 2.1.x patch; another release line is always refused).
 
+An isolated Claude profile starts with its own settings; it never silently inherits the default
+account's `~/.claude/settings.json`. During interactive `relay setup`, Relay detects a compatible
+default-account command status line and, only when the isolated profile has no status line, asks
+whether to copy and wrap it. This is opt-in and reversible: declining uses Relay's compact usage
+line, and uninstall returns the isolated profile to its own original settings.
+
 ## Daily use
 
 ```sh
@@ -157,6 +163,16 @@ Every `watch run` first inspects the project's current transaction. An interrupt
 anything new starts**, and that round ends with `Recovered`; run again to continue. If recovery is
 ambiguous the command exits non-zero with `recovery_required` and starts nothing — run
 `relay recover <id> --project-dir …` (or `--acknowledge` after confirming no target is running).
+
+### Claude profile round-trips
+
+For a native Claude `SESSION_CONTINUATION`, returning through profiles is supported: for example
+`claude-main → claude-backup → claude-main`. Relay may replace an existing target transcript only
+when every transferable artifact is either missing, byte-identical, or proven to be an exact stale
+ancestor of the stopped source, and the target session is proven dormant immediately before each
+replacement. The displaced target artifacts are atomically backed up, hash-verified, and recorded
+in the handoff journal before Relay resumes the native session. This is not conflict merging:
+ahead, divergent, active, unreadable, or ambiguous artifacts fail closed.
 
 ## What never happens automatically
 

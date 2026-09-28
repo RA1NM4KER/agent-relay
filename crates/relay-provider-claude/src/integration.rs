@@ -422,9 +422,60 @@ fn check_profile_dir(config_dir: &Path) -> Result<()> {
 
 /// Builds the exact set of changes without writing anything.
 pub fn plan_install(config_dir: &Path, relay_executable: &Path) -> Result<InstallPlan> {
+    plan_install_with_seed(config_dir, relay_executable, None)
+}
+
+/// Like [`plan_install`], but when the profile has no `statusLine` of its own yet, seeds it with
+/// `seed_statusline` before planning — so it is wrapped exactly like a genuinely pre-existing
+/// command (same `Chained` bookkeeping, same byte-for-byte passthrough of its output) instead of
+/// falling back to Relay's own bare rate-limit summary. The on-disk backup still captures the
+/// real, unmodified original file; only the in-memory plan sees the seed.
+///
+/// Only ever call this with the caller's explicit, informed consent (e.g. "copy your default
+/// profile's statusLine into this one too?"). Never seed implicitly — profiles are isolated on
+/// purpose, and quietly carrying one identity's settings into another's would blur that.
+pub fn plan_install_seeding_statusline(
+    config_dir: &Path,
+    relay_executable: &Path,
+    seed_statusline: Value,
+) -> Result<InstallPlan> {
+    plan_install_with_seed(config_dir, relay_executable, Some(seed_statusline))
+}
+
+/// The native-default profile's own `statusLine`, if it has one that looks safe to chain (a
+/// `type: command` object with a string `command`). Best-effort and read-only: any doubt at all
+/// (missing `HOME`, no `~/.claude/settings.json`, malformed entry) returns `None` rather than
+/// guessing, since this only ever feeds an opt-in prompt.
+#[must_use]
+pub fn native_default_statusline() -> Option<Value> {
+    let dir = crate::config_mode::native_default_dir()?;
+    let (_, settings) = read_settings(&dir.join("settings.json")).ok()?;
+    let value = settings.get("statusLine")?.clone();
+    let object = value.as_object()?;
+    if object.get("type").and_then(Value::as_str) != Some("command") {
+        return None;
+    }
+    object.get("command").and_then(Value::as_str)?;
+    Some(value)
+}
+
+fn plan_install_with_seed(
+    config_dir: &Path,
+    relay_executable: &Path,
+    seed_statusline: Option<Value>,
+) -> Result<InstallPlan> {
     check_profile_dir(config_dir)?;
     let settings_path = config_dir.join("settings.json");
     let (original, mut settings) = read_settings(&settings_path)?;
+    // A seeded status line is a requested addition to this profile, not its original setting.
+    // Keep that distinction for uninstall: if settings later drift, removing Relay must restore
+    // this profile's actual pre-install state (no status line), rather than retain a copied one.
+    let seeded_statusline = !settings.contains_key("statusLine") && seed_statusline.is_some();
+    if let Some(seed) = seed_statusline
+        && seeded_statusline
+    {
+        settings.insert("statusLine".to_owned(), seed);
+    }
     let relay = relay_executable.to_string_lossy().into_owned();
     let mut changes = Vec::new();
 
@@ -561,14 +612,22 @@ pub fn plan_install(config_dir: &Path, relay_executable: &Path) -> Result<Instal
                     Value::String(statusline_command(&relay, config_dir, Some(command))),
                 );
                 settings.insert("statusLine".to_owned(), Value::Object(wrapped));
-                mode = Some(StatusLineMode::Chained {
-                    original: Value::Object(object),
+                mode = Some(if seeded_statusline {
+                    StatusLineMode::Added
+                } else {
+                    StatusLineMode::Chained {
+                        original: Value::Object(object),
+                    }
                 });
-                changes.push(
+                changes.push(if seeded_statusline {
+                    "copy the selected default-profile statusLine, then wrap it: Relay records \
+                     rate_limits and runs its command unchanged with the same input and output"
+                        .to_owned()
+                } else {
                     "wrap the existing statusLine: Relay records rate_limits, then runs your \
                      command unchanged with the same input and shows its output"
-                        .to_owned(),
-                );
+                        .to_owned()
+                });
             }
         }
         Some(_) => {
@@ -984,8 +1043,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        COMMAND_FILE_MARKER, all_command_files, apply_install, apply_uninstall, existing_chain,
-        integration_status, load_manifest, plan_install, plan_uninstall, stop_failure_executable,
+        COMMAND_FILE_MARKER, StatusLineMode, all_command_files, apply_install, apply_uninstall,
+        existing_chain, integration_status, load_manifest, plan_install,
+        plan_install_seeding_statusline, plan_uninstall, stop_failure_executable,
     };
 
     const RELAY: &str = "/opt/relay/bin/relay";
@@ -1093,6 +1153,51 @@ mod tests {
         assert_eq!(restored["theme"], "light");
         assert_eq!(restored["statusLine"]["command"], "my-status --fancy 'x y'");
         assert!(restored.get("hooks").is_none());
+    }
+
+    #[test]
+    fn an_explicitly_seeded_statusline_is_chained_but_uninstall_restores_the_target_profile() {
+        let dir = tempdir().unwrap();
+        let before = write(dir.path(), &json!({"theme": "dark"}));
+        let seed = json!({"type": "command", "command": "my-default-status", "padding": 2});
+        let plan = plan_install_seeding_statusline(dir.path(), Path::new(RELAY), seed).unwrap();
+        assert!(matches!(plan.statusline, StatusLineMode::Added));
+        apply_install(&plan, 42).unwrap();
+        let installed = settings(dir.path());
+        assert_eq!(installed["statusLine"]["padding"], 2);
+        assert_eq!(
+            existing_chain(installed["statusLine"]["command"].as_str().unwrap()).as_deref(),
+            Some("my-default-status")
+        );
+
+        // If settings drift, uninstall must still return the target to the state it had before
+        // the user opted into the copy, rather than treating the source setting as native here.
+        let mut edited = installed;
+        edited["theme"] = json!("light");
+        write(dir.path(), &edited);
+        apply_uninstall(&plan_uninstall(dir.path()).unwrap()).unwrap();
+        let restored = settings(dir.path());
+        assert_eq!(restored["theme"], "light");
+        assert!(restored.get("statusLine").is_none());
+        assert!(restored.get("hooks").is_none());
+
+        // With no drift the byte-for-byte backup is authoritative as usual.
+        let second = tempdir().unwrap();
+        fs::write(second.path().join("settings.json"), &before).unwrap();
+        let plan = plan_install_seeding_statusline(
+            second.path(),
+            Path::new(RELAY),
+            json!({
+                "type": "command", "command": "my-default-status"
+            }),
+        )
+        .unwrap();
+        apply_install(&plan, 42).unwrap();
+        apply_uninstall(&plan_uninstall(second.path()).unwrap()).unwrap();
+        assert_eq!(
+            fs::read(second.path().join("settings.json")).unwrap(),
+            before
+        );
     }
 
     #[test]
