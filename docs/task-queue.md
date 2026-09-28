@@ -16,11 +16,26 @@ lowest issue number that has `relay:ready` and neither `relay:claimed` nor `rela
 Other labels, including malformed label objects, are not Relay queue state. No eligible item is a
 successful empty result, not a reason to guess at unrelated Issues.
 
-## Claiming (next slice)
+## Claiming
 
-Discovery is intentionally separate from claiming. A claim will add `relay:claimed` and a
-Relay-owned, identity-bearing GitHub comment, then re-read the Issue before a worker starts.
-GitHub's label endpoints do not offer Relay a documented compare-and-swap primitive. Therefore a
-claimant must fail closed if it cannot prove that its marker is the sole winning Relay claim;
-local serialization is only an optimization and never proof across hosts. A claim never means an
-Issue is complete and this initial contract never auto-closes an Issue.
+Discovery is intentionally separate from claiming. Labels and comments are not the concurrency
+primitive: GitHub's label endpoints have no compare-and-swap operation. Instead, the exclusive
+ownership record is `refs/heads/relay/claims/<issue-number>`. A claimant re-reads
+eligibility, resolves the default branch SHA, then creates that previously nonexistent ref without
+force. GitHub documents ref creation as `201 Created`, with `409 Conflict` for contention; only
+the `201` worker can proceed.
+
+After it owns the ref, the worker re-reads the Issue, adds `relay:claimed`, removes
+`relay:ready`, and writes a concise Relay-owned comment containing its safe session/worker identity
+and claim ref. It then re-reads to verify the visible state. A failed visible mutation is a
+**recoverable incomplete claim**, never permission to start work: the ref remains as the durable
+serialization record until a recovery command can verify it and either finish the visibility write
+or release exactly that ref. A claim never means an Issue is complete and this initial contract
+never auto-closes an Issue.
+
+Claim lifecycle is: `ready -> ref-created -> claimed-visible -> released | blocked | complete`.
+Only a future explicit release/recovery command may delete a ref, after verifying the expected ref
+target and its identity record. If visibility failed before the comment was written, Relay does not
+guess the owner from a timestamp or ref target: it remains a manual recovery boundary. Staleness is
+never inferred from elapsed time; automated stale-claim recovery requires an explicit durable
+task-result/recovery proof, which is part of Issue #21.

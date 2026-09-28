@@ -197,6 +197,14 @@ pub(crate) struct TaskArgs {
 pub(crate) enum TaskCommand {
     /// Select the next open GitHub Issue explicitly labelled `relay:ready`.
     Next,
+    /// Claim one explicitly Relay-ready Issue. A remote Git ref, not a label, is the exclusive
+    /// ownership primitive; this command never starts a provider.
+    Claim {
+        issue: u64,
+        /// Safe Relay worker/session identity shown in the Issue claim comment.
+        #[arg(long)]
+        worker: String,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -1161,5 +1169,20 @@ mod tests {
             panic!("expected Mode subcommand");
         };
         assert!(matches!(args.mode, Some(ModeValue::Interactive)));
+    }
+
+    #[test]
+    fn task_claim_requires_an_explicit_worker_identity() {
+        let cli = Cli::try_parse_from(["relay", "task", "claim", "7", "--worker", "run_1"])
+            .expect("parses");
+        let Command::Task(args) = cli.command else {
+            panic!("expected Task subcommand");
+        };
+        let super::TaskCommand::Claim { issue, worker } = args.command else {
+            panic!("expected claim subcommand");
+        };
+        assert_eq!(issue, 7);
+        assert_eq!(worker, "run_1");
+        assert!(Cli::try_parse_from(["relay", "task", "claim", "7"]).is_err());
     }
 }
