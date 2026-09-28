@@ -83,6 +83,9 @@ pub(crate) enum Command {
     /// Reconcile only Relay-owned integration assets to this running Relay binary. This never
     /// performs onboarding or changes profiles, authentication, or fallback preferences.
     Refresh,
+    /// Inspect or claim explicitly Relay-labelled GitHub work. This never asks a provider to
+    /// decide queue state.
+    Task(TaskArgs),
     /// Start a new Relay-managed Claude conversation in this project and open Claude directly
     /// (type your first message inside Claude). Options after `--` go straight to `claude`.
     Claude(ClaudeArgs),
@@ -182,6 +185,18 @@ pub(crate) enum Command {
     /// directly by a user, never prints anything, never fails visibly.
     #[command(name = "__internal-update-check-refresh", hide = true)]
     InternalUpdateCheckRefresh,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct TaskArgs {
+    #[command(subcommand)]
+    pub(crate) command: TaskCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum TaskCommand {
+    /// Select the next open GitHub Issue explicitly labelled `relay:ready`.
+    Next,
 }
 
 #[derive(Debug, Args)]
