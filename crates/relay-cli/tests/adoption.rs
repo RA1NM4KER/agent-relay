@@ -1345,6 +1345,35 @@ fn relay_status_self_heals_its_own_conversation_even_before_anything_else_reconc
 }
 
 #[test]
+fn in_agent_commands_follow_the_active_lease_after_state_continuation() {
+    let world = world();
+    world.write_transcript(&world.alice, SESSION);
+    let agent = LiveAgent::start(&world, &world.alice, SESSION);
+    let before_adoption = reason(&agent.type_into(&world, &world.alice, SESSION, "/relay status"));
+    assert!(before_adoption.contains("not managed"), "{before_adoption}");
+    let adopted = reason(&agent.type_into(&world, &world.alice, SESSION, "/relay adopt"));
+    assert!(adopted.contains("adopted"), "{adopted}");
+
+    // A cross-provider STATE_CONTINUATION gives the target a new native id in the active lease.
+    // The record is dormant-history only, so it can still name the source's native conversation.
+    // This reproduces the Codex -> Claude shape without needing a live Codex fixture here.
+    let session_dir = world.state_dir();
+    let record_path = session_dir.join("session.json");
+    let mut record: Value =
+        serde_json::from_str(&std::fs::read_to_string(&record_path).expect("session record"))
+            .expect("record JSON");
+    record["last_profile"] = Value::String("bob".to_owned());
+    record["native_session_id"] = Value::String(OTHER_SESSION.to_owned());
+    std::fs::write(&record_path, record.to_string()).expect("stale history record");
+
+    let status = reason(&agent.type_into(&world, &world.alice, SESSION, "/relay status"));
+    assert!(status.contains("Agent Relay: managed"), "{status}");
+    let switch = reason(&agent.type_into(&world, &world.alice, SESSION, "/relay switch bob"));
+    assert!(switch.contains("not supervised"), "{switch}");
+    assert!(!switch.contains("not managed"), "{switch}");
+}
+
+#[test]
 fn external_relay_switch_can_move_a_conversation_that_outlived_its_recorded_process() {
     skip_without_process_env_scan!();
     let world = world();

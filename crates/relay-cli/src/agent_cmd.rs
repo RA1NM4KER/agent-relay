@@ -169,7 +169,11 @@ fn run_subcommand(
     let found = sessions::reconcile(paths, &session.project, &registered, &executables)
         .unwrap_or_default()
         .into_iter()
-        .find(|view| view.record.native_session_id.as_deref() == Some(session.session_id.as_str()));
+        // While active, the lease is authoritative: a STATE_CONTINUATION has a new target-native
+        // id there while the record deliberately retains its last dormant-history id until the
+        // lease is released. Looking only at `record.native_session_id` makes a just-handoff
+        // Claude target appear unmanaged to its own `/relay` hook.
+        .find(|view| view.native_session_id() == Some(session.session_id.as_str()));
     // Reconciliation can only reason from a provider's OWN structured listing. This hook, though,
     // is proof stronger than any of that: it is running *inside* the exact process `session.pid`,
     // which `live::identify` just verified against Claude's live-session registry. If our own
