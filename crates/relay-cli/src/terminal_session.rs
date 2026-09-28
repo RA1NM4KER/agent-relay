@@ -569,10 +569,13 @@ fn run_managed_terminal_inner(
             .flatten()
             .and_then(|arg| arg.to_str());
             if let Some(runtime) = crate::codex_runtime::EventDrivenRuntime::start(
-                context
-                    .codex_executable
-                    .as_deref()
-                    .unwrap_or_else(|| Path::new("codex")),
+                // `plan_codex_resume` has already discovered, canonicalized, and verified the
+                // exact executable this terminal will run. Reuse that identity for the event
+                // runtime: passing the optional CLI override here would turn an ordinary PATH
+                // discovery into the literal relative path `codex`, which the inspector rightly
+                // refuses to canonicalize. The interactive client and its app-server must always
+                // be launched by the same resolved executable.
+                &command.program,
                 &profile.config_dir,
                 &context.state_dir(),
                 &context.project_state_dir(),

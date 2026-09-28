@@ -175,6 +175,15 @@ case "$1" in
     python3 -c 'import os,json; print(json.dumps(dict((k,os.environ.get(k)) for k in ["RELAY_EXECUTABLE","RELAY_CONFIG_ROOT","RELAY_STATE_ROOT","RELAY_PROJECT_DIR","RELAY_SESSION_ID"])))' > "{resume_log}.context"
     ;;
   app-server)
+    # EventDrivenRuntime owns an externally listening app-server. Its spawn contract deliberately
+    # waits only for the private endpoint path to exist; this tiny stand-in therefore needs no
+    # protocol implementation for the planning/runtime executable-identity regression below.
+    if [ "$2" = "--listen" ]; then
+      sockpath=$(printf '%s' "$3" | sed 's#^unix://##')
+      : > "$sockpath"
+      trap 'exit 0' TERM
+      while true; do sleep 1; done
+    fi
     while IFS= read -r line; do
       id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
       [ -z "$id" ] && continue
@@ -719,6 +728,112 @@ fn resume_execs_codex_resume_under_the_profiles_own_codex_home() {
     let banner = String::from_utf8_lossy(&output.stderr);
     assert!(banner.contains("[Relay · codex-main]"));
     assert!(banner.contains("$relay doctor"));
+}
+
+#[test]
+fn event_runtime_reuses_the_resolved_terminal_codex_executable() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa1111",
+        "11111111-1111-4111-8111-111111111111",
+        4242,
+    );
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-resolved-thread");
+    login_claude(root.path(), "alice", &claude);
+    login_codex(root.path(), "codex-main", &codex);
+    launch_claude_writer(root.path(), project.path(), "alice", &claude);
+    let switched = relay(
+        root.path(),
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(
+        switched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&switched.stderr)
+    );
+
+    // The fake is deliberately available as `codex` only through PATH. No explicit override on
+    // the first resume means `plan_codex_resume(None, ...)` must discover and canonicalize this
+    // path; EventDrivenRuntime must receive that exact resolved `TerminalCommand.program`, not
+    // retry a literal relative `codex` path.
+    let bin = root.path().join("bin");
+    std::fs::create_dir(&bin).expect("bin");
+    std::os::unix::fs::symlink(&codex.executable, bin.join("codex")).expect("PATH codex link");
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").expect("PATH"));
+    let run_resume = |explicit: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
+        command
+            .arg("--config-root")
+            .arg(root.path().join("config"))
+            .arg("--state-root")
+            .arg(root.path().join("state"))
+            .arg("resume")
+            .arg("codex-main")
+            .arg("--project-dir")
+            .arg(project.path())
+            .env("PATH", &path)
+            .env("RELAY_CODEX_EVENT_DRIVEN", "1")
+            .env_remove("CLAUDE_CONFIG_DIR")
+            .env_remove("CODEX_HOME");
+        if explicit {
+            command.arg("--codex-executable").arg(&codex.executable);
+        }
+        command.output().expect("run relay resume")
+    };
+
+    let via_path = run_resume(false);
+    assert!(
+        via_path.status.success(),
+        "PATH-resolved resume failed: {}",
+        String::from_utf8_lossy(&via_path.stderr)
+    );
+    let explicit = run_resume(true);
+    assert!(
+        explicit.status.success(),
+        "explicit resume failed: {}",
+        String::from_utf8_lossy(&explicit.stderr)
+    );
+
+    assert_eq!(
+        codex.resume_invocations().len(),
+        2,
+        "both normal terminal plans must execute the same fake Codex"
+    );
+    let canonical_project = std::fs::canonicalize(project.path()).expect("canonical project");
+    let project_id =
+        relay_core::handoff::ProjectId::for_canonical_path(&canonical_project).expect("project id");
+    let trace = std::fs::read_to_string(
+        root.path()
+            .join("state/projects")
+            .join(project_id.as_str())
+            .join("auto-handoff.log"),
+    )
+    .expect("event-runtime trace");
+    assert_eq!(
+        trace
+            .matches("codex_event_driven_app_server_spawned")
+            .count(),
+        2,
+        "both PATH discovery and an explicit override must pass the exact verified-version gate: {trace}"
+    );
+    assert!(
+        !trace.contains("codex_event_driven_version_unverified"),
+        "the planned executable, never literal `./codex`, must reach version verification: {trace}"
+    );
 }
 
 /// Runs the real interactive `relay setup` with the given fake provider CLIs (a provider left out
