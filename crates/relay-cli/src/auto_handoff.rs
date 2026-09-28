@@ -19,7 +19,9 @@
 //! concurrent trigger (for example the Herdr event) just sees the lock or the cooldown.
 
 use std::{
+    cell::RefCell,
     ffi::OsString,
+    fs::File,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
 };
@@ -64,6 +66,9 @@ pub struct AutoWatchPlan {
 /// auto-handoff trace records the real cause instead of a name that could be either.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum CodexEvaluationTrigger {
+    /// The supervised Codex terminal process exited. This final synchronous evaluation avoids
+    /// racing lease release; it is deliberately distinct from every scheduler trigger.
+    ProcessExit,
     /// The periodic adaptive/fixed cadence timer expired with nothing else pre-empting it.
     Timer,
     /// `relay_provider_codex::observer::ObserverEvent::UsageLimitExceeded` pre-empted the timer.
@@ -79,6 +84,7 @@ impl CodexEvaluationTrigger {
     #[must_use]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Self::ProcessExit => "codex_process_exit",
             Self::Timer => "codex_timer_poll",
             Self::UsageLimitEvent => "codex_usage_limit_event",
             Self::ReconnectReconciliation => "codex_reconnect_reconciliation",
@@ -253,7 +259,51 @@ pub fn evaluate_now(
         argv.extend(["--claude-executable".into(), claude.as_os_str().to_owned()]);
     }
     let inner = Cli::try_parse_from(argv).ok()?;
-    crate::commands::dispatch(&inner).ok()
+    let project_id = ProjectId::for_canonical_path(project).ok()?;
+    with_synchronous_trace(
+        &paths.project_state_dir(&project_id).join(LOG_FILE_NAME),
+        CodexEvaluationTrigger::ProcessExit.as_str(),
+        || crate::commands::dispatch(&inner).ok(),
+    )
+}
+
+thread_local! {
+    /// `evaluate_now` runs `watch run` in this same thread instead of redirecting a detached
+    /// child's stderr. Keep its sanitized trace destination thread-local so no other terminal or
+    /// scheduler evaluation can inherit it.
+    static SYNCHRONOUS_TRACE: RefCell<Option<File>> = const { RefCell::new(None) };
+}
+
+/// Runs an in-process authoritative evaluation with the same durable trace format as the
+/// detached scheduler path. Failure to open the observability file must never alter the handoff
+/// decision or its safety checks, so the operation always runs.
+fn with_synchronous_trace<T>(log_path: &Path, trigger: &str, operation: impl FnOnce() -> T) -> T {
+    let trace = open_log(log_path, crate::util::current_unix_ms(), trigger);
+    SYNCHRONOUS_TRACE.with(|slot| {
+        let previous = slot.replace(trace);
+        let result = operation();
+        slot.replace(previous);
+        result
+    })
+}
+
+/// Appends one fixed-vocabulary trace detail when an in-process process-exit evaluation is active.
+/// Callers supply only Relay-owned strings; this accepts neither provider payloads nor identity or
+/// conversation fields except the already-sanitized profile/provider rendering used by the
+/// detached trace convention.
+pub(crate) fn trace_synchronous_detail(detail: &str) {
+    use std::io::Write as _;
+    SYNCHRONOUS_TRACE.with(|slot| {
+        let mut trace = slot.borrow_mut();
+        let Some(file) = trace.as_mut() else {
+            return;
+        };
+        let _ignored = writeln!(
+            file,
+            "[trace unix_ms={}] {detail}",
+            crate::util::current_unix_ms()
+        );
+    });
 }
 
 fn assemble(
@@ -477,6 +527,10 @@ mod tests {
 
     #[test]
     fn each_codex_trigger_has_a_distinct_stable_string() {
+        assert_eq!(
+            CodexEvaluationTrigger::ProcessExit.as_str(),
+            "codex_process_exit"
+        );
         assert_eq!(CodexEvaluationTrigger::Timer.as_str(), "codex_timer_poll");
         assert_eq!(
             CodexEvaluationTrigger::UsageLimitEvent.as_str(),
@@ -487,6 +541,7 @@ mod tests {
             "codex_reconnect_reconciliation"
         );
         let strings = [
+            CodexEvaluationTrigger::ProcessExit.as_str(),
             CodexEvaluationTrigger::Timer.as_str(),
             CodexEvaluationTrigger::UsageLimitEvent.as_str(),
             CodexEvaluationTrigger::ReconnectReconciliation.as_str(),
@@ -494,6 +549,9 @@ mod tests {
         assert_ne!(strings[0], strings[1]);
         assert_ne!(strings[0], strings[2]);
         assert_ne!(strings[1], strings[2]);
+        assert_ne!(strings[0], strings[3]);
+        assert_ne!(strings[1], strings[3]);
+        assert_ne!(strings[2], strings[3]);
     }
 
     #[test]
@@ -501,6 +559,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let log_path = dir.path().join(LOG_FILE_NAME);
         for trigger in [
+            CodexEvaluationTrigger::ProcessExit.as_str(),
             CodexEvaluationTrigger::Timer.as_str(),
             CodexEvaluationTrigger::UsageLimitEvent.as_str(),
             CodexEvaluationTrigger::ReconnectReconciliation.as_str(),
@@ -514,6 +573,24 @@ mod tests {
             );
             std::fs::remove_file(&log_path).expect("reset log between cases");
         }
+    }
+
+    #[test]
+    fn synchronous_trace_writes_only_while_its_process_exit_evaluation_is_active() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let log = dir.path().join(LOG_FILE_NAME);
+        with_synchronous_trace(&log, CodexEvaluationTrigger::ProcessExit.as_str(), || {
+            trace_synchronous_detail("source_usage_check_started profile=codex provider=codex");
+            trace_synchronous_detail("source_usage_check_completed profile=codex provider=codex");
+            trace_synchronous_detail("exhaustion_corroborated");
+        });
+        trace_synchronous_detail("must_not_escape_its_process_exit_evaluation");
+        let contents = std::fs::read_to_string(log).expect("trace");
+        assert!(contents.contains("codex_process_exit"));
+        assert!(contents.contains("source_usage_check_started"));
+        assert!(contents.contains("source_usage_check_completed"));
+        assert!(contents.contains("exhaustion_corroborated"));
+        assert!(!contents.contains("must_not_escape"));
     }
 
     #[test]

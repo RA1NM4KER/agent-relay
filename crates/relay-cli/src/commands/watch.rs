@@ -258,6 +258,9 @@ pub(crate) fn run(
                     current_unix_ms()
                 );
             }
+            if source_usage.state.is_blocking() {
+                auto_handoff::trace_synchronous_detail("exhaustion_corroborated");
+            }
             let fallback_candidates = fallback_profiles
                 .iter()
                 .map(|candidate| -> Result<ProfileCandidate, Error> {
@@ -566,11 +569,10 @@ fn retry_delay_after(
 }
 
 fn trace_preflight(event: &str, profile: &ProfileName, provider: ProviderKind) {
+    let detail = format!("{event} profile={profile} provider={provider}");
+    auto_handoff::trace_synchronous_detail(&detail);
     if std::env::var_os("RELAY_AUTO_HANDOFF_TRACE").is_some() {
-        eprintln!(
-            "[trace unix_ms={}] {event} profile={profile} provider={provider}",
-            current_unix_ms()
-        );
+        eprintln!("[trace unix_ms={}] {detail}", current_unix_ms());
     }
 }
 

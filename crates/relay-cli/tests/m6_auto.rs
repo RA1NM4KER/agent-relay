@@ -1359,6 +1359,35 @@ fn a_codex_session_that_exits_exhausted_between_polls_still_hands_off() {
         1
     );
     assert_eq!(ledger["known_exhausted"][0]["profile"], "codex-main");
+    let trace = auto_log(root);
+    let expected = [
+        "codex_process_exit",
+        "source_usage_check_started profile=codex-main provider=codex",
+        "source_usage_check_completed profile=codex-main provider=codex",
+        "exhaustion_corroborated",
+    ];
+    let positions = expected
+        .iter()
+        .map(|line| {
+            trace
+                .find(line)
+                .unwrap_or_else(|| panic!("missing {line} in {trace}"))
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "the durable trace must prove causal order, not merely contain the lines: {trace}"
+    );
+    for scheduler_trigger in [
+        "codex_timer_poll",
+        "codex_usage_limit_event",
+        "codex_reconnect_reconciliation",
+    ] {
+        assert!(
+            !trace.contains(scheduler_trigger),
+            "the synchronous process-exit path must remain distinguishable: {trace}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
