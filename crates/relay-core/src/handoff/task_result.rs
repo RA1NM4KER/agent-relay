@@ -111,6 +111,30 @@ impl TaskResultStore {
         }
     }
 
+    /// Returns evidence only when it is explicitly bound to this Issue/ref/Relay Session.
+    /// Missing, corrupt (via [`Self::load`]), or mismatched state is an error: consumers must
+    /// never turn absent agent-written state into implied completion or permission.
+    pub fn require_for(
+        &self,
+        issue: u64,
+        claim_ref: &str,
+        relay_session_id: &RelaySessionId,
+    ) -> Result<TaskResult> {
+        let record = self.load()?.ok_or_else(|| {
+            Error::WorkingStateInvalid("no explicit task result is recorded for this claim".into())
+        })?;
+        if record.issue != issue
+            || record.claim_ref != claim_ref
+            || &record.relay_session_id != relay_session_id
+        {
+            return Err(Error::WorkingStateInvalid(
+                "task result does not match the required issue, claim ref, and Relay Session"
+                    .into(),
+            ));
+        }
+        Ok(record)
+    }
+
     /// Writes only a record bound to the same Issue/ref/session as any existing record. The
     /// caller must verify current remote claim state before calling this; this local store cannot
     /// create, renew, release, or otherwise interpret a GitHub claim.
@@ -196,6 +220,27 @@ mod tests {
         .unwrap();
         assert!(matches!(
             store.write(wrong),
+            Err(Error::WorkingStateInvalid(_))
+        ));
+    }
+
+    #[test]
+    fn require_for_rejects_absent_or_mismatched_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = TaskResultStore::at_session_dir(dir.path().to_path_buf());
+        assert!(matches!(
+            store.require_for(21, "refs/heads/relay/claims/21", &session()),
+            Err(Error::WorkingStateInvalid(_))
+        ));
+        let written = store.write(record(TaskResultKind::Continuing)).unwrap();
+        assert_eq!(
+            store
+                .require_for(21, "refs/heads/relay/claims/21", &session())
+                .unwrap(),
+            written
+        );
+        assert!(matches!(
+            store.require_for(22, "refs/heads/relay/claims/22", &session()),
             Err(Error::WorkingStateInvalid(_))
         ));
     }
