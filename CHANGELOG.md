@@ -4,6 +4,25 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+### Handoff checkpoint for non-Git workspaces
+
+- **Automatic handoff no longer requires a Relay-managed project directory to be a Git
+  repository.** A real dogfood session working entirely through a remote interface (MCP-driven
+  WordPress administration, with no local repository at all) previously failed in `PREPARE` with
+  the misleading `checkpoint failed: provider command failed`, because the checkpoint step
+  unconditionally ran `git rev-parse`/`git status` and treated any non-zero exit as a generic
+  failure. `checkpoint_project` now explicitly probes `git rev-parse --is-inside-work-tree` first:
+  "not a git repository" is a structural `Ok(None)` — nothing to checkpoint, not an error — while a
+  genuine git failure inside an actual repository (git missing, a repo with no commits yet, etc.)
+  still fails the handoff, now as an actionable `Error::GitCheckpointFailed { command, detail }`
+  instead of the generic `ProviderCommandFailed`. The `STATE_CONTINUATION` context-capture path
+  (both `relay-provider-claude` and `relay-provider-codex`) had the identical unconditional-git
+  assumption in its own repo-facts capture; `ContinuationBundle.repo` is now `Option<RepoFacts>`,
+  and the bootstrap prompt reports "not a Git repository" instead of fabricating empty branch/HEAD
+  values. See `crates/relay-core/src/handoff/journal.rs` (`checkpoint_project`,
+  `is_git_work_tree`), `crates/relay-core/src/handoff/continuity.rs`, and both providers'
+  `context_capture.rs`.
+
 ### Claude session continuation
 
 - **Safe Claude profile round-trips.** Automatic native-session staging now handles a dormant

@@ -1,8 +1,12 @@
 //! M6/M11: builds a provider-neutral `ContinuationBundle` from Codex's own local state, for a
 //! `STATE_CONTINUATION` transaction where Codex is the SOURCE.
 //!
-//! Repo facts (deterministic, provider-independent) are always captured. Conversation content
-//! (`last_user_request`, `recent_context`) comes from `codex app-server`'s `thread/items/list` —
+//! Repo facts (deterministic, provider-independent) are captured whenever the project directory
+//! is actually a Git repository; a Relay-managed workspace is never required to be one (e.g. a
+//! session working entirely through a remote interface such as MCP-driven WordPress
+//! administration), and that case reports `repo: None` rather than fabricated facts. Conversation
+//! content (`last_user_request`, `recent_context`) comes from `codex app-server`'s
+//! `thread/items/list` —
 //! the same official, typed, schema-generated protocol Relay already uses for rate limits and
 //! thread identity (see `crate::app_server`), never Codex's undocumented, version-fragile local
 //! storage (`CODEX_HOME/thread_history_*.sqlite`, rollout JSONL files): parsing those would mean
@@ -89,7 +93,13 @@ fn extract_recent_context(
     )
 }
 
-fn capture_repo_facts(project_dir: &Path) -> Result<RepoFacts> {
+/// `Ok(None)` when the project directory is not a Git repository at all (e.g. a session working
+/// entirely through a remote interface such as MCP-driven WordPress administration) — never
+/// fabricated as empty/placeholder facts.
+fn capture_repo_facts(project_dir: &Path) -> Result<Option<RepoFacts>> {
+    if !relay_core::handoff::is_git_work_tree(project_dir)? {
+        return Ok(None);
+    }
     let branch = run_git(project_dir, &["rev-parse", "--abbrev-ref", "HEAD"])?;
     let head = run_git(project_dir, &["rev-parse", "HEAD"])?;
     let status = run_git(project_dir, &["status", "--porcelain=v1"])?;
@@ -114,13 +124,13 @@ fn capture_repo_facts(project_dir: &Path) -> Result<RepoFacts> {
             unstaged_files.push(path);
         }
     }
-    Ok(RepoFacts {
+    Ok(Some(RepoFacts {
         branch,
         head,
         staged_files,
         unstaged_files,
         untracked_files,
-    })
+    }))
 }
 
 fn run_git(project_dir: &Path, args: &[&str]) -> Result<String> {
@@ -129,12 +139,23 @@ fn run_git(project_dir: &Path, args: &[&str]) -> Result<String> {
         .arg(project_dir)
         .args(args)
         .output()
-        .map_err(|_| Error::ProviderCommandFailed)?;
+        .map_err(|_| {
+            relay_core::handoff::git_checkpoint_error(
+                &args.join(" "),
+                b"the git command could not be started",
+            )
+        })?;
     if !output.status.success() {
-        return Err(Error::ProviderCommandFailed);
+        return Err(relay_core::handoff::git_checkpoint_error(
+            &args.join(" "),
+            &output.stderr,
+        ));
     }
     String::from_utf8(output.stdout)
-        .map(|text| text.trim().to_owned())
+        // `trim_end` only: `status --porcelain`'s first line can genuinely start with a
+        // meaningful leading space (e.g. `" M path"` for an unstaged-only modification) —
+        // `trim()` would silently eat it and corrupt the very first parsed filename.
+        .map(|text| text.trim_end().to_owned())
         .map_err(|_| Error::MalformedProviderOutput)
 }
 
@@ -190,11 +211,34 @@ mod tests {
             )
             .expect("capture");
 
-        assert_eq!(bundle.repo.branch, "main".to_string());
-        assert!(bundle.repo.untracked_files.iter().any(|f| f == "b.txt"));
+        let repo = bundle.repo.expect("a git repository must yield repo facts");
+        assert_eq!(repo.branch, "main".to_string());
+        assert!(repo.untracked_files.iter().any(|f| f == "b.txt"));
         assert_eq!(bundle.last_user_request, None);
         assert!(bundle.recent_context.is_empty());
         assert_eq!(bundle.source_provider, ProviderKind::Codex);
         assert_eq!(bundle.target_provider, ProviderKind::Claude);
+    }
+
+    #[test]
+    fn a_non_git_project_directory_captures_with_no_repo_facts_instead_of_failing() {
+        // A Relay-managed workspace is never required to be a Git repository (e.g. a session
+        // working entirely through a remote interface like MCP-driven WordPress administration).
+        let root = tempfile::tempdir().expect("tempdir");
+        let project = root.path().join("proj");
+        std::fs::create_dir_all(&project).expect("project dir");
+
+        let bundle = CodexContextCapturer
+            .capture(
+                root.path(),
+                &project,
+                "01a-thread",
+                &ProfileName::new("codex-main").expect("name"),
+                ProviderKind::Codex,
+                ProviderKind::Claude,
+            )
+            .expect("capture must succeed for a non-git workspace");
+
+        assert!(bundle.repo.is_none());
     }
 }

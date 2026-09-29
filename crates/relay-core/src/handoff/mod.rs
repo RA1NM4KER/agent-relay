@@ -28,7 +28,8 @@ pub use coordinator::{
 };
 pub use journal::{
     ArtifactRecord, ArtifactResolutionRecord, Checkpoint, HandoffJournal, HandoffStateTimestamp,
-    HandoffTiming, JournalStore, TargetLaunchRecord, VerificationRecord,
+    HandoffTiming, JournalStore, TargetLaunchRecord, VerificationRecord, git_checkpoint_error,
+    is_git_work_tree,
 };
 pub use lease::{LeaseStore, WriterLease};
 pub use lock::{OrchestrationLock, ProcessIdentity};

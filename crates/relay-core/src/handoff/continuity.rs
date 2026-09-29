@@ -112,7 +112,11 @@ pub struct ContinuationBundle {
     /// The most recent literal user request/instruction, copied verbatim when the source
     /// transcript makes it unambiguous. Never a summary.
     pub last_user_request: Option<String>,
-    pub repo: RepoFacts,
+    /// `None` when the project directory is not a Git repository at all (e.g. a session working
+    /// entirely through a remote interface such as MCP-driven WordPress administration) — never
+    /// fabricated as empty/placeholder repo facts, matching docs/security.md's "no fabricated
+    /// project state" rule.
+    pub repo: Option<RepoFacts>,
     /// Bounded, verbatim, user/assistant-only excerpts of the most recent conversation, oldest
     /// first. Never exceeds [`RECENT_CONTEXT_BYTE_BUDGET`] bytes in total.
     pub recent_context: Vec<ConversationExcerpt>,
@@ -195,18 +199,27 @@ pub fn render_bootstrap_prompt(bundle: &ContinuationBundle) -> String {
         "Project: {}\n\n",
         bundle.canonical_project_path.display()
     ));
-    prompt.push_str("Repository state (observed, not asserted by the prior agent):\n");
-    prompt.push_str(&format!("  branch: {}\n", bundle.repo.branch));
-    prompt.push_str(&format!("  head: {}\n", bundle.repo.head));
-    if bundle.repo.staged_files.is_empty()
-        && bundle.repo.unstaged_files.is_empty()
-        && bundle.repo.untracked_files.is_empty()
-    {
-        prompt.push_str("  working tree: clean\n");
-    } else {
-        push_file_list(&mut prompt, "staged", &bundle.repo.staged_files);
-        push_file_list(&mut prompt, "unstaged", &bundle.repo.unstaged_files);
-        push_file_list(&mut prompt, "untracked", &bundle.repo.untracked_files);
+    match &bundle.repo {
+        Some(repo) => {
+            prompt.push_str("Repository state (observed, not asserted by the prior agent):\n");
+            prompt.push_str(&format!("  branch: {}\n", repo.branch));
+            prompt.push_str(&format!("  head: {}\n", repo.head));
+            if repo.staged_files.is_empty()
+                && repo.unstaged_files.is_empty()
+                && repo.untracked_files.is_empty()
+            {
+                prompt.push_str("  working tree: clean\n");
+            } else {
+                push_file_list(&mut prompt, "staged", &repo.staged_files);
+                push_file_list(&mut prompt, "unstaged", &repo.unstaged_files);
+                push_file_list(&mut prompt, "untracked", &repo.untracked_files);
+            }
+        }
+        None => {
+            prompt.push_str(
+                "Project directory: not a Git repository (no local repository state to report).\n",
+            );
+        }
     }
     if let Some(request) = &bundle.last_user_request {
         prompt.push_str("\nMost recent user request (verbatim):\n");
@@ -297,13 +310,13 @@ mod tests {
             canonical_project_path: std::path::PathBuf::from("/tmp/proj"),
             generated_unix_ms: 1_000,
             last_user_request: Some("add a health check endpoint".to_owned()),
-            repo: RepoFacts {
+            repo: Some(RepoFacts {
                 branch: "main".to_owned(),
                 head: "abc123".to_owned(),
                 staged_files: vec!["src/health.rs".to_owned()],
                 unstaged_files: Vec::new(),
                 untracked_files: Vec::new(),
-            },
+            }),
             recent_context: Vec::new(),
             working_state: None,
         }
@@ -378,9 +391,22 @@ mod tests {
     #[test]
     fn bootstrap_prompt_reports_a_clean_tree_explicitly() {
         let mut bundle = sample_bundle();
-        bundle.repo.staged_files.clear();
+        bundle.repo.as_mut().expect("repo").staged_files.clear();
         let prompt = render_bootstrap_prompt(&bundle);
         assert!(prompt.contains("working tree: clean"));
+    }
+
+    #[test]
+    fn bootstrap_prompt_reports_a_non_git_workspace_without_fabricating_repo_state() {
+        // A Relay-managed workspace is never required to be a Git repository (e.g. a session
+        // working entirely through a remote interface like MCP-driven WordPress administration).
+        let mut bundle = sample_bundle();
+        bundle.repo = None;
+        let prompt = render_bootstrap_prompt(&bundle);
+        assert!(prompt.contains("not a Git repository"));
+        assert!(!prompt.contains("Repository state"));
+        assert!(!prompt.contains("branch:"));
+        assert!(!prompt.contains("working tree: clean"));
     }
 
     #[test]

@@ -306,6 +306,39 @@ fn successful_handoff_reaches_complete_and_updates_the_lease() {
 }
 
 #[test]
+fn a_session_continuation_handoff_succeeds_for_a_non_git_project_directory() {
+    // A Relay-managed workspace is never required to be a Git repository — e.g. a session
+    // working entirely through a remote interface such as MCP-driven WordPress administration
+    // has no local repository to checkpoint. This must not block the handoff (previously it
+    // failed in PREPARE with the misleading generic "checkpoint failed: provider command
+    // failed").
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    std::fs::create_dir_all(&project_dir).expect("project dir (deliberately not a git repo)");
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
+        stager: Some(&OkStager),
+        context_capturer: None,
+        launcher: &OkLauncher,
+    };
+
+    let journal = coordinator
+        .run(request(&project_dir, "erika", "megan"))
+        .expect("handoff must succeed for a non-git project directory");
+
+    assert_eq!(journal.state, HandoffState::Complete);
+    assert!(
+        journal.checkpoint.is_none(),
+        "no git repository present; there is nothing to checkpoint"
+    );
+}
+
+#[test]
 fn a_wrong_source_profile_is_rejected_once_a_lease_is_owned_by_someone_else() {
     let root = tempdir().expect("temp dir");
     let project_dir = root.path().join("project");
@@ -1590,13 +1623,13 @@ impl relay_core::handoff::ContextCapturer for FixedBundleCapturer {
             canonical_project_path: project_dir.to_path_buf(),
             generated_unix_ms: 0,
             last_user_request: Some("add a health check endpoint".to_owned()),
-            repo: relay_core::handoff::RepoFacts {
+            repo: Some(relay_core::handoff::RepoFacts {
                 branch: "main".to_owned(),
                 head: "abc123".to_owned(),
                 staged_files: Vec::new(),
                 unstaged_files: Vec::new(),
                 untracked_files: Vec::new(),
-            },
+            }),
             recent_context: Vec::new(),
             working_state: None,
         })
@@ -1724,6 +1757,38 @@ fn a_state_continuation_handoff_completes_with_a_new_target_session_id() {
     assert_eq!(
         lease.session_id, "codex-thread-0000",
         "the lease must record the TARGET's real new session id, never the source's"
+    );
+}
+
+#[test]
+fn a_state_continuation_handoff_succeeds_for_a_non_git_project_directory() {
+    // The cross-provider STATE_CONTINUATION path must be just as safe for a non-git workspace
+    // (e.g. MCP-driven WordPress administration with no local repository) as SESSION_CONTINUATION
+    // is: the coordinator's own checkpoint must not block PREPARE just because there is no git
+    // repository to check out.
+    let root = tempdir().expect("temp dir");
+    let project_dir = root.path().join("project");
+    std::fs::create_dir_all(&project_dir).expect("project dir (deliberately not a git repo)");
+    let project_dir = project_dir.canonicalize().expect("canonicalize");
+    let paths = relay_paths(root.path());
+    let coordinator = HandoffCoordinator {
+        paths: &paths,
+        liveness: &FixedLiveness(false),
+        source_stopper: &OkStopper,
+        target_stopper: &OkStopper,
+        stager: None,
+        context_capturer: Some(&FixedBundleCapturer),
+        launcher: &BootstrapEchoLauncher,
+    };
+
+    let journal = coordinator
+        .run(cross_provider_request(&project_dir))
+        .expect("state-continuation handoff must succeed for a non-git project directory");
+
+    assert_eq!(journal.state, HandoffState::Complete);
+    assert!(
+        journal.checkpoint.is_none(),
+        "no git repository present; there is nothing to checkpoint"
     );
 }
 

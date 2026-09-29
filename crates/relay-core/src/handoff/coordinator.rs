@@ -470,8 +470,13 @@ impl HandoffCoordinator<'_> {
             ),
         };
         journal.record_timing("project_git_checkpoint", phase_started.elapsed());
-        journal.checkpoint = Some(checkpoint);
-        journal.advance(HandoffState::Checkpointed, "captured git checkpoint")?;
+        let checkpoint_reason = if checkpoint.is_some() {
+            "captured git checkpoint"
+        } else {
+            "no git repository present at the project directory; continuing without a checkpoint"
+        };
+        journal.checkpoint = checkpoint;
+        journal.advance(HandoffState::Checkpointed, checkpoint_reason)?;
         journal_store.save(&journal)?;
 
         // M6: for STATE_CONTINUATION, the provider-neutral bundle is captured now — while the

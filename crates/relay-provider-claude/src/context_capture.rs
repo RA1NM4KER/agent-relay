@@ -58,10 +58,16 @@ impl ContextCapturer for ClaudeContextCapturer {
     }
 }
 
-/// Deterministic, non-fabricated repo facts. By the time this runs the coordinator has already
-/// successfully checkpointed the project (see `checkpoint_project` in relay-core), so a failure
-/// here is unexpected rather than routine and is propagated rather than silently degraded.
-fn capture_repo_facts(project_dir: &Path) -> Result<RepoFacts> {
+/// Deterministic, non-fabricated repo facts. `Ok(None)` when the project directory is not a Git
+/// repository at all (e.g. a session working entirely through a remote interface such as
+/// MCP-driven WordPress administration) — never fabricated as empty/placeholder facts. By the
+/// time this runs the coordinator has already run its own checkpoint (see `checkpoint_project` in
+/// relay-core), so a *genuine* git failure here is unexpected rather than routine and is still
+/// propagated rather than silently degraded.
+fn capture_repo_facts(project_dir: &Path) -> Result<Option<RepoFacts>> {
+    if !relay_core::handoff::is_git_work_tree(project_dir)? {
+        return Ok(None);
+    }
     let branch = run_git(project_dir, &["rev-parse", "--abbrev-ref", "HEAD"])?;
     let head = run_git(project_dir, &["rev-parse", "HEAD"])?;
     let status = run_git(project_dir, &["status", "--porcelain=v1"])?;
@@ -86,13 +92,13 @@ fn capture_repo_facts(project_dir: &Path) -> Result<RepoFacts> {
             unstaged_files.push(path);
         }
     }
-    Ok(RepoFacts {
+    Ok(Some(RepoFacts {
         branch,
         head,
         staged_files,
         unstaged_files,
         untracked_files,
-    })
+    }))
 }
 
 fn run_git(project_dir: &Path, args: &[&str]) -> Result<String> {
@@ -101,12 +107,23 @@ fn run_git(project_dir: &Path, args: &[&str]) -> Result<String> {
         .arg(project_dir)
         .args(args)
         .output()
-        .map_err(|_| Error::ProviderCommandFailed)?;
+        .map_err(|_| {
+            relay_core::handoff::git_checkpoint_error(
+                &args.join(" "),
+                b"the git command could not be started",
+            )
+        })?;
     if !output.status.success() {
-        return Err(Error::ProviderCommandFailed);
+        return Err(relay_core::handoff::git_checkpoint_error(
+            &args.join(" "),
+            &output.stderr,
+        ));
     }
     String::from_utf8(output.stdout)
-        .map(|text| text.trim().to_owned())
+        // `trim_end` only: `status --porcelain`'s first line can genuinely start with a
+        // meaningful leading space (e.g. `" M path"` for an unstaged-only modification) —
+        // `trim()` would silently eat it and corrupt the very first parsed filename.
+        .map(|text| text.trim_end().to_owned())
         .map_err(|_| Error::MalformedProviderOutput)
 }
 

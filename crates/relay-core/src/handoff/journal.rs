@@ -285,7 +285,18 @@ impl JournalStore {
 
 /// Reads branch, HEAD, dirty state, and changed filenames only — never file contents, matching
 /// docs/security.md's checkpoint policy. Read-only; never mutates the project.
-pub fn checkpoint_project(project_dir: &Path) -> Result<Checkpoint> {
+///
+/// A Relay-managed workspace is never required to be a Git repository: a session working
+/// entirely through a remote interface (e.g. MCP-driven WordPress administration) may have no
+/// local repository to checkpoint at all. `Ok(None)` is exactly that — git itself confirming
+/// there is nothing here to check out — never treated as a failure. Any other git failure (git
+/// missing, or a real repository that genuinely cannot answer) is still `Err` and still fails the
+/// handoff, exactly as before.
+pub fn checkpoint_project(project_dir: &Path) -> Result<Option<Checkpoint>> {
+    if !is_git_work_tree(project_dir)? {
+        return Ok(None);
+    }
+
     let head = run_git(project_dir, &["rev-parse", "HEAD"])?;
     let branch = run_git(project_dir, &["rev-parse", "--abbrev-ref", "HEAD"])?;
     let status = run_git(project_dir, &["status", "--porcelain"])?;
@@ -293,36 +304,108 @@ pub fn checkpoint_project(project_dir: &Path) -> Result<Checkpoint> {
         .lines()
         .filter_map(|line| line.get(3..).map(str::to_owned))
         .collect();
-    Ok(Checkpoint {
+    Ok(Some(Checkpoint {
         branch,
         head,
         dirty: !changed_files.is_empty(),
         changed_files,
-    })
+    }))
 }
 
-fn run_git(project_dir: &Path, args: &[&str]) -> Result<String> {
+/// Whether `dir` is inside a Git working tree, explicitly asked of git itself
+/// (`rev-parse --is-inside-work-tree`) rather than inferred from a bare `.git`-directory check —
+/// the same probe [`checkpoint_project`] uses, exposed so every other Git-derived reader in Relay
+/// (state-continuation repo-facts capture, in the provider crates) detects "this is not a Git
+/// repository" identically rather than re-implementing it. `Ok(false)` covers both "no repository
+/// here at all" and "a bare repository / inside `.git` itself" — neither has working-tree state to
+/// read. Any other git failure (git missing, a real repository that cannot answer) is `Err`.
+pub fn is_git_work_tree(dir: &Path) -> Result<bool> {
+    let probe = run_git_raw(dir, &["rev-parse", "--is-inside-work-tree"])?;
+    if !probe.success {
+        if is_not_a_git_repository(&probe.stderr) {
+            return Ok(false);
+        }
+        return Err(git_checkpoint_error(
+            "rev-parse --is-inside-work-tree",
+            &probe.stderr,
+        ));
+    }
+    Ok(String::from_utf8_lossy(&probe.stdout).trim() == "true")
+}
+
+struct GitOutput {
+    success: bool,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn run_git_raw(project_dir: &Path, args: &[&str]) -> Result<GitOutput> {
     let output = std::process::Command::new("git")
         .arg("-C")
         .arg(project_dir)
         .args(args)
         .output()
-        .map_err(|_| Error::ProviderCommandFailed)?;
-    if !output.status.success() {
-        return Err(Error::ProviderCommandFailed);
+        .map_err(|_| {
+            git_checkpoint_error(&args.join(" "), b"the git command could not be started")
+        })?;
+    Ok(GitOutput {
+        success: output.status.success(),
+        stdout: output.stdout,
+        stderr: output.stderr,
+    })
+}
+
+fn run_git(project_dir: &Path, args: &[&str]) -> Result<String> {
+    let output = run_git_raw(project_dir, args)?;
+    if !output.success {
+        return Err(git_checkpoint_error(&args.join(" "), &output.stderr));
     }
     String::from_utf8(output.stdout)
-        .map(|text| text.trim().to_owned())
+        // `trim_end` only: `status --porcelain`'s first line can genuinely start with a
+        // meaningful leading space (e.g. `" M path"` for an unstaged-only modification) —
+        // `trim()` would silently eat it and corrupt the very first parsed filename.
+        .map(|text| text.trim_end().to_owned())
         .map_err(|_| Error::MalformedProviderOutput)
+}
+
+/// Distinguishes "there is no repository here" from every other git failure, matching git's own
+/// stable wording for this exact case (`fatal: not a git repository (or any of the parent
+/// directories): .git`) rather than inferring it from an exit code alone.
+fn is_not_a_git_repository(stderr: &[u8]) -> bool {
+    String::from_utf8_lossy(stderr).contains("not a git repository")
+}
+
+/// A sanitized, actionable [`Error::GitCheckpointFailed`]: which command failed, and (bounded, no
+/// file contents, no multi-line dumps) the first line of what git said — matching
+/// docs/security.md's checkpoint policy. Public so every Git-command reader across Relay (this
+/// module and the provider crates' own repo-facts capture) reports the same improved error
+/// vocabulary instead of the generic `Error::ProviderCommandFailed`.
+pub fn git_checkpoint_error(command: &str, stderr: &[u8]) -> Error {
+    const MAX_LEN: usize = 300;
+    let text = String::from_utf8_lossy(stderr);
+    let first_line = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("the command exited with a non-zero status")
+        .trim();
+    let detail = if first_line.chars().count() > MAX_LEN {
+        first_line.chars().take(MAX_LEN).collect::<String>() + "…"
+    } else {
+        first_line.to_owned()
+    };
+    Error::GitCheckpointFailed {
+        command: command.to_owned(),
+        detail,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
 
-    use super::{HandoffJournal, HandoffState, JournalStore};
+    use super::{HandoffJournal, HandoffState, JournalStore, checkpoint_project};
     use crate::{
-        ProfileName,
+        Error, ProfileName,
         handoff::{ContinuityType, FailedPhase, ProjectId, TransactionId},
     };
 
@@ -416,5 +499,105 @@ mod tests {
             )
             .expect("failure must be reachable from an in-progress state");
         assert!(journal.state.is_terminal());
+    }
+
+    // --- checkpoint_project ---
+
+    fn init_git_repo(dir: &std::path::Path) {
+        std::fs::create_dir_all(dir).expect("project dir");
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(args)
+                .status()
+                .expect("run git");
+            assert!(status.success(), "git {args:?} must succeed");
+        };
+        run(&["-c", "init.defaultBranch=main", "init", "-q"]);
+        run(&["config", "user.email", "test@example.com"]);
+        run(&["config", "user.name", "Test"]);
+        std::fs::write(dir.join("README.md"), "hello\n").expect("seed file");
+        run(&["add", "README.md"]);
+        run(&["commit", "-q", "-m", "init"]);
+    }
+
+    #[test]
+    fn a_normal_git_repo_yields_a_clean_checkpoint() {
+        let root = tempdir().expect("temp dir");
+        let project = root.path().join("project");
+        init_git_repo(&project);
+
+        let checkpoint = checkpoint_project(&project)
+            .expect("checkpoint must succeed")
+            .expect("a git repository must yield a checkpoint");
+        assert_eq!(checkpoint.branch, "main");
+        assert_eq!(checkpoint.head.len(), 40, "a full sha1 hex digest");
+        assert!(!checkpoint.dirty);
+        assert!(checkpoint.changed_files.is_empty());
+    }
+
+    #[test]
+    fn a_dirty_git_repo_reports_changed_files() {
+        let root = tempdir().expect("temp dir");
+        let project = root.path().join("project");
+        init_git_repo(&project);
+        std::fs::write(project.join("README.md"), "changed\n").expect("dirty the tree");
+        std::fs::write(project.join("untracked.txt"), "new\n").expect("untracked file");
+
+        let checkpoint = checkpoint_project(&project)
+            .expect("checkpoint must succeed")
+            .expect("a git repository must yield a checkpoint");
+        assert!(checkpoint.dirty);
+        assert!(checkpoint.changed_files.iter().any(|f| f == "README.md"));
+        assert!(
+            checkpoint
+                .changed_files
+                .iter()
+                .any(|f| f == "untracked.txt")
+        );
+    }
+
+    #[test]
+    fn an_intentional_non_git_workspace_checkpoints_to_none_not_an_error() {
+        // A Relay-managed workspace is never required to be a Git repository — e.g. a session
+        // working entirely through a remote interface such as MCP-driven WordPress
+        // administration has no local repository to checkpoint at all.
+        let root = tempdir().expect("temp dir");
+        let project = root.path().join("project");
+        std::fs::create_dir_all(&project).expect("project dir");
+
+        let checkpoint =
+            checkpoint_project(&project).expect("a missing repository must not be an error");
+        assert!(checkpoint.is_none());
+    }
+
+    #[test]
+    fn a_genuine_git_failure_is_reported_with_the_improved_error_vocabulary_not_generic() {
+        // A real repository with zero commits: `rev-parse --is-inside-work-tree` succeeds (it IS
+        // a repository), but `rev-parse HEAD` genuinely fails — this must surface as an
+        // actionable `GitCheckpointFailed`, never the generic `ProviderCommandFailed`, and never
+        // be mistaken for "not a git repository".
+        let root = tempdir().expect("temp dir");
+        let project = root.path().join("project");
+        std::fs::create_dir_all(&project).expect("project dir");
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&project)
+            .args(["-c", "init.defaultBranch=main", "init", "-q"])
+            .status()
+            .expect("run git init");
+        assert!(status.success());
+
+        let error = checkpoint_project(&project).expect_err("no commits means no HEAD to read");
+        assert_eq!(error.code(), "git_checkpoint_failed");
+        assert!(!matches!(error, Error::ProviderCommandFailed));
+        match error {
+            Error::GitCheckpointFailed { command, detail } => {
+                assert_eq!(command, "rev-parse HEAD");
+                assert!(!detail.is_empty());
+            }
+            other => panic!("expected GitCheckpointFailed, got {other:?}"),
+        }
     }
 }

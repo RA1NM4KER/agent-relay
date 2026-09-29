@@ -261,7 +261,7 @@ Cancellation is a first-class fault. Ctrl-C requests cancellation; the coordinat
 3. Resolve the explicit target or ordered fallback; reject source-equals-target.
 4. Preflight target authentication in its sanitized environment and verify its identity pin.
 5. Persist `PREPARING` before any external mutation.
-6. Capture branch, HEAD, dirty state, and changed filenames without reading file contents.
+6. Capture branch, HEAD, dirty state, and changed filenames without reading file contents — only when the project directory is a Git repository at all. A Relay-managed workspace is never required to be one (e.g. a session working entirely through a remote interface such as MCP-driven administration): that case checkpoints to nothing and proceeds. A genuine git failure in an actual repository still fails the handoff.
 7. Obtain the exact session ID and transcript path from provider events where possible.
 8. Persist `CHECKPOINTED` and request graceful source stop.
 9. Verify process termination using PID plus start identity; retain the project reservation.

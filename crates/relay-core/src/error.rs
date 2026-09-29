@@ -66,6 +66,13 @@ pub enum Error {
     /// credential material.
     #[error("Claude `{operation}` failed: {detail}")]
     ProviderDiagnostic { operation: String, detail: String },
+    /// A genuine failure of a read-only `git` checkpoint command (git missing, or a real
+    /// repository that could not answer) — deliberately distinct from
+    /// [`Self::ProviderCommandFailed`]'s generic wording so a handoff failure here is actionable.
+    /// Never raised for "this directory is not a Git repository at all": that is not a failure
+    /// (see `handoff::checkpoint_project`, which returns `Ok(None)` instead).
+    #[error("git checkpoint command `git {command}` failed: {detail}")]
+    GitCheckpointFailed { command: String, detail: String },
     #[error("provider command timed out")]
     ProviderCommandTimeout,
     #[error("provider output was malformed")]
@@ -279,6 +286,7 @@ impl Error {
             Self::UnsafeProviderExecutable => "unsafe_provider_executable",
             Self::ProviderCommandFailed => "provider_command_failed",
             Self::ProviderDiagnostic { .. } => "provider_diagnostic",
+            Self::GitCheckpointFailed { .. } => "git_checkpoint_failed",
             Self::ProviderCommandTimeout => "provider_command_timeout",
             Self::MalformedProviderOutput => "malformed_provider_output",
             Self::UnsupportedProviderSchema => "unsupported_provider_schema",
