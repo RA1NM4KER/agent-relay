@@ -225,12 +225,22 @@ feature never becomes authoritative on its own: either signal, and a successful 
 below), only ever triggers the same `account/rateLimits/read` evaluation, and
 `ordinaryUsageAllowed == false` remains the sole exhaustion verdict.
 
-Mechanically: enabling this starts an external `codex app-server --listen unix://…` (a private,
-owner-only socket, deliberately not a nested path under the profile's own state directory — a real
-macOS `SUN_LEN` path-length failure was hit doing that during research) and adds `--remote
-unix://…` to the interactive command so it becomes a client of that runtime instead of embedding
-its own private one — this happens immediately and never blocks the interactive command from
-starting. Relay's own passive observer attaches to the same runtime in the background:
+Mechanically: enabling this ensures Codex's own shared local app-server daemon is running for the
+profile's `CODEX_HOME` (`codex app-server daemon start` — the same officially supported
+multi-client backend `codex agents` already relies on to list every session across simultaneous
+local invocations), then attaches Relay's own passive observer to that daemon's well-known control
+socket in the background — this happens immediately and never blocks the interactive command from
+starting. **The interactive command itself is never modified: no `--remote` flag, no other
+argument is ever added.** An earlier version of this feature spawned a *private*
+`codex app-server --listen unix://…` and appended `--remote unix://…` to the interactive command
+so it would attach to that private runtime; a real dogfood session found this silently broke
+persisted permission arguments (`--yolo`, `--sandbox`, etc.) — Codex's own TUI (live-verified
+against `codex-cli 0.155.0`) explicitly refuses to carry a CLI permission override into a
+`--remote`-mode resume, restoring the resumed thread's saved settings instead, which is not the
+same as an ordinary local `--yolo` invocation. An ordinary local `codex resume` with **no**
+`--remote` flag at all auto-discovers and reuses this exact same daemon on its own, and Codex
+treats a connection it made itself to it as an ordinary local session for permission purposes —
+so every already-resolved provider argument keeps meaning exactly what it always did.
 
 - **A resume** (Relay's own lease already names the thread) attaches directly.
 - **A fresh launch** (no thread exists yet) waits for the real `thread/started` broadcast to learn
@@ -249,17 +259,12 @@ starting. Relay's own passive observer attaches to the same runtime in the backg
   activity — never a provider call — so it costs nothing meaningful even across an arbitrarily long
   wait for a real user's first message.
 
-Both the app-server and the observer (or its still-retrying background worker) are torn down
-synchronously as part of normal session cleanup. What this still deliberately does **not** attempt:
+Only the observer (or its still-retrying background worker) is torn down as part of normal session
+cleanup — the daemon itself is never terminated by Relay, on a normal exit or otherwise: it is
+shared and Codex-owned, potentially serving other sessions or tools with nothing to do with this
+Relay Session, and must keep running exactly as if Relay had never been involved. What this still
+deliberately does **not** attempt:
 
-- **A hard Relay crash (`SIGKILL`) can orphan the app-server.** There is no `PR_SET_PDEATHSIG`
-  equivalent on macOS, no protocol-level shutdown method, and it does not exit on stdin EOF — all
-  three were live-tested, not assumed. Normal/handled exit (including `SIGTERM`/`SIGINT`) always
-  terminates it synchronously; after a real crash, the *next* invocation of the same session
-  reconciles the durable runtime record it left behind and safely reaps it, using the same
-  pid+start-time fingerprint proof every other stale-process check in this codebase already
-  requires — never a bare pid or socket-path match, and never guessed at if that proof is
-  ambiguous.
 - **Periodic provider polling has not been removed.** #13's adaptive cadence table is unchanged and
   remains the only mechanism whenever this feature is off, fails to attach, or hasn't reconnected
   yet — see GitHub #17/#18 for the research behind why removing it entirely may eventually be safe,

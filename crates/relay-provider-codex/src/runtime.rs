@@ -1,9 +1,7 @@
-//! GitHub #16: the external `codex app-server --listen unix://…` runtime an event-driven
-//! observer needs — process identity/liveness, the private socket-path scheme, and spawning
-//! /terminating that one extra child. This module never decides exhaustion and never touches the
-//! interactive terminal's own I/O; see `crate::events` for the structured signals it exists to let
-//! a caller observe, and `crate::usage` for the one authoritative verdict those signals only ever
-//! wake up.
+//! GitHub #16/#18: the external app-server runtime an event-driven observer needs. This module
+//! never decides exhaustion and never touches the interactive terminal's own I/O; see
+//! `crate::events` for the structured signals it exists to let a caller observe, and `crate::usage`
+//! for the one authoritative verdict those signals only ever wake up.
 //!
 //! ## Why this exists (agent-relay#15's live findings)
 //!
@@ -11,28 +9,46 @@
 //! internally (default `stdio://` transport) — nothing outside that one process can observe its
 //! live notifications. The only way to observe `account/rateLimits/updated` or a turn's structured
 //! `usageLimitExceeded` error from the *same* interactive runtime is to run that app-server
-//! externally (`--listen`) and have the interactive client attach to it remotely (`--remote`), so
-//! a separate, passive Relay connection can attach too. Live-verified against `codex-cli 0.155.0`:
-//! multiple independent connections to one external app-server each get the full, correct
-//! notification stream for a thread they explicitly subscribed to (`thread/resume`, or having
-//! created it themselves) — regardless of which connection actually drives a given turn — with no
-//! cross-talk and no interference between connections.
+//! externally and have a separate, passive Relay connection attach to it too. Live-verified
+//! against `codex-cli 0.155.0`: multiple independent connections to one external app-server each
+//! get the full, correct notification stream for a thread they explicitly subscribed to
+//! (`thread/resume`, or having created it themselves) — regardless of which connection actually
+//! drives a given turn — with no cross-talk and no interference between connections.
+//!
+//! ## Which external app-server, and why (agent-relay#18's fix)
+//!
+//! An earlier version of this module spawned a *private* `codex app-server --listen unix://…`
+//! and made the interactive client attach to it via `--remote <ADDR>`. Live-verified against
+//! `codex-cli 0.155.0`: `--remote` unconditionally puts that client's session in Codex's own
+//! `ThreadParamsMode::Remote`, and Codex's TUI explicitly refuses to carry a CLI permission
+//! override (`--yolo`, `--sandbox`, `-a`, any `-c approval_policy=…`/`sandbox_mode=…`/etc.) into a
+//! remote-mode resume — resuming remotely always "restores the server's saved permission
+//! settings" instead, silently overriding the client's request. A dogfooded real session hit
+//! exactly this: `--yolo` plus `--remote` was rejected outright with "Permission overrides are not
+//! supported when resuming a remote task."; dropping `--yolo` let the resume proceed but under
+//! Codex's default (non-`--yolo`) permissions, breaking MCP writes that used to need no approval.
+//! This is deliberate Codex behavior, not a bug Relay can configure around from the client side.
+//!
+//! [`ensure_managed_daemon`] is the fix: instead of a private endpoint, it ensures Codex's own
+//! shared local app-server daemon (`codex app-server daemon start`) is running for the profile's
+//! `CODEX_HOME` and returns its well-known control-socket endpoint. An ordinary interactive
+//! `codex resume` invocation with **no** `--remote` flag at all auto-discovers and reuses this
+//! exact same daemon on its own (the same mechanism `codex agents` already relies on to list
+//! every session across simultaneous local invocations) — and a connection the TUI made itself to
+//! this daemon is `ThreadParamsMode::Embedded`, not `Remote`, so every permission-affecting
+//! argument the caller already resolved onto `TerminalCommand.args` keeps meaning exactly what an
+//! ordinary local invocation would give it. Relay's own observer connects to the identical socket
+//! completely separately, using the same passive, multi-client-safe protocol #15 already proved.
 //!
 //! ## What this module deliberately does NOT solve
 //!
-//! **There is no `PR_SET_PDEATHSIG` equivalent on macOS, and the app-server has no protocol-level
-//! shutdown method and does not exit on stdin EOF.** All three were live-tested for this issue: a
-//! `--listen` app-server survives its spawning parent's `SIGKILL` (reparented to pid 1, still
-//! answering `healthz`); closing the only pipe to its stdin does not stop it; there is no
-//! `shutdown`/`quit` RPC in `codex app-server generate-json-schema`'s method list. A hard crash of
-//! the Relay process supervising this runtime *will* orphan it — this module does not pretend
-//! otherwise. What it *does* guarantee: [`AppServerHandle::terminate`] synchronously stops a
-//! runtime this process still holds a live handle to (normal exit, `SIGTERM`, `SIGINT` — anything
-//! that lets Relay's own cleanup code run), and [`reconcile_stale`] lets a *later* Relay
-//! invocation safely recognize and reap an orphan from an earlier crash — using the same
-//! pid+start-time fingerprint proof (`ProcessIdentity`) every other ownership check in this
-//! codebase already relies on, never a bare pid or socket-path match. An orphan that cannot be
-//! proven safe to reap is left alone and reported, never guessed about.
+//! [`ensure_managed_daemon`] never terminates the daemon it confirms running — that daemon is
+//! shared and Codex-owned, potentially serving other sessions/tools that have nothing to do with
+//! this Relay Session, and must keep running after this session ends exactly as if Relay had never
+//! been involved. [`AppServerHandle`] (a private, Relay-owned `--listen` process this module
+//! spawns, terminates, and can reap after a crash) still exists for the observer's own live-server
+//! test fixtures, which need *some* disposable real app-server to exercise the protocol against —
+//! it is no longer used by the production event-driven-observer path.
 
 use std::{
     fs,
@@ -116,48 +132,6 @@ pub fn evaluate_liveness(identity: &CodexRuntimeIdentity) -> RuntimeLiveness {
     }
 }
 
-/// Durable record of a runtime this process started, so a *later* Relay invocation (after a
-/// crash) can find it. Persisted by the caller (`relay-cli`, alongside its other session state) —
-/// this module only defines the shape and the reconciliation decision, never where it lives on
-/// disk or when it is written.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct CodexRuntimeRecord {
-    pub app_server: ProcessIdentity,
-    pub endpoint: PathBuf,
-    pub codex_home: PathBuf,
-}
-
-/// What a later Relay invocation should do about a [`CodexRuntimeRecord`] found on disk, given
-/// the live process table right now. Never a guess: reaping requires the exact same
-/// pid+start-time fingerprint proof every other stale-process decision in this codebase already
-/// requires (PID reuse is explicitly why a bare pid match is never sufficient — see
-/// `relay_core::handoff::ProcessIdentity`'s own doc comment).
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum StaleReconciliation {
-    /// No live process matches the recorded identity: nothing to reap, the record is simply
-    /// stale (already gone, or another process now holds that pid). Safe to delete the record.
-    NothingToReap,
-    /// A live process's identity provably matches the record exactly (same pid, same start-time
-    /// fingerprint): this is genuinely an orphan from an earlier crash. Safe to terminate.
-    SafeToReap(ProcessIdentity),
-    /// Identity could not be confirmed either way. Never terminate on this: report it and leave
-    /// the record and the process alone rather than risk killing something Relay does not
-    /// actually own.
-    Ambiguous,
-}
-
-/// Decides [`StaleReconciliation`] for one recorded runtime. Does not act — callers that get
-/// [`StaleReconciliation::SafeToReap`] still choose whether and how to terminate it (typically via
-/// [`AppServerHandle::terminate_orphan`]).
-#[must_use]
-pub fn reconcile_stale(record: &CodexRuntimeRecord) -> StaleReconciliation {
-    match record.app_server.is_still_the_same_process() {
-        Some(true) => StaleReconciliation::SafeToReap(record.app_server.clone()),
-        Some(false) => StaleReconciliation::NothingToReap,
-        None => StaleReconciliation::Ambiguous,
-    }
-}
-
 /// Errors starting or verifying an external app-server runtime.
 #[derive(Debug, Eq, PartialEq)]
 pub enum RuntimeError {
@@ -166,6 +140,9 @@ pub enum RuntimeError {
     NotReady,
     /// The private socket directory or file failed a required permission/ownership/symlink check.
     UnsafeEndpoint,
+    /// `codex app-server daemon start` exited successfully but its stdout was not the documented
+    /// `{"socketPath": ..., "pid": ...}` shape — never guessed at from a different shape.
+    Protocol,
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -176,8 +153,111 @@ impl std::fmt::Display for RuntimeError {
             Self::UnsafeEndpoint => {
                 write!(f, "the private runtime socket path failed a safety check")
             }
+            Self::Protocol => {
+                write!(
+                    f,
+                    "codex app-server daemon start returned an unrecognized response"
+                )
+            }
         }
     }
+}
+
+/// Codex's own shared local app-server daemon this invocation confirmed running: the endpoint an
+/// observer connects to, and the daemon's own [`ProcessIdentity`] (never a `Child` this process
+/// holds — see [`ensure_managed_daemon`]'s own doc comment for why).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ManagedDaemon {
+    pub endpoint: PathBuf,
+    pub identity: ProcessIdentity,
+}
+
+/// Wall-clock budget for `codex app-server daemon start` to report readiness. A fast, local,
+/// non-network command (fork-and-confirm an already-running local daemon, or start a fresh one),
+/// so the same bound as [`READY_TIMEOUT`] is generous.
+const DAEMON_START_TIMEOUT: Duration = READY_TIMEOUT;
+
+/// Ensures Codex's own shared local app-server daemon is running for `codex_home` and returns its
+/// control-socket endpoint plus its process identity. This is the officially supported multi-
+/// client backend (`codex agents` already lists every session across simultaneous local
+/// invocations through it) — an ordinary interactive `codex resume` with no `--remote` flag
+/// auto-discovers and reuses this exact same daemon, which is why using it (instead of a private
+/// `--listen` app-server Relay spawns itself) is what actually fixes agent-relay#18: Codex's own
+/// TUI treats a connection it made itself to *this* daemon as an ordinary local session for
+/// permission purposes (approval policy, sandbox, `--yolo`, everything an interactive user would
+/// otherwise get), never the separate, deliberately more restrictive "remote task" mode a
+/// `--remote <ADDR>` flag would put it in. See this module's own top-level doc comment for the
+/// full agent-relay#15/#16/#18 background and `crate::inspection` for the version this was
+/// live-verified against (`codex-cli 0.155.0`).
+///
+/// Deliberately NOT [`AppServerHandle::spawn`]: that function owns a `Child` this process must
+/// terminate. `codex app-server daemon start` is a short-lived command — it exits immediately
+/// once the daemon (persistent, shared, Codex-owned, potentially already running for a
+/// completely unrelated reason) is confirmed up, reporting the *daemon's* own pid in its JSON
+/// response, not its own. There is no child of this invocation to hold or reap; the returned
+/// [`ManagedDaemon::identity`] is only ever used to notice the daemon going away later, never to
+/// terminate it — Relay must never stop a daemon it does not own (agent-relay#18: the whole point
+/// is this must keep running for other, unrelated Codex sessions/tools exactly as if Relay had
+/// never been involved).
+pub fn ensure_managed_daemon(
+    executable: &Path,
+    codex_home: &Path,
+) -> Result<ManagedDaemon, RuntimeError> {
+    let mut command = Command::new(executable);
+    command
+        .arg("app-server")
+        .arg("daemon")
+        .arg("start")
+        .env("CODEX_HOME", codex_home)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    for variable in AUTHENTICATION_OVERRIDE_VARIABLES {
+        command.env_remove(variable);
+    }
+    let mut child = command.spawn().map_err(|_| RuntimeError::Spawn)?;
+    let deadline = Instant::now() + DAEMON_START_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() >= deadline => {
+                let _ignored = child.kill();
+                let _ignored = child.wait();
+                return Err(RuntimeError::NotReady);
+            }
+            Ok(None) => std::thread::sleep(READY_POLL_INTERVAL),
+            Err(_) => return Err(RuntimeError::Spawn),
+        }
+    };
+    if !status.success() {
+        return Err(RuntimeError::Spawn);
+    }
+    let mut stdout_bytes = Vec::new();
+    {
+        use std::io::Read as _;
+        let Some(mut stdout) = child.stdout.take() else {
+            return Err(RuntimeError::Protocol);
+        };
+        stdout
+            .read_to_end(&mut stdout_bytes)
+            .map_err(|_| RuntimeError::Protocol)?;
+    }
+    parse_managed_daemon(&stdout_bytes).ok_or(RuntimeError::Protocol)
+}
+
+/// Parses `codex app-server daemon start`'s documented JSON stdout
+/// (`{"socketPath": "...", "pid": <u32>, ...}`, live-verified against `codex-cli 0.155.0`) —
+/// never a different, undocumented shape guessed at from field position or ordering.
+fn parse_managed_daemon(stdout: &[u8]) -> Option<ManagedDaemon> {
+    let text = std::str::from_utf8(stdout).ok()?;
+    let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    let socket_path = value.get("socketPath")?.as_str()?;
+    let pid = value.get("pid")?.as_u64()?;
+    let pid = u32::try_from(pid).ok()?;
+    Some(ManagedDaemon {
+        endpoint: PathBuf::from(socket_path),
+        identity: ProcessIdentity::query(pid),
+    })
 }
 
 /// A short, private, per-user, per-attempt unix socket path — deliberately never nested under a
@@ -344,34 +424,6 @@ impl AppServerHandle {
     pub fn terminate(mut self) {
         terminate_child(&mut self.child);
         let _ignored = fs::remove_file(&self.endpoint);
-    }
-
-    /// Same two-step termination, for a process this invocation did not spawn itself but proved
-    /// (via [`reconcile_stale`]) is safe to reap — an orphan from an earlier crashed Relay
-    /// invocation. Takes the exact matched [`ProcessIdentity`], never a bare pid, so a caller can
-    /// never accidentally call this on an unverified process.
-    pub fn terminate_orphan(identity: &ProcessIdentity, endpoint: &Path) {
-        #[cfg(unix)]
-        {
-            let _ignored = Command::new("kill")
-                .arg("-TERM")
-                .arg(identity.pid.to_string())
-                .status();
-            let started = Instant::now();
-            while started.elapsed() < TERMINATE_GRACE {
-                if identity.is_still_the_same_process() != Some(true) {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            if identity.is_still_the_same_process() == Some(true) {
-                let _ignored = Command::new("kill")
-                    .arg("-KILL")
-                    .arg(identity.pid.to_string())
-                    .status();
-            }
-        }
-        let _ignored = fs::remove_file(endpoint);
     }
 }
 
@@ -544,70 +596,6 @@ mod tests {
         assert!(!evaluate_liveness(&identity).is_live());
     }
 
-    // --- stale reconciliation ---
-
-    #[test]
-    fn a_confirmed_dead_recorded_app_server_needs_no_reaping() {
-        let record = CodexRuntimeRecord {
-            app_server: dead_identity(),
-            endpoint: PathBuf::from("/tmp/x.sock"),
-            codex_home: PathBuf::from("/config"),
-        };
-        assert_eq!(reconcile_stale(&record), StaleReconciliation::NothingToReap);
-    }
-
-    #[test]
-    fn a_confirmed_live_matching_recorded_app_server_is_safe_to_reap() {
-        let (_c, mut app_server, identity) = live_identity();
-        let record = CodexRuntimeRecord {
-            app_server: identity.clone(),
-            endpoint: PathBuf::from("/tmp/x.sock"),
-            codex_home: PathBuf::from("/config"),
-        };
-        assert_eq!(
-            reconcile_stale(&record),
-            StaleReconciliation::SafeToReap(identity)
-        );
-        let _ = app_server.kill();
-        let _ = app_server.wait();
-    }
-
-    #[test]
-    fn a_recycled_pid_with_a_mismatched_fingerprint_is_never_reaped() {
-        // The exact PID-reuse scenario this module's doc comment calls out: a live process now
-        // happens to occupy the recorded pid, but its fingerprint does not match what was
-        // recorded — this must never be treated as "safe to reap," since it is not the process
-        // Relay actually started.
-        let (_c, mut app_server, real_identity) = live_identity();
-        let mismatched_record = CodexRuntimeRecord {
-            app_server: ProcessIdentity {
-                pid: real_identity.pid,
-                start_time_fingerprint: Some("not-the-real-start-time".to_owned()),
-            },
-            endpoint: PathBuf::from("/tmp/x.sock"),
-            codex_home: PathBuf::from("/config"),
-        };
-        assert_eq!(
-            reconcile_stale(&mismatched_record),
-            StaleReconciliation::NothingToReap
-        );
-        let _ = app_server.kill();
-        let _ = app_server.wait();
-    }
-
-    #[test]
-    fn an_unconfirmable_recorded_identity_is_ambiguous_never_reaped() {
-        let record = CodexRuntimeRecord {
-            app_server: ProcessIdentity {
-                pid: std::process::id(),
-                start_time_fingerprint: None,
-            },
-            endpoint: PathBuf::from("/tmp/x.sock"),
-            codex_home: PathBuf::from("/config"),
-        };
-        assert_eq!(reconcile_stale(&record), StaleReconciliation::Ambiguous);
-    }
-
     // --- socket path scheme ---
 
     #[test]
@@ -715,21 +703,101 @@ while true; do sleep 1; done
         assert!(matches!(result, Err(RuntimeError::Spawn)));
     }
 
+    // --- ensure_managed_daemon: agent-relay#18's fix, reusing Codex's own shared local daemon
+    // instead of a private `--listen` app-server, so the interactive client never needs `--remote`
+    // at all and keeps ordinary permission semantics. ---
+
+    /// A minimal scripted stand-in for `codex app-server daemon start`: prints the documented
+    /// `{"socketPath": ..., "pid": ...}` JSON and exits immediately (the real command's daemon
+    /// process detaches and keeps running independently; this fixture only needs to exercise the
+    /// parsing/timeout contract, never the daemon's own lifetime).
+    fn install_fake_daemon_start(dir: &Path, pid: u32, socket_path: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = dir.join("fake-codex-daemon-start");
+        fs::write(
+            &path,
+            format!(
+                r#"#!/bin/sh
+[ "$1" = "app-server" ] && [ "$2" = "daemon" ] && [ "$3" = "start" ] || exit 64
+printf '{{"status":"started","backend":"pid","pid":{pid},"socketPath":"{socket}"}}\n'
+"#,
+                pid = pid,
+                socket = socket_path.display(),
+            ),
+        )
+        .expect("write fake daemon-start");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+        path
+    }
+
+    fn install_fake_daemon_start_failing(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = dir.join("fake-codex-daemon-start-failing");
+        fs::write(
+            &path,
+            r#"#!/bin/sh
+[ "$1" = "app-server" ] && [ "$2" = "daemon" ] && [ "$3" = "start" ] || exit 64
+echo "daemon failed to start" >&2
+exit 1
+"#,
+        )
+        .expect("write fake failing daemon-start");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+        path
+    }
+
     #[test]
-    fn terminate_orphan_stops_a_process_this_invocation_did_not_spawn_itself() {
+    fn ensure_managed_daemon_parses_the_documented_socket_and_pid() {
         let scratch = tempfile::tempdir().expect("tempdir");
-        let exe = install_fake_app_server(scratch.path());
-        let endpoint = allocate_endpoint().expect("endpoint");
-        let mut handle = AppServerHandle::spawn(&exe, scratch.path(), &endpoint).expect("spawn");
-        // Simulate "a later Relay invocation reconciling a stale record": act on only the
-        // identity/endpoint, as `reconcile_stale` would hand back, never through the original
-        // handle's own `terminate()` — but keep `handle.child` around so *something* still reaps
-        // the exit status once `terminate_orphan` signals it (in a real crash, launchd/init, the
-        // orphan's new parent, does this; in-process here, nothing else will).
-        let identity = handle.identity.clone();
-        let endpoint_copy = handle.endpoint.clone();
-        AppServerHandle::terminate_orphan(&identity, &endpoint_copy);
-        let _ = handle.child.wait();
-        assert_eq!(identity.is_still_the_same_process(), Some(false));
+        let (_c, mut app_server, identity) = live_identity();
+        let socket_path = scratch.path().join("app-server-control.sock");
+        let exe = install_fake_daemon_start(scratch.path(), identity.pid, &socket_path);
+
+        let daemon = ensure_managed_daemon(&exe, scratch.path()).expect("ensure daemon");
+        assert_eq!(daemon.endpoint, socket_path);
+        assert_eq!(daemon.identity.pid, identity.pid);
+        assert_eq!(daemon.identity.is_still_the_same_process(), Some(true));
+        let _ = app_server.kill();
+        let _ = app_server.wait();
+    }
+
+    #[test]
+    fn ensure_managed_daemon_fails_closed_when_the_command_exits_nonzero() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let exe = install_fake_daemon_start_failing(scratch.path());
+        let result = ensure_managed_daemon(&exe, scratch.path());
+        assert!(matches!(result, Err(RuntimeError::Spawn)));
+    }
+
+    #[test]
+    fn ensure_managed_daemon_fails_closed_on_a_missing_executable() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let result = ensure_managed_daemon(Path::new("/definitely/not/codex"), scratch.path());
+        assert!(matches!(result, Err(RuntimeError::Spawn)));
+    }
+
+    #[test]
+    fn parse_managed_daemon_rejects_an_undocumented_shape() {
+        assert!(parse_managed_daemon(b"not json").is_none());
+        assert!(
+            parse_managed_daemon(br#"{"status":"started"}"#).is_none(),
+            "missing socketPath/pid"
+        );
+        assert!(
+            parse_managed_daemon(br#"{"socketPath":"/tmp/x.sock","pid":"not-a-number"}"#).is_none()
+        );
+    }
+
+    #[test]
+    fn parse_managed_daemon_accepts_the_live_verified_shape() {
+        let daemon = parse_managed_daemon(
+            br#"{"status":"started","backend":"pid","pid":46643,"managedCodexPath":"/x","managedCodexVersion":"0.155.0","socketPath":"/Users/x/.codex/app-server-control/app-server-control.sock","cliVersion":"0.155.0","appServerVersion":"0.155.0"}"#,
+        )
+        .expect("parse");
+        assert_eq!(daemon.identity.pid, 46643);
+        assert_eq!(
+            daemon.endpoint,
+            PathBuf::from("/Users/x/.codex/app-server-control/app-server-control.sock")
+        );
     }
 }

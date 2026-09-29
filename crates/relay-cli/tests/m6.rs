@@ -148,6 +148,7 @@ struct FakeCodex {
     executable: std::path::PathBuf,
     exec_log_path: std::path::PathBuf,
     resume_log_path: std::path::PathBuf,
+    resume_argv_log_path: std::path::PathBuf,
 }
 
 impl FakeCodex {
@@ -156,6 +157,7 @@ impl FakeCodex {
         let executable = root.join(format!("fake-codex-{name}"));
         let exec_log_path = root.join(format!("codex-exec-{name}.log"));
         let resume_log_path = root.join(format!("codex-resume-{name}.log"));
+        let resume_argv_log_path = root.join(format!("codex-resume-argv-{name}.log"));
         let script = format!(
             r#"#!/bin/sh
 case "$1" in
@@ -172,9 +174,21 @@ case "$1" in
     ;;
   resume)
     printf '%s %s\n' "$2" "$CODEX_HOME" >> "{resume_log}"
+    # agent-relay#18 regression: the exact argv this interactive client was launched with, one
+    # line per invocation, so a test can prove it is byte-for-byte what was planned — no
+    # `--remote`/`--no-alt-screen` (or anything else) silently appended.
+    printf '%s\n' "$*" >> "{resume_argv_log}"
     python3 -c 'import os,json; print(json.dumps(dict((k,os.environ.get(k)) for k in ["RELAY_EXECUTABLE","RELAY_CONFIG_ROOT","RELAY_STATE_ROOT","RELAY_PROJECT_DIR","RELAY_SESSION_ID"])))' > "{resume_log}.context"
     ;;
   app-server)
+    if [ "$2" = "daemon" ] && [ "$3" = "start" ]; then
+      # ensure_managed_daemon (agent-relay#18) only needs the documented socketPath/pid JSON on
+      # stdout and a zero exit; the executable-identity regression below never exercises the
+      # attach protocol itself (that is observer.rs's own live-server-fixture coverage), so this
+      # stand-in never needs to actually listen.
+      printf '{{"status":"started","backend":"pid","pid":%s,"socketPath":"%s/app-server-control/app-server-control.sock"}}\n' "$$" "$CODEX_HOME"
+      exit 0
+    fi
     # EventDrivenRuntime owns an externally listening app-server. Its spawn contract deliberately
     # waits only for the private endpoint path to exist; this tiny stand-in therefore needs no
     # protocol implementation for the planning/runtime executable-identity regression below.
@@ -211,6 +225,7 @@ esac
 "#,
             exec_log = exec_log_path.display(),
             resume_log = resume_log_path.display(),
+            resume_argv_log = resume_argv_log_path.display(),
         );
         std::fs::write(&executable, script).expect("fake codex script");
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
@@ -219,11 +234,23 @@ esac
             executable,
             exec_log_path,
             resume_log_path,
+            resume_argv_log_path,
         }
     }
 
     fn path_text(&self) -> String {
         self.executable.to_string_lossy().into_owned()
+    }
+
+    /// The exact space-joined argv (excluding the `codex` executable itself) each `resume`
+    /// invocation was launched with, oldest first — agent-relay#18: proves the interactive
+    /// client's own arguments are never mutated by the event-driven runtime.
+    fn resume_argv_invocations(&self) -> Vec<String> {
+        std::fs::read_to_string(&self.resume_argv_log_path)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
     }
 
     fn exec_invocations(&self) -> Vec<Value> {
@@ -595,6 +622,7 @@ esac
             executable: executable.clone(),
             exec_log_path: root.path().join("unused.log"),
             resume_log_path: root.path().join("unused2.log"),
+            resume_argv_log_path: root.path().join("unused3.log"),
         },
     );
 
@@ -824,15 +852,91 @@ fn event_runtime_reuses_the_resolved_terminal_codex_executable() {
     )
     .expect("event-runtime trace");
     assert_eq!(
-        trace
-            .matches("codex_event_driven_app_server_spawned")
-            .count(),
+        trace.matches("codex_event_driven_daemon_ready").count(),
         2,
         "both PATH discovery and an explicit override must pass the exact verified-version gate: {trace}"
     );
     assert!(
         !trace.contains("codex_event_driven_version_unverified"),
         "the planned executable, never literal `./codex`, must reach version verification: {trace}"
+    );
+    // agent-relay#18: event-driven mode must never mutate the interactive client's own argv —
+    // no `--remote`, no anything else appended.
+    for argv in codex.resume_argv_invocations() {
+        assert_eq!(
+            argv, "resume 01a-resolved-thread",
+            "the interactive resume argv must be exactly the planned resume, byte-for-byte: {argv}"
+        );
+    }
+}
+
+/// agent-relay#18's central regression: event-driven mode must never silently remove, replace, or
+/// alter the effective meaning of a persisted, permission-affecting provider argument
+/// (`--sandbox` here; `--yolo`/`-a`/`-c approval_policy=...` are rejected identically by Codex's
+/// own remote-resume permission check — see `relay_provider_codex::runtime`'s module doc). An
+/// earlier version of this runtime appended `--remote <endpoint>` to exactly this argv, which
+/// codex-cli 0.155.0's own TUI live-verified rejects outright when combined with any CLI
+/// permission override ("Permission overrides are not supported when resuming a remote task.").
+#[test]
+fn event_driven_mode_never_mutates_persisted_permission_affecting_provider_args() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-sandboxed-thread");
+    login_codex(root.path(), "codex-main", &codex);
+
+    let launched = relay(
+        root.path(),
+        &[
+            "codex",
+            "--profile",
+            "codex-main",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--codex-executable",
+            &codex.path_text(),
+            "--",
+            "--sandbox",
+            "workspace-write",
+        ],
+    );
+    assert!(
+        launched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launched.stderr)
+    );
+
+    // `relay()` (this file's own helper) does not thread extra env vars through; build the
+    // resume invocation directly so `RELAY_CODEX_EVENT_DRIVEN=1` reaches it.
+    let output = Command::new(env!("CARGO_BIN_EXE_relay"))
+        .arg("--config-root")
+        .arg(root.path().join("config"))
+        .arg("--state-root")
+        .arg(root.path().join("state"))
+        .arg("resume")
+        .arg("codex-main")
+        .arg("--project-dir")
+        .arg(project.path())
+        .arg("--codex-executable")
+        .arg(&codex.executable)
+        .env("RELAY_CODEX_EVENT_DRIVEN", "1")
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("CODEX_HOME")
+        .output()
+        .expect("run relay resume");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let argv = codex.resume_argv_invocations();
+    assert_eq!(argv.len(), 1);
+    assert_eq!(
+        argv[0], "resume 01a-sandboxed-thread --sandbox workspace-write",
+        "the persisted --sandbox argument must survive byte-for-byte, and no --remote (or \
+         anything else) must ever be appended by event-driven mode: {argv:?}"
     );
 }
 

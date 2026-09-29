@@ -86,6 +86,27 @@ All notable changes to Agent Relay will be documented here.
     or starting a second read. No routing, polling, or handoff behavior changed — this only makes
     the existing behavior provable after the fact. See `crates/relay-cli/src/{auto_handoff,
     codex_poll,codex_runtime}.rs`.
+  - **Fixed: event-driven mode no longer changes the interactive session's own permission
+    semantics (#18).** A real dogfood session's persisted `--yolo` broke once event-driven mode
+    was enabled — Codex's own TUI (live-verified against `codex-cli 0.155.0`) rejects any CLI
+    permission override (`--yolo`, `--sandbox`, `-a`, any `-c approval_policy=…`/`sandbox_mode=…`)
+    outright when the interactive client is put in "remote task" mode (`--remote <ADDR>`), which
+    this feature previously always did so a separate Relay connection could observe the same
+    thread; dropping the override let the resume proceed but under Codex's non-`--yolo` default,
+    breaking approval-gated MCP writes that used to need none. The event runtime now ensures
+    Codex's own shared local app-server daemon is running (`codex app-server daemon start`,
+    the same officially supported multi-client backend `codex agents` already relies on) and
+    connects its own observer to that daemon's well-known control socket, instead of spawning a
+    private `--listen` app-server and appending `--remote` to the interactive command. The
+    interactive `TerminalCommand` is now launched completely unmodified — an ordinary local
+    `codex resume` with no `--remote` flag auto-discovers and reuses the exact same daemon on its
+    own, which Codex treats as an ordinary local session for permission purposes, keeping every
+    persisted provider argument meaning exactly what it always did. Also fixes the
+    executable-resolution regression this depends on staying fixed (already landed separately):
+    the event runtime always receives the terminal's own already-resolved executable, never a
+    second, potentially-relative `codex` lookup. See
+    `crates/relay-provider-codex/src/runtime.rs` (`ensure_managed_daemon`) and
+    `crates/relay-cli/src/codex_runtime.rs`.
   - See `crates/relay-provider-codex/src/{events,observer,runtime}.rs` and
     `crates/relay-cli/src/{codex_poll,codex_runtime}.rs` for the mechanism, and the
     research/implementation history in GitHub #15/#16/#17/#18 for what was and was not
