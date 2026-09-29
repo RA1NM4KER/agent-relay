@@ -224,6 +224,18 @@ impl EventDrivenRuntime {
             AttachState::Attaching { outcome_rx, .. } => match outcome_rx.try_recv() {
                 Ok(AttachOutcome::Attached(observer)) => {
                     let thread_id = observer.thread_id.clone();
+                    // Preflight requirement (agent-relay#18): a successful attach previously had
+                    // no durable evidence of its own — only the ephemeral terminal print in
+                    // `terminal_session::report_event_driven_transition` and the differently
+                    // -purposed `codex_reconnect_reconciliation_requested` line below, which
+                    // proves attach only by inference. A trace review after the fact (e.g. once a
+                    // real natural exhaustion has already happened) could not directly confirm
+                    // "the observer attached to the real interactive thread" without that
+                    // inference step. This line exists for exactly that direct confirmation.
+                    crate::auto_handoff::trace_event(
+                        &self.project_state_dir,
+                        "codex_event_driven_attached",
+                    );
                     // GitHub #18's reconciliation requirement: a successful (re)attach — whether
                     // the very first one or a reconnect after a gap of unknown length — always
                     // triggers exactly one authoritative evaluation through the existing
@@ -637,6 +649,73 @@ mod tests {
             1,
             "repeated identical attach failures must be coalesced to one durable trace line: {log}"
         );
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn a_successful_attach_is_traced_durably_and_directly_not_only_by_inference() {
+        // Preflight requirement (agent-relay#18): before this, a successful attach had no direct
+        // durable evidence of its own — only the ephemeral terminal print and the differently-
+        // purposed `codex_reconnect_reconciliation_requested` line, which only proves attach by
+        // inference. A trace review after the fact must be able to confirm "the observer attached
+        // to the real interactive thread" directly.
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("t.sock");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let _listener = install_fake_app_server_ws(&socket_path, &codex_home, 0);
+        let (mut child, identity) = live_identity();
+
+        let stop_flag = AtomicBool::new(false);
+        let (tx, rx) = mpsc::channel();
+        attach_worker_loop(
+            &socket_path,
+            &codex_home,
+            Some("thread-1".to_owned()),
+            &identity,
+            &stop_flag,
+            &tx,
+            scratch.path(),
+        );
+        let observer = match rx.recv().expect("outcome") {
+            AttachOutcome::Attached(observer) => observer,
+            AttachOutcome::GaveUp => panic!("must succeed against a fake that never fails resume"),
+        };
+
+        // Feed the already-resolved outcome through `EventDrivenRuntime::tick` itself, exactly as
+        // `spawn_attach_worker`'s background thread would deliver it, so this test exercises the
+        // real transition that decides what gets traced.
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        outcome_tx
+            .send(AttachOutcome::Attached(observer))
+            .expect("queue outcome");
+        let mut runtime = EventDrivenRuntime {
+            endpoint: socket_path,
+            daemon_identity: identity,
+            codex_home,
+            project_state_dir: scratch.path().to_path_buf(),
+            state: AttachState::Attaching {
+                outcome_rx,
+                stop_flag: Arc::new(AtomicBool::new(false)),
+            },
+        };
+        let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
+            scratch.path().to_path_buf(),
+            scratch.path().to_path_buf(),
+            None,
+        );
+        let event = runtime.tick(&mut scheduler);
+        assert_eq!(event, TickEvent::Attached("thread-1".to_owned()));
+
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert!(
+            log.contains("codex_event_driven_attached"),
+            "a successful attach must be traced directly, not only inferable from a \
+             differently-purposed line: {log}"
+        );
+
         let _ = child.kill();
         let _ = child.wait();
     }
