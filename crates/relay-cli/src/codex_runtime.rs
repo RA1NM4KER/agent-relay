@@ -1,11 +1,10 @@
-//! GitHub #16/#17/#18: opt-in wiring for the external app-server + observer runtime that lets a
-//! supervised Codex terminal wake up on a structured `usageLimitExceeded` error or
+//! GitHub #16/#17/#18: opt-in wiring for the event-driven observer runtime that lets a supervised
+//! Codex terminal wake up on a structured `usageLimitExceeded` error or
 //! `account/rateLimits/updated` hint, instead of only ever finding out on GitHub #13's own next
-//! poll. See `relay_provider_codex::runtime`/`observer`/`events` for the research findings and
-//! the actual protocol mechanics this wires together; this module owns only the session-scoped
-//! orchestration (when to start it, where its one small durable record lives, when to stop it,
-//! and — as of #18 — how it recovers from its own observer dying and how a fresh launch's
-//! not-yet-existing thread gets attached to at all).
+//! poll. See `relay_provider_codex::runtime`/`observer`/`events` for the research findings and the
+//! actual protocol mechanics this wires together; this module owns only the session-scoped
+//! orchestration (when to start it, when to stop it, and how it recovers from its own observer
+//! dying and how a fresh launch's not-yet-existing thread gets attached to at all).
 //!
 //! **Off by default.** [`event_driven_enabled`] gates every entry point in this module —
 //! unset/not `"1"`, every Codex launch/resume/switch path is byte-for-byte what it was before
@@ -16,25 +15,28 @@
 //! calls but never duplicates).
 //!
 //! Every entry point here is best-effort in the same sense the rest of Codex supervision already
-//! is: any failure at any step (version unverified, spawn failed, handshake failed, socket path
-//! rejected) falls back to launching the interactive command exactly as before, and is never
-//! surfaced as a startup failure.
+//! is: any failure at any step (version unverified, daemon unavailable, handshake failed) falls
+//! back to launching the interactive command exactly as before, and is never surfaced as a
+//! startup failure.
 //!
-//! **Observability (GitHub #18 follow-up).** A real natural exhaustion, dogfooded under
-//! `RELAY_CODEX_EVENT_DRIVEN=1`, produced zero durable trace of this module's own attach lifecycle
-//! — only ephemeral stderr — leaving no way to tell "never opted in," "never got past spawn," and
-//! "spawned but never once attached" apart after the fact. Every early exit/failure in
-//! [`EventDrivenRuntime::start`] past the env-gate check, every [`TickEvent::GaveUp`]/
-//! [`TickEvent::Reconnecting`] transition, and every *distinct* [`ObserverError`] kind the attach
-//! worker sees (coalesced, not one line per retry) now writes one bounded, sanitized
-//! `crate::auto_handoff::trace_event` line — never changes what runs, only what can be proven
-//! about it afterward.
+//! **agent-relay#18: the interactive command's own arguments are never touched by this module.**
+//! An earlier version appended `--remote <endpoint>` here so the interactive client would attach
+//! to a private app-server this module spawned — live-verified against `codex-cli 0.155.0` to
+//! silently break the user's own permission arguments (`--yolo`, `--sandbox`, etc.): Codex's own
+//! TUI treats `--remote` as a "remote task" and explicitly refuses to carry a CLI permission
+//! override into it, restoring whatever the resumed thread's saved settings are instead. This
+//! module now only *observes*: [`EventDrivenRuntime::start`] ensures Codex's own shared local
+//! app-server daemon is running (`relay_provider_codex::runtime::ensure_managed_daemon`) and
+//! attaches its own separate observer connection to it; the caller's `TerminalCommand` is launched
+//! completely unmodified, and an ordinary local `codex resume` (no `--remote` flag at all)
+//! auto-discovers and reuses that same daemon on its own, keeping ordinary local permission
+//! semantics. See `relay_provider_codex::runtime`'s own module doc for the full finding.
 //!
 //! ## Attach/reconnect state machine (GitHub #18)
 //!
 //! ```text
 //! start() ──▶ Attaching { worker retrying Observer::attach in the background }
-//!                 │  (worker succeeds)                │ (app-server dies / stop() called
+//!                 │  (worker succeeds)                │ (daemon dies / stop() called
 //!                 ▼                                    │  before first success)
 //!             Attached(Observer) ──▶ request_reconciliation()   Dead (terminal)
 //!                 │
@@ -43,12 +45,13 @@
 //!             Attaching { new worker, same known thread id — never re-learned }
 //! ```
 //!
-//! `start()` itself never blocks on attach succeeding — only on spawning the app-server, which is
-//! already fast and already bounded (`AppServerHandle::spawn`'s own `READY_TIMEOUT`). Learning
-//! *and reconnecting to* a thread happens entirely on a background worker thread so a fresh
-//! launch (no thread id yet, and no bound on how long a real user takes to send their first
-//! message — GitHub #17 live-verified `thread/resume` only needs that turn to have *started*, not
-//! completed) never blocks `relay`'s own 300ms supervision tick.
+//! `start()` itself never blocks on attach succeeding — only on confirming the daemon is running,
+//! which is already fast and already bounded
+//! (`relay_provider_codex::runtime::ensure_managed_daemon`'s own timeout). Learning *and
+//! reconnecting to* a thread happens entirely on a background worker thread so a fresh launch (no
+//! thread id yet, and no bound on how long a real user takes to send their first message — GitHub
+//! #17 live-verified `thread/resume` only needs that turn to have *started*, not completed) never
+//! blocks `relay`'s own 300ms supervision tick.
 
 use std::{
     path::{Path, PathBuf},
@@ -65,22 +68,17 @@ use relay_core::handoff::ProcessIdentity;
 use relay_provider_codex::{
     VersionStatus, assess_version,
     observer::{Observer, ObserverError, ObserverEvent},
-    runtime::{
-        AppServerHandle, CodexRuntimeRecord, StaleReconciliation, allocate_endpoint,
-        reconcile_stale,
-    },
+    runtime::ensure_managed_daemon,
 };
 
 pub const EVENT_DRIVEN_ENV: &str = "RELAY_CODEX_EVENT_DRIVEN";
 
-const RECORD_FILE_NAME: &str = "codex_runtime.json";
-
-/// Local retry cadence for the attach/reconnect worker — a socket connect+handshake against an
-/// app-server Relay itself started, never a provider call. Starts responsive enough to still
-/// catch most of a first turn that begins moments after a retry (agent-relay#17 live-verified
-/// catching a turn resumed ~150ms after it started), grows only up to a small cap so an
-/// indefinite wait (a real user staring at an empty prompt) costs nothing meaningful, and resets
-/// on every successful attach.
+/// Local retry cadence for the attach/reconnect worker — a socket connect+handshake against
+/// Codex's own shared local app-server daemon, never a provider call. Starts responsive enough to
+/// still catch most of a first turn that begins moments after a retry (agent-relay#17
+/// live-verified catching a turn resumed ~150ms after it started), grows only up to a small cap
+/// so an indefinite wait (a real user staring at an empty prompt) costs nothing meaningful, and
+/// resets on every successful attach.
 const RECONNECT_BACKOFF_MIN: Duration = Duration::from_millis(500);
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(3);
 /// How often the backoff sleep wakes up to check the stop flag — keeps `stop()` responsive
@@ -90,57 +88,6 @@ const STOP_CHECK_INTERVAL: Duration = Duration::from_millis(100);
 #[must_use]
 fn event_driven_enabled() -> bool {
     std::env::var(EVENT_DRIVEN_ENV).ok().as_deref() == Some("1")
-}
-
-fn record_path(state_dir: &Path) -> PathBuf {
-    state_dir.join(RECORD_FILE_NAME)
-}
-
-fn write_record(state_dir: &Path, record: &CodexRuntimeRecord) {
-    if let Ok(text) = serde_json::to_string(record) {
-        let _ignored = std::fs::write(record_path(state_dir), text);
-    }
-}
-
-fn read_record(state_dir: &Path) -> Option<CodexRuntimeRecord> {
-    let bytes = std::fs::read(record_path(state_dir)).ok()?;
-    serde_json::from_slice(&bytes).ok()
-}
-
-fn clear_record(state_dir: &Path) {
-    let _ignored = std::fs::remove_file(record_path(state_dir));
-}
-
-/// GitHub #16's stale-runtime guarantee: before starting a *new* runtime for this session, find
-/// and safely reap any orphan an earlier crashed invocation of this exact session left behind.
-/// Never kills anything on a bare pid/path match — only on the exact pid+start-time fingerprint
-/// proof `reconcile_stale` already requires. Ambiguous cases are reported, not guessed about, and
-/// never block starting a fresh runtime (the record is simply replaced once the new one starts).
-fn reconcile_before_launch(state_dir: &Path, json_mode: bool) {
-    let Some(record) = read_record(state_dir) else {
-        return;
-    };
-    match reconcile_stale(&record) {
-        StaleReconciliation::SafeToReap(identity) => {
-            AppServerHandle::terminate_orphan(&identity, &record.endpoint);
-            if !json_mode {
-                eprintln!(
-                    "[Relay] reaped an orphaned Codex app-server from an earlier session (pid {})",
-                    identity.pid
-                );
-            }
-        }
-        StaleReconciliation::NothingToReap => {}
-        StaleReconciliation::Ambiguous => {
-            if !json_mode {
-                eprintln!(
-                    "[Relay] found a Codex event-runtime record that could not be confirmed live or gone; leaving it alone"
-                );
-            }
-            return; // do not clear an ambiguous record — nothing here is confirmed safe to touch.
-        }
-    }
-    clear_record(state_dir);
 }
 
 /// What the background attach/reconnect worker sends back once it either succeeds or gives up
@@ -185,33 +132,32 @@ enum AttachState {
     Dead,
 }
 
-/// One started event-driven runtime: the external app-server this invocation owns end-to-end,
-/// and (once attached) Relay's own passive observer. `remote_args` is what the caller appends to
-/// the interactive command's own arguments so the *real* interactive client (not this process)
-/// connects to the same runtime and becomes the thing driving turns on it — available
-/// immediately, regardless of whether the observer has attached yet (GitHub #18: a fresh launch
-/// must not wait on that before the user can even see the TUI).
+/// One started event-driven runtime: Codex's own shared local app-server daemon this invocation
+/// confirmed running (never spawned or owned — see `relay_provider_codex::runtime`'s own module
+/// doc for why), and (once attached) Relay's own passive observer connected to it. There is
+/// deliberately no method here that returns anything for a caller to append to the interactive
+/// command's own arguments — agent-relay#18's whole fix is that the interactive `TerminalCommand`
+/// is launched completely unmodified and auto-discovers this same daemon on its own.
 pub(crate) struct EventDrivenRuntime {
-    handle: AppServerHandle,
+    endpoint: PathBuf,
+    daemon_identity: ProcessIdentity,
     codex_home: PathBuf,
-    state_dir: PathBuf,
     /// GitHub #18: where this project's durable auto-handoff trace lives — used only to record
-    /// event-receipt/reconciliation-request provenance (see [`Self::tick`]), never for the
-    /// `codex_runtime.json` liveness record (that stays keyed off `state_dir`, unchanged).
+    /// event-receipt/reconciliation-request provenance (see [`Self::tick`]).
     project_state_dir: PathBuf,
     state: AttachState,
 }
 
 impl EventDrivenRuntime {
-    /// Best-effort, non-blocking start (beyond spawning the app-server itself, already fast and
-    /// already bounded). `thread_id` is `Some` for a resume (Relay's own lease already names the
-    /// thread) or `None` for a fresh launch — GitHub #18 activates both: the attach/reconnect
-    /// worker's retry loop handles "learn the id from `thread/started`, then retry `thread/resume`
-    /// until the first turn actually starts" the same way it handles a plain reconnect, since
-    /// they are the same operation (see this module's own doc comment). Returns `None` on any
-    /// failure up to and including the app-server spawn itself, silently — callers must always
-    /// still launch the interactive command, just without `--remote`, exactly as before GitHub
-    /// #16.
+    /// Best-effort, non-blocking start (beyond confirming the daemon itself, already fast and
+    /// already bounded — see `relay_provider_codex::runtime::ensure_managed_daemon`). `thread_id`
+    /// is `Some` for a resume (Relay's own lease already names the thread) or `None` for a fresh
+    /// launch — GitHub #18 activates both: the attach/reconnect worker's retry loop handles
+    /// "learn the id from `thread/started`, then retry `thread/resume` until the first turn
+    /// actually starts" the same way it handles a plain reconnect, since they are the same
+    /// operation (see this module's own doc comment). Returns `None` on any failure up to and
+    /// including confirming the daemon itself, silently — callers must always still launch the
+    /// interactive command exactly as planned, with or without this runtime.
     ///
     /// GitHub #18 (observability follow-up): a real natural exhaustion, dogfooded under
     /// `RELAY_CODEX_EVENT_DRIVEN=1`, produced zero `codex_usage_limit_event_received` or
@@ -224,10 +170,8 @@ impl EventDrivenRuntime {
     pub(crate) fn start(
         codex_executable: &Path,
         config_dir: &Path,
-        state_dir: &Path,
         project_state_dir: &Path,
         thread_id: Option<&str>,
-        json_mode: bool,
     ) -> Option<Self> {
         if !event_driven_enabled() {
             return None;
@@ -239,58 +183,28 @@ impl EventDrivenRuntime {
             );
             return None;
         }
-        reconcile_before_launch(state_dir, json_mode);
-
-        let Ok(endpoint) = allocate_endpoint() else {
+        let Ok(daemon) = ensure_managed_daemon(codex_executable, config_dir) else {
             crate::auto_handoff::trace_event(
                 project_state_dir,
-                "codex_event_driven_endpoint_allocation_failed",
+                "codex_event_driven_daemon_unavailable",
             );
             return None;
         };
-        let Ok(handle) = AppServerHandle::spawn(codex_executable, config_dir, &endpoint) else {
-            crate::auto_handoff::trace_event(
-                project_state_dir,
-                "codex_event_driven_app_server_spawn_failed",
-            );
-            return None;
-        };
-        crate::auto_handoff::trace_event(
-            project_state_dir,
-            "codex_event_driven_app_server_spawned",
-        );
-        write_record(
-            state_dir,
-            &CodexRuntimeRecord {
-                app_server: handle.identity.clone(),
-                endpoint: handle.endpoint.clone(),
-                codex_home: config_dir.to_path_buf(),
-            },
-        );
+        crate::auto_handoff::trace_event(project_state_dir, "codex_event_driven_daemon_ready");
         let state = spawn_attach_worker(
-            handle.endpoint.clone(),
+            daemon.endpoint.clone(),
             config_dir.to_path_buf(),
             thread_id.map(str::to_owned),
-            handle.identity.clone(),
+            daemon.identity.clone(),
             project_state_dir.to_path_buf(),
         );
         Some(Self {
-            handle,
+            endpoint: daemon.endpoint,
+            daemon_identity: daemon.identity,
             codex_home: config_dir.to_path_buf(),
-            state_dir: state_dir.to_path_buf(),
             project_state_dir: project_state_dir.to_path_buf(),
             state,
         })
-    }
-
-    /// The extra argument pair the interactive `TerminalCommand` must carry so it connects to
-    /// this exact runtime instead of embedding its own private one. Available immediately —
-    /// never waits on the observer.
-    pub(crate) fn remote_args(&self) -> [std::ffi::OsString; 2] {
-        [
-            "--remote".into(),
-            format!("unix://{}", self.handle.endpoint.display()).into(),
-        ]
     }
 
     /// One supervision tick (the same 300ms cadence that already drives GitHub #13's own
@@ -362,10 +276,10 @@ impl EventDrivenRuntime {
                         "codex_event_driven_observer_disconnected",
                     );
                     self.state = spawn_attach_worker(
-                        self.handle.endpoint.clone(),
+                        self.endpoint.clone(),
                         self.codex_home.clone(),
                         Some(known_thread_id.clone()),
-                        self.handle.identity.clone(),
+                        self.daemon_identity.clone(),
                         self.project_state_dir.clone(),
                     );
                     TickEvent::Reconnecting(known_thread_id)
@@ -378,11 +292,11 @@ impl EventDrivenRuntime {
     }
 
     /// Normal/handled session end: stop whatever this runtime is currently doing (an attached
-    /// observer, or a still-retrying background worker), terminate the app-server synchronously,
-    /// and clear the durable record — GitHub #16's "normal exit must leave no zombie process and
-    /// no stale record" requirement, extended to cover the attaching/reconnecting states GitHub
-    /// #18 added. Never called on Relay's own `SIGKILL` (nothing runs then by definition); that
-    /// case is instead [`reconcile_before_launch`]'s job on the *next* invocation of this session.
+    /// observer, or a still-retrying background worker). Deliberately does NOT touch the daemon
+    /// itself — agent-relay#18: it is shared and Codex-owned, potentially serving other sessions
+    /// or tools that have nothing to do with this Relay Session, and must keep running exactly as
+    /// if Relay had never been involved. Only [`Observer::stop`]/the attach worker's own stop flag
+    /// are this runtime's to release.
     pub(crate) fn stop(self) {
         match self.state {
             AttachState::Attached(observer) => observer.stop(),
@@ -397,8 +311,6 @@ impl EventDrivenRuntime {
             }
             AttachState::Dead => {}
         }
-        self.handle.terminate();
-        clear_record(&self.state_dir);
     }
 }
 
@@ -583,51 +495,6 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_record_reconciles_to_a_no_op() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        // Must not panic, must not create anything, on a session with no prior runtime record.
-        reconcile_before_launch(dir.path(), true);
-        assert!(!record_path(dir.path()).exists());
-    }
-
-    #[test]
-    fn a_confirmed_dead_recorded_runtime_is_cleared_without_reaping_anything() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        write_record(
-            dir.path(),
-            &CodexRuntimeRecord {
-                app_server: dead_identity(),
-                endpoint: PathBuf::from("/tmp/does-not-matter.sock"),
-                codex_home: PathBuf::from("/config"),
-            },
-        );
-        assert!(record_path(dir.path()).exists());
-        reconcile_before_launch(dir.path(), true);
-        assert!(!record_path(dir.path()).exists());
-    }
-
-    #[test]
-    fn an_ambiguous_recorded_runtime_is_left_alone_not_cleared() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        write_record(
-            dir.path(),
-            &CodexRuntimeRecord {
-                app_server: ProcessIdentity {
-                    pid: std::process::id(),
-                    start_time_fingerprint: None,
-                },
-                endpoint: PathBuf::from("/tmp/does-not-matter.sock"),
-                codex_home: PathBuf::from("/config"),
-            },
-        );
-        reconcile_before_launch(dir.path(), true);
-        assert!(
-            record_path(dir.path()).exists(),
-            "an ambiguous record must never be silently cleared"
-        );
-    }
-
-    #[test]
     fn start_is_a_no_op_when_the_feature_is_not_enabled() {
         // `event_driven_enabled()` reads the real env var; this test only exercises the case the
         // default test environment already is — unset — matching every CI run and every real
@@ -637,9 +504,7 @@ mod tests {
             Path::new("/definitely/not/codex"),
             dir.path(),
             dir.path(),
-            dir.path(),
             Some("thread-1"),
-            true,
         );
         assert!(result.is_none());
     }

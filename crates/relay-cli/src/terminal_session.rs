@@ -560,9 +560,13 @@ fn run_managed_terminal_inner(
             // interactive command launches immediately either way, and its background worker
             // learns/attaches to the thread once the interactive client actually creates one and
             // starts a turn on it (see `codex_runtime`'s own module doc for the state machine).
-            // Any failure up to and including the app-server spawn itself leaves `command`
-            // untouched and `event_driven` `None`, so this Codex owner supervises exactly as it
-            // always has, on GitHub #13's polling alone.
+            // Any failure up to and including confirming Codex's own shared daemon leaves
+            // `command` untouched and `event_driven` `None`, so this Codex owner supervises
+            // exactly as it always has, on GitHub #13's polling alone. `command` itself is never
+            // mutated by this block, in either outcome — GitHub #18's fix: the interactive client
+            // always launches with exactly the arguments `plan_codex_resume` already resolved,
+            // never an added `--remote`, so it auto-discovers and reuses the same daemon this
+            // runtime confirms, keeping ordinary local Codex permission semantics.
             let known_thread_id = (command.args.first().map(std::ffi::OsString::as_os_str)
                 == Some(std::ffi::OsStr::new("resume")))
             .then(|| command.args.get(1))
@@ -573,14 +577,12 @@ fn run_managed_terminal_inner(
                 // exact executable this terminal will run. Reuse that identity for the event
                 // runtime: passing the optional CLI override here would turn an ordinary PATH
                 // discovery into the literal relative path `codex`, which the inspector rightly
-                // refuses to canonicalize. The interactive client and its app-server must always
-                // be launched by the same resolved executable.
+                // refuses to canonicalize. The interactive client and this runtime must always
+                // resolve to the same executable.
                 &command.program,
                 &profile.config_dir,
-                &context.state_dir(),
                 &context.project_state_dir(),
                 known_thread_id,
-                context.json_mode,
             ) {
                 if !context.json_mode {
                     eprintln!(
@@ -593,7 +595,6 @@ fn run_managed_terminal_inner(
                         }
                     );
                 }
-                command.args.extend(runtime.remote_args());
                 event_driven = Some(runtime);
             }
             let skill = crate::codex_integration::install(&profile.config_dir);
@@ -740,9 +741,10 @@ fn run_managed_terminal_inner(
             path: command.program.clone(),
             source,
         })?;
-        // GitHub #16: this continuation's supervision has ended (child exited or the lease moved
-        // away) — stop the observer and synchronously terminate the app-server now, exactly as
-        // any other normal/handled session-end cleanup, regardless of which path `end` took.
+        // GitHub #16/#18: this continuation's supervision has ended (child exited or the lease
+        // moved away) — stop Relay's own observer now, exactly as any other normal/handled
+        // session-end cleanup, regardless of which path `end` took. The shared Codex daemon
+        // itself is never touched here (agent-relay#18: Relay does not own it).
         if let Some(runtime) = event_driven.take() {
             runtime.stop();
         }
