@@ -117,7 +117,10 @@ fn init_git_repo(dir: &Path) {
 /// `CLAUDE_CONFIG_DIR` (`.../alice/...`, `.../bob/...`), logs every invocation as
 /// `<argv>|<CLAUDE_CONFIG_DIR>`, honours a real `stop` (the session drops out of `agents --json`
 /// until the next `--bg`), and — only when `RELAY_TEST_SWAP` is set — makes `attach` move the
-/// writer lease the way a completed handoff would while the user is attached.
+/// writer lease the way a completed handoff would while the user is attached. A
+/// `auth_status_fail` marker file under a profile's own config dir (mirroring the existing
+/// `launch_fail` marker) makes `auth status` exit non-zero for that profile only — agent-relay#18
+/// preflight: reproduces a real one-candidate-errors-during-health-check failure.
 fn install_fake_claude(root: &Path) -> PathBuf {
     let bin = root.join("bin");
     std::fs::create_dir_all(&bin).expect("bin dir");
@@ -129,7 +132,7 @@ fn install_fake_claude(root: &Path) -> PathBuf {
 printf '%s|%s\n' "$*" "$CLAUDE_CONFIG_DIR" >> "{log}"
 {{ printf 'ARGV'; for a in "$@"; do printf '\037%s' "$a"; done; printf '|%s\n' "$CLAUDE_CONFIG_DIR"; }} >> "{argv_log}"
 NAME=unknown
-case "$CLAUDE_CONFIG_DIR" in */alice/*) NAME=alice ;; */bob/*) NAME=bob ;; esac
+case "$CLAUDE_CONFIG_DIR" in */alice/*) NAME=alice ;; */bob/*) NAME=bob ;; */charlie/*) NAME=charlie ;; esac
 # A fresh interactive session (`claude [prompt] --session-id <uuid> ...`): the user's terminal
 # session, which may end with a handoff having moved the lease (see attach below).
 case " $* " in *" --session-id "*)
@@ -146,7 +149,9 @@ case "$1" in
   --help) printf '%s\n' '--output-format <format> (choices: text, json, stream-json)' '--verbose' ;;
   auth)
     case "$2" in
-      status) printf '{{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"account-%s","email":"%s@example.com","orgId":"org-1"}}\n' "$NAME" "$NAME" ;;
+      status)
+        [ -f "$CLAUDE_CONFIG_DIR/auth_status_fail" ] && exit 1
+        printf '{{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"account-%s","email":"%s@example.com","orgId":"org-1"}}\n' "$NAME" "$NAME" ;;
       login|logout) exit 0 ;;
       *) exit 2 ;;
     esac
@@ -755,6 +760,69 @@ fn a_failed_claude_target_start_cascades_to_the_next_codex_fallback() {
     );
     assert!(log.contains("Automatic handoff to 'codex-main'"));
     assert_eq!(lease_owner(world.root.path()), "codex-main");
+}
+
+/// agent-relay#18 preflight finding: the first real natural exhaustion exposed that a *later*
+/// fallback's health check hard-erroring (here, `claude auth status --json` genuinely failing)
+/// discarded an *earlier* fallback already found healthy in the same evaluation — the candidate
+/// list was built with a fallible `.collect::<Result<_, _>>()` that short-circuited on the first
+/// error, silently dropping the whole evaluation instead of handing off to the already-healthy
+/// candidate. Reproduces the real dogfood failure (`claude-backup`'s broken credentials prevented
+/// handoff to the already-healthy `claude-main`) with a bounded three-profile chain.
+#[test]
+fn a_fallback_health_check_error_does_not_discard_an_earlier_healthy_fallback() {
+    skip_without_process_env_scan!();
+    let world = world(false);
+    login(
+        world.root.path(),
+        "charlie",
+        "claude",
+        "--claude-executable",
+        Path::new(&claude_exe(&world)),
+    );
+    let setup = relay(
+        world.root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "alice",
+            "--fallback",
+            "bob",
+            "--fallback",
+            "charlie",
+            "--claude-executable",
+            &claude_exe(&world),
+        ],
+    );
+    assert!(
+        setup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&setup.stderr)
+    );
+    write_source_transcript(&world);
+    std::fs::write(
+        profile_dir(world.root.path(), "charlie", "claude").join("auth_status_fail"),
+        "",
+    )
+    .expect("auth-status-fail marker");
+
+    statusline_at_100(world.root.path(), &world.alice_dir);
+    stop_failure(
+        world.root.path(),
+        &world.alice_dir,
+        SESSION_ID,
+        world.project.path(),
+        &[],
+    );
+    wait_for(
+        "the automatic handoff to move the lease to bob despite charlie's broken auth check",
+        Duration::from_secs(90),
+        || lease_owner(world.root.path()) == "bob",
+    );
+    let log = wait_for_handoff_summary(world.root.path(), "bob");
+    assert!(log.contains("Automatic handoff to 'bob'"));
+    assert_eq!(lease_owner(world.root.path()), "bob");
 }
 
 /// The corroborating statusline snapshot can land just after the failure itself. The triggered

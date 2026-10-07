@@ -12,7 +12,7 @@ use relay_core::{
         WatchOutcome, WatchRequest,
     },
     handoff::{HandoffCoordinator, ProjectId},
-    usage::{UsageSignal, UsageState},
+    usage::{UsageObservation, UsageSignal, UsageState},
 };
 use relay_provider_claude::{CapabilityStatus, SimulatedUsageSignal, assess_installed};
 use serde::Serialize;
@@ -261,53 +261,82 @@ pub(crate) fn run(
             if source_usage.state.is_blocking() {
                 auto_handoff::trace_synchronous_detail("exhaustion_corroborated");
             }
-            let fallback_candidates = fallback_profiles
+            // A real natural exhaustion (agent-relay#18 preflight) found this collecting via a
+            // bare `?`: ONE fallback candidate's check erroring (here, an unrelated Claude
+            // profile with a stale/expired token) aborted the ENTIRE evaluation via
+            // `collect::<Result<Vec<_>, _>>`'s short-circuit — discarding an EARLIER candidate in
+            // the same list already proven healthy and eligible, and leaving the exhausted
+            // source stranded with no handoff decision made at all. A fallback candidate's own
+            // check failing is exactly the same kind of fact as it answering "unhealthy" — never
+            // a reason to abandon every *other* candidate already checked or still to check, so
+            // this loop now always produces one `ProfileCandidate` per configured fallback
+            // (degrading an error to `healthy: false` with the sanitized reason recorded) instead
+            // of a bare `?` that could abort the whole evaluation.
+            let try_build_candidate = |candidate: &Profile| -> Result<ProfileCandidate, Error> {
+                trace_preflight(
+                    "fallback_usage_check_started",
+                    &candidate.name,
+                    candidate.provider,
+                );
+                let usage = apply_provider_exhaustion(
+                    paths,
+                    candidate,
+                    &executables,
+                    signal_for(candidate).detect(&candidate.config_dir, project_dir, session_id)?,
+                    now,
+                )?;
+                trace_preflight(
+                    "fallback_usage_check_completed",
+                    &candidate.name,
+                    candidate.provider,
+                );
+                trace_preflight(
+                    "fallback_health_check_started",
+                    &candidate.name,
+                    candidate.provider,
+                );
+                let healthy = fallback_is_healthy(service, candidate, &executables, &usage)?;
+                trace_preflight(
+                    "fallback_health_check_completed",
+                    &candidate.name,
+                    candidate.provider,
+                );
+                Ok(ProfileCandidate {
+                    name: candidate.name.clone(),
+                    provider: candidate.provider,
+                    config_dir: candidate.config_dir.clone(),
+                    identity_stable_id: Some(candidate.expected_identity.stable_id.clone()),
+                    enabled: candidate.enabled,
+                    healthy,
+                    usage,
+                    claude_config_mode: Some(candidate.effective_claude_config_mode()),
+                })
+            };
+            let fallback_candidates: Vec<ProfileCandidate> = fallback_profiles
                 .iter()
-                .map(|candidate| -> Result<ProfileCandidate, Error> {
-                    trace_preflight(
-                        "fallback_usage_check_started",
-                        &candidate.name,
-                        candidate.provider,
-                    );
-                    let usage = apply_provider_exhaustion(
-                        paths,
-                        candidate,
-                        &executables,
-                        signal_for(candidate).detect(
-                            &candidate.config_dir,
-                            project_dir,
-                            session_id,
-                        )?,
-                        now,
-                    )?;
-                    trace_preflight(
-                        "fallback_usage_check_completed",
-                        &candidate.name,
-                        candidate.provider,
-                    );
-                    trace_preflight(
-                        "fallback_health_check_started",
-                        &candidate.name,
-                        candidate.provider,
-                    );
-                    let healthy = fallback_is_healthy(service, candidate, &executables, &usage)?;
-                    trace_preflight(
-                        "fallback_health_check_completed",
-                        &candidate.name,
-                        candidate.provider,
-                    );
-                    Ok(ProfileCandidate {
-                        name: candidate.name.clone(),
-                        provider: candidate.provider,
-                        config_dir: candidate.config_dir.clone(),
-                        identity_stable_id: Some(candidate.expected_identity.stable_id.clone()),
-                        enabled: candidate.enabled,
-                        healthy,
-                        usage,
-                        claude_config_mode: Some(candidate.effective_claude_config_mode()),
+                .map(|candidate| {
+                    try_build_candidate(candidate).unwrap_or_else(|error| {
+                        trace_preflight(
+                            "fallback_candidate_check_failed",
+                            &candidate.name,
+                            candidate.provider,
+                        );
+                        ProfileCandidate {
+                            name: candidate.name.clone(),
+                            provider: candidate.provider,
+                            config_dir: candidate.config_dir.clone(),
+                            identity_stable_id: Some(candidate.expected_identity.stable_id.clone()),
+                            enabled: candidate.enabled,
+                            healthy: false,
+                            usage: UsageObservation::unknown(
+                                now,
+                                format!("candidate check failed: {}", error.code()),
+                            ),
+                            claude_config_mode: Some(candidate.effective_claude_config_mode()),
+                        }
                     })
                 })
-                .collect::<Result<Vec<_>, Error>>()?;
+                .collect();
             usage_progress.set_label("Evaluating handoff…");
             trace_preflight(
                 "candidate_filtering_target_selection_started",
