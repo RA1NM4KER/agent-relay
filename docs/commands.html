@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Command reference · Agent Relay</title><meta name="description" content="Find Agent Relay commands, options, and copyable examples.">
+<meta name="theme-color" content="#111311"><link rel="canonical" href="https://ra1nm4ker.github.io/agent-relay/docs/commands.html">
+<meta property="og:type" content="website"><meta property="og:title" content="Command reference · Agent Relay"><meta property="og:description" content="Find Agent Relay commands, options, and copyable examples."><meta property="og:url" content="https://ra1nm4ker.github.io/agent-relay/docs/commands.html">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="../assets/site.css"><script src="../assets/theme.js"></script><script src="../assets/site.js" defer></script>
+</head><body><a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header"><div class="header-inner">
+<a class="brand" href="../index.html" aria-label="Agent Relay home"><span class="brand-mark" aria-hidden="true">↳</span>Agent Relay<span class="brand-label">CLI</span></a>
+<nav class="desktop-nav" aria-label="Main navigation"><a  href="../index.html">Overview</a><a aria-current="true" href="../docs/getting-started.html">Documentation</a><a href="https://github.com/RA1NM4KER/agent-relay">GitHub <span aria-hidden="true">↗</span></a></nav>
+<div class="header-actions"><button class="theme-button" type="button" aria-label="Switch colour theme" title="Switch colour theme" hidden>◐</button><a class="button button-small" href="../docs/getting-started.html">Get started <span aria-hidden="true">↗</span></a></div>
+</div></header><div class="docs-layout"><aside class="docs-sidebar" aria-label="Documentation navigation"><nav><span class="nav-label">Documentation</span><a  href="getting-started.html">Get started</a><a  href="workflows.html">Everyday workflows</a><a aria-current="page" href="commands.html">Command reference</a><a  href="profiles.html">Profiles & accounts</a><a  href="handoffs.html">Handoffs & capabilities</a><a  href="integrations.html">Inside your agent</a><a  href="troubleshooting.html">Troubleshooting</a><a  href="advanced.html">Advanced use</a><div class="sidebar-meta">Examples verified against<br><a href="https://github.com/RA1NM4KER/agent-relay/tree/v0.4.1">stable v0.4.1 ↗</a></div></nav></aside><main class="doc-main" id="main"><details class="mobile-doc-nav"><summary>Browse documentation</summary><nav><span class="nav-label">Documentation</span><a  href="getting-started.html">Get started</a><a  href="workflows.html">Everyday workflows</a><a aria-current="page" href="commands.html">Command reference</a><a  href="profiles.html">Profiles & accounts</a><a  href="handoffs.html">Handoffs & capabilities</a><a  href="integrations.html">Inside your agent</a><a  href="troubleshooting.html">Troubleshooting</a><a  href="advanced.html">Advanced use</a><div class="sidebar-meta">Examples verified against<br><a href="https://github.com/RA1NM4KER/agent-relay/tree/v0.4.1">stable v0.4.1 ↗</a></div></nav></details><div class="search-area"><label for="docs-search">Search the docs</label><div class="search-input-wrap"><span aria-hidden="true">⌕</span><input id="docs-search" type="search" placeholder="Commands, questions, workflows…" autocomplete="off" aria-controls="search-results"><kbd>/</kbd></div><p id="search-status" role="status"></p><div id="search-results" hidden></div><noscript><p>Browse the navigation or use your browser’s Find command.</p></noscript></div><div class="doc-eyebrow">The Relay handbook</div><h1>Command reference</h1><p class="doc-lead">Find Agent Relay commands, options, and copyable examples.</p><div class="doc-content"><p>Examples on this page target <strong>stable v0.4.1</strong>. Use <code>relay &lt;command&gt; --help</code> for every option supported by your installed version. Angle brackets mark values you replace; square brackets indicate optional arguments.</p>
+<div class="command-index"><a href="#setup">setup</a><a href="#claude">claude</a><a href="#codex">codex</a><a href="#resume">resume</a><a href="#switch">switch</a><a href="#status">status</a><a href="#doctor">doctor</a><a href="#why">why</a><a href="#history">history</a><a href="#profiles">profiles</a><a href="#login">login / logout</a><a href="#adopt">adopt</a><a href="#advanced">advanced</a></div>
+<h2 id="setup">relay setup</h2>
+<p>Run the first-time wizard, add profiles, or change your primary and fallback order. It detects existing configuration and reuses it.</p>
+<div class="code-block"><pre tabindex="0"><code>relay setup</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p><code>--verbose</code> includes technical detail. Scripted setup uses <code>--non-interactive</code> with explicit configuration; profiles must already exist. Inspect <code>relay setup --help</code> before scripting it.</p>
+<h2 id="claude">relay claude</h2>
+<p class="command-syntax">relay claude [message] [--profile NAME] [--resume [SESSION_ID]] [-- PROVIDER_ARGS]</p>
+<p>Start a fresh managed Claude conversation. Omit the message to type it in Claude’s terminal.</p>
+<div class="code-block"><pre tabindex="0"><code>relay claude
+relay claude --profile claude-work "Review the failing tests"
+relay claude --resume
+relay claude --profile claude-work -- --model opus</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Use</th></tr></thead><tbody><tr><td><code>--profile NAME</code></td><td>Choose a registered Claude profile for this launch.</td></tr><tr><td><code>--fallback NAME</code></td><td>Override the fallback order for this run; repeat for multiple profiles.</td></tr><tr><td><code>--project-dir PATH</code></td><td>Use a specific project directory.</td></tr><tr><td><code>--resume [SESSION_ID]</code></td><td>Adopt an existing native Claude conversation through its picker or exact ID.</td></tr><tr><td><code>--no-attach</code></td><td>Scripting form: create the managed session without attaching. Supply a message.</td></tr></tbody></table></div>
+<p><code>--resume</code> cannot be combined with an opening message or <code>--no-attach</code>. To reopen an already-managed dormant session, use <a href="#resume">relay resume</a>.</p>
+<h2 id="codex">relay codex</h2>
+<p class="command-syntax">relay codex [message] [--profile NAME] [-- PROVIDER_ARGS]</p>
+<p>Start a fresh managed Codex conversation using the highest-priority Codex profile, or a profile you select.</p>
+<div class="code-block"><pre tabindex="0"><code>relay codex
+relay codex --profile codex-work
+relay codex -- --sandbox workspace-write</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>Useful options: <code>--profile NAME</code>, <code>--project-dir PATH</code>, and <code>--no-attach</code>. The no-attach form creates the thread and prints a summary; <code>relay resume</code> opens it later.</p>
+<p>There is no equivalent of Claude’s unmanaged conversation adoption here. Use <code>relay resume</code> for a Codex session Relay already manages.</p>
+<h2 id="resume">relay resume</h2>
+<p class="command-syntax">relay resume [PROFILE] [--session ID] [--project-dir PATH] [-- PROVIDER_ARGS]</p>
+<p>Reopen a dormant Relay session on its last profile. With several sessions, a terminal picker lets you choose.</p>
+<div class="code-block"><pre tabindex="0"><code>relay resume
+relay resume claude-work
+relay resume --session &lt;relay-session-id&gt;</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>The optional profile is a <strong>filter</strong>, not a new destination. To move work to another account, use <code>relay switch</code>. Options after <code>--</code> replace the stored options for the resumed provider.</p>
+<h2 id="switch">relay switch</h2>
+<p class="command-syntax">relay switch [PROFILE] [--session ID] [--project-dir PATH] [--no-attach] [-- PROVIDER_ARGS]</p>
+<p>Move an active Relay conversation to a different profile or provider. With no target in an interactive terminal, choose from the profile list.</p>
+<div class="code-block"><pre tabindex="0"><code>relay switch
+relay switch claude-backup
+relay switch codex-work --session &lt;relay-session-id&gt;</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p><code>--no-attach</code> stops after the transaction and prints a summary. Without a terminal, or with <code>--json</code>, omitting the target prints choices instead of opening a picker. Unavailable explicit targets are refused.</p>
+<p><a href="handoffs.html#continuity">Continuation depends on the providers</a>: Claude → Claude retains the native conversation; every handoff involving Codex creates a new native session from state.</p>
+<h2 id="status">relay status</h2>
+<p class="command-syntax">relay status [--project PATH]</p>
+<p>Show the project’s sessions, current profiles, fallback order, and integration/readiness information.</p>
+<div class="code-block"><pre tabindex="0"><code>relay status
+relay status --project ~/repos/my-project
+relay status --json</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<div class="callout"><p><strong>A version difference worth knowing.</strong>Stable v0.4.1 does not have <code>--live</code>. On newer development builds, status defaults to local cached state and <code>--live</code> requests fresh provider checks. Check <code>relay status --help</code> before using that flag.</p></div>
+<h2 id="doctor">relay doctor</h2>
+<p class="command-syntax">relay doctor [--project PATH]</p>
+<p>Check whether your profiles and project are ready for automatic handoff. It checks authentication, project trust, integration status, provider support, and preferences.</p>
+<div class="code-block"><pre tabindex="0"><code>relay doctor
+relay doctor --project ~/repos/my-project</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>A blocker produces a nonzero exit status and actionable guidance. Run the suggested command for each profile, review any provider prompts, then rerun doctor.</p>
+<h2 id="why">relay why</h2>
+<p class="command-syntax">relay why [--project PATH] [--session ID]</p>
+<p>Explain Relay’s current automatic-handoff decision from recorded usage and eligibility evidence. Start here when “Why didn’t it switch?” is the question.</p>
+<div class="code-block"><pre tabindex="0"><code>relay why
+relay why --session &lt;relay-session-id&gt;</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>This explains evidence; it does not force a handoff.</p>
+<h2 id="history">relay history</h2>
+<p class="command-syntax">relay history [--project PATH] [--session ID] [--limit N]</p>
+<p>Read the operational timeline derived from Relay’s durable session and handoff state. This is not your provider’s conversation transcript.</p>
+<div class="code-block"><pre tabindex="0"><code>relay history
+relay history --session &lt;relay-session-id&gt; --limit 20</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>The stable release’s default limit is 10. Newer development builds have expanded history behaviour; the installed help describes your version.</p>
+<h2 id="profiles">relay profiles</h2>
+<p>List registered profiles, their providers, priority roles, and login state.</p>
+<div class="code-block"><pre tabindex="0"><code>relay profiles</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>For deeper inspection of one profile:</p>
+<div class="code-block"><pre tabindex="0"><code>relay profile doctor claude-work</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<h2 id="login">relay login / logout</h2>
+<p class="command-syntax">relay login NAME [--provider claude|codex]<br>relay logout NAME</p>
+<p>Use the provider’s official login or logout inside the named profile. A new profile needs a provider selection; an existing one already knows its provider.</p>
+<div class="code-block"><pre tabindex="0"><code>relay login claude-work --provider claude
+relay login codex-work --provider codex
+relay logout claude-work</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>Run <code>relay setup</code> to include a newly added profile in your priority order.</p>
+<h2 id="adopt">relay adopt</h2>
+<p class="command-syntax">relay adopt --session CLAUDE_SESSION_ID [--profile NAME]</p>
+<p>Bring an already-running Claude conversation under Relay from a separate terminal. The ID is the <strong>native Claude session ID</strong>. Relay must verify the process, profile, and conversation before changing ownership.</p>
+<div class="code-block"><pre tabindex="0"><code>relay adopt --session &lt;claude-session-id&gt;</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>Use this when Claude started before the in-agent integration was installed. It does not restart Claude. See the <a href="workflows.html#existing">adoption workflow</a> for the other entry points.</p>
+<h2 id="global">Global options and help</h2>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Meaning</th></tr></thead><tbody><tr><td><code>--help</code></td><td>Show usage for the command or subcommand.</td></tr><tr><td><code>--version</code></td><td>Print the installed Relay version at the top level.</td></tr><tr><td><code>--json</code></td><td>Emit a stable machine-readable JSON envelope.</td></tr><tr><td><code>--config-root PATH</code></td><td>Override Relay’s configuration root.</td></tr><tr><td><code>--state-root PATH</code></td><td>Override Relay’s state root.</td></tr></tbody></table></div>
+<p>Relay’s <code>--json</code> belongs before the provider separator. After <code>--</code>, arguments belong to the provider and can be rejected if they interfere with managed session behaviour.</p>
+<h2 id="advanced">Advanced command families</h2>
+<p>These are for scripting, inspection, or deliberate recovery. Prefer the everyday commands above for routine work.</p>
+<div class="table-wrap"><table><thead><tr><th>Command</th><th>Purpose</th><th>Read more</th></tr></thead><tbody><tr><td><code>relay profile</code></td><td>Manage explicit provider profiles and inspect identity.</td><td><a href="profiles.html">Profiles</a></td></tr><tr><td><code>relay integration</code></td><td>Install, inspect, or remove Claude, Codex, and Herdr integrations.</td><td><a href="integrations.html">Integrations</a></td></tr><tr><td><code>relay launch</code></td><td>Start a background Claude session for scripting.</td><td><a href="advanced.html#launch">Background launch</a></td></tr><tr><td><code>relay watch</code></td><td>Evaluate automatic handoff once or inspect its ledger.</td><td><a href="advanced.html#watch">Watch</a></td></tr><tr><td><code>relay handoff</code></td><td>Run a manual Claude transfer or read a transaction journal.</td><td><a href="advanced.html#handoff">Transactions</a></td></tr><tr><td><code>relay recover</code></td><td>Reconcile an interrupted handoff.</td><td><a href="troubleshooting.html#recovery">Recovery</a></td></tr><tr><td><code>relay lock</code></td><td>Inspect writer lease and orchestration lock.</td><td><a href="advanced.html#inspect">Inspection</a></td></tr><tr><td><code>relay session</code></td><td>Stage Claude session artifacts or inspect transcript conflicts.</td><td><a href="advanced.html#conflicts">Conflicts</a></td></tr></tbody></table></div>
+<p>Newer development builds add commands such as <code>relay refresh</code>, <code>relay mode</code>, <code>relay state</code>, and <code>relay task</code>. They are not part of the v0.4.1 reference. See <a href="advanced.html#development">development builds</a>.</p>
+</div><nav class="page-pagination" aria-label="Documentation pages"><a href="workflows.html"><span>Previous</span>Everyday workflows </a><a href="profiles.html"><span>Next</span>Profiles & accounts →</a></nav></main><aside class="page-toc"><span class="nav-label">On this page</span><nav aria-label="On this page"><a href="#setup">relay setup</a><a href="#claude">relay claude</a><a href="#codex">relay codex</a><a href="#resume">relay resume</a><a href="#switch">relay switch</a><a href="#status">relay status</a><a href="#doctor">relay doctor</a><a href="#why">relay why</a><a href="#history">relay history</a><a href="#profiles">relay profiles</a><a href="#login">relay login / logout</a><a href="#adopt">relay adopt</a><a href="#global">Global options and help</a><a href="#advanced">Advanced command families</a></nav><a class="source-link" href="https://github.com/RA1NM4KER/agent-relay/blob/v0.4.1/crates/relay-cli/src/cli.rs">CLI source ↗</a></aside></div><footer class="site-footer"><div><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">↳</span>Agent Relay</a><p>Your agents. Your accounts. Your machine.</p></div><div class="footer-links"><a href="../docs/getting-started.html">Documentation</a><a href="https://github.com/RA1NM4KER/agent-relay">Source code ↗</a><a href="https://github.com/RA1NM4KER/agent-relay/releases">Releases ↗</a><a href="https://github.com/RA1NM4KER/agent-relay/blob/main/LICENSE">Apache-2.0 ↗</a></div></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></body></html>

@@ -1,0 +1,87 @@
+<p>Examples on this page target <strong>stable v0.4.1</strong>. Use <code>relay &lt;command&gt; --help</code> for every option supported by your installed version. Angle brackets mark values you replace; square brackets indicate optional arguments.</p>
+<div class="command-index"><a href="#setup">setup</a><a href="#claude">claude</a><a href="#codex">codex</a><a href="#resume">resume</a><a href="#switch">switch</a><a href="#status">status</a><a href="#doctor">doctor</a><a href="#why">why</a><a href="#history">history</a><a href="#profiles">profiles</a><a href="#login">login / logout</a><a href="#adopt">adopt</a><a href="#advanced">advanced</a></div>
+<h2 id="setup">relay setup</h2>
+<p>Run the first-time wizard, add profiles, or change your primary and fallback order. It detects existing configuration and reuses it.</p>
+<pre><code>relay setup</code></pre>
+<p><code>--verbose</code> includes technical detail. Scripted setup uses <code>--non-interactive</code> with explicit configuration; profiles must already exist. Inspect <code>relay setup --help</code> before scripting it.</p>
+<h2 id="claude">relay claude</h2>
+<p class="command-syntax">relay claude [message] [--profile NAME] [--resume [SESSION_ID]] [-- PROVIDER_ARGS]</p>
+<p>Start a fresh managed Claude conversation. Omit the message to type it in Claude’s terminal.</p>
+<pre><code>relay claude
+relay claude --profile claude-work "Review the failing tests"
+relay claude --resume
+relay claude --profile claude-work -- --model opus</code></pre>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Use</th></tr></thead><tbody><tr><td><code>--profile NAME</code></td><td>Choose a registered Claude profile for this launch.</td></tr><tr><td><code>--fallback NAME</code></td><td>Override the fallback order for this run; repeat for multiple profiles.</td></tr><tr><td><code>--project-dir PATH</code></td><td>Use a specific project directory.</td></tr><tr><td><code>--resume [SESSION_ID]</code></td><td>Adopt an existing native Claude conversation through its picker or exact ID.</td></tr><tr><td><code>--no-attach</code></td><td>Scripting form: create the managed session without attaching. Supply a message.</td></tr></tbody></table></div>
+<p><code>--resume</code> cannot be combined with an opening message or <code>--no-attach</code>. To reopen an already-managed dormant session, use <a href="#resume">relay resume</a>.</p>
+<h2 id="codex">relay codex</h2>
+<p class="command-syntax">relay codex [message] [--profile NAME] [-- PROVIDER_ARGS]</p>
+<p>Start a fresh managed Codex conversation using the highest-priority Codex profile, or a profile you select.</p>
+<pre><code>relay codex
+relay codex --profile codex-work
+relay codex -- --sandbox workspace-write</code></pre>
+<p>Useful options: <code>--profile NAME</code>, <code>--project-dir PATH</code>, and <code>--no-attach</code>. The no-attach form creates the thread and prints a summary; <code>relay resume</code> opens it later.</p>
+<p>There is no equivalent of Claude’s unmanaged conversation adoption here. Use <code>relay resume</code> for a Codex session Relay already manages.</p>
+<h2 id="resume">relay resume</h2>
+<p class="command-syntax">relay resume [PROFILE] [--session ID] [--project-dir PATH] [-- PROVIDER_ARGS]</p>
+<p>Reopen a dormant Relay session on its last profile. With several sessions, a terminal picker lets you choose.</p>
+<pre><code>relay resume
+relay resume claude-work
+relay resume --session &lt;relay-session-id&gt;</code></pre>
+<p>The optional profile is a <strong>filter</strong>, not a new destination. To move work to another account, use <code>relay switch</code>. Options after <code>--</code> replace the stored options for the resumed provider.</p>
+<h2 id="switch">relay switch</h2>
+<p class="command-syntax">relay switch [PROFILE] [--session ID] [--project-dir PATH] [--no-attach] [-- PROVIDER_ARGS]</p>
+<p>Move an active Relay conversation to a different profile or provider. With no target in an interactive terminal, choose from the profile list.</p>
+<pre><code>relay switch
+relay switch claude-backup
+relay switch codex-work --session &lt;relay-session-id&gt;</code></pre>
+<p><code>--no-attach</code> stops after the transaction and prints a summary. Without a terminal, or with <code>--json</code>, omitting the target prints choices instead of opening a picker. Unavailable explicit targets are refused.</p>
+<p><a href="handoffs.html#continuity">Continuation depends on the providers</a>: Claude → Claude retains the native conversation; every handoff involving Codex creates a new native session from state.</p>
+<h2 id="status">relay status</h2>
+<p class="command-syntax">relay status [--project PATH]</p>
+<p>Show the project’s sessions, current profiles, fallback order, and integration/readiness information.</p>
+<pre><code>relay status
+relay status --project ~/repos/my-project
+relay status --json</code></pre>
+<div class="callout"><p><strong>A version difference worth knowing.</strong>Stable v0.4.1 does not have <code>--live</code>. On newer development builds, status defaults to local cached state and <code>--live</code> requests fresh provider checks. Check <code>relay status --help</code> before using that flag.</p></div>
+<h2 id="doctor">relay doctor</h2>
+<p class="command-syntax">relay doctor [--project PATH]</p>
+<p>Check whether your profiles and project are ready for automatic handoff. It checks authentication, project trust, integration status, provider support, and preferences.</p>
+<pre><code>relay doctor
+relay doctor --project ~/repos/my-project</code></pre>
+<p>A blocker produces a nonzero exit status and actionable guidance. Run the suggested command for each profile, review any provider prompts, then rerun doctor.</p>
+<h2 id="why">relay why</h2>
+<p class="command-syntax">relay why [--project PATH] [--session ID]</p>
+<p>Explain Relay’s current automatic-handoff decision from recorded usage and eligibility evidence. Start here when “Why didn’t it switch?” is the question.</p>
+<pre><code>relay why
+relay why --session &lt;relay-session-id&gt;</code></pre>
+<p>This explains evidence; it does not force a handoff.</p>
+<h2 id="history">relay history</h2>
+<p class="command-syntax">relay history [--project PATH] [--session ID] [--limit N]</p>
+<p>Read the operational timeline derived from Relay’s durable session and handoff state. This is not your provider’s conversation transcript.</p>
+<pre><code>relay history
+relay history --session &lt;relay-session-id&gt; --limit 20</code></pre>
+<p>The stable release’s default limit is 10. Newer development builds have expanded history behaviour; the installed help describes your version.</p>
+<h2 id="profiles">relay profiles</h2>
+<p>List registered profiles, their providers, priority roles, and login state.</p>
+<pre><code>relay profiles</code></pre>
+<p>For deeper inspection of one profile:</p>
+<pre><code>relay profile doctor claude-work</code></pre>
+<h2 id="login">relay login / logout</h2>
+<p class="command-syntax">relay login NAME [--provider claude|codex]<br>relay logout NAME</p>
+<p>Use the provider’s official login or logout inside the named profile. A new profile needs a provider selection; an existing one already knows its provider.</p>
+<pre><code>relay login claude-work --provider claude
+relay login codex-work --provider codex
+relay logout claude-work</code></pre>
+<p>Run <code>relay setup</code> to include a newly added profile in your priority order.</p>
+<h2 id="adopt">relay adopt</h2>
+<p class="command-syntax">relay adopt --session CLAUDE_SESSION_ID [--profile NAME]</p>
+<p>Bring an already-running Claude conversation under Relay from a separate terminal. The ID is the <strong>native Claude session ID</strong>. Relay must verify the process, profile, and conversation before changing ownership.</p>
+<pre><code>relay adopt --session &lt;claude-session-id&gt;</code></pre>
+<p>Use this when Claude started before the in-agent integration was installed. It does not restart Claude. See the <a href="workflows.html#existing">adoption workflow</a> for the other entry points.</p>
+<h2 id="global">Global options and help</h2>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Meaning</th></tr></thead><tbody><tr><td><code>--help</code></td><td>Show usage for the command or subcommand.</td></tr><tr><td><code>--version</code></td><td>Print the installed Relay version at the top level.</td></tr><tr><td><code>--json</code></td><td>Emit a stable machine-readable JSON envelope.</td></tr><tr><td><code>--config-root PATH</code></td><td>Override Relay’s configuration root.</td></tr><tr><td><code>--state-root PATH</code></td><td>Override Relay’s state root.</td></tr></tbody></table></div>
+<p>Relay’s <code>--json</code> belongs before the provider separator. After <code>--</code>, arguments belong to the provider and can be rejected if they interfere with managed session behaviour.</p>
+<h2 id="advanced">Advanced command families</h2>
+<p>These are for scripting, inspection, or deliberate recovery. Prefer the everyday commands above for routine work.</p>
+<div class="table-wrap"><table><thead><tr><th>Command</th><th>Purpose</th><th>Read more</th></tr></thead><tbody><tr><td><code>relay profile</code></td><td>Manage explicit provider profiles and inspect identity.</td><td><a href="profiles.html">Profiles</a></td></tr><tr><td><code>relay integration</code></td><td>Install, inspect, or remove Claude, Codex, and Herdr integrations.</td><td><a href="integrations.html">Integrations</a></td></tr><tr><td><code>relay launch</code></td><td>Start a background Claude session for scripting.</td><td><a href="advanced.html#launch">Background launch</a></td></tr><tr><td><code>relay watch</code></td><td>Evaluate automatic handoff once or inspect its ledger.</td><td><a href="advanced.html#watch">Watch</a></td></tr><tr><td><code>relay handoff</code></td><td>Run a manual Claude transfer or read a transaction journal.</td><td><a href="advanced.html#handoff">Transactions</a></td></tr><tr><td><code>relay recover</code></td><td>Reconcile an interrupted handoff.</td><td><a href="troubleshooting.html#recovery">Recovery</a></td></tr><tr><td><code>relay lock</code></td><td>Inspect writer lease and orchestration lock.</td><td><a href="advanced.html#inspect">Inspection</a></td></tr><tr><td><code>relay session</code></td><td>Stage Claude session artifacts or inspect transcript conflicts.</td><td><a href="advanced.html#conflicts">Conflicts</a></td></tr></tbody></table></div>
+<p>Newer development builds add commands such as <code>relay refresh</code>, <code>relay mode</code>, <code>relay state</code>, and <code>relay task</code>. They are not part of the v0.4.1 reference. See <a href="advanced.html#development">development builds</a>.</p>

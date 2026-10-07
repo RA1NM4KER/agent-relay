@@ -1,0 +1,402 @@
+[
+  {
+    "title": "Get started",
+    "url": "getting-started.html",
+    "text": "Install Relay, set up profiles, and start your first managed conversation."
+  },
+  {
+    "title": "What you need",
+    "page": "Get started",
+    "url": "getting-started.html#requirements",
+    "text": "What you need macOS , the platform validated in live use. Linux builds and passes CI tests, but is not yet live-supported. Windows is not currently supported. Claude Code or the Codex CLI , installed separately. Either provider is enough; you do not need both. Git and a project to work in. Relay captures repository and git facts for handoffs. One or more provider accounts. Add another eligible profile to make fallback possible. Herdr is optional. Relay works in a regular terminal."
+  },
+  {
+    "title": "1. Install Relay",
+    "page": "Get started",
+    "url": "getting-started.html#install",
+    "text": "1. Install Relay brew install RA1NM4KER/tap/agent-relay relay --version Copy Homebrew installs the latest tagged stable release. Prefer a source build? See Building from source ."
+  },
+  {
+    "title": "2. Set up your profiles",
+    "page": "Get started",
+    "url": "getting-started.html#setup",
+    "text": "2. Set up your profiles relay setup Copy The wizard detects your installed providers, walks you through each provider’s official login, and asks for a primary profile and fallback order. Use memorable names such as claude-work , claude-backup , and codex-work . Accept the recommended Claude usage integration if you want automatic handoff from Claude. Codex usage checks work through its structured provider interface without Claude hooks. Already configured? You can rerun setup to add accounts or change the order. It reuses existing profiles."
+  },
+  {
+    "title": "3. Open your project and start",
+    "page": "Get started",
+    "url": "getting-started.html#start",
+    "text": "3. Open your project and start cd ~/repos/my-project relay claude Copy Or start with Codex: relay codex Copy Relay opens your provider’s interactive terminal. Type your first message there. Each command starts a new managed conversation using the highest-priority configured profile of that provider. Complete the provider’s project trust prompt when it appears. To choose an account explicitly, use relay claude --profile claude-work or relay codex --profile codex-work ."
+  },
+  {
+    "title": "4. Check that fallback is ready",
+    "page": "Get started",
+    "url": "getting-started.html#readiness",
+    "text": "4. Check that fallback is ready In another terminal, open the same project and run: relay doctor Copy Doctor checks profile authentication, provider compatibility, project trust, integrations, and the automatic-handoff preference. If it reports a blocker, follow the command it prints for that profile, then rerun the check. Trust is per profile and project. A fallback may be logged in but still need you to review the provider’s trust prompt for this project. Relay never accepts trust on your behalf."
+  },
+  {
+    "title": "Next time you sit down",
+    "page": "Get started",
+    "url": "getting-started.html#next-time",
+    "text": "Next time you sit down Start a new conversation with relay claude or relay codex . To reopen a closed conversation that Relay already manages: relay resume Copy With several closed sessions, Relay offers a picker. Use relay status to see the project’s sessions and current profiles. I want to… Use Start fresh with Claude relay claude Start fresh with Codex relay codex Reopen a closed managed conversation relay resume Move the current conversation relay switch See what is happening relay status Check unattended readiness relay doctor"
+  },
+  {
+    "title": "Keep Relay up to date",
+    "page": "Get started",
+    "url": "getting-started.html#update",
+    "text": "Keep Relay up to date brew update brew upgrade agent-relay Copy Relay may display a cached update notice, but it never updates itself. Read the release notes when upgrading. The installed CLI’s --help is the reference for the flags your version supports."
+  },
+  {
+    "title": "Everyday workflows",
+    "url": "workflows.html",
+    "text": "Start, resume, switch, and adopt coding-agent conversations."
+  },
+  {
+    "title": "Start a new conversation",
+    "page": "Everyday workflows",
+    "url": "workflows.html#new",
+    "text": "Start a new conversation relay claude # Or choose Codex: relay codex Copy Both commands create a new Relay session. They do not reopen yesterday’s work or replace another running session. An optional first message can go on the command line: relay claude \"Find the cause of the failing tests\" Copy"
+  },
+  {
+    "title": "Continue yesterday’s work",
+    "page": "Everyday workflows",
+    "url": "workflows.html#resume",
+    "text": "Continue yesterday’s work relay resume Copy This reopens a closed, dormant Relay session on its last profile. One available session opens directly; with several, you choose. A session that is already active is never started a second time. relay status relay resume --session <relay-session-id> Copy Replace the placeholder with the Relay session ID or an unambiguous prefix from status. You can also filter the picker by last profile: relay resume claude-work Copy"
+  },
+  {
+    "title": "Switch accounts or providers",
+    "page": "Everyday workflows",
+    "url": "workflows.html#switch",
+    "text": "Switch accounts or providers From another terminal in the same project: relay switch Copy Choose an eligible target from the list, or name it directly: relay switch claude-backup # Or move the work to Codex: relay switch codex-work Copy With multiple active conversations, select the session too: relay switch codex-work --session <relay-session-id> Copy Claude → Claude keeps the same native Claude conversation. Any handoff involving Codex starts a new native session with a state bundle. See exactly what carries over . An explicit target is your choice. Relay refuses an unavailable or unverifiable target instead of silently selecting a different account."
+  },
+  {
+    "title": "Bring an existing Claude conversation",
+    "page": "Everyday workflows",
+    "url": "workflows.html#existing",
+    "text": "Bring an existing Claude conversation A previous conversation that Relay has never managed relay claude --resume Copy Claude opens its native picker. Relay verifies the conversation you select and adopts that same session. If you already know its native Claude ID: relay claude --resume <claude-session-id> Copy A Claude conversation that is running right now If the Relay integration was installed before Claude started, type this inside Claude: /relay adopt Copy For a process that predates the integration, use a separate terminal: relay adopt --session <claude-session-id> Copy Relay requires positive evidence of the running conversation’s identity. Ambiguity leaves it untouched. Live adoption of an unmanaged Codex session is not offered; start through relay codex . Two different kinds of resume. relay resume reopens a session Relay already manages. relay claude --resume brings an existing native Claude conversation under Relay. A Relay session ID and a native provider session ID are different identifiers."
+  },
+  {
+    "title": "Pass options to your provider",
+    "page": "Everyday workflows",
+    "url": "workflows.html#provider-options",
+    "text": "Pass options to your provider Place Relay options before -- and provider options after it: relay claude --profile claude-work -- --model opus relay codex --profile codex-work -- --sandbox workspace-write Copy Provider options are remembered and reused for that provider. They are never translated across Claude and Codex. Options that would take over Relay’s session identity, working directory, output mode, or required hooks are refused. Use Relay’s own --resume option when adopting Claude; do not pass --resume through after the separator."
+  },
+  {
+    "title": "Work with multiple conversations",
+    "page": "Everyday workflows",
+    "url": "workflows.html#multiple",
+    "text": "Work with multiple conversations A project can have several Relay sessions, even on the same profile. Each live session has one owner. Closing its provider normally makes it dormant; switching one session does not move the others. Relay does not coordinate edits between agents in the same working tree. Use separate worktrees when your tasks need file isolation. Use --session when a command needs to identify one conversation. For scripts without a terminal picker, provide it explicitly."
+  },
+  {
+    "title": "Command reference",
+    "url": "commands.html",
+    "text": "Find Agent Relay commands, options, and copyable examples."
+  },
+  {
+    "title": "relay setup",
+    "page": "Command reference",
+    "url": "commands.html#setup",
+    "text": "relay setup Run the first-time wizard, add profiles, or change your primary and fallback order. It detects existing configuration and reuses it. relay setup Copy --verbose includes technical detail. Scripted setup uses --non-interactive with explicit configuration; profiles must already exist. Inspect relay setup --help before scripting it."
+  },
+  {
+    "title": "relay claude",
+    "page": "Command reference",
+    "url": "commands.html#claude",
+    "text": "relay claude relay claude [message] [--profile NAME] [--resume [SESSION_ID]] [-- PROVIDER_ARGS] Start a fresh managed Claude conversation. Omit the message to type it in Claude’s terminal. relay claude relay claude --profile claude-work \"Review the failing tests\" relay claude --resume relay claude --profile claude-work -- --model opus Copy Option Use --profile NAME Choose a registered Claude profile for this launch. --fallback NAME Override the fallback order for this run; repeat for multiple profiles. --project-dir PATH Use a specific project directory. --resume [SESSION_ID] Adopt an existing native Claude conversation through its picker or exact ID. --no-attach Scripting form: create the managed session without attaching. Supply a message. --resume cannot be combined with an opening message or --no-attach . To reopen an already-managed dormant session, use relay resume ."
+  },
+  {
+    "title": "relay codex",
+    "page": "Command reference",
+    "url": "commands.html#codex",
+    "text": "relay codex relay codex [message] [--profile NAME] [-- PROVIDER_ARGS] Start a fresh managed Codex conversation using the highest-priority Codex profile, or a profile you select. relay codex relay codex --profile codex-work relay codex -- --sandbox workspace-write Copy Useful options: --profile NAME , --project-dir PATH , and --no-attach . The no-attach form creates the thread and prints a summary; relay resume opens it later. There is no equivalent of Claude’s unmanaged conversation adoption here. Use relay resume for a Codex session Relay already manages."
+  },
+  {
+    "title": "relay resume",
+    "page": "Command reference",
+    "url": "commands.html#resume",
+    "text": "relay resume relay resume [PROFILE] [--session ID] [--project-dir PATH] [-- PROVIDER_ARGS] Reopen a dormant Relay session on its last profile. With several sessions, a terminal picker lets you choose. relay resume relay resume claude-work relay resume --session <relay-session-id> Copy The optional profile is a filter , not a new destination. To move work to another account, use relay switch . Options after -- replace the stored options for the resumed provider."
+  },
+  {
+    "title": "relay switch",
+    "page": "Command reference",
+    "url": "commands.html#switch",
+    "text": "relay switch relay switch [PROFILE] [--session ID] [--project-dir PATH] [--no-attach] [-- PROVIDER_ARGS] Move an active Relay conversation to a different profile or provider. With no target in an interactive terminal, choose from the profile list. relay switch relay switch claude-backup relay switch codex-work --session <relay-session-id> Copy --no-attach stops after the transaction and prints a summary. Without a terminal, or with --json , omitting the target prints choices instead of opening a picker. Unavailable explicit targets are refused. Continuation depends on the providers : Claude → Claude retains the native conversation; every handoff involving Codex creates a new native session from state."
+  },
+  {
+    "title": "relay status",
+    "page": "Command reference",
+    "url": "commands.html#status",
+    "text": "relay status relay status [--project PATH] Show the project’s sessions, current profiles, fallback order, and integration/readiness information. relay status relay status --project ~/repos/my-project relay status --json Copy A version difference worth knowing. Stable v0.4.1 does not have --live . On newer development builds, status defaults to local cached state and --live requests fresh provider checks. Check relay status --help before using that flag."
+  },
+  {
+    "title": "relay doctor",
+    "page": "Command reference",
+    "url": "commands.html#doctor",
+    "text": "relay doctor relay doctor [--project PATH] Check whether your profiles and project are ready for automatic handoff. It checks authentication, project trust, integration status, provider support, and preferences. relay doctor relay doctor --project ~/repos/my-project Copy A blocker produces a nonzero exit status and actionable guidance. Run the suggested command for each profile, review any provider prompts, then rerun doctor."
+  },
+  {
+    "title": "relay why",
+    "page": "Command reference",
+    "url": "commands.html#why",
+    "text": "relay why relay why [--project PATH] [--session ID] Explain Relay’s current automatic-handoff decision from recorded usage and eligibility evidence. Start here when “Why didn’t it switch?” is the question. relay why relay why --session <relay-session-id> Copy This explains evidence; it does not force a handoff."
+  },
+  {
+    "title": "relay history",
+    "page": "Command reference",
+    "url": "commands.html#history",
+    "text": "relay history relay history [--project PATH] [--session ID] [--limit N] Read the operational timeline derived from Relay’s durable session and handoff state. This is not your provider’s conversation transcript. relay history relay history --session <relay-session-id> --limit 20 Copy The stable release’s default limit is 10. Newer development builds have expanded history behaviour; the installed help describes your version."
+  },
+  {
+    "title": "relay profiles",
+    "page": "Command reference",
+    "url": "commands.html#profiles",
+    "text": "relay profiles List registered profiles, their providers, priority roles, and login state. relay profiles Copy For deeper inspection of one profile: relay profile doctor claude-work Copy"
+  },
+  {
+    "title": "relay login / logout",
+    "page": "Command reference",
+    "url": "commands.html#login",
+    "text": "relay login / logout relay login NAME [--provider claude|codex] relay logout NAME Use the provider’s official login or logout inside the named profile. A new profile needs a provider selection; an existing one already knows its provider. relay login claude-work --provider claude relay login codex-work --provider codex relay logout claude-work Copy Run relay setup to include a newly added profile in your priority order."
+  },
+  {
+    "title": "relay adopt",
+    "page": "Command reference",
+    "url": "commands.html#adopt",
+    "text": "relay adopt relay adopt --session CLAUDE_SESSION_ID [--profile NAME] Bring an already-running Claude conversation under Relay from a separate terminal. The ID is the native Claude session ID . Relay must verify the process, profile, and conversation before changing ownership. relay adopt --session <claude-session-id> Copy Use this when Claude started before the in-agent integration was installed. It does not restart Claude. See the adoption workflow for the other entry points."
+  },
+  {
+    "title": "Global options and help",
+    "page": "Command reference",
+    "url": "commands.html#global",
+    "text": "Global options and help Option Meaning --help Show usage for the command or subcommand. --version Print the installed Relay version at the top level. --json Emit a stable machine-readable JSON envelope. --config-root PATH Override Relay’s configuration root. --state-root PATH Override Relay’s state root. Relay’s --json belongs before the provider separator. After -- , arguments belong to the provider and can be rejected if they interfere with managed session behaviour."
+  },
+  {
+    "title": "Advanced command families",
+    "page": "Command reference",
+    "url": "commands.html#advanced",
+    "text": "Advanced command families These are for scripting, inspection, or deliberate recovery. Prefer the everyday commands above for routine work. Command Purpose Read more relay profile Manage explicit provider profiles and inspect identity. Profiles relay integration Install, inspect, or remove Claude, Codex, and Herdr integrations. Integrations relay launch Start a background Claude session for scripting. Background launch relay watch Evaluate automatic handoff once or inspect its ledger. Watch relay handoff Run a manual Claude transfer or read a transaction journal. Transactions relay recover Reconcile an interrupted handoff. Recovery relay lock Inspect writer lease and orchestration lock. Inspection relay session Stage Claude session artifacts or inspect transcript conflicts. Conflicts Newer development builds add commands such as relay refresh , relay mode , relay state , and relay task . They are not part of the v0.4.1 reference. See development builds ."
+  },
+  {
+    "title": "Profiles & accounts",
+    "url": "profiles.html",
+    "text": "Manage isolated accounts and choose your fallback order."
+  },
+  {
+    "title": "Add an account",
+    "page": "Profiles & accounts",
+    "url": "profiles.html#add",
+    "text": "Add an account The simplest route is to rerun the setup wizard: relay setup Copy For an explicit new account, name its provider: relay login claude-backup --provider claude relay login codex-work --provider codex Copy Each opens the provider’s official authentication flow in an isolated profile. Then rerun relay setup to include the profile in your preferred order."
+  },
+  {
+    "title": "Choose your fallback order",
+    "page": "Profiles & accounts",
+    "url": "profiles.html#order",
+    "text": "Choose your fallback order Setup records one global priority order across providers. For example: Priority Profile name Provider 1 · primary claude-work Claude 2 · fallback claude-backup Claude 3 · fallback codex-work Codex A new relay claude starts with the highest-priority Claude profile; relay codex starts with the highest-priority Codex profile. When the current owner is exhausted, Relay checks the shared order for an eligible fallback. A recovered primary does not automatically take the conversation back. The current owner stays in place until another handoff or an explicit switch."
+  },
+  {
+    "title": "Inspect your profiles",
+    "page": "Profiles & accounts",
+    "url": "profiles.html#inspect",
+    "text": "Inspect your profiles relay profiles relay profile doctor claude-work Copy The friendly list shows registered profiles, providers, roles, and login state. Profile doctor offers more detailed checks for one account. For project-specific handoff readiness, run relay doctor in the project."
+  },
+  {
+    "title": "Sign in again",
+    "page": "Profiles & accounts",
+    "url": "profiles.html#login",
+    "text": "Sign in again relay login claude-work Copy An existing profile already knows its provider. Use the same name to reauthenticate, then rerun relay doctor . relay logout claude-work Copy Logout uses the provider’s own logout command for that profile. It does not remove the profile from Relay’s registry."
+  },
+  {
+    "title": "How isolation works",
+    "page": "Profiles & accounts",
+    "url": "profiles.html#isolation",
+    "text": "How isolation works Claude profiles use separate CLAUDE_CONFIG_DIR directories; Codex profiles use separate CODEX_HOME directories. Provider authentication remains provider-owned. Relay stores profile references and non-secret identity information, never an authentication token or password. Different names do not make the same account two distinct fallbacks. Relay checks account identity, and duplicate provider identities are rejected."
+  },
+  {
+    "title": "Reuse an existing Claude login",
+    "page": "Profiles & accounts",
+    "url": "profiles.html#existing-profile",
+    "text": "Reuse an existing Claude login Setup can reuse an isolated Claude configuration. Advanced users can preview profile registration by reference: relay profile adopt claude-work --provider claude --config-dir /absolute/path/to/claude-config --dry-run Copy For Claude’s native default account, use the dedicated mode: relay profile adopt claude-default --provider claude --native-default --dry-run Copy Review the result, then rerun without --dry-run to register it. Native-default authentication differs from explicitly pointing CLAUDE_CONFIG_DIR at the same path; use the option that matches how Claude actually runs. Profile registration alone does not adopt a running conversation. See bringing an existing conversation under Relay ."
+  },
+  {
+    "title": "Handoffs & capabilities",
+    "url": "handoffs.html",
+    "text": "Understand automatic handoff, session continuity, and current limits."
+  },
+  {
+    "title": "What happens at a usage limit",
+    "page": "Handoffs & capabilities",
+    "url": "handoffs.html#automatic",
+    "text": "What happens at a usage limit Verify the limit. Relay uses structured provider signals. A temporary rate-limit blip or matching words in terminal output are not enough. Check the fallback order. Profiles must be eligible, authenticated, and available. Ambiguous evidence cannot establish availability. Stop and verify the source. Relay prevents two owners from serving the same managed conversation. Continue and verify the target. The handoff is complete only after the target is positively verified. A supervised terminal follows the new owner. Claude’s installed usage integration supplies limit events and usage snapshots. Codex usage is read through its structured app-server interface before entering the terminal and periodically during supervision in the stable release. No eligible fallback means no successful transfer. Relay does not turn an unknown profile into an available one or bypass a provider’s limits."
+  },
+  {
+    "title": "What carries over",
+    "page": "Handoffs & capabilities",
+    "url": "handoffs.html#continuity",
+    "text": "What carries over Handoff Continuation What to expect Claude → Claude Session continuation The same native Claude conversation under the target account. Claude → Codex State continuation A new native session seeded from a Relay state bundle. Codex → Claude State continuation A new native session seeded from a Relay state bundle. Codex → Codex State continuation A new native session, even though the provider stays the same. A state bundle captures deterministic repository and git facts, plus bounded recent conversation context at handoff time. It is not the full original provider conversation, and it does not transfer provider prompt caches. Reopening a dormant session with relay resume is different: it resumes that session’s current native Claude conversation or Codex thread on the last profile."
+  },
+  {
+    "title": "Which account is next?",
+    "page": "Handoffs & capabilities",
+    "url": "handoffs.html#eligibility",
+    "text": "Which account is next? You choose one priority order in relay setup . Relay rechecks that order when the current owner is blocked and selects the first eligible profile. Exhausted profiles remain unavailable until their recorded reset conditions allow reconsideration. The current owner is sticky : if a higher-priority profile becomes available again, your work stays where it is. Use relay switch <profile> when you want to move explicitly. relay doctor relay why Copy Doctor answers “Is this project ready?” Why explains the current automatic-handoff decision using the evidence Relay actually has."
+  },
+  {
+    "title": "What Relay protects",
+    "page": "Handoffs & capabilities",
+    "url": "handoffs.html#safety",
+    "text": "What Relay protects One owner per Relay session. Ownership, process identity, and target verification must all agree. Provider-owned authentication. Credentials are never copied between profiles. Recoverable transactions. Interrupted handoffs have a durable journal for recovery. Fail-closed decisions. Unknown or contradictory evidence blocks a transfer. Multiple sessions can still edit the same repository. Relay’s ownership guarantee applies to each conversation, not to every file in your working tree."
+  },
+  {
+    "title": "Current limits",
+    "page": "Handoffs & capabilities",
+    "url": "handoffs.html#limits",
+    "text": "Current limits macOS-first. Linux builds and passes CI tests but is not yet live-supported or validated. Windows is not supported. No automatic fail-back. Profiles that reset do not reclaim your session. No quota pooling. Each account’s provider limits still apply. Verification uses a small real API turn. A handoff is not completely usage-free. No live unmanaged Codex adoption. Start through Relay to get supervision. No transfer of provider prompt caches. State continuation is bounded context in a new native session. Claude usage snapshots need freshness. A headless session can leave them stale; stale evidence cannot trigger a handoff. The stable documentation records live validation of Claude handoffs and manual Codex → Claude transfer. Detection of real Codex exhaustion has been observed, but a complete automatic transfer from real Codex exhaustion to a healthy fallback remains covered by fake-provider tests rather than that live observation. See the stable release’s validation notes ."
+  },
+  {
+    "title": "Inside your agent",
+    "url": "integrations.html",
+    "text": "Use Relay inside Claude Code, Codex, and optional Herdr sessions."
+  },
+  {
+    "title": "Which command goes where?",
+    "page": "Inside your agent",
+    "url": "integrations.html#where",
+    "text": "Which command goes where? Where you type Example How it runs Your terminal shell relay status The Relay CLI runs directly. Inside Claude Code /relay status Relay’s installed hook answers locally, without a model turn. Inside managed Codex $relay status The installed skill uses a Codex model/tool turn to call Relay. /relay and /relay:doctor are not Codex slash commands."
+  },
+  {
+    "title": "Inside Claude Code",
+    "page": "Inside your agent",
+    "url": "integrations.html#claude",
+    "text": "Inside Claude Code /relay status /relay switch claude-backup /relay adopt Copy Status reports the project, provider, owner, and handoff readiness. Switch asks the supervisor to move the current conversation; your supervised terminal follows it. Adopt brings this running, unmanaged Claude conversation under Relay if verification succeeds. The integration also adds a status-line badge such as [Relay · claude-work] . Existing status-line output is preserved. Manage the Claude integration Setup normally installs it for you. From a shell, inspect or preview it for one profile: relay integration claude status --profile claude-work relay integration claude install --profile claude-work --dry-run Copy Install after reviewing the preview: relay integration claude install --profile claude-work Copy Remove it when needed: relay integration claude uninstall --profile claude-work Copy The integration preserves other hooks and backs up settings. Uninstall restores Relay’s changes while preserving unrelated configuration. Removing it disables the normal structured usage path for automatic Claude handoff."
+  },
+  {
+    "title": "Inside a managed Codex session",
+    "page": "Inside your agent",
+    "url": "integrations.html#codex",
+    "text": "Inside a managed Codex session $relay status $relay doctor $relay why $relay history $relay switch claude-work Copy Relay installs a profile-local skill on managed attach. Requests are scoped to the supervisor’s project and session. A switch request goes to the supervising Relay process, which safely performs the handoff. If no verified supervisor can be reached, the skill gives a manual command for a separate terminal. Name the target profile for a Codex switch; there is no in-skill interactive picker. The skill uses a model/tool turn, unlike Claude’s local hook. Manage the Codex skill relay integration codex status --profile codex-work relay integration codex install --profile codex-work Copy Restart or resume through Relay for Codex to discover an updated skill. Unmodified Relay-managed skills can be upgraded; user-created or edited skills are preserved. relay integration codex uninstall --profile codex-work Copy The Codex skill supplies in-agent commands. Structured Codex usage checks operate independently of that skill."
+  },
+  {
+    "title": "Optional Herdr integration",
+    "page": "Inside your agent",
+    "url": "integrations.html#herdr",
+    "text": "Optional Herdr integration Relay works without Herdr. If you already use it, setup can connect the optional adapter so Herdr can expose Relay’s status, doctor, watch, and handoff actions. relay integration herdr status relay integration herdr doctor Copy The adapter is a thin interface to Relay’s existing safety checks. It does not grant a shortcut around ownership verification. The documented Herdr pane integration recognises Claude panes; Codex panes are not integrated in the same way. For manual installation and compatibility details, see the Herdr integration guide ."
+  },
+  {
+    "title": "Troubleshooting",
+    "url": "troubleshooting.html",
+    "text": "Diagnose readiness, unavailable profiles, and interrupted handoffs."
+  },
+  {
+    "title": "“Why didn’t Relay switch?”",
+    "page": "Troubleshooting",
+    "url": "troubleshooting.html#not-switching",
+    "text": "“Why didn’t Relay switch?” Run relay why . Relay needs verified exhaustion of the current owner and an eligible target. A transient rate limit, stale snapshot, or unknown usage reading does not qualify. Check that the conversation is managed with relay status . Run relay doctor and resolve each reported blocker. For Claude, inspect the integration with relay integration claude status --profile <name> . Use relay profiles to confirm the expected fallback is registered, then review your order with relay setup . For several sessions, scope the explanation explicitly: relay why --session <relay-session-id> Copy"
+  },
+  {
+    "title": "“All my profiles are exhausted”",
+    "page": "Troubleshooting",
+    "url": "troubleshooting.html#all-exhausted",
+    "text": "“All my profiles are exhausted” A different profile name does not create more quota. If every eligible account is exhausted, Relay has nowhere to transfer the work. Wait for the provider’s reset, or add another legitimately available account using relay setup . Recheck status and readiness before resuming or switching. Clearing local automation state does not reset provider limits."
+  },
+  {
+    "title": "“Doctor says project trust is missing”",
+    "page": "Troubleshooting",
+    "url": "troubleshooting.html#trust",
+    "text": "“Doctor says project trust is missing” Each configured profile needs verified trust for the exact project directory. Being logged in is not sufficient. Run the command printed next to the blocker to open that exact profile in the project. Review and answer the provider’s own trust prompt. Exit when finished and rerun relay doctor . Relay never writes trust acceptance. Missing or malformed trust records cannot pass the check."
+  },
+  {
+    "title": "“My profile is logged out”",
+    "page": "Troubleshooting",
+    "url": "troubleshooting.html#auth",
+    "text": "“My profile is logged out” relay login <profile-name> relay doctor Copy Sign in through the provider flow. If Relay reports an unexpected account identity, verify which account you selected rather than renaming profiles or copying credentials between directories."
+  },
+  {
+    "title": "“Resume opens the wrong thing—or nothing”",
+    "page": "Troubleshooting",
+    "url": "troubleshooting.html#resume",
+    "text": "“Resume opens the wrong thing—or nothing” Use relay status to inspect sessions, then select the exact Relay session: relay resume --session <relay-session-id> Copy If the old conversation was never managed, use relay claude --resume instead. If the session is still active in another terminal, return to that terminal; Relay will not start a second owner. An empty Claude session that never received a first message may have no transcript to resume."
+  },
+  {
+    "title": "“The command or flag isn’t recognised”",
+    "page": "Troubleshooting",
+    "url": "troubleshooting.html#commands",
+    "text": "“The command or flag isn’t recognised” relay --version relay --help relay status --help Copy Check which release you have installed. Stable v0.4.1 does not include status --live , refresh , mode , state , or task . Those appear in later development work. Inside Codex, use $relay ; inside Claude, use /relay . In a shell, use plain relay . If a provider option is rejected, verify whether it belongs after -- and whether it would override something Relay must manage."
+  },
+  {
+    "title": "“The in-agent command is missing”",
+    "page": "Troubleshooting",
+    "url": "troubleshooting.html#missing-integration",
+    "text": "“The in-agent command is missing” Check the integration for the exact profile: relay integration claude status --profile <claude-profile> relay integration codex status --profile <codex-profile> Copy Run the matching install command if needed, then reopen the provider through Relay. Already-running processes may not discover newly installed commands or skills. Relay preserves user-edited integration files; inspect the reported conflict rather than assuming an install overwrote them."
+  },
+  {
+    "title": "“A handoff was interrupted”",
+    "page": "Troubleshooting",
+    "url": "troubleshooting.html#recovery",
+    "text": "“A handoff was interrupted” Relay journals each transfer and can recover incomplete transactions before subsequent work. If it cannot safely reconcile the state, follow the specific recovery command it reports. relay handoff status <transaction-id> --project-dir /path/to/project relay recover <transaction-id> --project-dir /path/to/project Copy A transaction ID identifies a handoff attempt, not a conversation. Recovery checks locks, processes, and artifacts before choosing a next step. Do not delete lock or transcript files to get past a refusal. Use acknowledgement only after verifying the condition. --acknowledge records that you have confirmed no target process is still running for a recovery-required transaction. It is not a general “force” flag. Use the reported recovery guidance and inspect the journal first."
+  },
+  {
+    "title": "“The target transcript conflicts”",
+    "page": "Troubleshooting",
+    "url": "troubleshooting.html#conflict",
+    "text": "“The target transcript conflicts” Relay refuses to overwrite a divergent or active conversation. Start with the read-only conflict inspection described in Advanced use . A proven stale copy and a copy containing unique conversation turns need different treatment."
+  },
+  {
+    "title": "Report a reproducible issue",
+    "page": "Troubleshooting",
+    "url": "troubleshooting.html#report",
+    "text": "Report a reproducible issue Include your Relay and provider versions, operating system, the command you ran, the error category, and whether the session was new, resumed, or adopted. Review any diagnostic output before sharing it; omit credentials and private conversation content. Open an issue on GitHub ↗"
+  },
+  {
+    "title": "Advanced use",
+    "url": "advanced.html",
+    "text": "Inspect transactions, script Relay, and work with development builds."
+  },
+  {
+    "title": "Inspect state without moving work",
+    "page": "Advanced use",
+    "url": "advanced.html#inspect",
+    "text": "Inspect state without moving work relay lock status --project-dir /path/to/project relay watch status --project /path/to/project relay handoff status <transaction-id> --project-dir /path/to/project Copy Lock status reports the observed lease and orchestration lock. Watch status reads the automation ledger. Handoff status reads a specific transaction journal. Observations are snapshots; they do not authorise bypassing a live owner. Add --json when consuming the CLI from a script. Run --help at each subcommand level for the installed schema of arguments."
+  },
+  {
+    "title": "Launch a background Claude session",
+    "page": "Advanced use",
+    "url": "advanced.html#launch",
+    "text": "Launch a background Claude session relay launch --profile claude-work --project-dir /path/to/project \"Review the failing tests\" Copy This is the lower-level background Claude launch path. It prints session information rather than attaching your terminal. Use a supervised interactive session for the usual automatic handoff experience; stale headless Claude usage snapshots cannot establish exhaustion."
+  },
+  {
+    "title": "Evaluate automatic handoff once",
+    "page": "Advanced use",
+    "url": "advanced.html#watch",
+    "text": "Evaluate automatic handoff once relay watch run --profile claude-work --fallback claude-backup --project /path/to/project --session <session-id> --dry-run Copy This evaluates the configured evidence once. The dry run reports the decision without performing a handoff or persisting ledger state. Without --dry-run , it can transfer an exhausted session through the normal transaction. It is not a background daemon. The optional --probe diagnostic can spend a real API request; it is not required for normal structured detection."
+  },
+  {
+    "title": "Run an explicit Claude handoff",
+    "page": "Advanced use",
+    "url": "advanced.html#handoff",
+    "text": "Run an explicit Claude handoff relay handoff run --from claude-work --to claude-backup --project /path/to/project --session <claude-session-id> Copy The lower-level command performs the journaled source-stop, transfer, target-launch, and verification flow. For everyday switching, including cross-provider moves, use relay switch . Read a transaction afterward with relay handoff status . For an interruption, follow the recovery steps ."
+  },
+  {
+    "title": "Inspect a Claude transcript conflict",
+    "page": "Advanced use",
+    "url": "advanced.html#conflicts",
+    "text": "Inspect a Claude transcript conflict relay session conflict inspect --source-profile claude-work --target-profile claude-backup --project-dir /path/to/project --session-id <claude-session-id> Copy The inspection classifies the target copy: missing, identical, stale, divergent, or active. To preview a resolution: relay session conflict resolve --source-profile claude-work --target-profile claude-backup --project-dir /path/to/project --session-id <claude-session-id> Copy Resolve previews unless --yes is supplied. Replacing a proven stale ancestor preserves a backup. Discarding a genuinely divergent copy requires an additional explicit flag because it can contain unique turns. Review relay session conflict resolve --help and the preview before acting. relay session stage-transfer is also available for deliberately staging a stopped Claude conversation. It does not replace the complete handoff transaction or copy credentials. Consult its help before use."
+  },
+  {
+    "title": "Build from source",
+    "page": "Advanced use",
+    "url": "advanced.html#source",
+    "text": "Build from source Install Rust through rustup; the repository pins its toolchain. To build the version this handbook documents: git clone https://github.com/RA1NM4KER/agent-relay cd agent-relay git checkout v0.4.1 cargo build --release Copy The binaries are target/release/relay and target/release/relay-herdr-plugin . Put the Relay binary on your PATH. The optional Herdr helper must sit beside it if you want setup to offer that integration."
+  },
+  {
+    "title": "Stable and development builds",
+    "page": "Advanced use",
+    "url": "advanced.html#development",
+    "text": "Stable and development builds Homebrew’s agent-relay formula follows tagged stable releases. The repository’s main branch can contain newer behaviour that has not shipped in that release. The development channel uses a separate formula and executable: brew install RA1NM4KER/tap/agent-relay-dev relay-dev --version Copy Use relay-dev --help to discover the current development command set. It includes newer work such as integration refresh, execution modes, durable working state, and an explicit GitHub task queue. These are not part of the stable v0.4.1 reference. Setup binds integrations to the binary you run. relay-dev setup points managed integrations at the development binary; relay setup points them back at stable. Existing provider processes need a new attach to pick up changed integration assets. Review the maintainer guide before switching a daily workflow. Development build and channel guide ↗"
+  },
+  {
+    "title": "Read the implementation guides",
+    "page": "Advanced use",
+    "url": "advanced.html#internals",
+    "text": "Read the implementation guides Architecture and ownership — locks, journal phases, and provider boundaries. Automatic handoff — structured signals, eligibility, and reset policy. Security model — process identity, credential isolation, and recovery. Changelog — released changes and work in progress."
+  }
+]

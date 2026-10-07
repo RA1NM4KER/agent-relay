@@ -1,0 +1,47 @@
+<p>Run shell commands from your project directory. If you are typing inside Claude or Codex, use the <a href="integrations.html">in-agent commands</a> instead.</p>
+<h2 id="new">Start a new conversation</h2>
+<pre><code>relay claude
+# Or choose Codex:
+relay codex</code></pre>
+<p>Both commands create a new Relay session. They do not reopen yesterday’s work or replace another running session. An optional first message can go on the command line:</p>
+<pre><code>relay claude "Find the cause of the failing tests"</code></pre>
+<h2 id="resume">Continue yesterday’s work</h2>
+<pre><code>relay resume</code></pre>
+<p>This reopens a closed, dormant Relay session on its last profile. One available session opens directly; with several, you choose. A session that is already active is never started a second time.</p>
+<pre><code>relay status
+relay resume --session &lt;relay-session-id&gt;</code></pre>
+<p>Replace the placeholder with the Relay session ID or an unambiguous prefix from status. You can also filter the picker by last profile:</p>
+<pre><code>relay resume claude-work</code></pre>
+<h2 id="switch">Switch accounts or providers</h2>
+<p>From another terminal in the same project:</p>
+<pre><code>relay switch</code></pre>
+<p>Choose an eligible target from the list, or name it directly:</p>
+<pre><code>relay switch claude-backup
+# Or move the work to Codex:
+relay switch codex-work</code></pre>
+<p>With multiple active conversations, select the session too:</p>
+<pre><code>relay switch codex-work --session &lt;relay-session-id&gt;</code></pre>
+<p>Claude → Claude keeps the same native Claude conversation. Any handoff involving Codex starts a new native session with a state bundle. <a href="handoffs.html#continuity">See exactly what carries over</a>.</p>
+<p>An explicit target is your choice. Relay refuses an unavailable or unverifiable target instead of silently selecting a different account.</p>
+<h2 id="existing">Bring an existing Claude conversation</h2>
+<h3>A previous conversation that Relay has never managed</h3>
+<pre><code>relay claude --resume</code></pre>
+<p>Claude opens its native picker. Relay verifies the conversation you select and adopts that same session. If you already know its native Claude ID:</p>
+<pre><code>relay claude --resume &lt;claude-session-id&gt;</code></pre>
+<h3>A Claude conversation that is running right now</h3>
+<p>If the Relay integration was installed before Claude started, type this inside Claude:</p>
+<pre><code>/relay adopt</code></pre>
+<p>For a process that predates the integration, use a separate terminal:</p>
+<pre><code>relay adopt --session &lt;claude-session-id&gt;</code></pre>
+<p>Relay requires positive evidence of the running conversation’s identity. Ambiguity leaves it untouched. Live adoption of an unmanaged Codex session is not offered; start through <code>relay codex</code>.</p>
+<div class="callout"><p><strong>Two different kinds of resume.</strong><code>relay resume</code> reopens a session Relay already manages. <code>relay claude --resume</code> brings an existing native Claude conversation under Relay. A Relay session ID and a native provider session ID are different identifiers.</p></div>
+<h2 id="provider-options">Pass options to your provider</h2>
+<p>Place Relay options before <code>--</code> and provider options after it:</p>
+<pre><code>relay claude --profile claude-work -- --model opus
+relay codex --profile codex-work -- --sandbox workspace-write</code></pre>
+<p>Provider options are remembered and reused for that provider. They are never translated across Claude and Codex. Options that would take over Relay’s session identity, working directory, output mode, or required hooks are refused.</p>
+<p>Use Relay’s own <code>--resume</code> option when adopting Claude; do not pass <code>--resume</code> through after the separator.</p>
+<h2 id="multiple">Work with multiple conversations</h2>
+<p>A project can have several Relay sessions, even on the same profile. Each live session has one owner. Closing its provider normally makes it dormant; switching one session does not move the others.</p>
+<p>Relay does not coordinate edits between agents in the same working tree. Use separate worktrees when your tasks need file isolation.</p>
+<p>Use <code>--session</code> when a command needs to identify one conversation. For scripts without a terminal picker, provide it explicitly.</p>

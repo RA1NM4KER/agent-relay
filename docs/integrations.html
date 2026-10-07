@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inside your agent · Agent Relay</title><meta name="description" content="Use Relay inside Claude Code, Codex, and optional Herdr sessions.">
+<meta name="theme-color" content="#111311"><link rel="canonical" href="https://ra1nm4ker.github.io/agent-relay/docs/integrations.html">
+<meta property="og:type" content="website"><meta property="og:title" content="Inside your agent · Agent Relay"><meta property="og:description" content="Use Relay inside Claude Code, Codex, and optional Herdr sessions."><meta property="og:url" content="https://ra1nm4ker.github.io/agent-relay/docs/integrations.html">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="../assets/site.css"><script src="../assets/theme.js"></script><script src="../assets/site.js" defer></script>
+</head><body><a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header"><div class="header-inner">
+<a class="brand" href="../index.html" aria-label="Agent Relay home"><span class="brand-mark" aria-hidden="true">↳</span>Agent Relay<span class="brand-label">CLI</span></a>
+<nav class="desktop-nav" aria-label="Main navigation"><a  href="../index.html">Overview</a><a aria-current="true" href="../docs/getting-started.html">Documentation</a><a href="https://github.com/RA1NM4KER/agent-relay">GitHub <span aria-hidden="true">↗</span></a></nav>
+<div class="header-actions"><button class="theme-button" type="button" aria-label="Switch colour theme" title="Switch colour theme" hidden>◐</button><a class="button button-small" href="../docs/getting-started.html">Get started <span aria-hidden="true">↗</span></a></div>
+</div></header><div class="docs-layout"><aside class="docs-sidebar" aria-label="Documentation navigation"><nav><span class="nav-label">Documentation</span><a  href="getting-started.html">Get started</a><a  href="workflows.html">Everyday workflows</a><a  href="commands.html">Command reference</a><a  href="profiles.html">Profiles & accounts</a><a  href="handoffs.html">Handoffs & capabilities</a><a aria-current="page" href="integrations.html">Inside your agent</a><a  href="troubleshooting.html">Troubleshooting</a><a  href="advanced.html">Advanced use</a><div class="sidebar-meta">Examples verified against<br><a href="https://github.com/RA1NM4KER/agent-relay/tree/v0.4.1">stable v0.4.1 ↗</a></div></nav></aside><main class="doc-main" id="main"><details class="mobile-doc-nav"><summary>Browse documentation</summary><nav><span class="nav-label">Documentation</span><a  href="getting-started.html">Get started</a><a  href="workflows.html">Everyday workflows</a><a  href="commands.html">Command reference</a><a  href="profiles.html">Profiles & accounts</a><a  href="handoffs.html">Handoffs & capabilities</a><a aria-current="page" href="integrations.html">Inside your agent</a><a  href="troubleshooting.html">Troubleshooting</a><a  href="advanced.html">Advanced use</a><div class="sidebar-meta">Examples verified against<br><a href="https://github.com/RA1NM4KER/agent-relay/tree/v0.4.1">stable v0.4.1 ↗</a></div></nav></details><div class="search-area"><label for="docs-search">Search the docs</label><div class="search-input-wrap"><span aria-hidden="true">⌕</span><input id="docs-search" type="search" placeholder="Commands, questions, workflows…" autocomplete="off" aria-controls="search-results"><kbd>/</kbd></div><p id="search-status" role="status"></p><div id="search-results" hidden></div><noscript><p>Browse the navigation or use your browser’s Find command.</p></noscript></div><div class="doc-eyebrow">The Relay handbook</div><h1>Inside your agent</h1><p class="doc-lead">Use Relay inside Claude Code, Codex, and optional Herdr sessions.</p><div class="doc-content"><p>The spelling depends on where you type. Shell commands, Claude commands, and Codex skill requests are separate interfaces.</p>
+<h2 id="where">Which command goes where?</h2>
+<div class="table-wrap"><table><thead><tr><th>Where you type</th><th>Example</th><th>How it runs</th></tr></thead><tbody><tr><td>Your terminal shell</td><td><code>relay status</code></td><td>The Relay CLI runs directly.</td></tr><tr><td>Inside Claude Code</td><td><code>/relay status</code></td><td>Relay’s installed hook answers locally, without a model turn.</td></tr><tr><td>Inside managed Codex</td><td><code>$relay status</code></td><td>The installed skill uses a Codex model/tool turn to call Relay.</td></tr></tbody></table></div>
+<p><code>/relay</code> and <code>/relay:doctor</code> are not Codex slash commands.</p>
+<h2 id="claude">Inside Claude Code</h2>
+<div class="code-block"><pre tabindex="0"><code>/relay status
+/relay switch claude-backup
+/relay adopt</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>Status reports the project, provider, owner, and handoff readiness. Switch asks the supervisor to move the current conversation; your supervised terminal follows it. Adopt brings this running, unmanaged Claude conversation under Relay if verification succeeds.</p>
+<p>The integration also adds a status-line badge such as <code>[Relay · claude-work]</code>. Existing status-line output is preserved.</p>
+<h3>Manage the Claude integration</h3>
+<p>Setup normally installs it for you. From a shell, inspect or preview it for one profile:</p>
+<div class="code-block"><pre tabindex="0"><code>relay integration claude status --profile claude-work
+relay integration claude install --profile claude-work --dry-run</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>Install after reviewing the preview:</p>
+<div class="code-block"><pre tabindex="0"><code>relay integration claude install --profile claude-work</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>Remove it when needed:</p>
+<div class="code-block"><pre tabindex="0"><code>relay integration claude uninstall --profile claude-work</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>The integration preserves other hooks and backs up settings. Uninstall restores Relay’s changes while preserving unrelated configuration. Removing it disables the normal structured usage path for automatic Claude handoff.</p>
+<h2 id="codex">Inside a managed Codex session</h2>
+<div class="code-block"><pre tabindex="0"><code>$relay status
+$relay doctor
+$relay why
+$relay history
+$relay switch claude-work</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>Relay installs a profile-local skill on managed attach. Requests are scoped to the supervisor’s project and session. A switch request goes to the supervising Relay process, which safely performs the handoff. If no verified supervisor can be reached, the skill gives a manual command for a separate terminal.</p>
+<p>Name the target profile for a Codex switch; there is no in-skill interactive picker. The skill uses a model/tool turn, unlike Claude’s local hook.</p>
+<h3>Manage the Codex skill</h3>
+<div class="code-block"><pre tabindex="0"><code>relay integration codex status --profile codex-work
+relay integration codex install --profile codex-work</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>Restart or resume through Relay for Codex to discover an updated skill. Unmodified Relay-managed skills can be upgraded; user-created or edited skills are preserved.</p>
+<div class="code-block"><pre tabindex="0"><code>relay integration codex uninstall --profile codex-work</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>The Codex skill supplies in-agent commands. Structured Codex usage checks operate independently of that skill.</p>
+<h2 id="herdr">Optional Herdr integration</h2>
+<p>Relay works without Herdr. If you already use it, setup can connect the optional adapter so Herdr can expose Relay’s status, doctor, watch, and handoff actions.</p>
+<div class="code-block"><pre tabindex="0"><code>relay integration herdr status
+relay integration herdr doctor</code></pre><button class="copy-button" type="button" aria-label="Copy command">Copy</button></div>
+<p>The adapter is a thin interface to Relay’s existing safety checks. It does not grant a shortcut around ownership verification. The documented Herdr pane integration recognises Claude panes; Codex panes are not integrated in the same way.</p>
+<p>For manual installation and compatibility details, see the <a href="https://github.com/RA1NM4KER/agent-relay/blob/v0.4.1/docs/herdr-integration.md">Herdr integration guide</a>.</p>
+</div><nav class="page-pagination" aria-label="Documentation pages"><a href="handoffs.html"><span>Previous</span>Handoffs & capabilities </a><a href="troubleshooting.html"><span>Next</span>Troubleshooting →</a></nav></main><aside class="page-toc"><span class="nav-label">On this page</span><nav aria-label="On this page"><a href="#where">Which command goes where?</a><a href="#claude">Inside Claude Code</a><a href="#codex">Inside a managed Codex session</a><a href="#herdr">Optional Herdr integration</a></nav><a class="source-link" href="https://github.com/RA1NM4KER/agent-relay/blob/v0.4.1/crates/relay-cli/src/cli.rs">CLI source ↗</a></aside></div><footer class="site-footer"><div><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">↳</span>Agent Relay</a><p>Your agents. Your accounts. Your machine.</p></div><div class="footer-links"><a href="../docs/getting-started.html">Documentation</a><a href="https://github.com/RA1NM4KER/agent-relay">Source code ↗</a><a href="https://github.com/RA1NM4KER/agent-relay/releases">Releases ↗</a><a href="https://github.com/RA1NM4KER/agent-relay/blob/main/LICENSE">Apache-2.0 ↗</a></div></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></body></html>

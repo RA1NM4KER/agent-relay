@@ -1,0 +1,39 @@
+<p>The spelling depends on where you type. Shell commands, Claude commands, and Codex skill requests are separate interfaces.</p>
+<h2 id="where">Which command goes where?</h2>
+<div class="table-wrap"><table><thead><tr><th>Where you type</th><th>Example</th><th>How it runs</th></tr></thead><tbody><tr><td>Your terminal shell</td><td><code>relay status</code></td><td>The Relay CLI runs directly.</td></tr><tr><td>Inside Claude Code</td><td><code>/relay status</code></td><td>Relay’s installed hook answers locally, without a model turn.</td></tr><tr><td>Inside managed Codex</td><td><code>$relay status</code></td><td>The installed skill uses a Codex model/tool turn to call Relay.</td></tr></tbody></table></div>
+<p><code>/relay</code> and <code>/relay:doctor</code> are not Codex slash commands.</p>
+<h2 id="claude">Inside Claude Code</h2>
+<pre><code>/relay status
+/relay switch claude-backup
+/relay adopt</code></pre>
+<p>Status reports the project, provider, owner, and handoff readiness. Switch asks the supervisor to move the current conversation; your supervised terminal follows it. Adopt brings this running, unmanaged Claude conversation under Relay if verification succeeds.</p>
+<p>The integration also adds a status-line badge such as <code>[Relay · claude-work]</code>. Existing status-line output is preserved.</p>
+<h3>Manage the Claude integration</h3>
+<p>Setup normally installs it for you. From a shell, inspect or preview it for one profile:</p>
+<pre><code>relay integration claude status --profile claude-work
+relay integration claude install --profile claude-work --dry-run</code></pre>
+<p>Install after reviewing the preview:</p>
+<pre><code>relay integration claude install --profile claude-work</code></pre>
+<p>Remove it when needed:</p>
+<pre><code>relay integration claude uninstall --profile claude-work</code></pre>
+<p>The integration preserves other hooks and backs up settings. Uninstall restores Relay’s changes while preserving unrelated configuration. Removing it disables the normal structured usage path for automatic Claude handoff.</p>
+<h2 id="codex">Inside a managed Codex session</h2>
+<pre><code>$relay status
+$relay doctor
+$relay why
+$relay history
+$relay switch claude-work</code></pre>
+<p>Relay installs a profile-local skill on managed attach. Requests are scoped to the supervisor’s project and session. A switch request goes to the supervising Relay process, which safely performs the handoff. If no verified supervisor can be reached, the skill gives a manual command for a separate terminal.</p>
+<p>Name the target profile for a Codex switch; there is no in-skill interactive picker. The skill uses a model/tool turn, unlike Claude’s local hook.</p>
+<h3>Manage the Codex skill</h3>
+<pre><code>relay integration codex status --profile codex-work
+relay integration codex install --profile codex-work</code></pre>
+<p>Restart or resume through Relay for Codex to discover an updated skill. Unmodified Relay-managed skills can be upgraded; user-created or edited skills are preserved.</p>
+<pre><code>relay integration codex uninstall --profile codex-work</code></pre>
+<p>The Codex skill supplies in-agent commands. Structured Codex usage checks operate independently of that skill.</p>
+<h2 id="herdr">Optional Herdr integration</h2>
+<p>Relay works without Herdr. If you already use it, setup can connect the optional adapter so Herdr can expose Relay’s status, doctor, watch, and handoff actions.</p>
+<pre><code>relay integration herdr status
+relay integration herdr doctor</code></pre>
+<p>The adapter is a thin interface to Relay’s existing safety checks. It does not grant a shortcut around ownership verification. The documented Herdr pane integration recognises Claude panes; Codex panes are not integrated in the same way.</p>
+<p>For manual installation and compatibility details, see the <a href="https://github.com/RA1NM4KER/agent-relay/blob/v0.4.1/docs/herdr-integration.md">Herdr integration guide</a>.</p>

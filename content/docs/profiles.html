@@ -1,0 +1,32 @@
+<p>A profile is a named provider account with its own configuration. A Relay session is a conversation. One profile can own several different sessions.</p>
+<h2 id="add">Add an account</h2>
+<p>The simplest route is to rerun the setup wizard:</p>
+<pre><code>relay setup</code></pre>
+<p>For an explicit new account, name its provider:</p>
+<pre><code>relay login claude-backup --provider claude
+relay login codex-work --provider codex</code></pre>
+<p>Each opens the provider’s official authentication flow in an isolated profile. Then rerun <code>relay setup</code> to include the profile in your preferred order.</p>
+<h2 id="order">Choose your fallback order</h2>
+<p>Setup records one global priority order across providers. For example:</p>
+<div class="table-wrap"><table><thead><tr><th>Priority</th><th>Profile name</th><th>Provider</th></tr></thead><tbody><tr><td>1 · primary</td><td><code>claude-work</code></td><td>Claude</td></tr><tr><td>2 · fallback</td><td><code>claude-backup</code></td><td>Claude</td></tr><tr><td>3 · fallback</td><td><code>codex-work</code></td><td>Codex</td></tr></tbody></table></div>
+<p>A new <code>relay claude</code> starts with the highest-priority Claude profile; <code>relay codex</code> starts with the highest-priority Codex profile. When the current owner is exhausted, Relay checks the shared order for an eligible fallback.</p>
+<p>A recovered primary does not automatically take the conversation back. The current owner stays in place until another handoff or an explicit switch.</p>
+<h2 id="inspect">Inspect your profiles</h2>
+<pre><code>relay profiles
+relay profile doctor claude-work</code></pre>
+<p>The friendly list shows registered profiles, providers, roles, and login state. Profile doctor offers more detailed checks for one account. For project-specific handoff readiness, run <code>relay doctor</code> in the project.</p>
+<h2 id="login">Sign in again</h2>
+<pre><code>relay login claude-work</code></pre>
+<p>An existing profile already knows its provider. Use the same name to reauthenticate, then rerun <code>relay doctor</code>.</p>
+<pre><code>relay logout claude-work</code></pre>
+<p>Logout uses the provider’s own logout command for that profile. It does not remove the profile from Relay’s registry.</p>
+<h2 id="isolation">How isolation works</h2>
+<p>Claude profiles use separate <code>CLAUDE_CONFIG_DIR</code> directories; Codex profiles use separate <code>CODEX_HOME</code> directories. Provider authentication remains provider-owned. Relay stores profile references and non-secret identity information, never an authentication token or password.</p>
+<p>Different names do not make the same account two distinct fallbacks. Relay checks account identity, and duplicate provider identities are rejected.</p>
+<h2 id="existing-profile">Reuse an existing Claude login</h2>
+<p>Setup can reuse an isolated Claude configuration. Advanced users can preview profile registration by reference:</p>
+<pre><code>relay profile adopt claude-work --provider claude --config-dir /absolute/path/to/claude-config --dry-run</code></pre>
+<p>For Claude’s native default account, use the dedicated mode:</p>
+<pre><code>relay profile adopt claude-default --provider claude --native-default --dry-run</code></pre>
+<p>Review the result, then rerun without <code>--dry-run</code> to register it. Native-default authentication differs from explicitly pointing <code>CLAUDE_CONFIG_DIR</code> at the same path; use the option that matches how Claude actually runs.</p>
+<p>Profile registration alone does not adopt a running conversation. See <a href="workflows.html#existing">bringing an existing conversation under Relay</a>.</p>

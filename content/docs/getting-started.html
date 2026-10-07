@@ -1,0 +1,34 @@
+<div class="callout"><p><strong>Start with the stable release.</strong>These examples are verified against v0.4.1. Check <code>relay --version</code> for your installed version. Development builds may have additional commands.</p></div>
+<h2 id="requirements">What you need</h2>
+<ul><li><strong>macOS</strong>, the platform validated in live use. Linux builds and passes CI tests, but is not yet live-supported. Windows is not currently supported.</li><li><strong>Claude Code or the Codex CLI</strong>, installed separately. Either provider is enough; you do not need both.</li><li><strong>Git</strong> and a project to work in. Relay captures repository and git facts for handoffs.</li><li><strong>One or more provider accounts.</strong> Add another eligible profile to make fallback possible.</li></ul>
+<p>Herdr is optional. Relay works in a regular terminal.</p>
+<h2 id="install">1. Install Relay</h2>
+<pre><code>brew install RA1NM4KER/tap/agent-relay
+relay --version</code></pre>
+<p>Homebrew installs the latest tagged stable release. Prefer a source build? See <a href="advanced.html#source">Building from source</a>.</p>
+<h2 id="setup">2. Set up your profiles</h2>
+<pre><code>relay setup</code></pre>
+<p>The wizard detects your installed providers, walks you through each provider’s official login, and asks for a primary profile and fallback order. Use memorable names such as <code>claude-work</code>, <code>claude-backup</code>, and <code>codex-work</code>.</p>
+<p>Accept the recommended Claude usage integration if you want automatic handoff from Claude. Codex usage checks work through its structured provider interface without Claude hooks.</p>
+<p>Already configured? You can rerun setup to add accounts or change the order. It reuses existing profiles.</p>
+<h2 id="start">3. Open your project and start</h2>
+<pre><code>cd ~/repos/my-project
+relay claude</code></pre>
+<p>Or start with Codex:</p>
+<pre><code>relay codex</code></pre>
+<p>Relay opens your provider’s interactive terminal. Type your first message there. Each command starts a <strong>new managed conversation</strong> using the highest-priority configured profile of that provider.</p>
+<p>Complete the provider’s project trust prompt when it appears. To choose an account explicitly, use <code>relay claude --profile claude-work</code> or <code>relay codex --profile codex-work</code>.</p>
+<h2 id="readiness">4. Check that fallback is ready</h2>
+<p>In another terminal, open the same project and run:</p>
+<pre><code>relay doctor</code></pre>
+<p>Doctor checks profile authentication, provider compatibility, project trust, integrations, and the automatic-handoff preference. If it reports a blocker, follow the command it prints for that profile, then rerun the check.</p>
+<div class="callout"><p><strong>Trust is per profile and project.</strong>A fallback may be logged in but still need you to review the provider’s trust prompt for this project. Relay never accepts trust on your behalf.</p></div>
+<h2 id="next-time">Next time you sit down</h2>
+<p>Start a new conversation with <code>relay claude</code> or <code>relay codex</code>. To reopen a closed conversation that Relay already manages:</p>
+<pre><code>relay resume</code></pre>
+<p>With several closed sessions, Relay offers a picker. Use <code>relay status</code> to see the project’s sessions and current profiles.</p>
+<div class="table-wrap"><table><thead><tr><th>I want to…</th><th>Use</th></tr></thead><tbody><tr><td>Start fresh with Claude</td><td><code>relay claude</code></td></tr><tr><td>Start fresh with Codex</td><td><code>relay codex</code></td></tr><tr><td>Reopen a closed managed conversation</td><td><code>relay resume</code></td></tr><tr><td>Move the current conversation</td><td><code>relay switch</code></td></tr><tr><td>See what is happening</td><td><code>relay status</code></td></tr><tr><td>Check unattended readiness</td><td><code>relay doctor</code></td></tr></tbody></table></div>
+<h2 id="update">Keep Relay up to date</h2>
+<pre><code>brew update
+brew upgrade agent-relay</code></pre>
+<p>Relay may display a cached update notice, but it never updates itself. Read the <a href="https://github.com/RA1NM4KER/agent-relay/releases">release notes</a> when upgrading. The installed CLI’s <code>--help</code> is the reference for the flags your version supports.</p>

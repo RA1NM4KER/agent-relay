@@ -1,0 +1,41 @@
+<p>Use these tools when you need explicit inspection or scripting. For day-to-day sessions, <code>relay claude</code>, <code>relay codex</code>, <code>relay resume</code>, and <code>relay switch</code> are the simpler entry points.</p>
+<h2 id="inspect">Inspect state without moving work</h2>
+<pre><code>relay lock status --project-dir /path/to/project
+relay watch status --project /path/to/project
+relay handoff status &lt;transaction-id&gt; --project-dir /path/to/project</code></pre>
+<p>Lock status reports the observed lease and orchestration lock. Watch status reads the automation ledger. Handoff status reads a specific transaction journal. Observations are snapshots; they do not authorise bypassing a live owner.</p>
+<p>Add <code>--json</code> when consuming the CLI from a script. Run <code>--help</code> at each subcommand level for the installed schema of arguments.</p>
+<h2 id="launch">Launch a background Claude session</h2>
+<pre><code>relay launch --profile claude-work --project-dir /path/to/project "Review the failing tests"</code></pre>
+<p>This is the lower-level background Claude launch path. It prints session information rather than attaching your terminal. Use a supervised interactive session for the usual automatic handoff experience; stale headless Claude usage snapshots cannot establish exhaustion.</p>
+<h2 id="watch">Evaluate automatic handoff once</h2>
+<pre><code>relay watch run --profile claude-work --fallback claude-backup --project /path/to/project --session &lt;session-id&gt; --dry-run</code></pre>
+<p>This evaluates the configured evidence once. The dry run reports the decision without performing a handoff or persisting ledger state. Without <code>--dry-run</code>, it can transfer an exhausted session through the normal transaction.</p>
+<p>It is not a background daemon. The optional <code>--probe</code> diagnostic can spend a real API request; it is not required for normal structured detection.</p>
+<h2 id="handoff">Run an explicit Claude handoff</h2>
+<pre><code>relay handoff run --from claude-work --to claude-backup --project /path/to/project --session &lt;claude-session-id&gt;</code></pre>
+<p>The lower-level command performs the journaled source-stop, transfer, target-launch, and verification flow. For everyday switching, including cross-provider moves, use <code>relay switch</code>.</p>
+<p>Read a transaction afterward with <code>relay handoff status</code>. For an interruption, follow the <a href="troubleshooting.html#recovery">recovery steps</a>.</p>
+<h2 id="conflicts">Inspect a Claude transcript conflict</h2>
+<pre><code>relay session conflict inspect --source-profile claude-work --target-profile claude-backup --project-dir /path/to/project --session-id &lt;claude-session-id&gt;</code></pre>
+<p>The inspection classifies the target copy: missing, identical, stale, divergent, or active. To preview a resolution:</p>
+<pre><code>relay session conflict resolve --source-profile claude-work --target-profile claude-backup --project-dir /path/to/project --session-id &lt;claude-session-id&gt;</code></pre>
+<p>Resolve previews unless <code>--yes</code> is supplied. Replacing a proven stale ancestor preserves a backup. Discarding a genuinely divergent copy requires an additional explicit flag because it can contain unique turns. Review <code>relay session conflict resolve --help</code> and the preview before acting.</p>
+<p><code>relay session stage-transfer</code> is also available for deliberately staging a stopped Claude conversation. It does not replace the complete handoff transaction or copy credentials. Consult its help before use.</p>
+<h2 id="source">Build from source</h2>
+<p>Install Rust through rustup; the repository pins its toolchain. To build the version this handbook documents:</p>
+<pre><code>git clone https://github.com/RA1NM4KER/agent-relay
+cd agent-relay
+git checkout v0.4.1
+cargo build --release</code></pre>
+<p>The binaries are <code>target/release/relay</code> and <code>target/release/relay-herdr-plugin</code>. Put the Relay binary on your PATH. The optional Herdr helper must sit beside it if you want setup to offer that integration.</p>
+<h2 id="development">Stable and development builds</h2>
+<p>Homebrew’s <code>agent-relay</code> formula follows tagged stable releases. The repository’s <code>main</code> branch can contain newer behaviour that has not shipped in that release.</p>
+<p>The development channel uses a separate formula and executable:</p>
+<pre><code>brew install RA1NM4KER/tap/agent-relay-dev
+relay-dev --version</code></pre>
+<p>Use <code>relay-dev --help</code> to discover the current development command set. It includes newer work such as integration refresh, execution modes, durable working state, and an explicit GitHub task queue. These are not part of the stable v0.4.1 reference.</p>
+<div class="callout"><p><strong>Setup binds integrations to the binary you run.</strong><code>relay-dev setup</code> points managed integrations at the development binary; <code>relay setup</code> points them back at stable. Existing provider processes need a new attach to pick up changed integration assets. Review the maintainer guide before switching a daily workflow.</p></div>
+<p><a href="https://github.com/RA1NM4KER/agent-relay/blob/main/docs/maintainer-dogfood.md">Development build and channel guide ↗</a></p>
+<h2 id="internals">Read the implementation guides</h2>
+<ul><li><a href="https://github.com/RA1NM4KER/agent-relay/blob/v0.4.1/docs/architecture.md">Architecture and ownership</a> — locks, journal phases, and provider boundaries.</li><li><a href="https://github.com/RA1NM4KER/agent-relay/blob/v0.4.1/docs/automatic-handoff.md">Automatic handoff</a> — structured signals, eligibility, and reset policy.</li><li><a href="https://github.com/RA1NM4KER/agent-relay/blob/v0.4.1/docs/security.md">Security model</a> — process identity, credential isolation, and recovery.</li><li><a href="https://github.com/RA1NM4KER/agent-relay/blob/main/CHANGELOG.md">Changelog</a> — released changes and work in progress.</li></ul>

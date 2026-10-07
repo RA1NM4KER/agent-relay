@@ -1,0 +1,47 @@
+<p>Start in the affected project directory. These commands help separate configuration problems from the decision for a particular conversation.</p>
+<pre><code>relay status
+relay doctor
+relay why
+relay history</code></pre>
+<h2 id="not-switching">“Why didn’t Relay switch?”</h2>
+<p>Run <code>relay why</code>. Relay needs verified exhaustion of the current owner and an eligible target. A transient rate limit, stale snapshot, or unknown usage reading does not qualify.</p>
+<ol><li>Check that the conversation is managed with <code>relay status</code>.</li><li>Run <code>relay doctor</code> and resolve each reported blocker.</li><li>For Claude, inspect the integration with <code>relay integration claude status --profile &lt;name&gt;</code>.</li><li>Use <code>relay profiles</code> to confirm the expected fallback is registered, then review your order with <code>relay setup</code>.</li></ol>
+<p>For several sessions, scope the explanation explicitly:</p>
+<pre><code>relay why --session &lt;relay-session-id&gt;</code></pre>
+<h2 id="all-exhausted">“All my profiles are exhausted”</h2>
+<p>A different profile name does not create more quota. If every eligible account is exhausted, Relay has nowhere to transfer the work.</p>
+<p>Wait for the provider’s reset, or add another legitimately available account using <code>relay setup</code>. Recheck status and readiness before resuming or switching. Clearing local automation state does not reset provider limits.</p>
+<h2 id="trust">“Doctor says project trust is missing”</h2>
+<p>Each configured profile needs verified trust for the exact project directory. Being logged in is not sufficient.</p>
+<ol><li>Run the command printed next to the blocker to open that exact profile in the project.</li><li>Review and answer the provider’s own trust prompt.</li><li>Exit when finished and rerun <code>relay doctor</code>.</li></ol>
+<p>Relay never writes trust acceptance. Missing or malformed trust records cannot pass the check.</p>
+<h2 id="auth">“My profile is logged out”</h2>
+<pre><code>relay login &lt;profile-name&gt;
+relay doctor</code></pre>
+<p>Sign in through the provider flow. If Relay reports an unexpected account identity, verify which account you selected rather than renaming profiles or copying credentials between directories.</p>
+<h2 id="resume">“Resume opens the wrong thing—or nothing”</h2>
+<p>Use <code>relay status</code> to inspect sessions, then select the exact Relay session:</p>
+<pre><code>relay resume --session &lt;relay-session-id&gt;</code></pre>
+<p>If the old conversation was never managed, use <code>relay claude --resume</code> instead. If the session is still active in another terminal, return to that terminal; Relay will not start a second owner. An empty Claude session that never received a first message may have no transcript to resume.</p>
+<h2 id="commands">“The command or flag isn’t recognised”</h2>
+<pre><code>relay --version
+relay --help
+relay status --help</code></pre>
+<p>Check which release you have installed. Stable v0.4.1 does not include <code>status --live</code>, <code>refresh</code>, <code>mode</code>, <code>state</code>, or <code>task</code>. Those appear in later development work.</p>
+<p>Inside Codex, use <code>$relay</code>; inside Claude, use <code>/relay</code>. In a shell, use plain <code>relay</code>. If a provider option is rejected, verify whether it belongs after <code>--</code> and whether it would override something Relay must manage.</p>
+<h2 id="missing-integration">“The in-agent command is missing”</h2>
+<p>Check the integration for the exact profile:</p>
+<pre><code>relay integration claude status --profile &lt;claude-profile&gt;
+relay integration codex status --profile &lt;codex-profile&gt;</code></pre>
+<p>Run the matching install command if needed, then reopen the provider through Relay. Already-running processes may not discover newly installed commands or skills. Relay preserves user-edited integration files; inspect the reported conflict rather than assuming an install overwrote them.</p>
+<h2 id="recovery">“A handoff was interrupted”</h2>
+<p>Relay journals each transfer and can recover incomplete transactions before subsequent work. If it cannot safely reconcile the state, follow the specific recovery command it reports.</p>
+<pre><code>relay handoff status &lt;transaction-id&gt; --project-dir /path/to/project
+relay recover &lt;transaction-id&gt; --project-dir /path/to/project</code></pre>
+<p>A transaction ID identifies a handoff attempt, not a conversation. Recovery checks locks, processes, and artifacts before choosing a next step. Do not delete lock or transcript files to get past a refusal.</p>
+<div class="callout"><p><strong>Use acknowledgement only after verifying the condition.</strong><code>--acknowledge</code> records that you have confirmed no target process is still running for a recovery-required transaction. It is not a general “force” flag. Use the reported recovery guidance and inspect the journal first.</p></div>
+<h2 id="conflict">“The target transcript conflicts”</h2>
+<p>Relay refuses to overwrite a divergent or active conversation. Start with the read-only conflict inspection described in <a href="advanced.html#conflicts">Advanced use</a>. A proven stale copy and a copy containing unique conversation turns need different treatment.</p>
+<h2 id="report">Report a reproducible issue</h2>
+<p>Include your Relay and provider versions, operating system, the command you ran, the error category, and whether the session was new, resumed, or adopted. Review any diagnostic output before sharing it; omit credentials and private conversation content.</p>
+<p><a href="https://github.com/RA1NM4KER/agent-relay/issues">Open an issue on GitHub ↗</a></p>

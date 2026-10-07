@@ -1,0 +1,13 @@
+{
+  "name": "agent-relay-site",
+  "private": true,
+  "scripts": {
+    "build": "python3 scripts/build.py",
+    "check": "python3 scripts/build.py --check && python3 scripts/check.py",
+    "test:browser": "node scripts/browser-check.mjs"
+  },
+  "devDependencies": {
+    "axe-core": "4.11.0",
+    "playwright": "1.63.0"
+  }
+}
