@@ -187,8 +187,12 @@ const DAEMON_START_TIMEOUT: Duration = READY_TIMEOUT;
 /// permission purposes (approval policy, sandbox, `--yolo`, everything an interactive user would
 /// otherwise get), never the separate, deliberately more restrictive "remote task" mode a
 /// `--remote <ADDR>` flag would put it in. See this module's own top-level doc comment for the
-/// full agent-relay#15/#16/#18 background and `crate::inspection` for the version this was
-/// live-verified against (`codex-cli 0.155.0`).
+/// full agent-relay#15/#16/#18 background and `crate::inspection::VERIFIED_VERSIONS` for exactly
+/// which versions this daemon-bootstrap mechanism was live-verified against — notably **not**
+/// `0.155.0` itself: that version's `daemon start` requires a full standalone-install layout
+/// under `CODEX_HOME` and fails outright against an ordinary isolated Relay profile directory.
+/// `0.156.0` is the earliest version with the dedicated `packages/app-server-daemon` bootstrap
+/// this function depends on.
 ///
 /// Deliberately NOT [`AppServerHandle::spawn`]: that function owns a `Child` this process must
 /// terminate. `codex app-server daemon start` is a short-lived command — it exits immediately
@@ -246,8 +250,9 @@ pub fn ensure_managed_daemon(
 }
 
 /// Parses `codex app-server daemon start`'s documented JSON stdout
-/// (`{"socketPath": "...", "pid": <u32>, ...}`, live-verified against `codex-cli 0.155.0`) —
-/// never a different, undocumented shape guessed at from field position or ordering.
+/// (`{"socketPath": "...", "pid": <u32>, ...}`, live-verified against `codex-cli 0.156.0` — see
+/// `ensure_managed_daemon`'s own doc comment for why not `0.155.0`) — never a different,
+/// undocumented shape guessed at from field position or ordering.
 fn parse_managed_daemon(stdout: &[u8]) -> Option<ManagedDaemon> {
     let text = std::str::from_utf8(stdout).ok()?;
     let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;

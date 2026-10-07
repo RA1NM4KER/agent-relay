@@ -457,8 +457,8 @@ fn sleep_checking_stop(duration: Duration, stop_flag: &AtomicBool) {
 }
 
 /// GitHub #16's capability gate: only ever attempt this on a Codex CLI version this crate has
-/// live-verified `--listen`/`--remote`/the two structured signals against (agent-relay#15, pinned
-/// to `codex-cli 0.155.0` — see `relay_provider_codex::inspection::VERIFIED_VERSIONS`). An
+/// live-verified the daemon-bootstrap mechanism and the two structured signals against (see
+/// `relay_provider_codex::inspection::VERIFIED_VERSIONS` for exactly which versions and why). An
 /// unverified or unknown version — including a version whose own `--version` cannot even be
 /// read — silently declines rather than guessing at flags/behavior a future or older Codex
 /// release may not actually support; #13 remains fully active regardless.

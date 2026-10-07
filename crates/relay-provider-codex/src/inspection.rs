@@ -30,7 +30,24 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 /// Codex versions this crate was actually exercised against. See
 /// `relay-provider-claude::capabilities::VERIFIED_VERSIONS` for the same philosophy: newer
 /// patches within the same line are treated as unverified rather than rejected outright.
-pub const VERIFIED_VERSIONS: &[&str] = &["0.155.0"];
+///
+/// `0.156.0` added agent-relay#18 (reusing `codex app-server daemon start`'s dedicated
+/// `CODEX_HOME/packages/app-server-daemon` bootstrap instead of the private `--listen`
+/// app-server this crate used before — see `crate::runtime`'s own module doc): live-verified
+/// against a real, isolated Relay profile `CODEX_HOME` on this exact version — daemon bootstrap,
+/// `Observer::attach`'s full handshake (`initialize`/`thread/resume`) against a real dormant
+/// thread, and `account/rateLimits/read`'s `ordinaryUsageAllowed` field, all through Relay's own
+/// unmodified production code. A source diff of `codex-app-server-protocol` between the
+/// `rust-v0.155.0` and `rust-v0.156.0` tags confirmed every wire field this crate depends on
+/// (`codexErrorInfo`'s `usageLimitExceeded` string, `RateLimitSnapshot`/`RateLimitWindow`,
+/// `ordinary_usage_allowed`, `thread/resume`'s core params/response shape) is byte-for-byte
+/// unchanged — every change in that diff was a new, optional, additive field or the removal of
+/// an already-deprecated method this crate never calls (`thread/rollback`). `0.155.0` itself
+/// cannot run `daemon start` against a typical Relay profile `CODEX_HOME` at all (it requires a
+/// full standalone-install layout under `CODEX_HOME`, which a bare profile config directory is
+/// not) — `0.156.0` is kept here specifically because it is the earliest version with the
+/// dedicated daemon package bootstrap this crate's production path now depends on.
+pub const VERIFIED_VERSIONS: &[&str] = &["0.155.0", "0.156.0"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VersionStatus {
@@ -312,9 +329,18 @@ mod tests {
     }
 
     #[test]
-    fn known_version_is_verified_and_others_are_unverified_not_rejected() {
+    fn known_versions_are_verified_and_others_are_unverified_not_rejected() {
+        // agent-relay#18: 0.156.0 is the earliest version with the dedicated
+        // `packages/app-server-daemon` bootstrap this crate's event-driven path depends on —
+        // live-verified (daemon bootstrap, `Observer::attach`'s full handshake against a real
+        // dormant thread, `account/rateLimits/read`'s `ordinaryUsageAllowed`) and confirmed via a
+        // source diff that every wire field this crate decodes is unchanged from 0.155.0. Kept
+        // alongside 0.155.0 rather than replacing it: an unverified-but-functioning fallback to
+        // polling-only is always safe, so there is no reason to narrow the verified set.
         assert_eq!(assess_version("0.155.0"), VersionStatus::Verified);
-        assert_eq!(assess_version("0.156.0"), VersionStatus::Unverified);
+        assert_eq!(assess_version("0.156.0"), VersionStatus::Verified);
+        assert_eq!(assess_version("0.157.0"), VersionStatus::Unverified);
+        assert_eq!(assess_version("0.160.1"), VersionStatus::Unverified);
     }
 
     #[test]
