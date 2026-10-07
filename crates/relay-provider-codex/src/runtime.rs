@@ -197,12 +197,16 @@ const DAEMON_START_TIMEOUT: Duration = READY_TIMEOUT;
 /// Deliberately NOT [`AppServerHandle::spawn`]: that function owns a `Child` this process must
 /// terminate. `codex app-server daemon start` is a short-lived command — it exits immediately
 /// once the daemon (persistent, shared, Codex-owned, potentially already running for a
-/// completely unrelated reason) is confirmed up, reporting the *daemon's* own pid in its JSON
-/// response, not its own. There is no child of this invocation to hold or reap; the returned
+/// completely unrelated reason) is confirmed up, reporting the *daemon's* own identity, not its
+/// own. There is no child of this invocation to hold or reap; the returned
 /// [`ManagedDaemon::identity`] is only ever used to notice the daemon going away later, never to
 /// terminate it — Relay must never stop a daemon it does not own (agent-relay#18: the whole point
 /// is this must keep running for other, unrelated Codex sessions/tools exactly as if Relay had
-/// never been involved).
+/// never been involved). Live-verified (agent-relay#18 preflight): the daemon's pid is only ever
+/// inline in this command's own JSON when it *started* the daemon this call
+/// (`"status":"started"`) — the equally common "it was already running" outcome
+/// (`"status":"alreadyRunning"`) omits it, so this function falls back to the pidfile Codex
+/// itself durably records either way (see [`read_daemon_pid`]).
 pub fn ensure_managed_daemon(
     executable: &Path,
     codex_home: &Path,
@@ -246,23 +250,47 @@ pub fn ensure_managed_daemon(
             .read_to_end(&mut stdout_bytes)
             .map_err(|_| RuntimeError::Protocol)?;
     }
-    parse_managed_daemon(&stdout_bytes).ok_or(RuntimeError::Protocol)
-}
-
-/// Parses `codex app-server daemon start`'s documented JSON stdout
-/// (`{"socketPath": "...", "pid": <u32>, ...}`, live-verified against `codex-cli 0.156.0` — see
-/// `ensure_managed_daemon`'s own doc comment for why not `0.155.0`) — never a different,
-/// undocumented shape guessed at from field position or ordering.
-fn parse_managed_daemon(stdout: &[u8]) -> Option<ManagedDaemon> {
-    let text = std::str::from_utf8(stdout).ok()?;
-    let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
-    let socket_path = value.get("socketPath")?.as_str()?;
-    let pid = value.get("pid")?.as_u64()?;
-    let pid = u32::try_from(pid).ok()?;
-    Some(ManagedDaemon {
+    let (socket_path, pid) = parse_managed_daemon(&stdout_bytes).ok_or(RuntimeError::Protocol)?;
+    let pid = match pid {
+        Some(pid) => pid,
+        // agent-relay#18 preflight finding: `daemon start`'s own JSON only carries `pid` when
+        // it actually started the daemon this call (`"status":"started"`). The equally
+        // documented, equally common "it was already running" outcome
+        // (`"status":"alreadyRunning"`) omits `pid` entirely — live-verified against a real
+        // `codex-cli 0.156.0` daemon a second resume reused. `daemon.pid` under the dedicated
+        // package directory is the one place that pid is durably recorded either way.
+        None => read_daemon_pid(codex_home).ok_or(RuntimeError::Protocol)?,
+    };
+    Ok(ManagedDaemon {
         endpoint: PathBuf::from(socket_path),
         identity: ProcessIdentity::query(pid),
     })
+}
+
+/// Reads the daemon's own pid from `CODEX_HOME/app-server-daemon/daemon.pid`
+/// (`{"pid": <u32>, "processStartTime": ..., ...}`) — the fallback `ensure_managed_daemon` needs
+/// when `daemon start` reports `"status":"alreadyRunning"` and so never echoes `pid` itself.
+fn read_daemon_pid(codex_home: &Path) -> Option<u32> {
+    let bytes = fs::read(codex_home.join("app-server-daemon").join("daemon.pid")).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let pid = value.get("pid")?.as_u64()?;
+    u32::try_from(pid).ok()
+}
+
+/// Parses `codex app-server daemon start`'s documented JSON stdout — the socket path (always
+/// present) and the pid (present only on `"status":"started"`; absent on
+/// `"status":"alreadyRunning"`, see [`ensure_managed_daemon`]'s own handling of that case) —
+/// live-verified against `codex-cli 0.156.0` (see this function's doc comment for why not
+/// `0.155.0`). Never a different, undocumented shape guessed at from field position or ordering.
+fn parse_managed_daemon(stdout: &[u8]) -> Option<(String, Option<u32>)> {
+    let text = std::str::from_utf8(stdout).ok()?;
+    let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    let socket_path = value.get("socketPath")?.as_str()?.to_owned();
+    let pid = value
+        .get("pid")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|pid| u32::try_from(pid).ok());
+    Some((socket_path, pid))
 }
 
 /// A short, private, per-user, per-attempt unix socket path — deliberately never nested under a
@@ -786,23 +814,121 @@ exit 1
         assert!(parse_managed_daemon(b"not json").is_none());
         assert!(
             parse_managed_daemon(br#"{"status":"started"}"#).is_none(),
-            "missing socketPath/pid"
-        );
-        assert!(
-            parse_managed_daemon(br#"{"socketPath":"/tmp/x.sock","pid":"not-a-number"}"#).is_none()
+            "missing socketPath entirely is never acceptable, pid or not"
         );
     }
 
     #[test]
-    fn parse_managed_daemon_accepts_the_live_verified_shape() {
-        let daemon = parse_managed_daemon(
-            br#"{"status":"started","backend":"pid","pid":46643,"managedCodexPath":"/x","managedCodexVersion":"0.155.0","socketPath":"/Users/x/.codex/app-server-control/app-server-control.sock","cliVersion":"0.155.0","appServerVersion":"0.155.0"}"#,
+    fn parse_managed_daemon_accepts_the_live_verified_started_shape() {
+        let (socket_path, pid) = parse_managed_daemon(
+            br#"{"status":"started","backend":"pid","pid":46643,"managedCodexPath":"/x","managedCodexVersion":"0.156.0","socketPath":"/Users/x/.codex/app-server-control/app-server-control.sock","cliVersion":"0.156.0","appServerVersion":"0.156.0"}"#,
         )
         .expect("parse");
-        assert_eq!(daemon.identity.pid, 46643);
+        assert_eq!(pid, Some(46643));
         assert_eq!(
-            daemon.endpoint,
-            PathBuf::from("/Users/x/.codex/app-server-control/app-server-control.sock")
+            socket_path,
+            "/Users/x/.codex/app-server-control/app-server-control.sock"
         );
+    }
+
+    #[test]
+    fn parse_managed_daemon_accepts_the_live_verified_already_running_shape_with_no_pid() {
+        // agent-relay#18 preflight finding: a real codex-cli 0.156.0 daemon a second resume
+        // reused answers exactly this shape -- `pid` is entirely absent, never null or a
+        // placeholder, and a non-number `pid` (if some future version ever sent one) must be
+        // treated the same as absent, never a parse failure for the whole response.
+        let (socket_path, pid) = parse_managed_daemon(
+            br#"{"status":"alreadyRunning","backend":"pid","managedCodexPath":"/x","managedCodexVersion":"0.156.0","socketPath":"/Users/x/.codex/app-server-control/app-server-control.sock","cliVersion":"0.156.0","appServerVersion":"0.156.0"}"#,
+        )
+        .expect("parse");
+        assert_eq!(pid, None);
+        assert_eq!(
+            socket_path,
+            "/Users/x/.codex/app-server-control/app-server-control.sock"
+        );
+    }
+
+    #[test]
+    fn read_daemon_pid_reads_the_documented_pidfile_shape() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let daemon_dir = scratch.path().join("app-server-daemon");
+        fs::create_dir_all(&daemon_dir).expect("daemon dir");
+        fs::write(
+            daemon_dir.join("daemon.pid"),
+            br#"{"pid":44173,"processStartTime":"Wed Oct  7 05:10:37 2026"}"#,
+        )
+        .expect("write pidfile");
+        assert_eq!(read_daemon_pid(scratch.path()), Some(44173));
+    }
+
+    #[test]
+    fn read_daemon_pid_is_none_when_the_pidfile_is_absent_or_malformed() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        assert_eq!(read_daemon_pid(scratch.path()), None, "no pidfile at all");
+        let daemon_dir = scratch.path().join("app-server-daemon");
+        fs::create_dir_all(&daemon_dir).expect("daemon dir");
+        fs::write(daemon_dir.join("daemon.pid"), b"not json").expect("write garbage");
+        assert_eq!(read_daemon_pid(scratch.path()), None, "malformed pidfile");
+    }
+
+    /// Reproduces the exact agent-relay#18 preflight finding against the real fake-daemon-start
+    /// fixture: a second `ensure_managed_daemon` call for an already-running daemon must still
+    /// succeed, recovering the pid from the pidfile since `daemon start`'s own JSON omits it.
+    #[test]
+    fn ensure_managed_daemon_recovers_the_pid_from_the_pidfile_when_already_running() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let (_c, mut app_server, identity) = live_identity();
+        let socket_path = scratch.path().join("app-server-control.sock");
+        let daemon_dir = scratch.path().join("app-server-daemon");
+        fs::create_dir_all(&daemon_dir).expect("daemon dir");
+        fs::write(
+            daemon_dir.join("daemon.pid"),
+            format!(r#"{{"pid":{}}}"#, identity.pid),
+        )
+        .expect("write pidfile");
+
+        let exe = scratch.path().join("fake-codex-already-running");
+        fs::write(
+            &exe,
+            format!(
+                r#"#!/bin/sh
+[ "$1" = "app-server" ] && [ "$2" = "daemon" ] && [ "$3" = "start" ] || exit 64
+printf '{{"status":"alreadyRunning","backend":"pid","socketPath":"{socket}"}}\n'
+"#,
+                socket = socket_path.display(),
+            ),
+        )
+        .expect("write fake daemon-start");
+        fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        let daemon = ensure_managed_daemon(&exe, scratch.path()).expect("ensure daemon");
+        assert_eq!(daemon.endpoint, socket_path);
+        assert_eq!(daemon.identity.pid, identity.pid);
+        let _ = app_server.kill();
+        let _ = app_server.wait();
+    }
+
+    #[test]
+    fn ensure_managed_daemon_fails_closed_when_already_running_but_the_pidfile_is_missing() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("app-server-control.sock");
+        let exe = scratch.path().join("fake-codex-already-running-no-pidfile");
+        fs::write(
+            &exe,
+            format!(
+                r#"#!/bin/sh
+[ "$1" = "app-server" ] && [ "$2" = "daemon" ] && [ "$3" = "start" ] || exit 64
+printf '{{"status":"alreadyRunning","backend":"pid","socketPath":"{socket}"}}\n'
+"#,
+                socket = socket_path.display(),
+            ),
+        )
+        .expect("write fake daemon-start");
+        fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        let result = ensure_managed_daemon(&exe, scratch.path());
+        assert!(matches!(result, Err(RuntimeError::Protocol)));
     }
 }
