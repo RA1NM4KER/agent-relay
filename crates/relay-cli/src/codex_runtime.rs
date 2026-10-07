@@ -36,8 +36,8 @@
 //!
 //! ```text
 //! start() ──▶ Attaching { worker retrying Observer::attach in the background }
-//!                 │  (worker succeeds)                │ (daemon dies / stop() called
-//!                 ▼                                    │  before first success)
+//!                 │  (worker succeeds)                │ (stop() called before
+//!                 ▼                                    │  first success)
 //!             Attached(Observer) ──▶ request_reconciliation()   Dead (terminal)
 //!                 │
 //!                 │ observer reports ObserverEvent::Disconnected
@@ -52,6 +52,22 @@
 //! thread id yet, and no bound on how long a real user takes to send their first message — GitHub
 //! #17 live-verified `thread/resume` only needs that turn to have *started*, not completed) never
 //! blocks `relay`'s own 300ms supervision tick.
+//!
+//! ### Daemon replacement is expected lifecycle, not failure (GitHub #18 follow-up)
+//!
+//! A real natural exhaustion in `~/repos/newinmeter` live-verified that Codex's own shared daemon
+//! can self-update/restart mid-session (its own `app-server-daemon` package ships a scheduled
+//! updater) with no action from Relay at all. The attach worker's retry loop previously treated
+//! the old daemon's `ProcessIdentity` being confirmed gone as equivalent to "this app-server will
+//! never come back" and gave up permanently (`Dead`) — correct for a daemon Relay itself spawned
+//! and owns, wrong for one Codex owns and can legitimately replace out from under an observer.
+//! The loop now treats a confirmed-gone identity as a cue to *rediscover* the current daemon via
+//! the same [`ensure_managed_daemon`] call `start()` itself uses (never a guessed socket path or
+//! pid), update its own stored endpoint/identity, and keep retrying the attach against the
+//! rediscovered daemon — using the already-known thread id, never re-learned. `Dead` is now
+//! reachable only via an explicit `stop()` before any attach ever succeeded; a confirmed daemon
+//! replacement, however many times it repeats within one session, is never alone a reason to stop
+//! retrying.
 
 use std::{
     path::{Path, PathBuf},
@@ -90,13 +106,33 @@ fn event_driven_enabled() -> bool {
     std::env::var(EVENT_DRIVEN_ENV).ok().as_deref() == Some("1")
 }
 
+/// Bundled so [`attach_worker_loop`] stays under clippy's argument-count lint. `codex_executable`
+/// and `codex_home` never change within a worker generation; `endpoint`/`app_server_identity` do,
+/// on a confirmed daemon replacement — see [`attach_worker_loop`]'s own doc comment.
+struct AttachTarget {
+    codex_executable: PathBuf,
+    codex_home: PathBuf,
+    endpoint: PathBuf,
+    app_server_identity: ProcessIdentity,
+}
+
 /// What the background attach/reconnect worker sends back once it either succeeds or gives up
 /// permanently. There is no "retry failed, try again" message: the worker keeps retrying
 /// silently on its own local backoff and only ever reports a *terminal* outcome for one attempt
 /// cycle.
 enum AttachOutcome {
-    Attached(Observer),
-    /// The app-server was confirmed gone, or `stop()` was called before any attach succeeded.
+    /// Carries back the endpoint/identity actually used for this success — which, after a daemon
+    /// replacement mid-retry, is the *rediscovered* daemon, never the stale one the worker was
+    /// started with. The caller must store these, not just the `Observer`, so the *next*
+    /// disconnect reconnects against the daemon that is actually current.
+    Attached {
+        observer: Observer,
+        endpoint: PathBuf,
+        identity: ProcessIdentity,
+    },
+    /// `stop()` was called before any attach succeeded. A confirmed-gone app-server identity is no
+    /// longer a reason for this on its own — see this module's own doc comment — so this is now
+    /// reachable only via the stop flag.
     GaveUp,
 }
 
@@ -127,8 +163,9 @@ enum AttachState {
     },
     /// Currently attached and receiving live events.
     Attached(Observer),
-    /// Gave up permanently for this session (app-server confirmed dead, or shutdown was
-    /// requested before a first successful attach). Terminal — nothing restarts this.
+    /// Gave up permanently for this session (shutdown was requested before a first successful
+    /// attach — see this module's own doc comment for why a confirmed-gone daemon identity no
+    /// longer leads here). Terminal — nothing restarts this.
     Dead,
 }
 
@@ -142,6 +179,10 @@ pub(crate) struct EventDrivenRuntime {
     endpoint: PathBuf,
     daemon_identity: ProcessIdentity,
     codex_home: PathBuf,
+    /// The pinned, version-verified executable [`ensure_managed_daemon`] was already confirmed
+    /// against in [`Self::start`] — kept so a later rediscovery (the old daemon identity confirmed
+    /// gone) calls the exact same, already-verified binary, never a different one guessed at.
+    codex_executable: PathBuf,
     /// GitHub #18: where this project's durable auto-handoff trace lives — used only to record
     /// event-receipt/reconciliation-request provenance (see [`Self::tick`]).
     project_state_dir: PathBuf,
@@ -192,6 +233,7 @@ impl EventDrivenRuntime {
         };
         crate::auto_handoff::trace_event(project_state_dir, "codex_event_driven_daemon_ready");
         let state = spawn_attach_worker(
+            codex_executable.to_path_buf(),
             daemon.endpoint.clone(),
             config_dir.to_path_buf(),
             thread_id.map(str::to_owned),
@@ -202,6 +244,7 @@ impl EventDrivenRuntime {
             endpoint: daemon.endpoint,
             daemon_identity: daemon.identity,
             codex_home: config_dir.to_path_buf(),
+            codex_executable: codex_executable.to_path_buf(),
             project_state_dir: project_state_dir.to_path_buf(),
             state,
         })
@@ -222,8 +265,20 @@ impl EventDrivenRuntime {
     ) -> TickEvent {
         match &mut self.state {
             AttachState::Attaching { outcome_rx, .. } => match outcome_rx.try_recv() {
-                Ok(AttachOutcome::Attached(observer)) => {
+                Ok(AttachOutcome::Attached {
+                    observer,
+                    endpoint,
+                    identity,
+                }) => {
                     let thread_id = observer.thread_id.clone();
+                    // GitHub #18 follow-up: store whatever daemon this attach actually succeeded
+                    // against — after a rediscovery, this is the *replacement* daemon, never the
+                    // stale one this worker generation was started with. The next disconnect must
+                    // reconnect against the daemon that is actually current, not re-check an
+                    // already-confirmed-gone identity only to rediscover the same replacement
+                    // again from scratch.
+                    self.endpoint = endpoint;
+                    self.daemon_identity = identity;
                     // Preflight requirement (agent-relay#18): a successful attach previously had
                     // no durable evidence of its own — only the ephemeral terminal print in
                     // `terminal_session::report_event_driven_transition` and the differently
@@ -288,6 +343,7 @@ impl EventDrivenRuntime {
                         "codex_event_driven_observer_disconnected",
                     );
                     self.state = spawn_attach_worker(
+                        self.codex_executable.clone(),
                         self.endpoint.clone(),
                         self.codex_home.clone(),
                         Some(known_thread_id.clone()),
@@ -314,8 +370,9 @@ impl EventDrivenRuntime {
             AttachState::Attached(observer) => observer.stop(),
             AttachState::Attaching { stop_flag, .. } => {
                 // Signalled, not joined: the worker's own per-attempt bound
-                // (`Observer::attach`'s internal timeout) guarantees it notices this and exits on
-                // its own within that bound even if it is mid-attempt right now, and this
+                // (`Observer::attach`'s internal timeout, or — mid daemon-replacement recovery —
+                // `ensure_managed_daemon`'s own comparable bound) guarantees it notices this and
+                // exits on its own within that bound even if it is mid-attempt right now, and this
                 // process's own exit (see `terminal_session::run_managed_terminal`) reaps any
                 // thread outright regardless — joining here would risk blocking ordinary shutdown
                 // on a worker that is, at worst, seconds from exiting on its own.
@@ -342,6 +399,7 @@ fn event_receipt_trace_label(event: &ObserverEvent) -> Option<&'static str> {
 /// Spawns the background attach/reconnect worker and returns the `Attaching` state a caller
 /// should install immediately (never blocking on the worker's first result).
 fn spawn_attach_worker(
+    codex_executable: PathBuf,
     endpoint: PathBuf,
     codex_home: PathBuf,
     known_thread_id: Option<String>,
@@ -352,11 +410,15 @@ fn spawn_attach_worker(
     let stop_flag = Arc::new(AtomicBool::new(false));
     let worker_stop = stop_flag.clone();
     thread::spawn(move || {
+        let target = AttachTarget {
+            codex_executable,
+            codex_home,
+            endpoint,
+            app_server_identity,
+        };
         attach_worker_loop(
-            &endpoint,
-            &codex_home,
+            target,
             known_thread_id,
-            &app_server_identity,
             &worker_stop,
             &outcome_tx,
             &project_state_dir,
@@ -390,8 +452,8 @@ fn attach_error_label(error: &ObserverError) -> &'static str {
 /// attempts (GitHub #17: `thread/resume` failing with `ResumeNotYetReady` means "no turn has
 /// started yet," not "give up" — and re-waiting for `thread/started` on a later attempt would
 /// hang for that call's own full internal timeout, since the broadcast never repeats). Stops
-/// retrying the moment any of the following becomes true: attach succeeds; `stop_flag` is set;
-/// the app-server is confirmed (not merely unconfirmable) gone.
+/// retrying only when attach succeeds or `stop_flag` is set — a confirmed-gone app-server
+/// identity no longer ends the loop (see below).
 ///
 /// GitHub #18 (observability follow-up): a real natural exhaustion left no durable evidence of
 /// *why* this loop never once succeeded — only ephemeral stderr, never captured. Every *distinct*
@@ -399,33 +461,90 @@ fn attach_error_label(error: &ObserverError) -> &'static str {
 /// per-retry, which at this loop's backoff could otherwise write hundreds of near-identical lines
 /// over a long wait) — enough to prove, after the fact, whether the loop ever got past connect,
 /// handshake, or resume, without flooding the trace.
+///
+/// GitHub #18 follow-up (`~/repos/newinmeter` live finding): a *confirmed* `Some(false)` on
+/// `app_server_identity` used to end the loop outright (`AttachOutcome::GaveUp`). That is correct
+/// for a daemon Relay itself spawned and owns, but Codex's own shared daemon can legitimately
+/// self-update/restart mid-session — expected external lifecycle, not failure. A confirmed-gone
+/// identity now calls the same [`ensure_managed_daemon`] `start()` itself used, to rediscover
+/// whatever daemon is current for this `codex_home`, and — on success — replaces `endpoint` and
+/// `app_server_identity` with the rediscovered values and immediately tries `Observer::attach`
+/// against them (same `known_thread_id`, never re-learned). A `None` (merely unconfirmable)
+/// reading is never treated as proof of replacement, exactly as before — only a definite
+/// `Some(false)` triggers rediscovery. Rediscovery failure is treated as transient, exactly like
+/// an ordinary attach failure: traced once per distinct generation, then backed off and retried —
+/// never a reason to give up. This naturally supports repeated replacement (A → B → C, ...) within
+/// one worker generation: each newly rediscovered identity becomes the one compared against on the
+/// next iteration, so a second replacement is detected and recovered from exactly like the first.
 fn attach_worker_loop(
-    endpoint: &Path,
-    codex_home: &Path,
+    mut target: AttachTarget,
     mut known_thread_id: Option<String>,
-    app_server_identity: &ProcessIdentity,
     stop_flag: &AtomicBool,
     outcome_tx: &mpsc::Sender<AttachOutcome>,
     project_state_dir: &Path,
 ) {
     let mut backoff = RECONNECT_BACKOFF_MIN;
     let mut last_traced_error: Option<&'static str> = None;
+    // Tracks whether the *current* confirmed-gone identity has already been traced, so a
+    // generation stuck retrying a failing rediscovery logs the "confirmed replaced" fact exactly
+    // once, not on every retry — reset to `false` the moment rediscovery succeeds, so a *second*
+    // replacement later in the same generation is traced as its own distinct event.
+    let mut daemon_replaced_traced = false;
     loop {
         if stop_flag.load(Ordering::Relaxed) {
             let _ignored = outcome_tx.send(AttachOutcome::GaveUp);
             return;
         }
-        // A merely-unconfirmable liveness reading (`None`) is not a reason to give up retrying —
-        // that would be over-eager for what is only a "should I keep trying" decision, not a
-        // safety-relevant ownership one. Only a definite `Some(false)` (the app-server is
-        // provably gone) ends the retry loop.
-        if app_server_identity.is_still_the_same_process() == Some(false) {
-            let _ignored = outcome_tx.send(AttachOutcome::GaveUp);
-            return;
+        // A merely-unconfirmable liveness reading (`None`) is not proof of replacement — that
+        // would be over-eager for what is only a "should I keep trying this endpoint" decision,
+        // not a safety-relevant ownership one. Only a definite `Some(false)` (the app-server is
+        // provably gone) triggers rediscovery.
+        if target.app_server_identity.is_still_the_same_process() == Some(false) {
+            if !daemon_replaced_traced {
+                crate::auto_handoff::trace_event(
+                    project_state_dir,
+                    "codex_event_driven_daemon_replaced",
+                );
+                daemon_replaced_traced = true;
+            }
+            match ensure_managed_daemon(&target.codex_executable, &target.codex_home) {
+                Ok(daemon) => {
+                    crate::auto_handoff::trace_event(
+                        project_state_dir,
+                        "codex_event_driven_daemon_rediscovered",
+                    );
+                    target.endpoint = daemon.endpoint;
+                    target.app_server_identity = daemon.identity;
+                    daemon_replaced_traced = false;
+                    last_traced_error = None;
+                    backoff = RECONNECT_BACKOFF_MIN;
+                    // Fall through to attempt `Observer::attach` against the rediscovered daemon
+                    // immediately, in this same iteration — never an extra sleep purely for
+                    // having rediscovered successfully.
+                }
+                Err(_) => {
+                    let label = "codex_event_driven_daemon_rediscovery_failed";
+                    if last_traced_error != Some(label) {
+                        crate::auto_handoff::trace_event(project_state_dir, label);
+                        last_traced_error = Some(label);
+                    }
+                    sleep_checking_stop(backoff, stop_flag);
+                    backoff = (backoff * 2).min(RECONNECT_BACKOFF_MAX);
+                    continue;
+                }
+            }
         }
-        match Observer::attach(endpoint, codex_home, known_thread_id.as_deref()) {
+        match Observer::attach(
+            &target.endpoint,
+            &target.codex_home,
+            known_thread_id.as_deref(),
+        ) {
             Ok(observer) => {
-                let _ignored = outcome_tx.send(AttachOutcome::Attached(observer));
+                let _ignored = outcome_tx.send(AttachOutcome::Attached {
+                    observer,
+                    endpoint: target.endpoint.clone(),
+                    identity: target.app_server_identity.clone(),
+                });
                 return;
             }
             Err(error) => {
@@ -496,6 +615,20 @@ mod tests {
             .expect("spawn sleep");
         let identity = ProcessIdentity::query(child.id());
         (child, identity)
+    }
+
+    fn attach_target(
+        codex_executable: &Path,
+        codex_home: &Path,
+        endpoint: PathBuf,
+        app_server_identity: ProcessIdentity,
+    ) -> AttachTarget {
+        AttachTarget {
+            codex_executable: codex_executable.to_path_buf(),
+            codex_home: codex_home.to_path_buf(),
+            endpoint,
+            app_server_identity,
+        }
     }
 
     #[test]
@@ -623,16 +756,19 @@ mod tests {
         let stop_flag = AtomicBool::new(false);
         let (tx, rx) = mpsc::channel();
         attach_worker_loop(
-            &socket_path,
-            &codex_home,
+            attach_target(
+                Path::new("/definitely/not/codex"),
+                &codex_home,
+                socket_path,
+                identity,
+            ),
             Some("thread-1".to_owned()),
-            &identity,
             &stop_flag,
             &tx,
             scratch.path(),
         );
         match rx.recv().expect("outcome") {
-            AttachOutcome::Attached(observer) => {
+            AttachOutcome::Attached { observer, .. } => {
                 assert_eq!(observer.thread_id, "thread-1");
                 observer.stop();
             }
@@ -670,16 +806,19 @@ mod tests {
         let stop_flag = AtomicBool::new(false);
         let (tx, rx) = mpsc::channel();
         attach_worker_loop(
-            &socket_path,
-            &codex_home,
+            attach_target(
+                Path::new("/definitely/not/codex"),
+                &codex_home,
+                socket_path.clone(),
+                identity.clone(),
+            ),
             Some("thread-1".to_owned()),
-            &identity,
             &stop_flag,
             &tx,
             scratch.path(),
         );
         let observer = match rx.recv().expect("outcome") {
-            AttachOutcome::Attached(observer) => observer,
+            AttachOutcome::Attached { observer, .. } => observer,
             AttachOutcome::GaveUp => panic!("must succeed against a fake that never fails resume"),
         };
 
@@ -688,12 +827,17 @@ mod tests {
         // real transition that decides what gets traced.
         let (outcome_tx, outcome_rx) = mpsc::channel();
         outcome_tx
-            .send(AttachOutcome::Attached(observer))
+            .send(AttachOutcome::Attached {
+                observer,
+                endpoint: socket_path.clone(),
+                identity: identity.clone(),
+            })
             .expect("queue outcome");
         let mut runtime = EventDrivenRuntime {
             endpoint: socket_path,
             daemon_identity: identity,
             codex_home,
+            codex_executable: PathBuf::from("/definitely/not/codex"),
             project_state_dir: scratch.path().to_path_buf(),
             state: AttachState::Attaching {
                 outcome_rx,
@@ -736,10 +880,13 @@ mod tests {
         let project_state_dir = scratch.path().to_path_buf();
         let handle = thread::spawn(move || {
             attach_worker_loop(
-                &socket_path,
-                &codex_home,
+                attach_target(
+                    Path::new("/definitely/not/codex"),
+                    &codex_home,
+                    socket_path,
+                    identity,
+                ),
                 Some("thread-1".to_owned()),
-                &identity,
                 &worker_stop,
                 &tx,
                 &project_state_dir,
@@ -756,27 +903,453 @@ mod tests {
         let _ = child.wait();
     }
 
+    // --- GitHub #18 follow-up: daemon replacement/self-update recovery (`~/repos/newinmeter`
+    // live finding — see this module's own doc comment). ---
+
+    fn install_fake_daemon_start(dir: &Path, pid: u32, socket_path: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = dir.join(format!("fake-codex-daemon-start-{pid}"));
+        std::fs::write(
+            &path,
+            format!(
+                r#"#!/bin/sh
+[ "$1" = "app-server" ] && [ "$2" = "daemon" ] && [ "$3" = "start" ] || exit 64
+printf '{{"status":"started","pid":{pid},"socketPath":"{socket}"}}\n'
+"#,
+                pid = pid,
+                socket = socket_path.display(),
+            ),
+        )
+        .expect("write fake daemon-start");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        path
+    }
+
+    fn install_fake_daemon_start_failing(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = dir.join("fake-codex-daemon-start-failing");
+        std::fs::write(
+            &path,
+            r#"#!/bin/sh
+[ "$1" = "app-server" ] && [ "$2" = "daemon" ] && [ "$3" = "start" ] || exit 64
+echo "daemon failed to start" >&2
+exit 1
+"#,
+        )
+        .expect("write fake failing daemon-start");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        path
+    }
+
+    /// A `daemon start` fake that answers *differently* on successive invocations (tracked via a
+    /// counter file), one entry of `sequence` per call — so a test can make rediscovery report a
+    /// different "current" daemon each time it is asked, reproducing repeated replacement (A → B
+    /// → C) within a single worker generation without timing races.
+    fn install_fake_daemon_start_sequence(
+        dir: &Path,
+        counter_path: &Path,
+        sequence: &[(u32, PathBuf)],
+    ) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mut branches = String::new();
+        for (index, (pid, socket)) in sequence.iter().enumerate() {
+            let n = index + 1;
+            branches.push_str(&format!(
+                "if [ \"$N\" -eq {n} ]; then printf '{{\"status\":\"started\",\"pid\":{pid},\"socketPath\":\"{socket}\"}}\\n'; exit 0; fi\n",
+                n = n,
+                pid = pid,
+                socket = socket.display(),
+            ));
+        }
+        let path = dir.join("fake-codex-daemon-start-sequence");
+        std::fs::write(
+            &path,
+            format!(
+                r#"#!/bin/sh
+[ "$1" = "app-server" ] && [ "$2" = "daemon" ] && [ "$3" = "start" ] || exit 64
+N=$(cat "{counter}" 2>/dev/null || echo 0)
+N=$((N+1))
+echo "$N" > "{counter}"
+{branches}echo "sequence exhausted" >&2
+exit 1
+"#,
+                counter = counter_path.display(),
+                branches = branches,
+            ),
+        )
+        .expect("write fake sequenced daemon-start");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        path
+    }
+
+    /// Polls a bounded condition instead of guessing a fixed sleep — the only safe way to
+    /// synchronize with a background worker's own retry/backoff timing without racing it.
+    fn wait_for(timeout: Duration, mut condition: impl FnMut() -> bool) {
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if condition() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        panic!("condition never became true within {timeout:?}");
+    }
+
+    /// Polls `project_state_dir`'s durable trace log until `marker` has appeared at least
+    /// `at_least` times — the synchronization point these tests use to act on a background
+    /// worker's progress only once it is durably proven, never guessed from a fixed sleep that
+    /// could race however long the worker's own retry/backoff happens to take.
+    fn wait_for_trace_line(
+        project_state_dir: &Path,
+        marker: &str,
+        at_least: usize,
+        timeout: Duration,
+    ) {
+        let path = project_state_dir.join(crate::auto_handoff::LOG_FILE_NAME);
+        wait_for(timeout, || {
+            std::fs::read_to_string(&path)
+                .map(|log| log.matches(marker).count() >= at_least)
+                .unwrap_or(false)
+        });
+    }
+
     #[test]
-    fn the_worker_gives_up_once_the_app_server_is_confirmed_dead() {
+    fn the_worker_keeps_retrying_rediscovery_while_the_app_server_is_confirmed_dead_until_stopped()
+    {
+        // A confirmed-dead app-server identity must no longer end the loop outright — only an
+        // explicit stop() may (see this module's own doc comment for why).
         let scratch = tempfile::tempdir().expect("tempdir");
         let socket_path = scratch.path().join("t.sock");
         let codex_home = scratch.path().join("codex_home");
         std::fs::create_dir_all(&codex_home).expect("codex home");
         let _listener = install_fake_app_server_ws(&socket_path, &codex_home, usize::MAX);
         let dead = dead_identity();
+        let failing_executable = install_fake_daemon_start_failing(scratch.path());
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        let worker_stop = stop_flag.clone();
+        let project_state_dir = scratch.path().to_path_buf();
+        let handle = thread::spawn(move || {
+            attach_worker_loop(
+                attach_target(&failing_executable, &codex_home, socket_path, dead),
+                Some("thread-1".to_owned()),
+                &worker_stop,
+                &tx,
+                &project_state_dir,
+            );
+        });
+        // Several retry cycles' worth of time against the always-failing rediscovery.
+        thread::sleep(Duration::from_millis(400));
+        assert!(
+            rx.try_recv().is_err(),
+            "a confirmed-dead app-server must not end the loop on its own"
+        );
+        stop_flag.store(true, Ordering::Relaxed);
+        let outcome = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("prompt outcome once stopped");
+        assert!(matches!(outcome, AttachOutcome::GaveUp));
+        handle.join().expect("worker thread joins promptly");
+
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert_eq!(
+            log.matches("codex_event_driven_daemon_replaced").count(),
+            1,
+            "the confirmed replacement must be traced exactly once, not per retry: {log}"
+        );
+        assert!(
+            log.contains("codex_event_driven_daemon_rediscovery_failed"),
+            "a failing rediscovery attempt must be traced: {log}"
+        );
+    }
+
+    #[test]
+    fn a_replaced_daemon_is_rediscovered_and_the_worker_reattaches_to_the_same_thread() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+
+        // Daemon A: attach succeeds against it first, exactly like an ordinary first attach.
+        let socket_a = scratch.path().join("a.sock");
+        let _listener_a = install_fake_app_server_ws(&socket_a, &codex_home, 0);
+        let (mut child_a, identity_a) = live_identity();
 
         let stop_flag = AtomicBool::new(false);
         let (tx, rx) = mpsc::channel();
         attach_worker_loop(
-            &socket_path,
-            &codex_home,
+            attach_target(
+                Path::new("/definitely/not/codex"),
+                &codex_home,
+                socket_a.clone(),
+                identity_a.clone(),
+            ),
             Some("thread-1".to_owned()),
-            &dead,
             &stop_flag,
             &tx,
             scratch.path(),
         );
-        let outcome = rx.recv_timeout(Duration::from_secs(2)).expect("outcome");
-        assert!(matches!(outcome, AttachOutcome::GaveUp));
+        match rx.recv().expect("outcome") {
+            AttachOutcome::Attached { observer, .. } => observer.stop(),
+            AttachOutcome::GaveUp => panic!("must succeed against daemon A"),
+        }
+
+        // Daemon A disappears for real; daemon B becomes current for the same codex_home.
+        let _ = child_a.kill();
+        let _ = child_a.wait();
+        thread::sleep(Duration::from_millis(150));
+        assert_eq!(
+            identity_a.is_still_the_same_process(),
+            Some(false),
+            "must be confirmed gone, not merely ambiguous, for this test to prove anything"
+        );
+
+        let socket_b = scratch.path().join("b.sock");
+        let _listener_b = install_fake_app_server_ws(&socket_b, &codex_home, 0);
+        let (mut child_b, identity_b) = live_identity();
+        let rediscover_executable =
+            install_fake_daemon_start(scratch.path(), identity_b.pid, &socket_b);
+
+        // Exactly what `tick()`'s disconnect-handling branch does: spawn a fresh worker
+        // generation seeded with the OLD (now-gone) endpoint/identity and the SAME known thread
+        // id — never re-learned.
+        let stop_flag_2 = AtomicBool::new(false);
+        let (tx2, rx2) = mpsc::channel();
+        attach_worker_loop(
+            attach_target(&rediscover_executable, &codex_home, socket_a, identity_a),
+            Some("thread-1".to_owned()),
+            &stop_flag_2,
+            &tx2,
+            scratch.path(),
+        );
+        let outcome = rx2.recv_timeout(Duration::from_secs(5)).expect("outcome");
+        let (observer2, endpoint2, identity2) = match outcome {
+            AttachOutcome::Attached {
+                observer,
+                endpoint,
+                identity,
+            } => (observer, endpoint, identity),
+            AttachOutcome::GaveUp => panic!("must recover by rediscovering the replacement daemon"),
+        };
+        assert_eq!(
+            observer2.thread_id, "thread-1",
+            "must reattach to the SAME known thread, never re-learn it"
+        );
+        assert_eq!(
+            endpoint2, socket_b,
+            "must carry back the rediscovered endpoint, not the stale one"
+        );
+        assert_eq!(
+            identity2.pid, identity_b.pid,
+            "must carry back the rediscovered identity"
+        );
+        observer2.stop();
+
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert_eq!(
+            log.matches("codex_event_driven_daemon_replaced").count(),
+            1,
+            "exactly one replacement must be traced: {log}"
+        );
+        assert_eq!(
+            log.matches("codex_event_driven_daemon_rediscovered")
+                .count(),
+            1,
+            "exactly one successful rediscovery must be traced: {log}"
+        );
+
+        let _ = child_b.kill();
+        let _ = child_b.wait();
+    }
+
+    #[test]
+    fn repeated_daemon_replacement_a_then_b_then_c_all_recover_within_one_generation() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+
+        let dead_a = dead_identity();
+        // "B" is reported by rediscovery as current, and stays genuinely alive (a real `sleep 10`,
+        // same as `live_identity()`) so `ensure_managed_daemon`'s own query of it — however long
+        // that takes under load — reliably captures a real, confirmable fingerprint rather than
+        // the unconfirmable `None` a query against an already-dead pid would (see
+        // `relay_provider_codex::runtime`'s own `dead_identity()` test helper for why that
+        // distinction matters). Its socket reports the *wrong* codex_home, so every attach against
+        // it fails fast (`HomeMismatch`) rather than ever succeeding. The test only kills B once
+        // the durable trace log itself confirms rediscovery already saw it — never a fixed sleep
+        // racing against however long that query happens to take — so a second, genuinely
+        // distinct rediscovery cycle (to C) is forced deterministically, not by timing luck.
+        let socket_b = scratch.path().join("b.sock");
+        let wrong_codex_home = scratch.path().join("not_the_codex_home");
+        std::fs::create_dir_all(&wrong_codex_home).expect("wrong codex home");
+        let _listener_b = install_fake_app_server_ws(&socket_b, &wrong_codex_home, 0);
+        let (mut child_b, identity_b) = live_identity();
+
+        let socket_c = scratch.path().join("c.sock");
+        let _listener_c = install_fake_app_server_ws(&socket_c, &codex_home, 0);
+        let (mut child_c, identity_c) = live_identity();
+
+        let counter_path = scratch.path().join("rediscover-count");
+        let executable = install_fake_daemon_start_sequence(
+            scratch.path(),
+            &counter_path,
+            &[
+                (identity_b.pid, socket_b),
+                (identity_c.pid, socket_c.clone()),
+            ],
+        );
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        let worker_stop = stop_flag.clone();
+        let project_state_dir = scratch.path().to_path_buf();
+        let a_socket = scratch.path().join("a.sock");
+        let handle = thread::spawn(move || {
+            attach_worker_loop(
+                attach_target(&executable, &codex_home, a_socket, dead_a),
+                Some("thread-1".to_owned()),
+                &worker_stop,
+                &tx,
+                &project_state_dir,
+            );
+        });
+
+        // Order, proven by durable evidence, never assumed by timing: only kill B once the trace
+        // log itself shows rediscovery already completed once (B was found and is now the one
+        // being retried against).
+        wait_for_trace_line(
+            scratch.path(),
+            "codex_event_driven_daemon_rediscovered",
+            1,
+            Duration::from_secs(5),
+        );
+        let _ = child_b.kill();
+        let _ = child_b.wait();
+        // `ps`-based confirmation that B is gone can itself take a moment under load; wait for it
+        // directly rather than assuming any fixed delay is enough.
+        wait_for(Duration::from_secs(5), || {
+            identity_b.is_still_the_same_process() == Some(false)
+        });
+
+        let outcome = rx.recv_timeout(Duration::from_secs(10)).expect("outcome");
+        let (observer, endpoint, identity) = match outcome {
+            AttachOutcome::Attached {
+                observer,
+                endpoint,
+                identity,
+            } => (observer, endpoint, identity),
+            AttachOutcome::GaveUp => panic!("must eventually recover via daemon C"),
+        };
+        assert_eq!(observer.thread_id, "thread-1");
+        assert_eq!(endpoint, socket_c);
+        assert_eq!(identity.pid, identity_c.pid);
+        observer.stop();
+        handle
+            .join()
+            .expect("worker thread joins after returning its outcome");
+
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert_eq!(
+            log.matches("codex_event_driven_daemon_replaced").count(),
+            2,
+            "both A's and B's replacement must each be traced once: {log}"
+        );
+        assert_eq!(
+            log.matches("codex_event_driven_daemon_rediscovered")
+                .count(),
+            2,
+            "both successful rediscoveries (B, then C) must be traced: {log}"
+        );
+
+        let _ = child_c.kill();
+        let _ = child_c.wait();
+    }
+
+    #[test]
+    fn a_rediscovered_reattach_requests_reconciliation_exactly_once_through_tick() {
+        // Feed an already-resolved "daemon replaced, rediscovered, reattached" AttachOutcome
+        // through EventDrivenRuntime::tick(), exactly as the real background worker would deliver
+        // it, to verify the higher-level wiring: reconciliation requested exactly once, and the
+        // runtime's own stored endpoint/identity are updated to the rediscovered daemon rather
+        // than left stale.
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_b = scratch.path().join("b.sock");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let _listener_b = install_fake_app_server_ws(&socket_b, &codex_home, 0);
+        let (mut child_b, identity_b) = live_identity();
+
+        let stop_flag = AtomicBool::new(false);
+        let (tx, rx) = mpsc::channel();
+        attach_worker_loop(
+            attach_target(
+                Path::new("/definitely/not/codex"),
+                &codex_home,
+                socket_b.clone(),
+                identity_b.clone(),
+            ),
+            Some("thread-1".to_owned()),
+            &stop_flag,
+            &tx,
+            scratch.path(),
+        );
+        let observer = match rx.recv().expect("outcome") {
+            AttachOutcome::Attached { observer, .. } => observer,
+            AttachOutcome::GaveUp => panic!("must succeed against daemon B"),
+        };
+
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        outcome_tx
+            .send(AttachOutcome::Attached {
+                observer,
+                endpoint: socket_b.clone(),
+                identity: identity_b.clone(),
+            })
+            .expect("queue outcome");
+        // Seed the runtime with a STALE endpoint/identity (as if still attached to the old,
+        // now-replaced daemon A) to prove tick() overwrites them with the rediscovered values.
+        let stale_identity = dead_identity();
+        let mut runtime = EventDrivenRuntime {
+            endpoint: scratch.path().join("stale-a.sock"),
+            daemon_identity: stale_identity,
+            codex_home: codex_home.clone(),
+            codex_executable: PathBuf::from("/definitely/not/codex"),
+            project_state_dir: scratch.path().to_path_buf(),
+            state: AttachState::Attaching {
+                outcome_rx,
+                stop_flag: Arc::new(AtomicBool::new(false)),
+            },
+        };
+        let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
+            scratch.path().to_path_buf(),
+            scratch.path().to_path_buf(),
+            None,
+        );
+        let event = runtime.tick(&mut scheduler);
+        assert_eq!(event, TickEvent::Attached("thread-1".to_owned()));
+        assert_eq!(
+            runtime.endpoint, socket_b,
+            "must adopt the rediscovered endpoint, not keep the stale one"
+        );
+        assert_eq!(
+            runtime.daemon_identity, identity_b,
+            "must adopt the rediscovered identity, not keep the stale one"
+        );
+
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert_eq!(
+            log.matches("codex_reconnect_reconciliation_requested")
+                .count(),
+            1,
+            "reconciliation must be requested exactly once per reattach: {log}"
+        );
+        assert!(log.contains("codex_event_driven_attached"));
+
+        let _ = child_b.kill();
+        let _ = child_b.wait();
     }
 }
