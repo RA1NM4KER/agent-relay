@@ -21,16 +21,28 @@
       <div class="hero-meta"><a class="badge" href="https://github.com/RA1NM4KER/agent-relay/releases/tag/v0.4.1">v0.4.1</a><div class="meta-row"><span>v0.4.1</span><span>macOS-first</span><span>Open source</span><span>Runs locally</span></div></div>
     </div>
     <div class="hero-terminal">
-      <div class="terminal" id="handoff-demo" role="group" aria-label="Example workflow: set up Relay, start Claude, then switch to a backup profile">
-        <div class="terminal-top"><div class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></div><span>~/repos/your-next-project</span><span>zsh</span></div>
-        <div class="terminal-body">
-          <div class="terminal-block"><p class="terminal-comment">01 / Set up your accounts once</p><p class="terminal-command"><span class="terminal-prompt">❯</span>relay setup</p><p class="terminal-output"><span>Primary &nbsp; claude-work</span><span>Fallback &nbsp;claude-backup → codex-work</span></p></div>
-          <div class="terminal-block"><p class="terminal-comment">02 / Start in your usual terminal</p><p class="terminal-command"><span class="terminal-prompt">❯</span>relay claude</p><p class="terminal-output"><span class="good">[Relay · claude-work]</span><span>Your Claude session, supervised.</span></p></div>
-          <div class="terminal-block"><p class="terminal-comment">03 / Switch from inside Claude, too</p><p class="terminal-command"><span class="terminal-prompt">❯</span>/relay switch claude-backup</p><p class="terminal-output"><span class="good">claude-work → claude-backup</span><span>Same Claude conversation. New account.</span></p></div>
+      <div class="terminal handoff-demo" id="handoff-demo" role="group" aria-label="Illustrative automatic Claude-to-Claude handoff" data-step="3">
+        <div class="terminal-top"><div class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></div><span>AUTOMATIC HANDOFF</span><span class="demo-label">Demo</span></div>
+        <div class="handoff-body">
+          <h2 class="sr-only">Automatic handoff example</h2>
+          <div class="demo-profiles" role="group" aria-label="Example profiles">
+            <div class="demo-profile" data-profile="source"><span class="profile-caption">PRIMARY</span><strong>claude-work</strong><span class="profile-state" id="source-state">Stopped</span></div>
+            <span class="profile-arrow" aria-hidden="true">→</span>
+            <div class="demo-profile" data-profile="target" data-owner="true"><span class="profile-caption">FALLBACK</span><strong>claude-backup</strong><span class="profile-state" id="target-state">Active owner</span></div>
+          </div>
+          <ol class="demo-steps" aria-label="Handoff sequence">
+            <li><span class="step-marker" aria-hidden="true">01</span><div><h3>Working on Claude</h3><p>Your conversation runs on claude-work.</p></div></li>
+            <li><span class="step-marker" aria-hidden="true">02</span><div><h3>Usage limit verified</h3><p>Structured signals confirm exhaustion.</p></div></li>
+            <li><span class="step-marker" aria-hidden="true">03</span><div><h3>Ready to hand over</h3><p>Fallback eligibility checked. Source stopped.</p></div></li>
+            <li><span class="step-marker" aria-hidden="true">04</span><div><h3>The conversation continues</h3><p>Backup session verified. Same Claude history.</p></div></li>
+          </ol>
+          <div class="demo-progress" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+          <div class="demo-playback" hidden><span id="demo-position">Handoff complete</span><div class="demo-controls"><button id="demo-toggle" type="button" aria-controls="handoff-demo">Pause</button><button id="demo-replay" type="button" aria-controls="handoff-demo">Replay <span aria-hidden="true">↻</span></button></div></div>
+          <span class="sr-only" id="demo-announcement" role="status" aria-live="polite"></span>
         </div>
-        <div class="terminal-bottom"><span>ONE OWNER PER SESSION</span><span>CLAUDE + CODEX</span></div>
+        <div class="terminal-bottom"><span>ONE OWNER PER SESSION</span><span>SAME CLAUDE CONVERSATION</span></div>
       </div>
-      <p class="terminal-caption">Illustrative workflow. Moves involving Codex start a new session with transferred context.</p>
+      <p class="terminal-caption">Illustrative sequence, not live terminal output. Any handoff involving Codex starts a new session with transferred context.</p>
     </div>
   </div>
 </section>
@@ -60,4 +72,6 @@
 <section class="end-cta" aria-labelledby="start-title"><div><h2 id="start-title">Make room for uninterrupted thinking.</h2><p>Set up Relay. Open your project. Get back to the work.</p></div><a class="button" href="docs/getting-started.html">Set up Agent Relay <span aria-hidden="true">↗</span></a></section>
 </div>
 </main>
+
+<script src="assets/handoff.js" defer></script>
 <footer class="site-footer"><div><a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">↳</span>Agent Relay</a><p>Your agents. Your accounts. Your machine.</p></div><div class="footer-links"><a href="docs/getting-started.html">Documentation</a><a href="https://github.com/RA1NM4KER/agent-relay">Source code ↗</a><a href="https://github.com/RA1NM4KER/agent-relay/releases">Releases ↗</a><a href="https://github.com/RA1NM4KER/agent-relay/blob/main/LICENSE">Apache-2.0 ↗</a></div></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></body></html>

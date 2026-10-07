@@ -83,5 +83,9 @@ release badge update; rebase onto the latest `origin/gh-pages` and preserve its 
 
 The previous public `#top`, `#how-it-works`, `#security`, and `#handoff-demo` links are
 preserved. The portfolio video was intentionally omitted: its embedded gradient conflicts
-with the solid-colour visual direction. The terminal on the homepage is labelled as an
-illustrative workflow, not a live provider session or benchmark.
+with the solid-colour visual direction. The homepage handoff demonstration is labelled as illustrative, not live provider output.
+It plays one four-stage Claude-to-Claude handoff and holds the result. Pause/play and replay
+controls preserve a readable sequence; offscreen or hidden tabs suspend its clock. With
+reduced motion, it shows the completed result and offers manual stepping after Replay.
+Without JavaScript the full sequence remains readable. The dynamic demonstration never
+shows two active owners and does not imply native continuity for Codex handoffs.

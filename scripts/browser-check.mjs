@@ -116,6 +116,140 @@ try {
       `All pages: ${width}px layout${width === 1440 || width === 390 ? ", dark/light WCAG checks" : ""} passed.`,
     );
   }
+  // Use the browser clock to test the complete one-shot demo without wall-clock sleeps.
+  const demoPage = await context.newPage();
+  demoPage.on("pageerror", (error) => errors.push(error.message));
+  await demoPage.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+  await demoPage.goto(base + "index.html");
+  await demoPage.clock.pauseAt(new Date("2026-01-01T00:00:01Z"));
+  const demo = demoPage.locator("#handoff-demo");
+  await demoPage.locator("#demo-replay").click();
+  await demoPage.waitForFunction(
+    () => document.getElementById("handoff-demo").dataset.running === "true",
+    null,
+    { polling: 50 },
+  );
+  await demoPage.locator("#demo-toggle").click();
+  const pausedProgress = await demoPage.locator(".demo-progress").innerHTML();
+  await demoPage.clock.runFor(8000);
+  assert.equal(await demo.getAttribute("data-step"), "0");
+  assert.equal(
+    await demoPage.locator(".demo-progress").innerHTML(),
+    pausedProgress,
+    "Pause freezes the progress clock",
+  );
+  await demoPage.locator("#demo-toggle").click();
+  const initialHeight = (await demo.boundingBox()).height;
+  for (const [duration, expectedStep, owners] of [
+    [3800, "1", 1],
+    [3200, "2", 0],
+    [4000, "3", 1],
+  ]) {
+    await demoPage.clock.runFor(duration);
+    assert.equal(await demo.getAttribute("data-step"), expectedStep);
+    assert.equal(await demoPage.locator('[data-owner="true"]').count(), owners);
+    assert.equal(
+      (await demo.boundingBox()).height,
+      initialHeight,
+      "No layout shift between stages",
+    );
+    await demoPage.screenshot({
+      path: resolve(artifacts, `handoff-step-${expectedStep}.png`),
+    });
+  }
+  assert.equal(
+    await demoPage.locator("#source-state").textContent(),
+    "Stopped",
+  );
+  assert.equal(
+    await demoPage.locator("#target-state").textContent(),
+    "Active owner",
+  );
+  await demoPage.clock.runFor(5500);
+  assert.equal(await demo.getAttribute("data-complete"), "true");
+  assert.equal(await demo.getAttribute("data-running"), "false");
+  await demoPage.clock.runFor(20000);
+  assert.equal(
+    await demo.getAttribute("data-step"),
+    "3",
+    "Completed demo does not loop",
+  );
+  await demoPage.locator("#demo-replay").click();
+  assert.equal(await demo.getAttribute("data-step"), "0");
+  await demoPage.locator(".site-footer").scrollIntoViewIfNeeded();
+  await demoPage.waitForFunction(
+    () => document.getElementById("handoff-demo").dataset.running === "false",
+    null,
+    { polling: 50 },
+  );
+  const offscreenProgress = await demoPage
+    .locator(".demo-progress")
+    .innerHTML();
+  await demoPage.clock.runFor(10000);
+  assert.equal(
+    await demoPage.locator(".demo-progress").innerHTML(),
+    offscreenProgress,
+  );
+  await demo.scrollIntoViewIfNeeded();
+  await demoPage.waitForFunction(
+    () => document.getElementById("handoff-demo").dataset.running === "true",
+    null,
+    { polling: 50 },
+  );
+  // A preference change immediately stops playback and exposes the completed result.
+  await demoPage.emulateMedia({ reducedMotion: "reduce" });
+  await demoPage.waitForFunction(
+    () => document.getElementById("handoff-demo").dataset.complete === "true",
+    null,
+    { polling: 50 },
+  );
+  assert.equal(await demo.getAttribute("data-running"), "false");
+  await demoPage.close();
+  const reducedContext = await browser.newContext({
+    reducedMotion: "reduce",
+    viewport: { width: 320, height: 900 },
+  });
+  const reducedPage = await reducedContext.newPage();
+  await reducedPage.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+  await reducedPage.goto(base + "index.html");
+  await reducedPage.clock.pauseAt(new Date("2026-01-01T00:00:01Z"));
+  const reducedDemo = reducedPage.locator("#handoff-demo");
+  assert.equal(await reducedDemo.getAttribute("data-step"), "3");
+  assert.equal(await reducedDemo.getAttribute("data-running"), "false");
+  await reducedPage.locator("#demo-replay").click();
+  await reducedPage.clock.runFor(20000);
+  assert.equal(
+    await reducedDemo.getAttribute("data-step"),
+    "0",
+    "Reduced motion never autoplays",
+  );
+  const mobileHeight = (await reducedDemo.boundingBox()).height;
+  for (const expectedStep of ["1", "2", "3"]) {
+    await reducedPage
+      .getByRole("button", { name: "Show next handoff step" })
+      .click();
+    assert.equal(await reducedDemo.getAttribute("data-step"), expectedStep);
+    assert.equal(
+      (await reducedDemo.boundingBox()).height,
+      mobileHeight,
+      "Stable mobile demo height",
+    );
+    assert((await reducedPage.locator('[data-owner="true"]').count()) <= 1);
+    assert.equal(
+      await reducedPage.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+      false,
+    );
+  }
+  await reducedPage.screenshot({
+    path: resolve(artifacts, "handoff-reduced-motion-mobile.png"),
+    fullPage: true,
+  });
+  await reducedContext.close();
+  console.log(
+    "Handoff: stage sequence, single owner, pause/play, replay, offscreen suspension, one-shot completion, reduced motion, manual stepping, and stable layout passed.",
+  );
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(base + "index.html");
   await page.locator(".copy-button").click();
@@ -238,6 +372,11 @@ try {
     .click();
   assert(staticPage.url().endsWith("workflows.html"));
   assert(await staticPage.locator(".copy-button").first().isHidden());
+  await staticPage.goto(base + "index.html");
+  assert.equal(await staticPage.locator(".demo-steps li").count(), 4);
+  for (const row of await staticPage.locator(".demo-steps li").all())
+    assert(await row.isVisible());
+  assert(await staticPage.locator(".demo-playback").isHidden());
   await noJs.close();
   console.log(
     "Copy, denied clipboard, search, failed-search retry, theme persistence, keyboard, mobile navigation, no-JS content, and screenshots passed.",
