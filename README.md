@@ -20,6 +20,8 @@ relay setup      # once: log in to your profiles and pick a priority order
 relay claude     # or: relay codex — work as usual; Relay watches the quota
 ```
 
+<p align="center"><img src="docs/assets/demo.gif" alt="Agent Relay status line in a Claude Code session, showing the active profile and usage" width="720"></p>
+
 Details, status and limitations follow.
 
 Keep your coding agent moving when one account hits its usage limit. Agent Relay supervises
