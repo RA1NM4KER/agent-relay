@@ -1,5 +1,27 @@
 # Agent Relay
 
+**Hit a usage limit mid-task? Keep going on your next account.**
+
+[![CI](https://github.com/RA1NM4KER/agent-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/RA1NM4KER/agent-relay/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/RA1NM4KER/agent-relay)](https://github.com/RA1NM4KER/agent-relay/releases/latest)
+[![License](https://img.shields.io/github/license/RA1NM4KER/agent-relay)](LICENSE)
+
+Agent Relay is a local command-line supervisor for [Claude Code](https://claude.com/claude-code)
+and the Codex CLI. When one account runs out of quota, it safely hands your conversation to the
+next account in your priority order — no copy-pasting context, no lost work, no credentials shared.
+
+- **Safe handoff** — exactly one owner per conversation, verified before it reports success.
+- **Your accounts stay yours** — isolated per-profile logins; Relay never reads or stores a token.
+- **Local only** — no daemon, no Relay server, nothing leaves your machine.
+
+```sh
+brew install RA1NM4KER/tap/agent-relay
+relay setup      # once: log in to your profiles and pick a priority order
+relay claude     # or: relay codex — work as usual; Relay watches the quota
+```
+
+Details, status and limitations follow.
+
 Keep your coding agent moving when one account hits its usage limit. Agent Relay supervises
 isolated Claude and Codex profiles, keeps exactly one owner per conversation, and moves the work to the next eligible
 profile in one priority order. Claude → Claude continues the same native Claude session; anything
