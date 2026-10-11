@@ -97,6 +97,12 @@ pub const EVENT_DRIVEN_ENV: &str = "RELAY_CODEX_EVENT_DRIVEN";
 /// resets on every successful attach.
 const RECONNECT_BACKOFF_MIN: Duration = Duration::from_millis(500);
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(3);
+/// How many consecutive full `thread/resume` timeouts (never an explicit response either way)
+/// against the *same* known thread id it takes to earn the same bounded, authoritative relearn
+/// fallback an explicit rejection gets immediately — see `attach_worker_loop`'s own doc comment.
+/// High enough that ordinary, briefly-slow daemon traffic (one or two slow responses) never
+/// triggers it; low enough that a genuinely stuck id is not retried for the rest of a long session.
+const TIMEOUT_RELEARN_THRESHOLD: u32 = 3;
 /// How often the backoff sleep wakes up to check the stop flag — keeps `stop()` responsive
 /// without a tight loop.
 const STOP_CHECK_INTERVAL: Duration = Duration::from_millis(100);
@@ -445,6 +451,8 @@ fn attach_error_label(error: &ObserverError) -> &'static str {
         ObserverError::ResumeNotYetReady(_) => {
             "codex_event_driven_attach_error_resume_not_yet_ready"
         }
+        ObserverError::ResumeRejected(_) => "codex_event_driven_attach_error_resume_rejected",
+        ObserverError::ResumeTimedOut(_) => "codex_event_driven_attach_error_resume_timed_out",
     }
 }
 
@@ -476,6 +484,26 @@ fn attach_error_label(error: &ObserverError) -> &'static str {
 /// never a reason to give up. This naturally supports repeated replacement (A → B → C, ...) within
 /// one worker generation: each newly rediscovered identity becomes the one compared against on the
 /// next iteration, so a second replacement is detected and recovered from exactly like the first.
+///
+/// GitHub #18 follow-up (`~/repos` live finding, second occurrence of the daemon-replacement
+/// finding above's own class of gap): a real natural exhaustion showed the daemon-replacement
+/// recovery above working cleanly — `codex_event_driven_daemon_replaced` →
+/// `codex_event_driven_daemon_rediscovered` — immediately followed by `ResumeNotYetReady` against
+/// the *correct*, already-verified-current thread id, which then never once succeeded for the
+/// ~14 minutes up to and including the exhaustion the observer never saw, despite the native
+/// session's own rollout showing continuous heavy turn activity throughout. Before this follow-up,
+/// every `thread/resume` failure — an explicit rejection, a bare timeout, or the one genuinely
+/// benign "no rollout found" signature — collapsed into the same `ResumeNotYetReady`, so the loop
+/// (correctly, by its own stated contract) kept the same id and retried forever, with no way for
+/// anyone reviewing the trace afterward to tell *which* of those three it actually was, and no way
+/// for the loop itself to ever consider that the id might not be the problem at all. `thread/resume`
+/// failures are now split three ways (see [`ObserverError`]'s own doc comment): `ResumeNotYetReady`
+/// and `ResumeTimedOut` both keep the same id (neither is evidence the id is wrong), but
+/// `ResumeRejected` — an affirmative server-side rejection, not "just wait" — now earns exactly one
+/// bounded, authoritative re-check: the next attempt listens for a fresh `thread/started` broadcast
+/// instead, and if nothing new is learned (`NoThread`), the rejected id is restored rather than
+/// left permanently cleared, so a generation that keeps hitting rejections never degrades into
+/// paying the full listen timeout on every retry forever.
 fn attach_worker_loop(
     mut target: AttachTarget,
     mut known_thread_id: Option<String>,
@@ -490,6 +518,16 @@ fn attach_worker_loop(
     // once, not on every retry — reset to `false` the moment rediscovery succeeds, so a *second*
     // replacement later in the same generation is traced as its own distinct event.
     let mut daemon_replaced_traced = false;
+    // GitHub #18 follow-up: an explicit `ResumeRejected` clears `known_thread_id` for exactly one
+    // bounded re-listen attempt (authoritative — a fresh `thread/started` broadcast, never a
+    // guess). If that attempt learns nothing new (`NoThread`), the rejected id is restored here
+    // rather than left permanently cleared, so a generation that keeps hitting rejections never
+    // degrades into paying the full listen timeout on every single retry forever.
+    let mut rejected_fallback_id: Option<String> = None;
+    // Consecutive full `ResumeTimedOut` failures against the current `known_thread_id` — reset
+    // whenever that id changes or a non-timeout resume outcome occurs. See
+    // `TIMEOUT_RELEARN_THRESHOLD`'s own doc comment.
+    let mut consecutive_timeouts: u32 = 0;
     loop {
         if stop_flag.load(Ordering::Relaxed) {
             let _ignored = outcome_tx.send(AttachOutcome::GaveUp);
@@ -553,8 +591,65 @@ fn attach_worker_loop(
                     crate::auto_handoff::trace_event(project_state_dir, label);
                     last_traced_error = Some(label);
                 }
-                if let ObserverError::ResumeNotYetReady(id) = error {
-                    known_thread_id = Some(id);
+                match error {
+                    ObserverError::ResumeNotYetReady(id) => {
+                        known_thread_id = Some(id);
+                        consecutive_timeouts = 0;
+                    }
+                    ObserverError::ResumeTimedOut(id) => {
+                        // GitHub #18 follow-up: a bare timeout is not proof the id is wrong — a
+                        // single one keeps the same id, same as the confirmed-benign case. But a
+                        // *persistent* timeout (unlike an explicit rejection, which answers fast)
+                        // can otherwise hide a genuinely stale id forever behind "it just hasn't
+                        // responded yet" — indistinguishable in principle from a daemon that will
+                        // never, ever answer this specific id again. After enough consecutive full
+                        // timeouts against the same id to rule out ordinary slowness (at least
+                        // `TIMEOUT_RELEARN_THRESHOLD` full `ATTACH_TIMEOUT` waits with zero
+                        // response), this earns the same bounded, authoritative re-check a
+                        // rejection does, for the same reason.
+                        consecutive_timeouts += 1;
+                        if consecutive_timeouts >= TIMEOUT_RELEARN_THRESHOLD {
+                            crate::auto_handoff::trace_event(
+                                project_state_dir,
+                                "codex_event_driven_thread_relearn_after_persistent_timeout",
+                            );
+                            rejected_fallback_id = Some(id);
+                            known_thread_id = None;
+                            consecutive_timeouts = 0;
+                        } else {
+                            known_thread_id = Some(id);
+                        }
+                    }
+                    ObserverError::ResumeRejected(id) => {
+                        // GitHub #18 follow-up: a real `~/repos` natural exhaustion left the
+                        // observer retrying the same thread id, indistinguishable from the
+                        // confirmed-benign case, for the ~14 minutes leading up to and including
+                        // an exhaustion it never saw. An explicit rejection is not proof the id is
+                        // permanently wrong, but is distinct enough from "just wait" to earn one
+                        // bounded, authoritative re-check — never a guess, never a busy loop: the
+                        // very next attempt listens for a genuinely fresh `thread/started`
+                        // broadcast instead of repeating the rejected id, and `NoThread` below
+                        // restores it if nothing new was learned.
+                        crate::auto_handoff::trace_event(
+                            project_state_dir,
+                            "codex_event_driven_thread_relearn_after_rejection",
+                        );
+                        rejected_fallback_id = Some(id);
+                        known_thread_id = None;
+                        consecutive_timeouts = 0;
+                    }
+                    ObserverError::NoThread => {
+                        // Reached either by a genuinely fresh launch's own listen timeout
+                        // (nothing to restore, `known_thread_id` was already `None`) or by the
+                        // one-shot re-listen just above finding nothing new — in the latter case,
+                        // go back to the rejected id rather than listening forever on every
+                        // subsequent retry.
+                        known_thread_id = rejected_fallback_id.take();
+                        consecutive_timeouts = 0;
+                    }
+                    ObserverError::Connect
+                    | ObserverError::Handshake
+                    | ObserverError::HomeMismatch => {}
                 }
             }
         }
@@ -742,6 +837,403 @@ mod tests {
             }
         });
         listener
+    }
+
+    /// GitHub #18 follow-up: a fake app-server that always, affirmatively rejects
+    /// `rejected_thread_id` (a message that does **not** match the "no rollout found" signature —
+    /// simulating the live `~/repos` finding's own symptom, a `thread/resume` failure that is
+    /// never going to resolve no matter how many times it is retried) while broadcasting
+    /// `relearned_thread_id` as a fresh `thread/started` on every connection right after that
+    /// connection's own `initialized`, and succeeding `thread/resume` against *that* id instead.
+    /// Each incoming connection gets its own broadcast — exactly what a real app-server would do
+    /// for a genuinely new thread any newly connecting client (including a reconnecting observer)
+    /// would learn about.
+    fn install_fake_app_server_ws_with_relearnable_thread(
+        socket_path: &Path,
+        codex_home: &Path,
+        rejected_thread_id: &str,
+        relearned_thread_id: &str,
+    ) -> std::os::unix::net::UnixListener {
+        let listener = std::os::unix::net::UnixListener::bind(socket_path).expect("bind");
+        let codex_home = codex_home.to_path_buf();
+        let rejected_thread_id = rejected_thread_id.to_owned();
+        let relearned_thread_id = relearned_thread_id.to_owned();
+        let listener_clone = listener.try_clone().expect("clone listener");
+        thread::spawn(move || {
+            for stream in listener_clone.incoming() {
+                let Ok(stream) = stream else { return };
+                let Ok(mut socket) = tungstenite::accept(stream) else {
+                    continue;
+                };
+                loop {
+                    let Ok(tungstenite::Message::Text(text)) = socket.read() else {
+                        break;
+                    };
+                    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+                        continue;
+                    };
+                    match value.get("method").and_then(serde_json::Value::as_str) {
+                        Some("initialize") => {
+                            let id = value["id"].clone();
+                            let _ = socket.send(tungstenite::Message::Text(
+                                serde_json::json!({"id": id, "result": {"codexHome": codex_home.to_string_lossy()}})
+                                    .to_string()
+                                    .into(),
+                            ));
+                            let _ = socket.flush();
+                        }
+                        Some("initialized") => {
+                            let _ = socket.send(tungstenite::Message::Text(
+                                serde_json::json!({
+                                    "method": "thread/started",
+                                    "params": {"thread": {"id": relearned_thread_id}},
+                                })
+                                .to_string()
+                                .into(),
+                            ));
+                            let _ = socket.flush();
+                        }
+                        Some("thread/resume") => {
+                            let id = value["id"].clone();
+                            let requested = value["params"]["threadId"].as_str().unwrap_or("");
+                            if requested == rejected_thread_id {
+                                let _ = socket.send(tungstenite::Message::Text(
+                                    serde_json::json!({"id": id, "error": {"code": -32602, "message": "thread not found"}})
+                                        .to_string()
+                                        .into(),
+                                ));
+                            } else {
+                                let _ = socket.send(tungstenite::Message::Text(
+                                    serde_json::json!({"id": id, "result": {}})
+                                        .to_string()
+                                        .into(),
+                                ));
+                            }
+                            let _ = socket.flush();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+        listener
+    }
+
+    #[test]
+    fn a_rejected_thread_falls_back_to_relearning_the_active_thread_then_succeeds() {
+        // GitHub #18 follow-up — reproduces the real `~/repos` natural exhaustion's own structural
+        // failure deterministically: before this fix, ANY `thread/resume` failure (an affirmative
+        // rejection included) was reported as `ResumeNotYetReady`, so the loop kept the same,
+        // never-going-to-succeed id forever. This must now fall back to relearning and succeed
+        // against the thread that was actually resumable all along.
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("t.sock");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let _listener = install_fake_app_server_ws_with_relearnable_thread(
+            &socket_path,
+            &codex_home,
+            "stale-thread",
+            "relearned-thread",
+        );
+        let (mut child, identity) = live_identity();
+
+        let stop_flag = AtomicBool::new(false);
+        let (tx, rx) = mpsc::channel();
+        attach_worker_loop(
+            attach_target(
+                Path::new("/definitely/not/codex"),
+                &codex_home,
+                socket_path,
+                identity,
+            ),
+            Some("stale-thread".to_owned()),
+            &stop_flag,
+            &tx,
+            scratch.path(),
+        );
+        match rx.recv_timeout(Duration::from_secs(10)).expect("outcome") {
+            AttachOutcome::Attached { observer, .. } => {
+                assert_eq!(
+                    observer.thread_id, "relearned-thread",
+                    "must recover by relearning the thread that was actually resumable, \
+                     never keep retrying the permanently-rejected one"
+                );
+                observer.stop();
+            }
+            AttachOutcome::GaveUp => {
+                panic!("must recover by relearning the active thread, never give up")
+            }
+        }
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert!(
+            log.contains("codex_event_driven_attach_error_resume_rejected"),
+            "an affirmative rejection must be traced distinctly from the benign \
+             not-yet-ready case: {log}"
+        );
+        assert!(
+            log.contains("codex_event_driven_thread_relearn_after_rejection"),
+            "the fallback to relearning must itself be traced: {log}"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    /// Never answers `thread/resume` at all for `timed_out_thread_id` (so every attempt against
+    /// it genuinely exhausts `ATTACH_TIMEOUT`, never an explicit response either way), while
+    /// broadcasting and succeeding `relearned_thread_id` exactly like
+    /// [`install_fake_app_server_ws_with_relearnable_thread`] — the persistent-timeout analogue of
+    /// that rejection-triggered fallback.
+    fn install_fake_app_server_ws_timing_out_then_relearnable(
+        socket_path: &Path,
+        codex_home: &Path,
+        timed_out_thread_id: &str,
+        relearned_thread_id: &str,
+    ) -> std::os::unix::net::UnixListener {
+        let listener = std::os::unix::net::UnixListener::bind(socket_path).expect("bind");
+        let codex_home = codex_home.to_path_buf();
+        let timed_out_thread_id = timed_out_thread_id.to_owned();
+        let relearned_thread_id = relearned_thread_id.to_owned();
+        let listener_clone = listener.try_clone().expect("clone listener");
+        thread::spawn(move || {
+            for stream in listener_clone.incoming() {
+                let Ok(stream) = stream else { return };
+                let Ok(mut socket) = tungstenite::accept(stream) else {
+                    continue;
+                };
+                loop {
+                    let Ok(tungstenite::Message::Text(text)) = socket.read() else {
+                        break;
+                    };
+                    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+                        continue;
+                    };
+                    match value.get("method").and_then(serde_json::Value::as_str) {
+                        Some("initialize") => {
+                            let id = value["id"].clone();
+                            let _ = socket.send(tungstenite::Message::Text(
+                                serde_json::json!({"id": id, "result": {"codexHome": codex_home.to_string_lossy()}})
+                                    .to_string()
+                                    .into(),
+                            ));
+                            let _ = socket.flush();
+                        }
+                        Some("initialized") => {
+                            let _ = socket.send(tungstenite::Message::Text(
+                                serde_json::json!({
+                                    "method": "thread/started",
+                                    "params": {"thread": {"id": relearned_thread_id}},
+                                })
+                                .to_string()
+                                .into(),
+                            ));
+                            let _ = socket.flush();
+                        }
+                        Some("thread/resume") => {
+                            let id = value["id"].clone();
+                            let requested = value["params"]["threadId"].as_str().unwrap_or("");
+                            if requested == timed_out_thread_id {
+                                // Deliberately no response at all — forces the real
+                                // `ATTACH_TIMEOUT` wait, never an explicit error.
+                            } else {
+                                let _ = socket.send(tungstenite::Message::Text(
+                                    serde_json::json!({"id": id, "result": {}})
+                                        .to_string()
+                                        .into(),
+                                ));
+                                let _ = socket.flush();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+        listener
+    }
+
+    #[test]
+    fn persistent_resume_timeouts_against_the_same_thread_fall_back_to_relearning() {
+        // GitHub #18 follow-up: unlike an explicit rejection (fast, unambiguous), a bare timeout
+        // alone is never proof the id is wrong — but a *persistent* one (never a single response
+        // either way, repeatedly) must not be allowed to hide a genuinely stuck id for the rest of
+        // a session the way the live `~/repos` exhaustion's own observer was stuck. This is slow
+        // by construction (`TIMEOUT_RELEARN_THRESHOLD` full `ATTACH_TIMEOUT` waits, ~45s) — no
+        // shortcut exists without weakening the real timeout this is proving against.
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("t.sock");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let _listener = install_fake_app_server_ws_timing_out_then_relearnable(
+            &socket_path,
+            &codex_home,
+            "stuck-thread",
+            "relearned-thread",
+        );
+        let (mut child, identity) = live_identity();
+
+        let stop_flag = AtomicBool::new(false);
+        let (tx, rx) = mpsc::channel();
+        attach_worker_loop(
+            attach_target(
+                Path::new("/definitely/not/codex"),
+                &codex_home,
+                socket_path,
+                identity,
+            ),
+            Some("stuck-thread".to_owned()),
+            &stop_flag,
+            &tx,
+            scratch.path(),
+        );
+        match rx.recv_timeout(Duration::from_secs(90)).expect("outcome") {
+            AttachOutcome::Attached { observer, .. } => {
+                assert_eq!(
+                    observer.thread_id, "relearned-thread",
+                    "must eventually recover by relearning after persistent timeouts, \
+                     never keep retrying a thread id that never answers at all"
+                );
+                observer.stop();
+            }
+            AttachOutcome::GaveUp => {
+                panic!("must recover by relearning after persistent timeouts, never give up")
+            }
+        }
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert!(
+            log.contains("codex_event_driven_attach_error_resume_timed_out"),
+            "each timeout must be traced: {log}"
+        );
+        assert!(
+            log.contains("codex_event_driven_thread_relearn_after_persistent_timeout"),
+            "the persistent-timeout fallback must itself be traced, distinctly from the \
+             rejection-triggered one: {log}"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    /// Always rejects `rejected_thread_id` (a non-benign message) and never reacts to
+    /// `initialized` at all — no broadcast, ever. Used to prove the one-shot re-listen fallback
+    /// genuinely times out (`NoThread`) rather than finding something to relearn, so the restore
+    /// path can be exercised deterministically.
+    fn install_fake_app_server_ws_always_rejecting(
+        socket_path: &Path,
+        codex_home: &Path,
+        rejected_thread_id: &str,
+    ) -> std::os::unix::net::UnixListener {
+        let listener = std::os::unix::net::UnixListener::bind(socket_path).expect("bind");
+        let codex_home = codex_home.to_path_buf();
+        let rejected_thread_id = rejected_thread_id.to_owned();
+        let listener_clone = listener.try_clone().expect("clone listener");
+        thread::spawn(move || {
+            for stream in listener_clone.incoming() {
+                let Ok(stream) = stream else { return };
+                let Ok(mut socket) = tungstenite::accept(stream) else {
+                    continue;
+                };
+                loop {
+                    let Ok(tungstenite::Message::Text(text)) = socket.read() else {
+                        break;
+                    };
+                    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+                        continue;
+                    };
+                    match value.get("method").and_then(serde_json::Value::as_str) {
+                        Some("initialize") => {
+                            let id = value["id"].clone();
+                            let _ = socket.send(tungstenite::Message::Text(
+                                serde_json::json!({"id": id, "result": {"codexHome": codex_home.to_string_lossy()}})
+                                    .to_string()
+                                    .into(),
+                            ));
+                            let _ = socket.flush();
+                        }
+                        Some("thread/resume") => {
+                            let id = value["id"].clone();
+                            let requested = value["params"]["threadId"].as_str().unwrap_or("");
+                            if requested == rejected_thread_id {
+                                let _ = socket.send(tungstenite::Message::Text(
+                                    serde_json::json!({"id": id, "error": {"code": -32602, "message": "thread not found"}})
+                                        .to_string()
+                                        .into(),
+                                ));
+                                let _ = socket.flush();
+                            }
+                            // Any other requested thread id (there should never be one in this
+                            // fake, since it never broadcasts anything to relearn) deliberately
+                            // gets no response at all, so a buggy implementation that somehow
+                            // resumed something else would hang rather than silently "pass."
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+        listener
+    }
+
+    #[test]
+    fn a_rejected_thread_with_nothing_new_to_relearn_falls_back_to_the_original_id() {
+        // GitHub #18 follow-up: if the one-shot re-listen after a rejection learns nothing new
+        // (no genuinely fresh thread exists), the rejected id must be restored rather than left
+        // permanently cleared — otherwise every subsequent retry would pay the full listen
+        // timeout forever instead of the much cheaper connect+resume cycle, for no benefit.
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("t.sock");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let _listener =
+            install_fake_app_server_ws_always_rejecting(&socket_path, &codex_home, "stale-thread");
+        let (mut child, identity) = live_identity();
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        let worker_stop = stop_flag.clone();
+        let project_state_dir = scratch.path().to_path_buf();
+        let handle = thread::spawn(move || {
+            attach_worker_loop(
+                attach_target(
+                    Path::new("/definitely/not/codex"),
+                    &codex_home,
+                    socket_path,
+                    identity,
+                ),
+                Some("stale-thread".to_owned()),
+                &worker_stop,
+                &tx,
+                &project_state_dir,
+            );
+        });
+        // The first (near-instant) rejection must trigger exactly one relearn attempt — proven by
+        // durable evidence, never a fixed sleep racing however long that takes.
+        wait_for_trace_line(
+            scratch.path(),
+            "codex_event_driven_thread_relearn_after_rejection",
+            1,
+            Duration::from_secs(5),
+        );
+        stop_flag.store(true, Ordering::Relaxed);
+        // Honoring stop() is bounded by whichever attempt is currently in flight — documented
+        // (`EventDrivenRuntime::stop`'s own comment) to be at most one attach attempt's own
+        // internal bound, which for a re-listen is `ATTACH_TIMEOUT` (15s) if this lands mid-wait.
+        // Never instant, but always bounded — no busy loop, no unbounded wait.
+        let outcome = rx
+            .recv_timeout(Duration::from_secs(20))
+            .expect("bounded outcome after stop");
+        assert!(matches!(outcome, AttachOutcome::GaveUp));
+        handle.join().expect("worker thread joins promptly");
+
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert!(
+            log.contains("codex_event_driven_thread_relearn_after_rejection"),
+            "the rejection must trigger exactly one relearn attempt: {log}"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
     }
 
     #[test]

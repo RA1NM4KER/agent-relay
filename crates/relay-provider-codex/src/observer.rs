@@ -68,13 +68,48 @@ pub enum ObserverError {
     HomeMismatch,
     /// No thread became known within the bounded wait (see [`Observer::attach`]'s doc comment).
     NoThread,
-    /// A thread id was learned (carried here), but `thread/resume` itself failed — live-confirmed
-    /// (agent-relay#17) to mean "no turn has started on this thread yet" (`"no rollout found for
-    /// thread id …"`), never a different, unretryable failure at the protocol level. A retrying
-    /// caller (GitHub #18) uses the carried id on its next attempt rather than re-learning it —
-    /// `thread/started` only ever broadcasts once per thread, so waiting for it again would hang
-    /// for the full attach timeout.
+    /// A thread id was learned (carried here), but `thread/resume` itself failed with the one
+    /// specific, live-confirmed (agent-relay#17) signature that means "no turn has started on
+    /// this thread yet": an explicit JSON-RPC error whose message is `"no rollout found for
+    /// thread id …"`. A retrying caller (GitHub #18) uses the carried id on its next attempt
+    /// rather than re-learning it — `thread/started` only ever broadcasts once per thread, so
+    /// waiting for it again would hang for the full attach timeout, and this specific failure is
+    /// confirmed benign/transient.
     ResumeNotYetReady(String),
+    /// A thread id was learned (carried here), but `thread/resume` failed with an explicit
+    /// JSON-RPC error whose message does **not** match the known "no rollout found" signature
+    /// above (GitHub #18 follow-up — a real `~/repos` natural exhaustion left an observer
+    /// permanently unattached for ~14 minutes with no durable way to tell whether `thread/resume`
+    /// was failing for the confirmed-benign reason or something else entirely). Unlike
+    /// `ResumeNotYetReady`, this is an affirmative server-side rejection of this exact id — never
+    /// proof the id is permanently wrong (the server's own error vocabulary for `thread/resume` is
+    /// not fully enumerated here), but different enough from "just wait" that a caller should
+    /// consider re-learning the active thread rather than only ever retrying the same id forever.
+    ResumeRejected(String),
+    /// A thread id was learned (carried here), but no response to `thread/resume` (matching or
+    /// otherwise) arrived within [`ATTACH_TIMEOUT`] at all — distinct from an explicit rejection:
+    /// the daemon may simply be busy servicing other traffic (GitHub #18 follow-up: a real natural
+    /// exhaustion's own native rollout showed continuous heavy tool-call activity throughout the
+    /// window the observer never reattached in, consistent with resume requests timing out against
+    /// a busy daemon rather than being explicitly rejected). Never proof the id is wrong — a
+    /// retrying caller keeps the same id, exactly like `ResumeNotYetReady`, but traces this
+    /// distinctly so a future occurrence is diagnosable instead of indistinguishable from the
+    /// confirmed-benign case.
+    ResumeTimedOut(String),
+}
+
+/// The known, live-confirmed (agent-relay#17) `thread/resume` error signature for "no turn has
+/// started on this thread yet" — matched as a case-insensitive substring so minor wording/casing
+/// changes across Codex releases don't silently misclassify a benign condition as a rejection.
+/// Never the only signal trusted blindly: callers must still retry on any outcome short of
+/// success, this only changes which durable trace label and recovery hint a failure gets.
+const NO_ROLLOUT_YET_SIGNATURE: &str = "no rollout found";
+
+#[must_use]
+fn is_no_rollout_yet(message: &str) -> bool {
+    message
+        .to_ascii_lowercase()
+        .contains(NO_ROLLOUT_YET_SIGNATURE)
 }
 
 impl std::fmt::Display for ObserverError {
@@ -86,6 +121,12 @@ impl std::fmt::Display for ObserverError {
             Self::NoThread => write!(f, "no thread became known within the bounded wait"),
             Self::ResumeNotYetReady(id) => {
                 write!(f, "thread {id} has not started its first turn yet")
+            }
+            Self::ResumeRejected(id) => {
+                write!(f, "thread {id} was explicitly rejected by thread/resume")
+            }
+            Self::ResumeTimedOut(id) => {
+                write!(f, "thread {id} got no thread/resume response in time")
             }
         }
     }
@@ -156,12 +197,20 @@ impl Observer {
             Some(id) => id.to_owned(),
             None => wait_for_first_thread(&mut socket)?,
         };
-        // A resume failure here is reported with the id still attached (`ResumeNotYetReady`)
-        // rather than collapsed into a generic error: a retrying caller (GitHub #18) must not
-        // re-learn it by waiting for another `thread/started` broadcast, which — for a thread
-        // already created — will never fire again.
-        if resume(&mut socket, &resolved_thread_id).is_err() {
-            return Err(ObserverError::ResumeNotYetReady(resolved_thread_id));
+        // A resume failure here is reported with the id still attached — never collapsed into a
+        // single generic error — specifically so a retrying caller (GitHub #18) can tell apart the
+        // one confirmed-benign signature (`ResumeNotYetReady`, safe to retry the same id forever)
+        // from an affirmative rejection (`ResumeRejected`, a cue to consider re-learning the active
+        // thread) and a bare timeout (`ResumeTimedOut`, informative but not proof of anything about
+        // the id itself).
+        if let Err(failure) = resume(&mut socket, &resolved_thread_id) {
+            return Err(match failure {
+                ResumeFailure::Rejected(message) if is_no_rollout_yet(&message) => {
+                    ObserverError::ResumeNotYetReady(resolved_thread_id)
+                }
+                ResumeFailure::Rejected(_) => ObserverError::ResumeRejected(resolved_thread_id),
+                ResumeFailure::TimedOut => ObserverError::ResumeTimedOut(resolved_thread_id),
+            });
         }
         socket
             .get_ref()
@@ -338,7 +387,18 @@ fn wait_for_first_thread(socket: &mut WebSocket<UnixStream>) -> Result<String, O
     Err(ObserverError::NoThread)
 }
 
-fn resume(socket: &mut WebSocket<UnixStream>, thread_id: &str) -> Result<(), ObserverError> {
+/// Why `thread/resume` did not succeed, kept distinct from [`ObserverError`] itself (which also
+/// needs to classify the one known-benign message, done by [`Observer::attach`] after this
+/// returns) — see [`read_matching_result_for_resume`]'s own doc comment for how each is produced.
+enum ResumeFailure {
+    /// A JSON-RPC `error` response matching `resume_id` arrived, carrying this message.
+    Rejected(String),
+    /// Nothing matching `resume_id` (a response or a transport failure) arrived within
+    /// [`ATTACH_TIMEOUT`] at all.
+    TimedOut,
+}
+
+fn resume(socket: &mut WebSocket<UnixStream>, thread_id: &str) -> Result<(), ResumeFailure> {
     let resume_id = "relay-observer-resume";
     send_json(
         socket,
@@ -349,9 +409,8 @@ fn resume(socket: &mut WebSocket<UnixStream>, thread_id: &str) -> Result<(), Obs
             "params": {"threadId": thread_id, "excludeTurns": true},
         }),
     )
-    .map_err(|_| ObserverError::Handshake)?;
-    read_matching_result(socket, resume_id)?;
-    Ok(())
+    .map_err(|_| ResumeFailure::TimedOut)?;
+    read_matching_result_for_resume(socket, resume_id)
 }
 
 fn send_json(socket: &mut WebSocket<UnixStream>, value: &Value) -> tungstenite::Result<()> {
@@ -389,6 +448,46 @@ fn read_matching_result(
         return value.get("result").cloned().ok_or(ObserverError::Handshake);
     }
     Err(ObserverError::Handshake)
+}
+
+/// Like [`read_matching_result`], but for `thread/resume` specifically (GitHub #18 follow-up):
+/// an explicit JSON-RPC `error` response matching `expected_id` carries its own `message` back
+/// (classified by [`Observer::attach`] into `ResumeNotYetReady` vs `ResumeRejected`) rather than
+/// being collapsed into the same generic failure a bare timeout gets. A non-matching message is
+/// still skipped exactly like `read_matching_result` does — this never changes which messages
+/// count as a match, only what a caller learns once one does.
+fn read_matching_result_for_resume(
+    socket: &mut WebSocket<UnixStream>,
+    expected_id: &str,
+) -> Result<(), ResumeFailure> {
+    let deadline = Instant::now() + ATTACH_TIMEOUT;
+    while Instant::now() < deadline {
+        let message = match socket.read() {
+            Ok(message) => message,
+            Err(error) if is_timeout(&error) => continue,
+            Err(_) => return Err(ResumeFailure::TimedOut),
+        };
+        let Message::Text(text) = message else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        if value.get("id").and_then(Value::as_str) != Some(expected_id) {
+            continue;
+        }
+        if value.get("result").is_some() {
+            return Ok(());
+        }
+        let message = value
+            .get("error")
+            .and_then(|error| error.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        return Err(ResumeFailure::Rejected(message));
+    }
+    Err(ResumeFailure::TimedOut)
 }
 
 /// The background reader: blocks on `socket.read()` until the socket is shut down (from
@@ -641,6 +740,121 @@ mod tests {
         assert_eq!(
             result.err(),
             Some(ObserverError::ResumeNotYetReady("known-id".to_owned()))
+        );
+    }
+
+    /// A fake server that always answers `thread/resume` with an explicit JSON-RPC error whose
+    /// message does **not** match the known "no rollout found" signature — GitHub #18 follow-up:
+    /// a real `~/repos` natural exhaustion showed the previous, undifferentiated handling of this
+    /// case (collapsed into the exact same `ResumeNotYetReady` the benign case gets) leaving the
+    /// attach worker retrying a thread id forever with no way to tell the two apart.
+    fn install_fake_server_that_rejects_resume(listener: UnixListener, codex_home: &Path) {
+        let codex_home = codex_home.to_path_buf();
+        thread::spawn(move || {
+            let Ok((stream, _addr)) = listener.accept() else {
+                return;
+            };
+            let Ok(mut socket) = tungstenite::accept(stream) else {
+                return;
+            };
+            loop {
+                let Ok(Message::Text(text)) = socket.read() else {
+                    return;
+                };
+                let Ok(value) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
+                match value.get("method").and_then(Value::as_str) {
+                    Some("initialize") => {
+                        let id = value["id"].clone();
+                        let _ = socket.send(Message::Text(
+                            json!({"id": id, "result": {"codexHome": codex_home.to_string_lossy()}})
+                                .to_string()
+                                .into(),
+                        ));
+                        let _ = socket.flush();
+                    }
+                    Some("thread/resume") => {
+                        let id = value["id"].clone();
+                        let _ = socket.send(Message::Text(
+                            json!({"id": id, "error": {"code": -32602, "message": "thread not found"}})
+                                .to_string()
+                                .into(),
+                        ));
+                        let _ = socket.flush();
+                    }
+                    _ => {}
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn a_resume_rejection_with_a_different_message_is_classified_distinctly_from_not_yet_ready() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("t5c.sock");
+        let listener = UnixListener::bind(&socket_path).expect("bind");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        install_fake_server_that_rejects_resume(listener, &codex_home);
+
+        let result = Observer::attach(&socket_path, &codex_home, Some("t1"));
+        assert_eq!(
+            result.err(),
+            Some(ObserverError::ResumeRejected("t1".to_owned())),
+            "an explicit rejection unrelated to \"no rollout found\" must never be mistaken for \
+             the confirmed-benign not-yet-ready case"
+        );
+    }
+
+    /// A fake server that answers `initialize` but then never answers `thread/resume` at all —
+    /// the one case `read_matching_result_for_resume` must classify as a bare timeout, distinct
+    /// from any explicit response.
+    fn install_fake_server_silent_on_resume(listener: UnixListener, codex_home: &Path) {
+        let codex_home = codex_home.to_path_buf();
+        thread::spawn(move || {
+            let Ok((stream, _addr)) = listener.accept() else {
+                return;
+            };
+            let Ok(mut socket) = tungstenite::accept(stream) else {
+                return;
+            };
+            loop {
+                let Ok(Message::Text(text)) = socket.read() else {
+                    return;
+                };
+                let Ok(value) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
+                if value.get("method").and_then(Value::as_str) == Some("initialize") {
+                    let id = value["id"].clone();
+                    let _ = socket.send(Message::Text(
+                        json!({"id": id, "result": {"codexHome": codex_home.to_string_lossy()}})
+                            .to_string()
+                            .into(),
+                    ));
+                    let _ = socket.flush();
+                }
+                // `thread/resume` (and anything else) is deliberately never answered.
+            }
+        });
+    }
+
+    #[test]
+    fn a_resume_timeout_is_classified_distinctly_from_an_explicit_response() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("t5d.sock");
+        let listener = UnixListener::bind(&socket_path).expect("bind");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        install_fake_server_silent_on_resume(listener, &codex_home);
+
+        let result = Observer::attach(&socket_path, &codex_home, Some("t1"));
+        assert_eq!(
+            result.err(),
+            Some(ObserverError::ResumeTimedOut("t1".to_owned())),
+            "a bare timeout waiting for any response must never be conflated with an explicit \
+             rejection or the confirmed-benign not-yet-ready case"
         );
     }
 
