@@ -284,6 +284,10 @@ impl CodexPollScheduler {
             // drive reconnection and never forwards it here in practice; this arm exists only so
             // this match stays exhaustive if a future caller passes events through unfiltered.
             ObserverEvent::Disconnected(_) => {}
+            // Same reasoning as `Disconnected` above: `EventDrivenRuntime::tick` intercepts this
+            // variant itself (GitHub #18 follow-up) to drive a re-learning reconnect and never
+            // forwards it here in practice.
+            ObserverEvent::ThreadEnded => {}
         }
     }
 

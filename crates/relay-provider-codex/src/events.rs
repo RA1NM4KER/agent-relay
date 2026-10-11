@@ -109,6 +109,40 @@ pub fn max_used_percent_from_rate_limits_updated(params: &Value) -> Option<u32> 
         .max()
 }
 
+/// GitHub #18 follow-up: `true` if `method`/`params` is one of the app-server's own authoritative,
+/// pushed signals (confirmed against the real `codex app-server generate-json-schema` output —
+/// never guessed) that `thread_id` specifically has ended — either a lifecycle notification
+/// (`thread/closed`, `thread/archived`, `thread/deleted`, every one of which carries a bare
+/// `{"threadId": ...}`), or `thread/status/changed` reporting `{"type": "notLoaded"}` for it.
+/// `thread/compacted`/`thread/reverted`/`thread/unarchived` deliberately do not qualify — they
+/// continue or restore a thread, never end it — and `idle`/`active`/`systemError` statuses
+/// deliberately do not either: `idle` just means no turn is in flight right now (still the
+/// thread the caller should keep watching), and a transient `systemError` is not proof the thread
+/// itself is gone. This is a pure decision over already-received JSON, never a network call, so a
+/// caller can use it both on the live, already-subscribed event stream and while still waiting for
+/// `thread/resume`'s own response, where it is strictly more authoritative than inferring
+/// abandonment from a resume response that never changes (see `ObserverError`'s own doc comment).
+#[must_use]
+pub fn notification_reports_this_thread_ended(
+    method: &str,
+    params: &Value,
+    thread_id: &str,
+) -> bool {
+    let matches_id = params.get("threadId").and_then(Value::as_str) == Some(thread_id);
+    match method {
+        "thread/closed" | "thread/archived" | "thread/deleted" => matches_id,
+        "thread/status/changed" => {
+            matches_id
+                && params
+                    .get("status")
+                    .and_then(|status| status.get("type"))
+                    .and_then(Value::as_str)
+                    == Some("notLoaded")
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,5 +270,92 @@ mod tests {
         let weird = json!({"unexpected": [1, 2, {"nested": true}], "codexErrorInfo": 9.99});
         assert!(!is_usage_limit_exceeded(&weird));
         assert_eq!(max_used_percent_from_rate_limits_updated(&weird), None);
+    }
+
+    // --- GitHub #18 follow-up: authoritative thread-ended lifecycle signals ---
+
+    #[test]
+    fn closed_archived_and_deleted_all_report_this_thread_ended() {
+        for method in ["thread/closed", "thread/archived", "thread/deleted"] {
+            let params = json!({"threadId": "t1"});
+            assert!(
+                notification_reports_this_thread_ended(method, &params, "t1"),
+                "{method} for the exact thread id must report ended"
+            );
+            assert!(
+                !notification_reports_this_thread_ended(method, &params, "a-different-thread"),
+                "{method} for a different thread id must never report ended"
+            );
+        }
+    }
+
+    #[test]
+    fn compacted_reverted_and_unarchived_never_report_this_thread_ended() {
+        for method in ["thread/compacted", "thread/reverted", "thread/unarchived"] {
+            let params = json!({"threadId": "t1"});
+            assert!(
+                !notification_reports_this_thread_ended(method, &params, "t1"),
+                "{method} continues or restores a thread, never ends it"
+            );
+        }
+    }
+
+    #[test]
+    fn a_not_loaded_status_change_reports_this_thread_ended() {
+        let params = json!({"threadId": "t1", "status": {"type": "notLoaded"}});
+        assert!(notification_reports_this_thread_ended(
+            "thread/status/changed",
+            &params,
+            "t1"
+        ));
+    }
+
+    #[test]
+    fn idle_active_and_system_error_statuses_never_report_this_thread_ended() {
+        for status in [
+            json!({"type": "idle"}),
+            json!({"type": "active", "activeFlags": []}),
+            json!({"type": "systemError"}),
+        ] {
+            let params = json!({"threadId": "t1", "status": status});
+            assert!(
+                !notification_reports_this_thread_ended("thread/status/changed", &params, "t1"),
+                "only notLoaded is proof of abandonment, never idle/active/a transient error"
+            );
+        }
+    }
+
+    #[test]
+    fn a_not_loaded_status_change_for_a_different_thread_is_inert() {
+        let params = json!({"threadId": "t2", "status": {"type": "notLoaded"}});
+        assert!(!notification_reports_this_thread_ended(
+            "thread/status/changed",
+            &params,
+            "t1"
+        ));
+    }
+
+    #[test]
+    fn unrelated_methods_and_malformed_params_never_report_ended_or_panic() {
+        assert!(!notification_reports_this_thread_ended(
+            "thread/started",
+            &json!({"thread": {"id": "t1"}}),
+            "t1"
+        ));
+        assert!(!notification_reports_this_thread_ended(
+            "thread/closed",
+            &json!({}),
+            "t1"
+        ));
+        assert!(!notification_reports_this_thread_ended(
+            "thread/status/changed",
+            &json!({"threadId": "t1", "status": {}}),
+            "t1"
+        ));
+        assert!(!notification_reports_this_thread_ended(
+            "thread/status/changed",
+            &json!(null),
+            "t1"
+        ));
     }
 }

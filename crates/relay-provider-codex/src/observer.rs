@@ -45,6 +45,13 @@ pub enum ObserverEvent {
     /// and thread id) and, once that succeeds, run exactly one authoritative reconciliation read
     /// before resuming event-driven supervision — never inferred from event silence alone.
     Disconnected(DisconnectReason),
+    /// GitHub #18 follow-up: the app-server's own authoritative, pushed lifecycle signal
+    /// (`thread/closed`/`thread/archived`/`thread/deleted`, or `thread/status/changed` reporting
+    /// `notLoaded`) reported *this exact subscribed thread* as ended — never inferred from an
+    /// absence of other events. Unlike `Disconnected`, the connection itself is still live; only
+    /// this specific thread is confirmed done. Callers must stop watching it and re-learn the
+    /// active thread (listen for a fresh `thread/started`), never keep resuming the same id.
+    ThreadEnded,
 }
 
 /// Why the background connection ended, for diagnostics only — every variant is handled
@@ -96,6 +103,16 @@ pub enum ObserverError {
     /// distinctly so a future occurrence is diagnosable instead of indistinguishable from the
     /// confirmed-benign case.
     ResumeTimedOut(String),
+    /// A thread id was learned (carried here), and — while still waiting for `thread/resume`'s
+    /// own response — the app-server's own authoritative, pushed lifecycle signal
+    /// (`thread/closed`/`thread/archived`/`thread/deleted`, or `thread/status/changed` reporting
+    /// `notLoaded`) for this *exact* id arrived first (GitHub #18 follow-up: confirmed via the
+    /// real `codex app-server generate-json-schema` output, never guessed — see
+    /// `crate::events::notification_reports_this_thread_ended`'s own doc comment). Unlike
+    /// `ResumeNotYetReady`/`ResumeRejected`/`ResumeTimedOut`, this is not an inference from a
+    /// resume outcome at all — it is the server itself saying this id is done. A retrying caller
+    /// should re-learn the active thread immediately, with no threshold to wait out first.
+    ResumeTargetEnded(String),
 }
 
 /// The known, live-confirmed (agent-relay#17) `thread/resume` error signature for "no turn has
@@ -127,6 +144,9 @@ impl std::fmt::Display for ObserverError {
             }
             Self::ResumeTimedOut(id) => {
                 write!(f, "thread {id} got no thread/resume response in time")
+            }
+            Self::ResumeTargetEnded(id) => {
+                write!(f, "thread {id} was authoritatively reported ended")
             }
         }
     }
@@ -210,6 +230,7 @@ impl Observer {
                 }
                 ResumeFailure::Rejected(_) => ObserverError::ResumeRejected(resolved_thread_id),
                 ResumeFailure::TimedOut => ObserverError::ResumeTimedOut(resolved_thread_id),
+                ResumeFailure::TargetEnded => ObserverError::ResumeTargetEnded(resolved_thread_id),
             });
         }
         socket
@@ -218,7 +239,8 @@ impl Observer {
             .map_err(|_| ObserverError::Handshake)?;
 
         let (sender, events) = mpsc::channel();
-        let reader = thread::spawn(move || read_loop(socket, sender));
+        let subscribed_thread_id = resolved_thread_id.clone();
+        let reader = thread::spawn(move || read_loop(socket, sender, subscribed_thread_id));
         Ok(Self {
             events,
             shutdown: shutdown_handle,
@@ -396,6 +418,12 @@ enum ResumeFailure {
     /// Nothing matching `resume_id` (a response or a transport failure) arrived within
     /// [`ATTACH_TIMEOUT`] at all.
     TimedOut,
+    /// GitHub #18 follow-up: the app-server's own authoritative lifecycle signal for this exact
+    /// `threadId` arrived *before* a matching `thread/resume` response did — see
+    /// `crate::events::notification_reports_this_thread_ended`'s own doc comment. Strictly more
+    /// authoritative than any resume outcome, so this always wins even over a `result` that might
+    /// still be sitting unread behind it.
+    TargetEnded,
 }
 
 fn resume(socket: &mut WebSocket<UnixStream>, thread_id: &str) -> Result<(), ResumeFailure> {
@@ -410,7 +438,7 @@ fn resume(socket: &mut WebSocket<UnixStream>, thread_id: &str) -> Result<(), Res
         }),
     )
     .map_err(|_| ResumeFailure::TimedOut)?;
-    read_matching_result_for_resume(socket, resume_id)
+    read_matching_result_for_resume(socket, resume_id, thread_id)
 }
 
 fn send_json(socket: &mut WebSocket<UnixStream>, value: &Value) -> tungstenite::Result<()> {
@@ -454,11 +482,15 @@ fn read_matching_result(
 /// an explicit JSON-RPC `error` response matching `expected_id` carries its own `message` back
 /// (classified by [`Observer::attach`] into `ResumeNotYetReady` vs `ResumeRejected`) rather than
 /// being collapsed into the same generic failure a bare timeout gets. A non-matching message is
-/// still skipped exactly like `read_matching_result` does — this never changes which messages
-/// count as a match, only what a caller learns once one does.
+/// still skipped exactly like `read_matching_result` does, *except* one: an authoritative
+/// lifecycle notification for `target_thread_id` itself (`thread/closed` et al. — see
+/// [`crate::events::notification_reports_this_thread_ended`]) short-circuits to
+/// [`ResumeFailure::TargetEnded`] immediately, never waiting for a resume response that may now
+/// never usefully arrive.
 fn read_matching_result_for_resume(
     socket: &mut WebSocket<UnixStream>,
     expected_id: &str,
+    target_thread_id: &str,
 ) -> Result<(), ResumeFailure> {
     let deadline = Instant::now() + ATTACH_TIMEOUT;
     while Instant::now() < deadline {
@@ -473,6 +505,12 @@ fn read_matching_result_for_resume(
         let Ok(value) = serde_json::from_str::<Value>(&text) else {
             continue;
         };
+        if let Some(method) = value.get("method").and_then(Value::as_str)
+            && let Some(params) = value.get("params")
+            && events::notification_reports_this_thread_ended(method, params, target_thread_id)
+        {
+            return Err(ResumeFailure::TargetEnded);
+        }
         if value.get("id").and_then(Value::as_str) != Some(expected_id) {
             continue;
         }
@@ -494,10 +532,15 @@ fn read_matching_result_for_resume(
 /// [`Observer::stop`]/[`Observer::drop`]) or the server closes it, decoding only the two
 /// notification shapes `crate::events` knows about and dropping everything else — including any
 /// notification shape a future Codex version might add, which must stay inert here exactly as
-/// `crate::events`'s own doc comment requires. Always sends exactly one
-/// [`ObserverEvent::Disconnected`] as its last act before returning (GitHub #17/#18's identified
-/// gap: without this, a dead observer was indistinguishable from "nothing happened yet").
-fn read_loop(mut socket: WebSocket<UnixStream>, sender: mpsc::Sender<ObserverEvent>) {
+/// `crate::events`'s own doc comment requires. Always sends exactly one terminal event (either
+/// [`ObserverEvent::ThreadEnded`] or [`ObserverEvent::Disconnected`]) as its last act before
+/// returning (GitHub #17/#18's identified gap: without this, a dead observer was indistinguishable
+/// from "nothing happened yet").
+fn read_loop(
+    mut socket: WebSocket<UnixStream>,
+    sender: mpsc::Sender<ObserverEvent>,
+    thread_id: String,
+) {
     loop {
         let message = match socket.read() {
             Ok(message) => message,
@@ -523,6 +566,13 @@ fn read_loop(mut socket: WebSocket<UnixStream>, sender: mpsc::Sender<ObserverEve
         let Some(params) = value.get("params") else {
             continue;
         };
+        // GitHub #18 follow-up: an authoritative "this exact subscribed thread has ended" signal
+        // always wins over any other decoding and ends this reader loop promptly — there is
+        // nothing further worth draining for a thread the server itself just confirmed is done.
+        if events::notification_reports_this_thread_ended(method, params, &thread_id) {
+            let _ignored = sender.send(ObserverEvent::ThreadEnded);
+            return;
+        }
         let event = match method {
             "error" if events::error_notification_is_usage_limit_exceeded(params) => {
                 Some(ObserverEvent::UsageLimitExceeded)
@@ -640,7 +690,7 @@ mod tests {
                 match event {
                     ObserverEvent::UsageLimitExceeded => saw_usage_limit = true,
                     ObserverEvent::RateLimitsHint(hint) => saw_hint = Some(hint),
-                    ObserverEvent::Disconnected(_) => {}
+                    ObserverEvent::Disconnected(_) | ObserverEvent::ThreadEnded => {}
                 }
             }
             thread::sleep(Duration::from_millis(20));
@@ -1349,6 +1399,9 @@ mod tests {
                     ObserverEvent::RateLimitsHint(_) => saw_rate_limits_hint = true,
                     ObserverEvent::Disconnected(reason) => {
                         println!("observer disconnected while waiting: {reason:?}");
+                    }
+                    ObserverEvent::ThreadEnded => {
+                        println!("observer's thread authoritatively ended while waiting");
                     }
                 }
             }
