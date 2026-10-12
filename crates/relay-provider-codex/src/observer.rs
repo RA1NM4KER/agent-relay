@@ -201,18 +201,48 @@ impl Observer {
         expected_codex_home: &Path,
         thread_id: Option<&str>,
     ) -> Result<Self, ObserverError> {
+        let socket = Self::connect_and_handshake(endpoint, expected_codex_home)?;
+        Self::finish_attach(socket, thread_id)
+    }
+
+    /// GitHub #18 (fresh-attach determinism follow-up): the connect-plus-handshake half of
+    /// [`Self::attach`], split out so a caller (`codex_runtime::EventDrivenRuntime::start`) can
+    /// establish this connection — and have it actively listening — *before* the interactive
+    /// Codex client is ever spawned for a fresh launch. `thread/started` broadcasts exactly once,
+    /// system-wide, to whoever is already connected at that moment (live-confirmed, see this
+    /// module's own doc comment); a caller that only opens this connection *after* launching the
+    /// interactive client is racing it, and a reconnect attempt that opens a brand-new connection
+    /// after a failed one closes can miss the one and only broadcast forever. Establishing the
+    /// connection first and handing the same already-open socket to [`Self::finish_attach`] is
+    /// what closes that race — never a guess, never a longer timeout.
+    pub fn connect_and_handshake(
+        endpoint: &Path,
+        expected_codex_home: &Path,
+    ) -> Result<WebSocket<UnixStream>, ObserverError> {
         let stream = connect_unix(endpoint)?;
-        let shutdown_handle = stream.try_clone().map_err(|_| ObserverError::Connect)?;
         // A blocking `UnixStream` read has no timeout by default, so without this, every bounded
         // wait below (`Instant::now() < deadline`, re-checked only *between* calls to
         // `socket.read()`) is an illusion: one `read()` that never returns blocks past its own
-        // deadline forever. Cleared once attach succeeds (see below) so the long-lived background
-        // reader can block indefinitely without busy-polling.
+        // deadline forever. Cleared once attach succeeds (see [`Self::finish_attach`]) so the
+        // long-lived background reader can block indefinitely without busy-polling.
         stream
             .set_read_timeout(Some(ATTACH_POLL_INTERVAL))
             .map_err(|_| ObserverError::Connect)?;
-        let mut socket = handshake(stream, expected_codex_home)?;
+        handshake(stream, expected_codex_home)
+    }
 
+    /// GitHub #18 (fresh-attach determinism follow-up): the remainder of [`Self::attach`] given
+    /// an already-connected, already-handshaken socket (see [`Self::connect_and_handshake`]'s own
+    /// doc comment for why these are split) — waits for a thread id if none is given, then
+    /// subscribes via `thread/resume`.
+    pub fn finish_attach(
+        mut socket: WebSocket<UnixStream>,
+        thread_id: Option<&str>,
+    ) -> Result<Self, ObserverError> {
+        let shutdown_handle = socket
+            .get_ref()
+            .try_clone()
+            .map_err(|_| ObserverError::Connect)?;
         let resolved_thread_id = match thread_id {
             Some(id) => id.to_owned(),
             None => wait_for_first_thread(&mut socket)?,

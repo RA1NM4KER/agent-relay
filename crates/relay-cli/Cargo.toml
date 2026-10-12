@@ -23,10 +23,10 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 toml.workspace = true
+tungstenite.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-tungstenite.workspace = true
 
 [lints]
 workspace = true

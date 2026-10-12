@@ -300,6 +300,29 @@ that short of a Codex protocol change, since Codex itself has no notion of this 
 boundary profile isolation already draws everywhere else (Relay guarantees what it controls, never
 a user's own direct misuse of their own files).
 
+### Fresh-attach determinism: closing the "learn, then lose" race
+
+A real natural exhaustion showed a *fresh* launch (no known thread id, profile exclusivity held
+correctly, pinned Codex version correct, the interactive TUI and its one real thread healthy
+throughout) alternate `NoThread` → an affirmative `ResumeRejected` → a relearn attempt → `NoThread`
+again, for an entire session, never once reaching `Attached`. Two compounding causes, both fixed:
+
+1. `thread/started` broadcasts exactly once, system-wide, to whoever is already connected at that
+   instant. The attach worker previously opened its connection only on its own first retry — after
+   the caller had already spawned the interactive TUI — a race the TUI's own startup could win,
+   after which no later reconnect could ever see the broadcast again. The observer's connection is
+   now established and handshaken *before* the caller spawns the interactive TUI, for a fresh
+   launch specifically, and the attach worker's first iteration reuses that exact connection.
+2. Even when the broadcast *was* caught, an affirmative rejection of the resulting resume cleared
+   the learned id and waited for a fresh broadcast to relearn from — correct for an id *supplied*
+   from a prior lease (which can legitimately be stale), but structurally unable to ever succeed
+   for an id this exact worker generation had just *learned* from the one-shot broadcast itself,
+   since no second one is ever coming. A self-learned id is now retried through rejections,
+   never discarded for a relearn that could never find anything.
+
+Together: under profile exclusivity, a thread id a worker generation learns from its own
+pre-launch-established connection is authoritative for the life of the supervised session.
+
 Only the observer (or its still-retrying background worker) is torn down as part of normal session
 cleanup — the daemon itself is never terminated by Relay, on a normal exit or otherwise: it is
 shared and Codex-owned, potentially serving other sessions or tools with nothing to do with this
