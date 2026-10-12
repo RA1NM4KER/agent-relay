@@ -1082,6 +1082,25 @@ esac
         }
     }
 
+    // Defense in depth, installed before anything is spawned so it runs on *any* exit path
+    // (pass, fail, or panic): a broad sweep for anything referencing this test's own, uniquely
+    // named root directory — covers not just session A/B's own process groups but any
+    // deliberately-detached descendant neither of those groups would contain (see
+    // `auto_handoff::spawn_detached`'s own `process_group(0)`, which this test disables polling
+    // specifically to avoid triggering at all, but this sweep stays as a backstop regardless).
+    struct KillAnyProcessReferencingRootOnDrop(std::path::PathBuf);
+    impl Drop for KillAnyProcessReferencingRootOnDrop {
+        fn drop(&mut self) {
+            let _ = Command::new("pkill")
+                .arg("-9")
+                .arg("-f")
+                .arg(self.0.to_string_lossy().as_ref())
+                .output();
+        }
+    }
+    let _kill_any_root_referencing_process_on_drop =
+        KillAnyProcessReferencingRootOnDrop(root.path().to_path_buf());
+
     let mut session_a = {
         use std::os::unix::process::CommandExt as _;
         Command::new(env!("CARGO_BIN_EXE_relay"))
@@ -1096,6 +1115,15 @@ esac
             .arg("--codex-executable")
             .arg(&codex_bin)
             .env("RELAY_CODEX_EVENT_DRIVEN", "1")
+            // agent-relay#18: this test keeps session A's interactive command alive far longer
+            // than any other test in this suite — long enough for GitHub#13's own ordinary
+            // polling cadence to fire for real. Each such poll spawns a *detached* child via
+            // `auto_handoff::spawn_detached` (its own new process group, deliberately separate
+            // from session A's — see that function's own `process_group(0)` call), which this
+            // test's cleanup can never reach or bound. Exclusivity-at-launch is the only thing
+            // under test here, so polling itself is switched off entirely to remove that whole
+            // class of CI-hang risk.
+            .env("RELAY_CODEX_POLL_SECS", "0")
             .env_remove("CLAUDE_CONFIG_DIR")
             .env_remove("CODEX_HOME")
             .stdin(Stdio::null())
@@ -1147,6 +1175,7 @@ esac
             .arg("--codex-executable")
             .arg(&codex_bin)
             .env("RELAY_CODEX_EVENT_DRIVEN", "1")
+            .env("RELAY_CODEX_POLL_SECS", "0")
             .env_remove("CLAUDE_CONFIG_DIR")
             .env_remove("CODEX_HOME")
             .stdin(Stdio::null())
