@@ -95,9 +95,7 @@ impl OrchestrationLock {
 /// the same one profile isolation already draws everywhere else: Relay guarantees what it
 /// controls, never a user's own direct misuse of their own files.
 pub struct ProfileSessionLock {
-    /// Still holds the OS `flock` acquired in [`Self::try_acquire`] — see that method's own doc
-    /// comment for why a plain `File`, not `fd_lock`'s own guard type, is what this struct keeps.
-    _file: fs::File,
+    _guard: fd_lock::RwLockWriteGuard<'static, fs::File>,
 }
 
 /// Mirrors `crate::paths`'s own private-directory helper (not reused directly: that one is
@@ -140,46 +138,59 @@ impl ProfileSessionLock {
         {
             return Err(Error::SymbolicLink(lock_path));
         }
+        // This lock must outlive the function that acquires it, for an entire live session
+        // (unlike `OrchestrationLock`'s own closure-scoped transaction) — but `fd_lock`'s own
+        // guard type borrows the `RwLock` it came from, and this workspace forbids `unsafe`, so
+        // there is no way to keep an owned guard alongside the value it borrows without leaking
+        // one of them. The guard's own explicit `Drop` (a real `flock`/`LOCK_UN` call) is kept
+        // deliberately, rather than ever bypassed via `mem::forget` + reclaiming the plain `File`:
+        // an earlier version tried exactly that, live-measured to leave the lock still held after
+        // the `File` closed on a GitHub Actions macOS runner — relying on "closing the last fd
+        // releases the flock" alone was not reliable there, where an explicit unlock call is.
+        //
+        // What *is* avoided is leaking on a *refused* attempt (an earlier version leaked a heap
+        // allocation and an open fd on every single refusal, not only successful ones, caught by
+        // an independent adversarial review). A cheap, non-leaking probe goes first: open a
+        // throwaway file handle, attempt the real lock on it without ever boxing/leaking anything,
+        // and if it is refused, return immediately — nothing was ever leaked, because nothing was
+        // ever made `'static`. Only once that probe confirms the lock is actually free does this
+        // leak a `Box` and re-acquire for real, for the lifetime this struct actually needs. A
+        // narrow race remains between the probe's own release and the real acquisition — another
+        // process could win it in between — but that only costs one leaked attempt in a genuine,
+        // rare race, never on the common "this profile is simply busy" refusal the review found.
+        {
+            let probe_file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&lock_path)
+                .map_err(|source| Error::Io {
+                    path: lock_path.clone(),
+                    source,
+                })?;
+            let mut probe = fd_lock::RwLock::new(probe_file);
+            let _probe_guard = probe
+                .try_write()
+                .map_err(|_| Error::ProfileSessionLockHeld(profile_dir.to_path_buf()))?;
+            // `_probe_guard` drops here, at the end of this block — bound to a name specifically
+            // so it lives until here, not merely to the end of its own statement — issuing the
+            // real, explicit `flock`/`LOCK_UN` this method's own doc comment relies on.
+        }
         let file = OpenOptions::new()
             .read(true)
             .write(true)
-            .create(true)
-            .truncate(false)
             .open(&lock_path)
             .map_err(|source| Error::Io {
                 path: lock_path.clone(),
                 source,
             })?;
-        // This lock must outlive the function that acquires it, for an entire live session
-        // (unlike `OrchestrationLock`'s own closure-scoped transaction) — but `fd_lock`'s own
-        // guard type borrows the `RwLock` it came from, and this workspace forbids `unsafe`, so
-        // there is no way to keep an owned guard alongside the value it borrows without leaking
-        // one of them. Tried first; rejected: `Box::leak`-ing the `RwLock` before attempting the
-        // lock, so the guard could be `'static` — correct only on the success path. A *refused*
-        // acquisition (an operator simply running `relay codex` again against an already-busy
-        // profile, say) would still have leaked a heap allocation and an open file descriptor for
-        // every single refusal, unboundedly within one long-lived process.
-        //
-        // This version never leaks anything, on either path. `try_write` on a local, unleaked
-        // `RwLock` tests the real lock with no special lifetime needs; on failure, `rwlock` (and
-        // the `File` it owns) simply drop here, releasing nothing because nothing was ever
-        // acquired. On success, the guard is deliberately `mem::forget`-ten — the exact, intended
-        // escape hatch `fd_lock`'s own `#[must_use = "if unused the RwLock will immediately
-        // unlock"]` warns about, used here on purpose rather than by accident — which ends its
-        // borrow without running its `Drop` (the thing that would otherwise call `flock`'s own
-        // unlock), making `rwlock` usable again long enough to reclaim the plain `File` via
-        // `into_inner()`. The `flock` stays held because nothing ever asked the kernel to release
-        // it; it is released later exactly when that `File` is closed (ordinary `Drop`, whenever
-        // this struct is), which is precisely the same event a real crash — this process dying
-        // outright — would also produce.
-        let mut rwlock = fd_lock::RwLock::new(file);
-        let guard = rwlock
+        let leaked: &'static mut fd_lock::RwLock<fs::File> =
+            Box::leak(Box::new(fd_lock::RwLock::new(file)));
+        let guard = leaked
             .try_write()
             .map_err(|_| Error::ProfileSessionLockHeld(profile_dir.to_path_buf()))?;
-        std::mem::forget(guard);
-        Ok(Self {
-            _file: rwlock.into_inner(),
-        })
+        Ok(Self { _guard: guard })
     }
 }
 
@@ -568,10 +579,16 @@ mod tests {
             assert!(result.is_err(), "must be refused while held");
         }
         let fds_after = std::fs::read_dir("/dev/fd").expect("list open fds").count();
-        assert_eq!(
-            fds_after, fds_before,
+        // A tolerance, not exact equality: `/dev/fd` reflects the whole test *process*, and
+        // `cargo test` runs other tests concurrently on their own threads, each briefly opening
+        // their own files — real cross-test noise, not a leak in this code. A real regression
+        // (leaking on every one of the 200 refused attempts above) would show up as growth on
+        // the order of 200, far past any plausible amount of concurrent-test noise.
+        let growth = fds_after.saturating_sub(fds_before);
+        assert!(
+            growth < 20,
             "200 refused acquisitions must not leak file descriptors \
-             (before={fds_before}, after={fds_after})"
+             (before={fds_before}, after={fds_after}, growth={growth})"
         );
     }
 
