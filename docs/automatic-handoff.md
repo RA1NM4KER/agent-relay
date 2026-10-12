@@ -279,15 +279,20 @@ could therefore cause the thread-learning path above to attach to a thread that 
 the *other* session — a configuration this project's own history shows actually happens (the same
 profile used by two simultaneous Relay-supervised sessions/projects).
 
-`EventDrivenRuntime::start` closes this by acquiring a `relay_core::handoff::ProfileSessionLock`
-for this exact `CODEX_HOME` before doing anything else — a genuine OS `flock`, not a pid file, so
-a crash releases it with no staleness window and no PID-reuse ambiguity to reason about. At most
-one live Relay-managed session may hold it at a time, which is what makes trusting a
-freshly-learned `thread/started` broadcast *safe* rather than a guess: there is no second
-Relay-managed listener left for it to have come from. A second session attempting to start while
-the first still holds it is refused **visibly** — `Codex profile '<dir>' is already in use by
-another live session...` — and falls back to ordinary polling-only supervision, exactly as if the
-feature were off for that session; it never silently guesses.
+Relay closes this with a `relay_core::handoff::ProfileSessionLock` for this exact `CODEX_HOME` —
+a genuine OS `flock`, not a pid file, so a crash releases it with no staleness window and no
+PID-reuse ambiguity to reason about. At most one live Relay-managed *interactive Codex TUI* may
+hold it at a time, which is what makes trusting a freshly-learned `thread/started` broadcast
+*safe* rather than a guess: there is no second Relay-managed TUI left for it to have come from.
+
+The lock is acquired by the terminal supervisor itself, **before the interactive Codex command is
+ever spawned** — not only before attaching the observer to it. An earlier version of this fix had
+only `EventDrivenRuntime::start` acquire it, which left a second session's interactive TUI free to
+launch unobserved and broadcast its own `thread/started` into the first session's live observer,
+fully defeating the invariant. A second session attempting to start while the first still holds
+the lock is refused **visibly** — `Codex profile '<dir>' is already in use by another live
+session...` — and its interactive Codex process is never launched at all; this is the one
+`RELAY_CODEX_EVENT_DRIVEN=1` path where a refusal is not a silent fallback to ordinary polling.
 
 This does **not** close one narrower, honestly-accepted case: an entirely unmanaged `codex`
 process a user points at this same `CODEX_HOME` by hand, bypassing Relay. No mechanism could close

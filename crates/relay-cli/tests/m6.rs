@@ -6,6 +6,7 @@
 use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -937,6 +938,280 @@ fn event_driven_mode_never_mutates_persisted_permission_affecting_provider_args(
         argv[0], "resume 01a-sandboxed-thread --sandbox workspace-write",
         "the persisted --sandbox argument must survive byte-for-byte, and no --remote (or \
          anything else) must ever be appended by event-driven mode: {argv:?}"
+    );
+}
+
+/// agent-relay#18 (launch-time exclusivity): the central regression this follow-up fixes. An
+/// earlier version of the profile-exclusivity lock was acquired *inside*
+/// `EventDrivenRuntime::start`, which only ever gated whether *this session's own* observer
+/// attached — a second session's interactive Codex TUI still launched unmodified either way, and
+/// would still broadcast its own `thread/started` into the daemon a first session's live observer
+/// was listening on, fully defeating the attribution invariant the lock exists to provide. This
+/// cross-process test proves the fix: a second live session on the same event-driven profile must
+/// be refused *before* its interactive Codex process is ever spawned, not merely left unobserved.
+#[test]
+fn a_second_live_session_on_the_same_event_driven_profile_is_refused_before_launching_any_interactive_codex_process()
+ {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempdir().expect("tempdir");
+    let project_a = tempdir().expect("project a");
+    let project_b = tempdir().expect("project b");
+    init_git_repo(project_a.path());
+    init_git_repo(project_b.path());
+
+    let ready_marker = root.path().join("session-a-ready");
+    let resume_log = root.path().join("resume-invocations.log");
+
+    // A minimal fake `codex`, deliberately not the shared `FakeCodex` (which returns from
+    // `resume` immediately): its `resume` case here blocks — simulating a live interactive TUI —
+    // until explicitly killed, after signalling readiness, so this test can attempt a second
+    // session while the first is provably still running its interactive command.
+    let codex_bin = root.path().join("fake-codex-blocking");
+    let script = format!(
+        r#"#!/bin/sh
+case "$1" in
+  --version) printf 'codex-cli 0.155.0\n' ;;
+  login) exit 0 ;;
+  doctor) printf '{{"checks":{{"auth.credentials":{{"status":"ok","summary":"logged in via fake"}}}}}}\n' ;;
+  exec)
+    cat >/dev/null
+    printf '{{"type":"thread.started","thread_id":"shared-exclusivity-thread"}}\n'
+    printf '{{"type":"turn.started"}}\n'
+    printf '{{"type":"turn.completed"}}\n'
+    ;;
+  resume)
+    printf '%s %s\n' "$2" "$CODEX_HOME" >> "{resume_log}"
+    : > "{ready_marker}"
+    trap 'exit 0' TERM
+    while true; do sleep 1; done
+    ;;
+  app-server)
+    if [ "$2" = "daemon" ] && [ "$3" = "start" ]; then
+      printf '{{"status":"started","backend":"pid","pid":%s,"socketPath":"%s/app-server-control/app-server-control.sock"}}\n' "$$" "$CODEX_HOME"
+      exit 0
+    fi
+    if [ "$2" = "--listen" ]; then
+      sockpath=$(printf '%s' "$3" | sed 's#^unix://##')
+      : > "$sockpath"
+      trap 'exit 0' TERM
+      while true; do sleep 1; done
+    fi
+    while IFS= read -r line; do
+      id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+      [ -z "$id" ] && continue
+      case "$line" in
+        *'"method":"initialize"'*) printf '{{"id":%s,"result":{{"codexHome":"%s"}}}}\n' "$id" "$CODEX_HOME" ;;
+        *'"method":"thread/read"'*)
+          tid=$(printf '%s' "$line" | sed -n 's/.*"threadId":"\([^"]*\)".*/\1/p')
+          if [ "$tid" = "shared-exclusivity-thread" ]; then
+            printf '{{"id":%s,"result":{{"thread":{{"id":"%s"}}}}}}\n' "$id" "$tid"
+          else
+            printf '{{"id":%s,"error":{{"code":-32600,"message":"thread not loaded"}}}}\n' "$id"
+          fi ;;
+        *'"method":"account/read"'*) printf '{{"id":%s,"result":{{"account":{{"type":"chatgpt","email":null,"planType":"plus"}},"requiresOpenaiAuth":true}}}}\n' "$id" ;;
+        *'"method":"account/rateLimits/read"'*) printf '{{"id":%s,"result":{{"ordinaryUsageAllowed":true,"accountId":"a","rateLimits":{{"primary":{{"usedPercent":1}}}}}}}}\n' "$id" ;;
+        *) printf '{{"id":%s,"error":{{"code":-32601,"message":"method not found"}}}}\n' "$id" ;;
+      esac
+    done ;;
+  *) exit 2 ;;
+esac
+"#,
+        resume_log = resume_log.display(),
+        ready_marker = ready_marker.display(),
+    );
+    std::fs::write(&codex_bin, script).expect("fake codex script");
+    std::fs::set_permissions(&codex_bin, std::fs::Permissions::from_mode(0o700))
+        .expect("script permissions");
+    let codex_bin_text = codex_bin.to_string_lossy().into_owned();
+
+    let login = relay(
+        root.path(),
+        &[
+            "login",
+            "cx",
+            "--provider",
+            "codex",
+            "--codex-executable",
+            &codex_bin_text,
+        ],
+    );
+    assert!(
+        login.status.success(),
+        "{}",
+        String::from_utf8_lossy(&login.stderr)
+    );
+
+    // Bootstraps a resumable thread for each project under the *same* profile — the documented
+    // real-world shape of this gap (two simultaneous Relay-supervised sessions/projects sharing
+    // one Codex profile), not two concurrent sessions on one shared project lease.
+    for project in [project_a.path(), project_b.path()] {
+        let bootstrap = relay(
+            root.path(),
+            &[
+                "codex",
+                "--profile",
+                "cx",
+                "--project-dir",
+                &project.to_string_lossy(),
+                "--no-attach",
+                "--codex-executable",
+                &codex_bin_text,
+            ],
+        );
+        assert!(
+            bootstrap.status.success(),
+            "{}",
+            String::from_utf8_lossy(&bootstrap.stderr)
+        );
+    }
+
+    // Relay's own process (session A) is only the *direct* child here — the interactive fake
+    // codex it supervises is session A's own child, not this test's. Killing session A alone
+    // would orphan that grandchild forever (it has its own `trap 'exit 0' TERM` but nothing
+    // would ever send it one), so session A is placed in its own new process group and this
+    // guard kills the *group* — and does so even if an assertion below panics first, via `Drop`.
+    struct KillProcessGroupOnDrop(u32);
+    impl Drop for KillProcessGroupOnDrop {
+        fn drop(&mut self) {
+            let _ = Command::new("kill")
+                .arg("-9")
+                .arg(format!("-{}", self.0))
+                .output();
+        }
+    }
+
+    let mut session_a = {
+        use std::os::unix::process::CommandExt as _;
+        Command::new(env!("CARGO_BIN_EXE_relay"))
+            .arg("--config-root")
+            .arg(root.path().join("config"))
+            .arg("--state-root")
+            .arg(root.path().join("state"))
+            .arg("resume")
+            .arg("cx")
+            .arg("--project-dir")
+            .arg(project_a.path())
+            .arg("--codex-executable")
+            .arg(&codex_bin)
+            .env("RELAY_CODEX_EVENT_DRIVEN", "1")
+            .env_remove("CLAUDE_CONFIG_DIR")
+            .env_remove("CODEX_HOME")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .expect("spawn session A")
+    };
+    let _kill_session_a_group_on_drop = KillProcessGroupOnDrop(session_a.id());
+
+    // Bounded wait for session A's own interactive TUI (not merely `relay` itself) to actually be
+    // running — proven by the fake codex's own readiness marker, never a fixed guessed sleep.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !ready_marker.exists() {
+        if let Ok(Some(status)) = session_a.try_wait() {
+            let output = session_a.wait_with_output().expect("session A output");
+            panic!(
+                "session A exited early ({status}) before its interactive TUI ever started: \
+                 stdout={} stderr={}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "session A's interactive Codex TUI never started"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    // Session B: a different project, the same profile, attempted while A is still live.
+    let session_b = Command::new(env!("CARGO_BIN_EXE_relay"))
+        .arg("--config-root")
+        .arg(root.path().join("config"))
+        .arg("--state-root")
+        .arg(root.path().join("state"))
+        .arg("resume")
+        .arg("cx")
+        .arg("--project-dir")
+        .arg(project_b.path())
+        .arg("--codex-executable")
+        .arg(&codex_bin)
+        .env("RELAY_CODEX_EVENT_DRIVEN", "1")
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("CODEX_HOME")
+        .output()
+        .expect("run session B");
+
+    // Process inspection, not just log evidence: at the moment session B has already returned
+    // but session A has not yet been torn down, exactly one live process running the fake
+    // interactive Codex executable may exist — session A's. `ps` (not `pgrep`, for portability
+    // with the sandboxed/minimal environments this suite already runs in elsewhere in this file)
+    // scanning for the exact script path a second TUI would also have been launched with.
+    // macOS resolves `/var` -> `/private/var` by the time a spawned process's own argv[0] shows
+    // up in `ps`, even though the path handed to `--codex-executable` above was not itself
+    // canonicalized — compare against the canonical form so that resolution difference alone
+    // never causes a false "no second process" negative.
+    let codex_bin_text_owned = std::fs::canonicalize(&codex_bin)
+        .unwrap_or_else(|_| codex_bin.clone())
+        .to_string_lossy()
+        .into_owned();
+    let live_fake_codex_processes = Command::new("ps")
+        .arg("-A")
+        .arg("-o")
+        .arg("command=")
+        .output()
+        .ok()
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                // The fake codex script itself being *executed* (its path is argv[0], or
+                // argv[1] under a `/bin/sh <path>` wrapper) — never Relay's own supervisor
+                // process, whose argv merely *mentions* the same path as its
+                // `--codex-executable` value.
+                .filter(|line| {
+                    let mut words = line.split_whitespace();
+                    matches!(words.next(), Some(first) if first == codex_bin_text_owned)
+                        || matches!(words.next(), Some(second) if second == codex_bin_text_owned)
+                })
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        });
+    if let Some(matches) = live_fake_codex_processes {
+        assert_eq!(
+            matches.len(),
+            1,
+            "process inspection must show exactly one live interactive Codex process (session \
+             A's) — session B must never have spawned a second one: {matches:?}"
+        );
+    }
+
+    let _ = session_a.kill();
+    let _ = session_a.wait();
+
+    assert!(
+        !session_b.status.success(),
+        "a second live session on the same event-driven profile must be refused, not launched \
+         unobserved: stdout={} stderr={}",
+        String::from_utf8_lossy(&session_b.stdout),
+        String::from_utf8_lossy(&session_b.stderr)
+    );
+    let session_b_stderr = String::from_utf8_lossy(&session_b.stderr);
+    assert!(
+        session_b_stderr.contains("profile_session_lock_held")
+            && session_b_stderr.contains("already in use"),
+        "the refusal must be visible and actionable, not a bare non-zero exit: {session_b_stderr}"
+    );
+    // The decisive proof: session B's own interactive Codex process must never have been
+    // spawned at all — not merely left unobserved. Exactly one `resume` invocation (session A's)
+    // must ever have reached the fake executable.
+    let resume_invocations = std::fs::read_to_string(&resume_log).unwrap_or_default();
+    assert_eq!(
+        resume_invocations.lines().count(),
+        1,
+        "exactly one interactive Codex TUI (session A's) must ever have been launched — session \
+         B's refusal must happen before spawning a second one: {resume_invocations:?}"
     );
 }
 

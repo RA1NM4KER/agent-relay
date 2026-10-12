@@ -17,7 +17,7 @@ use relay_core::{
     automation::{LedgerStore, NoEligibleFallbackRecord},
     handoff::{
         ExecutionIntent, HandoffJournal, HandoffState, LeaseStore, OrchestrationLock,
-        ProcessIdentity, render_autonomous_notice,
+        ProcessIdentity, ProfileSessionLock, render_autonomous_notice,
     },
 };
 use relay_provider_claude::{ClaudeInspector, query_active_sessions};
@@ -546,6 +546,11 @@ fn run_managed_terminal_inner(
                 .any(|profile| profile.name == owner.0 && profile.provider == ProviderKind::Codex)
         });
         let mut event_driven: Option<crate::codex_runtime::EventDrivenRuntime> = None;
+        // agent-relay#18 (launch-time exclusivity): held for this continuation's entire
+        // interactive-command run, independent of `event_driven`'s own fate below — see
+        // `codex_runtime`'s own module doc for why the exclusivity promise this lock makes to
+        // other sessions cannot depend on this session's own observation actually working.
+        let mut profile_lock: Option<ProfileSessionLock> = None;
         if owner_is_codex {
             let profile = context
                 .service
@@ -572,6 +577,25 @@ fn run_managed_terminal_inner(
             .then(|| command.args.get(1))
             .flatten()
             .and_then(|arg| arg.to_str());
+            // agent-relay#18 (launch-time exclusivity, superseding an earlier version of this fix
+            // that only gated `EventDrivenRuntime::start` below): acquired — and obeyed — *before*
+            // the interactive command is ever spawned. A second live session on the same profile
+            // launching its own unobserved interactive TUI would still broadcast its own
+            // `thread/started` into the daemon a first session's observer is listening on, fully
+            // defeating the invariant if only the observer (and not the launch itself) were
+            // refused. See `codex_runtime::acquire_profile_lock`'s own doc comment.
+            if crate::codex_runtime::event_driven_enabled() {
+                match crate::codex_runtime::acquire_profile_lock(
+                    &profile.config_dir,
+                    &context.project_state_dir(),
+                    context.json_mode,
+                ) {
+                    Some(lock) => profile_lock = Some(lock),
+                    None => {
+                        return Err(Error::ProfileSessionLockHeld(profile.config_dir.clone()));
+                    }
+                }
+            }
             if let Some(runtime) = crate::codex_runtime::EventDrivenRuntime::start(
                 // `plan_codex_resume` has already discovered, canonicalized, and verified the
                 // exact executable this terminal will run. Reuse that identity for the event
@@ -583,7 +607,6 @@ fn run_managed_terminal_inner(
                 &profile.config_dir,
                 &context.project_state_dir(),
                 known_thread_id,
-                context.json_mode,
             ) {
                 if !context.json_mode {
                     eprintln!(
@@ -758,6 +781,11 @@ fn run_managed_terminal_inner(
         if let Some(runtime) = event_driven.take() {
             runtime.stop();
         }
+        // agent-relay#18 (launch-time exclusivity): released only now that the interactive
+        // command has actually exited — never earlier, and never tied to `event_driven`'s own
+        // state, so a profile stays exclusively claimed for this continuation's entire run
+        // regardless of whether its own observer ever attached.
+        drop(profile_lock.take());
         // The switch helper (if any) finishes recording its outcome before the decision below.
         if let Some(helper) = pending_switch.take() {
             let _ignored = helper.join();
