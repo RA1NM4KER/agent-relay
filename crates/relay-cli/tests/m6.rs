@@ -966,7 +966,14 @@ fn a_second_live_session_on_the_same_event_driven_profile_is_refused_before_laun
     // A minimal fake `codex`, deliberately not the shared `FakeCodex` (which returns from
     // `resume` immediately): its `resume` case here blocks — simulating a live interactive TUI —
     // until explicitly killed, after signalling readiness, so this test can attempt a second
-    // session while the first is provably still running its interactive command.
+    // session while the first is provably still running its interactive command. Unlike the
+    // shared `FakeCodex`, `app-server daemon start` always fails here: this test keeps session
+    // A's interactive command alive indefinitely, and a successful daemon-start would also spin
+    // up `EventDrivenRuntime`'s own background attach-worker thread (retrying a connection
+    // forever) and a second long-lived `--listen` subprocess for that entire span — complexity
+    // with no bearing on the exclusivity gate under test, which fires before any daemon/attach
+    // machinery is ever reached. The one-shot stdin/stdout request/response loop below (needed
+    // only for the bootstrap step's own usage verification) is unaffected.
     let codex_bin = root.path().join("fake-codex-blocking");
     let script = format!(
         r#"#!/bin/sh
@@ -987,15 +994,9 @@ case "$1" in
     while true; do sleep 1; done
     ;;
   app-server)
+    # Deliberately never succeeds at "daemon start" — see the comment above this script.
     if [ "$2" = "daemon" ] && [ "$3" = "start" ]; then
-      printf '{{"status":"started","backend":"pid","pid":%s,"socketPath":"%s/app-server-control/app-server-control.sock"}}\n' "$$" "$CODEX_HOME"
-      exit 0
-    fi
-    if [ "$2" = "--listen" ]; then
-      sockpath=$(printf '%s' "$3" | sed 's#^unix://##')
-      : > "$sockpath"
-      trap 'exit 0' TERM
-      while true; do sleep 1; done
+      exit 1
     fi
     while IFS= read -r line; do
       id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
@@ -1126,23 +1127,52 @@ esac
         std::thread::sleep(Duration::from_millis(20));
     }
 
-    // Session B: a different project, the same profile, attempted while A is still live.
-    let session_b = Command::new(env!("CARGO_BIN_EXE_relay"))
-        .arg("--config-root")
-        .arg(root.path().join("config"))
-        .arg("--state-root")
-        .arg(root.path().join("state"))
-        .arg("resume")
-        .arg("cx")
-        .arg("--project-dir")
-        .arg(project_b.path())
-        .arg("--codex-executable")
-        .arg(&codex_bin)
-        .env("RELAY_CODEX_EVENT_DRIVEN", "1")
-        .env_remove("CLAUDE_CONFIG_DIR")
-        .env_remove("CODEX_HOME")
-        .output()
-        .expect("run session B");
+    // Session B: a different project, the same profile, attempted while A is still live. Given
+    // its own process group and a hard deadline rather than a plain blocking `.output()`: if the
+    // exclusivity gate under test ever regressed, B would launch its own hanging interactive TUI
+    // (identical fake script) and block forever with no bound at all — exactly the shape of a
+    // real, CI-minutes-costly hang this suite must never risk. A regression must fail this test
+    // promptly and loudly, never hang it.
+    let mut session_b_child = {
+        use std::os::unix::process::CommandExt as _;
+        Command::new(env!("CARGO_BIN_EXE_relay"))
+            .arg("--config-root")
+            .arg(root.path().join("config"))
+            .arg("--state-root")
+            .arg(root.path().join("state"))
+            .arg("resume")
+            .arg("cx")
+            .arg("--project-dir")
+            .arg(project_b.path())
+            .arg("--codex-executable")
+            .arg(&codex_bin)
+            .env("RELAY_CODEX_EVENT_DRIVEN", "1")
+            .env_remove("CLAUDE_CONFIG_DIR")
+            .env_remove("CODEX_HOME")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .expect("spawn session B")
+    };
+    let _kill_session_b_group_on_drop = KillProcessGroupOnDrop(session_b_child.id());
+    let session_b_deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(Some(_)) = session_b_child.try_wait() {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < session_b_deadline,
+            "session B must be refused promptly, never hang — a regression that lets it launch \
+             its own (also indefinitely blocking) interactive TUI must fail this test quickly, \
+             not cost CI minutes sitting idle"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let session_b = session_b_child
+        .wait_with_output()
+        .expect("session B output");
 
     // Process inspection, not just log evidence: at the moment session B has already returned
     // but session A has not yet been torn down, exactly one live process running the fake
