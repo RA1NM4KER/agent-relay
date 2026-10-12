@@ -69,7 +69,7 @@
 //! replacement, however many times it repeats within one session, is never alone a reason to stop
 //! retrying.
 //!
-//! ### A thread that will never resume, and the one thing still unresolved (GitHub #18 follow-up)
+//! ### A thread that will never resume (GitHub #18 follow-up)
 //!
 //! A real natural exhaustion in `~/repos` left the observer retrying a known thread id for ~14
 //! minutes through an exhaustion it never saw. Confirmed against the real `codex app-server
@@ -89,19 +89,57 @@
 //! `thread/started` broadcast instead of repeating a stuck id, restoring the original id if
 //! nothing new is learned.
 //!
-//! Two things this does **not** close, honestly: (1) if the app-server legitimately never emits
-//! *any* of those signals for a silently-abandoned thread, nothing short of guessing can tell that
-//! apart from a thread genuinely about to receive its first message — the worker correctly keeps
-//! retrying, by design, exactly as the confirmed-benign case requires. (2) `thread/started`
-//! broadcasts to every connected client on the same `CODEX_HOME`, not scoped to any one TUI/session
-//! — this relearn path (like the pre-existing fresh-launch thread-learning path it reuses) cannot
-//! prove a given broadcast belongs to *this* supervised session rather than a second, simultaneous
-//! Relay session sharing the same profile (a configuration this codebase's own history shows does
-//! happen in practice). No protocol operation found in the app-server's own schema binds a native
-//! TUI process to "its" thread more strongly than this — `thread/list`/`thread/loaded/list` filter
-//! by project/cwd/provider only, never by client/session identity, so using them to pick a thread
-//! would be exactly the "most recent/only candidate" guess this module's own design already
-//! refuses to make.
+//! One thing this does **not** close, honestly: if the app-server legitimately never emits *any*
+//! of those signals for a silently-abandoned thread, nothing short of guessing can tell that apart
+//! from a thread genuinely about to receive its first message — the worker correctly keeps
+//! retrying, by design, exactly as the confirmed-benign case requires. There is no safety gap
+//! here: this is the documented, intended behavior for a thread that has not yet started, not an
+//! unobserved live session — polling (GitHub #13) remains active throughout, unaffected.
+//!
+//! ### Proving `thread/started` actually belongs to this session (GitHub #18 zero-poll follow-up)
+//!
+//! `thread/started` broadcasts to *every* client connected to the same `CODEX_HOME`, with no
+//! client/session-scoped filter anywhere in the app-server's own protocol (confirmed exhaustively
+//! against its generated schema: 170 client request methods, 84 server notifications, none scoped
+//! by client/session identity — `thread/list`/`thread/loaded/list` filter by project/cwd/provider
+//! only). A second live session sharing one Relay Codex profile could therefore cause the relearn
+//! path above (or the pre-existing fresh-launch thread-learning path it reuses) to attach to a
+//! thread that belongs to *that* session instead — a configuration this codebase's own history
+//! shows actually happens (the same profile used by two simultaneous Relay-supervised sessions).
+//!
+//! No protocol operation closes this by itself: there is no supported way to bind a native TUI
+//! process to "its" thread more strongly than resume-by-id already does. The fix is architectural,
+//! not protocol-level: [`EventDrivenRuntime::start`] now acquires a
+//! [`relay_core::handoff::ProfileSessionLock`] for this exact `CODEX_HOME` before doing anything
+//! else. That lock makes "at most one live Relay-managed session observes this profile's events at
+//! a time" a provable invariant (a genuine OS `flock`, not a pid file — see that type's own doc
+//! comment for why this is crash-safe with no staleness window) rather than a hope, which is what
+//! makes trusting a freshly-learned `thread/started` broadcast *safe* rather than a guess: there
+//! is no second Relay-managed listener left for it to have come from. A second session attempting
+//! to start while the first is still live is refused *visibly* (an actionable, non-silent message
+//! — see `acquire_profile_lock`) and falls back to launching the interactive command unmodified,
+//! still fully supervised by GitHub #13's own polling, which never depended on this invariant.
+//!
+//! The lock's own ownership, not its mere existence, is what took a second attempt to get right.
+//! A first version held it as a plain field on [`EventDrivenRuntime`] for the runtime's entire
+//! lifetime and had [`Self::stop`] join the background attach worker before releasing it — correct
+//! in principle, but live-measured at up to a full `Observer::attach` connect-retry timeout (15s):
+//! that inner loop has no way to notice `stop()` mid-attempt, so joining made ordinary shutdown
+//! itself take as long as the worker's own worst case. The lock instead *moves*: into the worker
+//! thread's own closure for the span [`AttachState::Attaching`] covers (see
+//! `spawn_attach_worker`/`attach_worker_loop`), and back onto the runtime struct the moment an
+//! attach actually succeeds (via [`AttachOutcome::Attached`]'s own `profile_lock` field, reclaimed
+//! in [`Self::tick`]). This lets [`Self::stop`] go back to merely *signalling* the worker — fast,
+//! never blocking — while the invariant still holds exactly: the lock is only ever released when
+//! whoever is holding it (the worker thread, or the runtime struct via `Observer::stop`'s own fast
+//! socket-shutdown-then-join) actually finishes, however long that takes, and a competing
+//! acquisition in the meantime is refused, never silently allowed through.
+//!
+//! What this still does **not** close, honestly: an entirely unmanaged `codex` process a user
+//! points at this same `CODEX_HOME` by hand, bypassing Relay — no mechanism could close that
+//! short of a Codex protocol change, since Codex itself has no notion of this lock. That boundary
+//! is the same one profile isolation already draws everywhere else (`docs/security.md`): Relay
+//! guarantees what it controls, never a user's own direct misuse of their own files.
 
 use std::{
     path::{Path, PathBuf},
@@ -114,7 +152,7 @@ use std::{
     time::Duration,
 };
 
-use relay_core::handoff::ProcessIdentity;
+use relay_core::handoff::{ProcessIdentity, ProfileSessionLock};
 use relay_provider_codex::{
     VersionStatus, assess_version,
     observer::{Observer, ObserverError, ObserverEvent},
@@ -169,10 +207,18 @@ enum AttachOutcome {
         observer: Observer,
         endpoint: PathBuf,
         identity: ProcessIdentity,
+        /// agent-relay#18 (zero-poll architecture): handed back here, never left behind at the
+        /// top-level runtime during `Attaching` — see [`attach_worker_loop`]'s own doc comment
+        /// for why ownership living with whoever can actually touch the daemon (the worker
+        /// thread while attaching, the runtime struct once attached) is what lets `stop()` stay
+        /// fast *and* exclusivity stay correct, with no join required.
+        profile_lock: ProfileSessionLock,
     },
     /// `stop()` was called before any attach succeeded. A confirmed-gone app-server identity is no
     /// longer a reason for this on its own — see this module's own doc comment — so this is now
-    /// reachable only via the stop flag.
+    /// reachable only via the stop flag. The profile lock this worker generation held simply
+    /// drops here, at the end of its own stack frame — never explicitly handled, and never
+    /// visible to a caller who only signalled and moved on.
     GaveUp,
 }
 
@@ -196,7 +242,11 @@ pub(crate) enum TickEvent {
 enum AttachState {
     /// A background worker is trying to (re)attach; not yet successful. `stop_flag` lets
     /// [`EventDrivenRuntime::stop`] ask it to give up promptly rather than exhausting its own
-    /// backoff first.
+    /// backoff first — deliberately signalled, never joined (see [`EventDrivenRuntime::stop`]'s
+    /// own doc comment): the profile lock for this generation lives *inside* the worker thread
+    /// itself while this state holds, so `stop()` stays fast and exclusivity still holds without
+    /// a join — a second acquisition attempt is correctly refused until this worker's own thread
+    /// actually drops it, however long that takes.
     Attaching {
         outcome_rx: mpsc::Receiver<AttachOutcome>,
         stop_flag: Arc<AtomicBool>,
@@ -226,6 +276,15 @@ pub(crate) struct EventDrivenRuntime {
     /// GitHub #18: where this project's durable auto-handoff trace lives — used only to record
     /// event-receipt/reconciliation-request provenance (see [`Self::tick`]).
     project_state_dir: PathBuf,
+    /// agent-relay#18 (zero-poll architecture): `Some` exactly while `state` is
+    /// [`AttachState::Attached`] — proving no second Relay-managed session can be observing the
+    /// same `CODEX_HOME` concurrently (see [`ProfileSessionLock`]'s own doc comment for the full
+    /// invariant and its honest boundary). `None` while `Attaching`: ownership lives inside the
+    /// background worker thread itself for that span instead (see [`attach_worker_loop`]'s own
+    /// doc comment for why), so [`Self::stop`] never has to join anything to stay correct. Moved
+    /// out to the worker on every reconnect, moved back in on every successful (re)attach — see
+    /// [`Self::tick`].
+    profile_lock: Option<ProfileSessionLock>,
     state: AttachState,
 }
 
@@ -253,6 +312,7 @@ impl EventDrivenRuntime {
         config_dir: &Path,
         project_state_dir: &Path,
         thread_id: Option<&str>,
+        json_mode: bool,
     ) -> Option<Self> {
         if !event_driven_enabled() {
             return None;
@@ -264,6 +324,15 @@ impl EventDrivenRuntime {
             );
             return None;
         }
+        // agent-relay#18 (zero-poll architecture): acquired before anything else that would make
+        // this runtime start consuming/relying on broadcast events — see `ProfileSessionLock`'s
+        // own doc comment for the full invariant. Unlike every other early-decline reason in this
+        // function, this one is deliberately NOT silent: a second live session on the same
+        // profile is operator-actionable (switch profile, or stop the other session), not an
+        // internal detail worth suppressing. Decline is otherwise identical to every other
+        // reason: fall back to launching the interactive command unmodified, still fully
+        // supervised by GitHub #13's own polling, which never depended on this invariant at all.
+        let profile_lock = acquire_profile_lock(config_dir, project_state_dir, json_mode)?;
         let Ok(daemon) = ensure_managed_daemon(codex_executable, config_dir) else {
             crate::auto_handoff::trace_event(
                 project_state_dir,
@@ -279,6 +348,7 @@ impl EventDrivenRuntime {
             thread_id.map(str::to_owned),
             daemon.identity.clone(),
             project_state_dir.to_path_buf(),
+            profile_lock,
         );
         Some(Self {
             endpoint: daemon.endpoint,
@@ -286,8 +356,20 @@ impl EventDrivenRuntime {
             codex_home: config_dir.to_path_buf(),
             codex_executable: codex_executable.to_path_buf(),
             project_state_dir: project_state_dir.to_path_buf(),
+            profile_lock: None,
             state,
         })
+    }
+
+    /// agent-relay#18 (zero-poll architecture): whether this runtime is currently attached and
+    /// actively receiving events — the one condition under which `codex_poll`'s own periodic
+    /// timer-driven cadence may be safely suppressed (see `codex_poll::CodexPollScheduler`'s own
+    /// `set_event_driven_healthy`). `Attaching`/`Dead` are both "not currently proven healthy,"
+    /// for the same reason: a worker mid-(re)attach has not yet established live coverage, and a
+    /// permanently-gave-up runtime never will again.
+    #[must_use]
+    pub(crate) fn is_healthy(&self) -> bool {
+        matches!(self.state, AttachState::Attached(_))
     }
 
     /// One supervision tick (the same 300ms cadence that already drives GitHub #13's own
@@ -309,6 +391,7 @@ impl EventDrivenRuntime {
                     observer,
                     endpoint,
                     identity,
+                    profile_lock,
                 }) => {
                     let thread_id = observer.thread_id.clone();
                     // GitHub #18 follow-up: store whatever daemon this attach actually succeeded
@@ -319,6 +402,9 @@ impl EventDrivenRuntime {
                     // again from scratch.
                     self.endpoint = endpoint;
                     self.daemon_identity = identity;
+                    // agent-relay#18 (zero-poll architecture): reclaimed from the worker thread
+                    // that held it while attaching — see `EventDrivenRuntime`'s own field doc.
+                    self.profile_lock = Some(profile_lock);
                     // Preflight requirement (agent-relay#18): a successful attach previously had
                     // no durable evidence of its own — only the ephemeral terminal print in
                     // `terminal_session::report_event_driven_transition` and the differently
@@ -385,6 +471,14 @@ impl EventDrivenRuntime {
                 }
                 if disconnected {
                     let known_thread_id = observer.thread_id.clone();
+                    // agent-relay#18 (zero-poll architecture): handed to the fresh worker below —
+                    // `self.profile_lock` is always `Some` here, since reaching `Attached(_)` at
+                    // all is only possible via `tick`'s own success branch, which always refills
+                    // it (see that branch and `EventDrivenRuntime`'s own field doc).
+                    let profile_lock = self
+                        .profile_lock
+                        .take()
+                        .expect("profile_lock is always Some while Attached");
                     if thread_ended {
                         // GitHub #18 follow-up: the authoritative signal that beat the "benign
                         // forever" case this follow-up exists for — re-learn the active thread
@@ -401,6 +495,7 @@ impl EventDrivenRuntime {
                             None,
                             self.daemon_identity.clone(),
                             self.project_state_dir.clone(),
+                            profile_lock,
                         );
                         TickEvent::Reconnecting(known_thread_id)
                     } else {
@@ -418,6 +513,7 @@ impl EventDrivenRuntime {
                             Some(known_thread_id.clone()),
                             self.daemon_identity.clone(),
                             self.project_state_dir.clone(),
+                            profile_lock,
                         );
                         TickEvent::Reconnecting(known_thread_id)
                     }
@@ -439,13 +535,18 @@ impl EventDrivenRuntime {
         match self.state {
             AttachState::Attached(observer) => observer.stop(),
             AttachState::Attaching { stop_flag, .. } => {
-                // Signalled, not joined: the worker's own per-attempt bound
-                // (`Observer::attach`'s internal timeout, or — mid daemon-replacement recovery —
-                // `ensure_managed_daemon`'s own comparable bound) guarantees it notices this and
-                // exits on its own within that bound even if it is mid-attempt right now, and this
-                // process's own exit (see `terminal_session::run_managed_terminal`) reaps any
-                // thread outright regardless — joining here would risk blocking ordinary shutdown
-                // on a worker that is, at worst, seconds from exiting on its own.
+                // Signalled, not joined — deliberately, and still safe: while `Attaching`,
+                // `self.profile_lock` is `None` (see this struct's own field doc) because
+                // ownership of the actual `ProfileSessionLock` for this generation was moved
+                // into the worker thread's own closure when it was spawned (see
+                // `spawn_attach_worker`). That lock is released only when the worker thread's own
+                // stack frame ends — whether that is right away or, worst case, after its current
+                // attach attempt's own bounded internal timeout — and a competing acquisition
+                // attempt in the meantime is correctly refused, never silently allowed. This is
+                // what lets `stop()` itself return immediately (never blocking ordinary shutdown
+                // on a worker that may, at worst, still be seconds from exiting) without ever
+                // reopening the cross-talk window the lock exists to close: nothing here drops or
+                // transfers a lock this struct was never holding in the first place.
                 stop_flag.store(true, Ordering::Relaxed);
             }
             AttachState::Dead => {}
@@ -467,7 +568,9 @@ fn event_receipt_trace_label(event: &ObserverEvent) -> Option<&'static str> {
 }
 
 /// Spawns the background attach/reconnect worker and returns the `Attaching` state a caller
-/// should install immediately (never blocking on the worker's first result).
+/// should install immediately (never blocking on the worker's first result). `profile_lock` is
+/// moved into the worker's own closure — see `EventDrivenRuntime`'s own field doc for why its
+/// lifetime deliberately lives here, not on the runtime struct, for the span this state covers.
 fn spawn_attach_worker(
     codex_executable: PathBuf,
     endpoint: PathBuf,
@@ -475,6 +578,7 @@ fn spawn_attach_worker(
     known_thread_id: Option<String>,
     app_server_identity: ProcessIdentity,
     project_state_dir: PathBuf,
+    profile_lock: ProfileSessionLock,
 ) -> AttachState {
     let (outcome_tx, outcome_rx) = mpsc::channel();
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -492,6 +596,7 @@ fn spawn_attach_worker(
             &worker_stop,
             &outcome_tx,
             &project_state_dir,
+            profile_lock,
         );
     });
     AttachState::Attaching {
@@ -577,6 +682,11 @@ fn attach_worker_loop(
     stop_flag: &AtomicBool,
     outcome_tx: &mpsc::Sender<AttachOutcome>,
     project_state_dir: &Path,
+    // agent-relay#18 (zero-poll architecture): carried through unexamined — its only job is to
+    // stay alive for exactly this function's own lifetime (handed back on success, below;
+    // dropped here, at this function's own end, on every `GaveUp` exit) — see
+    // `EventDrivenRuntime`'s own field doc for the full reasoning.
+    profile_lock: ProfileSessionLock,
 ) {
     let mut backoff = RECONNECT_BACKOFF_MIN;
     let mut last_traced_error: Option<&'static str> = None;
@@ -649,6 +759,7 @@ fn attach_worker_loop(
                     observer,
                     endpoint: target.endpoint.clone(),
                     identity: target.app_server_identity.clone(),
+                    profile_lock,
                 });
                 return;
             }
@@ -756,6 +867,32 @@ fn sleep_checking_stop(duration: Duration, stop_flag: &AtomicBool) {
 /// unverified or unknown version — including a version whose own `--version` cannot even be
 /// read — silently declines rather than guessing at flags/behavior a future or older Codex
 /// release may not actually support; #13 remains fully active regardless.
+/// agent-relay#18 (zero-poll architecture): the pure/testable half of [`EventDrivenRuntime::start`]'s
+/// exclusivity check, separated from its own gate chain (env opt-in, version verification) so this
+/// specific decision — and its visible, non-silent failure message — is directly testable without
+/// needing a live, verified `codex` executable (exactly the same reason `attach_worker_loop` is
+/// tested directly rather than only through `start()`).
+#[must_use]
+fn acquire_profile_lock(
+    config_dir: &Path,
+    project_state_dir: &Path,
+    json_mode: bool,
+) -> Option<ProfileSessionLock> {
+    match ProfileSessionLock::try_acquire(config_dir) {
+        Ok(lock) => Some(lock),
+        Err(error) => {
+            if !json_mode {
+                eprintln!("[Relay] {error}");
+            }
+            crate::auto_handoff::trace_event(
+                project_state_dir,
+                "codex_event_driven_profile_already_in_use",
+            );
+            None
+        }
+    }
+}
+
 fn version_verified(codex_executable: &Path) -> bool {
     let Ok(inspector) = relay_provider_codex::CodexInspector::discover(Some(codex_executable))
     else {
@@ -825,8 +962,121 @@ mod tests {
             dir.path(),
             dir.path(),
             Some("thread-1"),
+            false,
         );
         assert!(result.is_none());
+    }
+
+    // --- agent-relay#18 (zero-poll architecture): profile exclusivity ---
+
+    #[test]
+    fn a_free_profile_is_locked_successfully() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let lock = acquire_profile_lock(dir.path(), dir.path(), false);
+        assert!(lock.is_some());
+    }
+
+    #[test]
+    fn a_profile_already_locked_by_another_live_session_is_refused_and_traced() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _held = ProfileSessionLock::try_acquire(dir.path()).expect("first holder");
+        let second = acquire_profile_lock(dir.path(), dir.path(), false);
+        assert!(
+            second.is_none(),
+            "a second live session on the same profile must be refused, never silently allowed"
+        );
+        let log = std::fs::read_to_string(dir.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert!(
+            log.contains("codex_event_driven_profile_already_in_use"),
+            "the refusal must be durably traced, not only printed: {log}"
+        );
+    }
+
+    #[test]
+    fn a_profile_lock_is_available_again_immediately_after_the_holder_releases_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let held = ProfileSessionLock::try_acquire(dir.path()).expect("first holder");
+        drop(held);
+        let second = acquire_profile_lock(dir.path(), dir.path(), false);
+        assert!(
+            second.is_some(),
+            "a profile must be immediately acquirable again once the prior holder releases it"
+        );
+    }
+
+    #[test]
+    fn two_different_profiles_never_contend_with_each_other() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let a = dir.path().join("profile-a");
+        let b = dir.path().join("profile-b");
+        std::fs::create_dir_all(&a).expect("profile a");
+        std::fs::create_dir_all(&b).expect("profile b");
+        let _lock_a = acquire_profile_lock(&a, &a, false).expect("acquire a");
+        let lock_b = acquire_profile_lock(&b, &b, false);
+        assert!(
+            lock_b.is_some(),
+            "two simultaneous sessions on two different profiles must never contend"
+        );
+    }
+
+    #[test]
+    fn stop_is_fast_and_a_racing_acquisition_is_still_correctly_refused_while_the_worker_lives() {
+        // agent-relay#18 (zero-poll architecture): the final design, after rejecting an earlier
+        // join-based attempt at this same test (measured at 15s — `Observer::attach`'s own
+        // connect retry loop is not interruptible mid-attempt, so joining made `stop()` itself as
+        // slow as a full `ATTACH_TIMEOUT`, a real UX regression). Ownership of the
+        // `ProfileSessionLock` instead lives *inside* the worker thread's own closure while
+        // `Attaching` (see `EventDrivenRuntime`'s own field doc), so `stop()` can stay fast
+        // (merely signals) while still never reopening the cross-talk window: a competing
+        // acquisition attempt for the same profile must be refused for as long as the old
+        // worker thread is actually still alive, proven here by pointing it at a socket path
+        // that will never accept a connection, so it is reliably still mid-`connect_unix` (which
+        // does not poll the stop flag at all) immediately after `stop()` returns.
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let (_child, identity) = live_identity();
+        let profile_lock =
+            ProfileSessionLock::try_acquire(&codex_home).expect("acquire for the runtime");
+        let state = spawn_attach_worker(
+            PathBuf::from("/definitely/not/codex"),
+            scratch.path().join("nobody-is-listening.sock"),
+            codex_home.clone(),
+            Some("thread-1".to_owned()),
+            identity.clone(),
+            scratch.path().to_path_buf(),
+            profile_lock,
+        );
+        let runtime = EventDrivenRuntime {
+            endpoint: scratch.path().join("nobody-is-listening.sock"),
+            daemon_identity: identity,
+            codex_home: codex_home.clone(),
+            codex_executable: PathBuf::from("/definitely/not/codex"),
+            project_state_dir: scratch.path().to_path_buf(),
+            profile_lock: None,
+            state,
+        };
+        // Give the worker a moment to actually start its connect attempt before stopping it.
+        thread::sleep(Duration::from_millis(20));
+        let before = std::time::Instant::now();
+        runtime.stop();
+        let elapsed = before.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "stop() took {elapsed:?} — it must return promptly, never block on the worker's own \
+             unbounded-feeling connect retry (that regression is exactly what moving the lock's \
+             ownership into the worker thread was meant to avoid)"
+        );
+        match ProfileSessionLock::try_acquire(&codex_home) {
+            Err(relay_core::Error::ProfileSessionLockHeld(_)) => {}
+            Err(other) => panic!("expected ProfileSessionLockHeld, got {other:?}"),
+            Ok(_) => panic!(
+                "a second acquisition immediately after a fast stop() must still be refused — \
+                 the old worker is still genuinely alive inside its own connect retry, so \
+                 nothing has actually released the lock yet"
+            ),
+        }
     }
 
     // --- GitHub #18: event receipt is recorded exactly at the point it is drained ---
@@ -1031,6 +1281,7 @@ mod tests {
             &stop_flag,
             &tx,
             scratch.path(),
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock"),
         );
         match rx.recv_timeout(Duration::from_secs(10)).expect("outcome") {
             AttachOutcome::Attached { observer, .. } => {
@@ -1166,6 +1417,7 @@ mod tests {
             &stop_flag,
             &tx,
             scratch.path(),
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock"),
         );
         match rx.recv_timeout(Duration::from_secs(90)).expect("outcome") {
             AttachOutcome::Attached { observer, .. } => {
@@ -1273,6 +1525,8 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let worker_stop = stop_flag.clone();
         let project_state_dir = scratch.path().to_path_buf();
+        let profile_lock =
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock");
         let handle = thread::spawn(move || {
             attach_worker_loop(
                 attach_target(
@@ -1285,6 +1539,7 @@ mod tests {
                 &worker_stop,
                 &tx,
                 &project_state_dir,
+                profile_lock,
             );
         });
         // The first (near-instant) rejection must trigger exactly one relearn attempt — proven by
@@ -1454,6 +1709,7 @@ mod tests {
             &stop_flag,
             &tx,
             scratch.path(),
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock"),
         );
         match rx.recv_timeout(Duration::from_secs(10)).expect("outcome") {
             AttachOutcome::Attached { observer, .. } => {
@@ -1572,6 +1828,7 @@ mod tests {
                 &worker_stop,
                 &tx,
                 &project_state_dir,
+                ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock"),
             );
         });
         // Several retry cycles' worth of time against the purely-benign-forever fake.
@@ -1686,6 +1943,7 @@ mod tests {
             &stop_flag,
             &tx,
             scratch.path(),
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock"),
         );
         let observer = match rx.recv_timeout(Duration::from_secs(5)).expect("outcome") {
             AttachOutcome::Attached { observer, .. } => observer,
@@ -1709,6 +1967,8 @@ mod tests {
                 observer,
                 endpoint: socket_b.clone(),
                 identity: identity.clone(),
+                profile_lock: ProfileSessionLock::try_acquire(scratch.path())
+                    .expect("test profile lock"),
             })
             .expect("queue outcome");
         let mut runtime = EventDrivenRuntime {
@@ -1717,6 +1977,9 @@ mod tests {
             codex_home,
             codex_executable: PathBuf::from("/definitely/not/codex"),
             project_state_dir: scratch.path().to_path_buf(),
+            // `None`: not yet reclaimed from the queued outcome above — `tick()`'s own success
+            // branch (exercised below) is what moves it in, exactly like production.
+            profile_lock: None,
             state: AttachState::Attaching {
                 outcome_rx,
                 stop_flag: Arc::new(AtomicBool::new(false)),
@@ -1794,6 +2057,7 @@ mod tests {
             &stop_flag,
             &tx,
             scratch.path(),
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock"),
         );
         match rx.recv().expect("outcome") {
             AttachOutcome::Attached { observer, .. } => {
@@ -1844,6 +2108,7 @@ mod tests {
             &stop_flag,
             &tx,
             scratch.path(),
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock"),
         );
         let observer = match rx.recv().expect("outcome") {
             AttachOutcome::Attached { observer, .. } => observer,
@@ -1859,6 +2124,8 @@ mod tests {
                 observer,
                 endpoint: socket_path.clone(),
                 identity: identity.clone(),
+                profile_lock: ProfileSessionLock::try_acquire(scratch.path())
+                    .expect("test profile lock"),
             })
             .expect("queue outcome");
         let mut runtime = EventDrivenRuntime {
@@ -1867,6 +2134,7 @@ mod tests {
             codex_home,
             codex_executable: PathBuf::from("/definitely/not/codex"),
             project_state_dir: scratch.path().to_path_buf(),
+            profile_lock: None,
             state: AttachState::Attaching {
                 outcome_rx,
                 stop_flag: Arc::new(AtomicBool::new(false)),
@@ -1918,6 +2186,7 @@ mod tests {
                 &worker_stop,
                 &tx,
                 &project_state_dir,
+                ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock"),
             );
         });
         thread::sleep(Duration::from_millis(50));
@@ -2058,6 +2327,8 @@ exit 1
         let (tx, rx) = mpsc::channel();
         let worker_stop = stop_flag.clone();
         let project_state_dir = scratch.path().to_path_buf();
+        let profile_lock =
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock");
         let handle = thread::spawn(move || {
             attach_worker_loop(
                 attach_target(&failing_executable, &codex_home, socket_path, dead),
@@ -2065,6 +2336,7 @@ exit 1
                 &worker_stop,
                 &tx,
                 &project_state_dir,
+                profile_lock,
             );
         });
         // Several retry cycles' worth of time against the always-failing rediscovery.
@@ -2117,6 +2389,7 @@ exit 1
             &stop_flag,
             &tx,
             scratch.path(),
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock"),
         );
         match rx.recv().expect("outcome") {
             AttachOutcome::Attached { observer, .. } => observer.stop(),
@@ -2150,6 +2423,7 @@ exit 1
             &stop_flag_2,
             &tx2,
             scratch.path(),
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock"),
         );
         let outcome = rx2.recv_timeout(Duration::from_secs(5)).expect("outcome");
         let (observer2, endpoint2, identity2) = match outcome {
@@ -2157,6 +2431,7 @@ exit 1
                 observer,
                 endpoint,
                 identity,
+                ..
             } => (observer, endpoint, identity),
             AttachOutcome::GaveUp => panic!("must recover by rediscovering the replacement daemon"),
         };
@@ -2234,6 +2509,8 @@ exit 1
         let worker_stop = stop_flag.clone();
         let project_state_dir = scratch.path().to_path_buf();
         let a_socket = scratch.path().join("a.sock");
+        let profile_lock =
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock");
         let handle = thread::spawn(move || {
             attach_worker_loop(
                 attach_target(&executable, &codex_home, a_socket, dead_a),
@@ -2241,6 +2518,7 @@ exit 1
                 &worker_stop,
                 &tx,
                 &project_state_dir,
+                profile_lock,
             );
         });
 
@@ -2267,6 +2545,7 @@ exit 1
                 observer,
                 endpoint,
                 identity,
+                ..
             } => (observer, endpoint, identity),
             AttachOutcome::GaveUp => panic!("must eventually recover via daemon C"),
         };
@@ -2323,6 +2602,7 @@ exit 1
             &stop_flag,
             &tx,
             scratch.path(),
+            ProfileSessionLock::try_acquire(scratch.path()).expect("test profile lock"),
         );
         let observer = match rx.recv().expect("outcome") {
             AttachOutcome::Attached { observer, .. } => observer,
@@ -2335,6 +2615,8 @@ exit 1
                 observer,
                 endpoint: socket_b.clone(),
                 identity: identity_b.clone(),
+                profile_lock: ProfileSessionLock::try_acquire(scratch.path())
+                    .expect("test profile lock"),
             })
             .expect("queue outcome");
         // Seed the runtime with a STALE endpoint/identity (as if still attached to the old,
@@ -2346,6 +2628,7 @@ exit 1
             codex_home: codex_home.clone(),
             codex_executable: PathBuf::from("/definitely/not/codex"),
             project_state_dir: scratch.path().to_path_buf(),
+            profile_lock: None,
             state: AttachState::Attaching {
                 outcome_rx,
                 stop_flag: Arc::new(AtomicBool::new(false)),

@@ -32,7 +32,7 @@ pub use journal::{
     is_git_work_tree,
 };
 pub use lease::{LeaseStore, WriterLease};
-pub use lock::{OrchestrationLock, ProcessIdentity};
+pub use lock::{OrchestrationLock, ProcessIdentity, ProfileSessionLock};
 pub use project::ProjectId;
 pub use session::{
     ExecutionIntent, RelaySessionId, RelaySessionRecord, RelaySessionView, SessionState,

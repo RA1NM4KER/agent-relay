@@ -583,6 +583,7 @@ fn run_managed_terminal_inner(
                 &profile.config_dir,
                 &context.project_state_dir(),
                 known_thread_id,
+                context.json_mode,
             ) {
                 if !context.json_mode {
                     eprintln!(
@@ -682,6 +683,15 @@ fn run_managed_terminal_inner(
                 if let Some(runtime) = event_driven.as_mut() {
                     report_event_driven_transition(runtime.tick(scheduler), context.json_mode);
                 }
+                // agent-relay#18 (zero-poll architecture): re-asserted fresh every tick, from
+                // whatever the runtime's state ended up as *after* the tick above (so a
+                // disconnect/relearn transition discovered this very tick restores the ordinary
+                // timer safety net before `scheduler.tick()` below ever runs, not one tick late).
+                scheduler.set_event_driven_healthy(
+                    event_driven
+                        .as_ref()
+                        .is_some_and(|runtime| runtime.is_healthy()),
+                );
                 scheduler.tick(
                     |trigger| {
                         let lease = context.lease_store().load().ok().flatten()?;

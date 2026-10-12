@@ -219,11 +219,22 @@ the state bundle); cross-profile native resume is not supported.
 Set `RELAY_CODEX_EVENT_DRIVEN=1` to let a supervised Codex terminal wake up immediately on Codex's
 own structured turn-failure error (`usageLimitExceeded`) or its `account/rateLimits/updated`
 notification, rather than only ever finding out on the next poll above. Unset (the default),
-nothing here changes: every launch/resume/switch behaves exactly as already described. `#13`'s
-polling is never disabled or reduced by this — it remains the watchdog either way, and this
+nothing here changes: every launch/resume/switch behaves exactly as already described. This
 feature never becomes authoritative on its own: either signal, and a successful (re)connect (see
 below), only ever triggers the same `account/rateLimits/read` evaluation, and
 `ordinaryUsageAllowed == false` remains the sole exhaustion verdict.
+
+**#13's periodic timer is suppressed — never removed — while this session is healthy.** "Healthy"
+means: the observer is currently attached (not mid-reconnect) *and* this exact Codex profile's
+exclusivity lock is held (see below) — `crates/relay-cli/src/codex_poll.rs`'s
+`CodexPollScheduler::set_event_driven_healthy`/`timer_suppressed`. While healthy, the periodic
+timer that would otherwise fire on its own adaptive cadence never does; only a real
+`usageLimitExceeded` event or a successful (re)attach's own one-shot reconciliation read (both
+already existing triggers) can make an evaluation due. The moment health cannot be confirmed — a
+disconnect, a reconnect in progress, the feature never attaching at all — the ordinary adaptive
+timer resumes immediately, visibly (traced durably), never silently. An operator's own explicit
+`RELAY_CODEX_POLL_SECS=N` fixed-interval override is left alone regardless of health: that is a
+deliberate, visible choice, not the implicit safety net this suppression specifically targets.
 
 Mechanically: enabling this ensures Codex's own shared local app-server daemon is running for the
 profile's `CODEX_HOME` (`codex app-server daemon start` — the same officially supported
@@ -259,17 +270,41 @@ so every already-resolved provider argument keeps meaning exactly what it always
   activity — never a provider call — so it costs nothing meaningful even across an arbitrarily long
   wait for a real user's first message.
 
+### Profile exclusivity: why a learned `thread/started` broadcast can be trusted
+
+Codex's app-server protocol broadcasts `thread/started` to *every* client connected to the same
+`CODEX_HOME`, with no client/session-scoped filter anywhere in the protocol (confirmed exhaustively
+against the app-server's own generated schema). Two live Relay sessions sharing one Codex profile
+could therefore cause the thread-learning path above to attach to a thread that actually belongs to
+the *other* session — a configuration this project's own history shows actually happens (the same
+profile used by two simultaneous Relay-supervised sessions/projects).
+
+`EventDrivenRuntime::start` closes this by acquiring a `relay_core::handoff::ProfileSessionLock`
+for this exact `CODEX_HOME` before doing anything else — a genuine OS `flock`, not a pid file, so
+a crash releases it with no staleness window and no PID-reuse ambiguity to reason about. At most
+one live Relay-managed session may hold it at a time, which is what makes trusting a
+freshly-learned `thread/started` broadcast *safe* rather than a guess: there is no second
+Relay-managed listener left for it to have come from. A second session attempting to start while
+the first still holds it is refused **visibly** — `Codex profile '<dir>' is already in use by
+another live session...` — and falls back to ordinary polling-only supervision, exactly as if the
+feature were off for that session; it never silently guesses.
+
+This does **not** close one narrower, honestly-accepted case: an entirely unmanaged `codex`
+process a user points at this same `CODEX_HOME` by hand, bypassing Relay. No mechanism could close
+that short of a Codex protocol change, since Codex itself has no notion of this lock — the same
+boundary profile isolation already draws everywhere else (Relay guarantees what it controls, never
+a user's own direct misuse of their own files).
+
 Only the observer (or its still-retrying background worker) is torn down as part of normal session
 cleanup — the daemon itself is never terminated by Relay, on a normal exit or otherwise: it is
 shared and Codex-owned, potentially serving other sessions or tools with nothing to do with this
 Relay Session, and must keep running exactly as if Relay had never been involved. What this still
 deliberately does **not** attempt:
 
-- **Periodic provider polling has not been removed.** #13's adaptive cadence table is unchanged and
-  remains the only mechanism whenever this feature is off, fails to attach, or hasn't reconnected
-  yet — see GitHub #17/#18 for the research behind why removing it entirely may eventually be safe,
-  and why that has not happened yet (it requires a real natural exhaustion observed end-to-end
-  through this path first).
+- **Periodic provider polling has not been removed as a mechanism.** #13's adaptive cadence table
+  is unchanged and remains exactly what runs whenever this feature is off, fails to attach, hasn't
+  reconnected yet, or an operator has set an explicit fixed interval — it is only its *periodic
+  timer specifically* that is suppressed while this session is proven healthy (see above).
 
 Only activates for a Codex CLI version this was live-verified against
 (`relay_provider_codex::VERIFIED_VERSIONS`); any other version silently declines and #13 alone

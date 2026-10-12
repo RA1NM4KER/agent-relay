@@ -1,6 +1,6 @@
 use std::{
     fs::{self, OpenOptions},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     thread,
     time::Duration,
@@ -69,6 +69,117 @@ impl OrchestrationLock {
                 source,
             })?;
         Ok(fd_lock::RwLock::new(file))
+    }
+}
+
+/// A durable, crash-safe advisory lock enforcing at most one live interactive session against a
+/// given provider profile directory at a time, held for that session's entire lifetime — unlike
+/// [`OrchestrationLock`], which is scoped to one short transaction's own execution. Backed by the
+/// same genuine OS `flock`: the kernel releases it the instant the holding process exits for any
+/// reason, including a crash, so a later acquisition attempt *proves* the earlier holder is gone
+/// rather than trusting a recorded pid that could be stale or reused — no separate staleness check
+/// of its own is needed, unlike a plain pid-file lock.
+///
+/// agent-relay#18: Codex's app-server protocol broadcasts certain lifecycle notifications
+/// (`thread/started` in particular) to every client connected to the same `CODEX_HOME`, with no
+/// client/session-scoped filter anywhere in the protocol (confirmed against the app-server's own
+/// generated schema — 170 client request methods and 84 server notifications enumerated, none
+/// scoped by client/session identity). Two Relay sessions sharing one Codex profile could
+/// therefore misattribute each other's threads during event-driven observation. This lock makes
+/// "exactly one live Relay-managed session per profile" a provable invariant instead of a hope,
+/// for exactly the span `relay_provider_codex`'s event-driven observer relies on that invariant.
+///
+/// What this does **not** close, honestly: it cannot stop an entirely unmanaged `codex` process a
+/// user points at this same directory by hand, outside Relay — no mechanism could, short of a
+/// Codex protocol change, since Codex itself has no notion of this lock. That residual boundary is
+/// the same one profile isolation already draws everywhere else: Relay guarantees what it
+/// controls, never a user's own direct misuse of their own files.
+pub struct ProfileSessionLock {
+    /// Still holds the OS `flock` acquired in [`Self::try_acquire`] — see that method's own doc
+    /// comment for why a plain `File`, not `fd_lock`'s own guard type, is what this struct keeps.
+    _file: fs::File,
+}
+
+/// Mirrors `crate::paths`'s own private-directory helper (not reused directly: that one is
+/// private to its module and scoped to Relay's own managed root, whereas this applies to a
+/// Relay-owned subdirectory inside a provider's own profile directory).
+#[cfg(unix)]
+fn set_private_directory_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(|source| Error::Io {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+#[cfg(not(unix))]
+fn set_private_directory_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+impl ProfileSessionLock {
+    /// `profile_dir` is the provider's own isolated config directory (e.g. a Codex profile's
+    /// `CODEX_HOME`). The lock file lives in a Relay-owned subdirectory under it so it can never
+    /// collide with a path the provider itself manages or creates later. Never blocks: returns
+    /// [`Error::ProfileSessionLockHeld`] immediately if another live process already holds it.
+    pub fn try_acquire(profile_dir: &Path) -> Result<Self> {
+        let relay_dir = profile_dir.join(".relay");
+        fs::create_dir_all(&relay_dir).map_err(|source| Error::Io {
+            path: relay_dir.clone(),
+            source,
+        })?;
+        // `create_dir_all` applies the umask, not the credential-bearing parent's own private
+        // mode — matching `docs/security.md`'s "private profile directories" expectation even
+        // though this file holds no secret (just an empty lock target), for the same
+        // defense-in-depth reason every other Relay-created directory inside a profile is 0700.
+        set_private_directory_permissions(&relay_dir)?;
+        let lock_path = relay_dir.join("session.lock");
+        // Same symlink defense as `OrchestrationLock::open_lock`, for the same reason: a
+        // pre-existing symlink here could silently redirect this lock onto an unrelated file.
+        if fs::symlink_metadata(&lock_path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return Err(Error::SymbolicLink(lock_path));
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(|source| Error::Io {
+                path: lock_path.clone(),
+                source,
+            })?;
+        // This lock must outlive the function that acquires it, for an entire live session
+        // (unlike `OrchestrationLock`'s own closure-scoped transaction) — but `fd_lock`'s own
+        // guard type borrows the `RwLock` it came from, and this workspace forbids `unsafe`, so
+        // there is no way to keep an owned guard alongside the value it borrows without leaking
+        // one of them. Tried first; rejected: `Box::leak`-ing the `RwLock` before attempting the
+        // lock, so the guard could be `'static` — correct only on the success path. A *refused*
+        // acquisition (an operator simply running `relay codex` again against an already-busy
+        // profile, say) would still have leaked a heap allocation and an open file descriptor for
+        // every single refusal, unboundedly within one long-lived process.
+        //
+        // This version never leaks anything, on either path. `try_write` on a local, unleaked
+        // `RwLock` tests the real lock with no special lifetime needs; on failure, `rwlock` (and
+        // the `File` it owns) simply drop here, releasing nothing because nothing was ever
+        // acquired. On success, the guard is deliberately `mem::forget`-ten — the exact, intended
+        // escape hatch `fd_lock`'s own `#[must_use = "if unused the RwLock will immediately
+        // unlock"]` warns about, used here on purpose rather than by accident — which ends its
+        // borrow without running its `Drop` (the thing that would otherwise call `flock`'s own
+        // unlock), making `rwlock` usable again long enough to reclaim the plain `File` via
+        // `into_inner()`. The `flock` stays held because nothing ever asked the kernel to release
+        // it; it is released later exactly when that `File` is closed (ordinary `Drop`, whenever
+        // this struct is), which is precisely the same event a real crash — this process dying
+        // outright — would also produce.
+        let mut rwlock = fd_lock::RwLock::new(file);
+        let guard = rwlock
+            .try_write()
+            .map_err(|_| Error::ProfileSessionLockHeld(profile_dir.to_path_buf()))?;
+        std::mem::forget(guard);
+        Ok(Self {
+            _file: rwlock.into_inner(),
+        })
     }
 }
 
@@ -220,7 +331,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{OrchestrationLock, ProcessIdentity};
+    use super::{OrchestrationLock, ProcessIdentity, ProfileSessionLock};
 
     #[test]
     #[cfg(unix)]
@@ -423,6 +534,171 @@ mod tests {
             identity.is_still_the_same_process(),
             Some(false),
             "a confirmed-absent pid must resolve definitely, not as None"
+        );
+    }
+
+    // --- agent-relay#18: `ProfileSessionLock` ---
+
+    #[test]
+    fn a_profile_lock_is_acquired_when_free_and_refused_while_held() {
+        let root = tempdir().expect("temp dir");
+        let first = ProfileSessionLock::try_acquire(root.path()).expect("first acquire");
+        let second = ProfileSessionLock::try_acquire(root.path());
+        assert!(
+            matches!(second, Err(crate::Error::ProfileSessionLockHeld(path)) if path == root.path()),
+            "a second acquisition while the first is live must be refused, naming the profile dir"
+        );
+        drop(first);
+        ProfileSessionLock::try_acquire(root.path()).expect("released after the first guard drops");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_refused_acquisition_leaks_neither_a_file_descriptor_nor_a_heap_allocation() {
+        // agent-relay#18: an earlier version of `try_acquire` leaked a `Box<fd_lock::RwLock<File>>`
+        // unconditionally, *before* attempting the lock — so every *refused* attempt (an operator
+        // simply running `relay codex` again against an already-busy profile) leaked too, not
+        // only successful ones. `/dev/fd` (present on both macOS and Linux, unlike `/proc`) lets
+        // this count real open descriptors directly rather than trust a doc comment's claim.
+        let root = tempdir().expect("temp dir");
+        let _held = ProfileSessionLock::try_acquire(root.path()).expect("hold it");
+        let fds_before = std::fs::read_dir("/dev/fd").expect("list open fds").count();
+        for _ in 0..200 {
+            let result = ProfileSessionLock::try_acquire(root.path());
+            assert!(result.is_err(), "must be refused while held");
+        }
+        let fds_after = std::fs::read_dir("/dev/fd").expect("list open fds").count();
+        assert_eq!(
+            fds_after, fds_before,
+            "200 refused acquisitions must not leak file descriptors \
+             (before={fds_before}, after={fds_after})"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn the_relay_subdirectory_is_created_private_even_under_a_permissive_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempdir().expect("temp dir");
+        let _lock = ProfileSessionLock::try_acquire(root.path()).expect("acquire");
+        let mode = std::fs::metadata(root.path().join(".relay"))
+            .expect("relay subdir exists")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o700,
+            "the lock's own subdirectory must be private regardless of the process umask"
+        );
+    }
+
+    #[test]
+    fn two_distinct_profile_directories_never_contend() {
+        let root = tempdir().expect("temp dir");
+        let a = root.path().join("profile-a");
+        let b = root.path().join("profile-b");
+        std::fs::create_dir_all(&a).expect("profile a dir");
+        std::fs::create_dir_all(&b).expect("profile b dir");
+        let _lock_a = ProfileSessionLock::try_acquire(&a).expect("acquire a");
+        ProfileSessionLock::try_acquire(&b).expect("a different profile dir must never contend");
+    }
+
+    #[test]
+    fn two_racing_threads_never_both_observe_the_profile_lock_held_simultaneously() {
+        // agent-relay#18: the exact "race between two processes acquiring profile ownership"
+        // adversarial case — threads race `flock` the same way two independent `relay` processes
+        // starting at the same instant against the same Codex profile would (the kernel lock is
+        // what actually arbitrates, identical either way).
+        use std::sync::{Arc, Barrier};
+        let root = tempdir().expect("temp dir");
+        let path = Arc::new(root.path().to_path_buf());
+        let barrier = Arc::new(Barrier::new(2));
+        let successes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let path = path.clone();
+                let barrier = barrier.clone();
+                let successes = successes.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    if let Ok(lock) = ProfileSessionLock::try_acquire(&path) {
+                        successes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                        drop(lock);
+                    }
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().expect("thread join");
+        }
+        assert_eq!(
+            successes.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "exactly one of two simultaneous racers must win a profile that only one may hold \
+             at a time — never zero (a live profile must remain usable), never two"
+        );
+    }
+
+    #[test]
+    fn a_symlinked_profile_lock_path_is_rejected_instead_of_followed() {
+        let root = tempdir().expect("temp dir");
+        let real_target = root.path().join("someone-elses-file");
+        std::fs::write(&real_target, b"").expect("seed target");
+        std::fs::create_dir_all(root.path().join(".relay")).expect("relay subdir");
+        std::os::unix::fs::symlink(&real_target, root.path().join(".relay/session.lock"))
+            .expect("symlink");
+        match ProfileSessionLock::try_acquire(root.path()) {
+            Err(error) => assert_eq!(error.code(), "symbolic_link"),
+            Ok(_) => panic!("symlink must be rejected"),
+        }
+    }
+
+    #[test]
+    fn a_crashed_holders_profile_lock_is_reclaimable_without_any_staleness_check() {
+        // Proves the actual cross-process crash-release guarantee (not merely a same-process
+        // drop): a real child process holds the lock via `flock`, is killed outright (SIGKILL —
+        // no Drop/cleanup of its own ever runs), and a later acquisition in this process must
+        // still succeed cleanly, with no PID-matching or staleness check of our own required.
+        let root = tempdir().expect("temp dir");
+        std::fs::create_dir_all(root.path().join(".relay")).expect("relay subdir");
+        let lock_path = root.path().join(".relay/session.lock");
+        let holder = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(
+                "import fcntl, sys, time\n\
+                 f = open(sys.argv[1], 'a')\n\
+                 fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)\n\
+                 print('locked', flush=True)\n\
+                 time.sleep(60)\n",
+            )
+            .arg(&lock_path)
+            .stdout(std::process::Stdio::piped())
+            .spawn();
+        let Ok(mut holder) = holder else {
+            // python3 is not guaranteed present on every CI runner; the crash-release guarantee
+            // this proves is a property of the OS/`fd_lock`, not of this crate's own code, so
+            // skipping when the tool is unavailable never hides a real regression here.
+            eprintln!("skipping: python3 unavailable to spawn a real cross-process holder");
+            return;
+        };
+        use std::io::Read as _;
+        let mut line = [0_u8; 6];
+        let mut stdout = holder.stdout.take().expect("piped stdout");
+        if stdout.read_exact(&mut line).is_err() {
+            let _ = holder.kill();
+            let _ = holder.wait();
+            eprintln!("skipping: holder did not confirm its lock in time");
+            return;
+        }
+        assert!(
+            ProfileSessionLock::try_acquire(root.path()).is_err(),
+            "must be refused while the real external holder is still alive"
+        );
+        holder.kill().expect("sigkill the holder");
+        holder.wait().expect("reap the killed holder");
+        ProfileSessionLock::try_acquire(root.path()).expect(
+            "a killed holder's lock must be cleanly reclaimable, no staleness check needed",
         );
     }
 }

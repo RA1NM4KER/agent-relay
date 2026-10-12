@@ -85,6 +85,8 @@ Mitigations:
 - verify source death before target start;
 - clearly state that processes launched outside Relay cannot be technically prevented, and detect/report known provider processes where safely possible.
 
+agent-relay#18: a second OS advisory lock (`relay_core::handoff::ProfileSessionLock`, a genuine `flock`, not a pid file) guards a narrower, separate race — two live Relay sessions observing structured Codex events on the same Codex profile's `CODEX_HOME` at once, which Codex's own app-server protocol cannot itself distinguish (it broadcasts certain lifecycle notifications to every connected client with no client/session-scoped filter). Scoped to the opt-in event-driven observer only (`RELAY_CODEX_EVENT_DRIVEN=1`); a refused acquisition falls back to ordinary polling-only supervision, visibly. The lock file lives at `<CODEX_HOME>/.relay/session.lock`, created private (`0700`) regardless of the process umask. As with every other lock here: a manually launched `codex` process pointed at that same `CODEX_HOME` by hand, outside Relay, cannot be technically prevented from observing events too — the same accepted boundary as the bullet above.
+
 ### Stale locks and PID reuse
 
 A crash can leave metadata while the OS lock is released; a PID can later identify a different process.

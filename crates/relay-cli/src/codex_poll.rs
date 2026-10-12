@@ -140,6 +140,16 @@ pub(crate) struct CodexPollScheduler {
     /// consumed (reset back to [`CodexEvaluationTrigger::Timer`]) the moment [`Self::tick`] actually
     /// hands it to a plan. Never inferred later from timing.
     pending_trigger: CodexEvaluationTrigger,
+    /// agent-relay#18 (zero-poll architecture): set every tick from
+    /// `codex_runtime::EventDrivenRuntime::is_healthy()` — `true` only while that runtime is
+    /// currently attached and proven exclusive (see `relay_core::handoff::ProfileSessionLock`).
+    /// While `true` *and* `mode` is the plain, no-override [`PollMode::Adaptive`], [`Self::tick`]'s
+    /// own periodic timer never fires on its own — only [`Self::notify_event`] /
+    /// [`Self::request_reconciliation`] can make a poll due, so the explicitly allowed one-shot
+    /// reads keep working while the hidden "just in case" timer is the one thing actually removed.
+    /// An operator's own explicit [`PollMode::Fixed`] override is left alone even while healthy —
+    /// that is a deliberate, visible choice, never the silent safety-net default this flag targets.
+    event_driven_healthy: bool,
 }
 
 impl CodexPollScheduler {
@@ -180,7 +190,49 @@ impl CodexPollScheduler {
             child: None,
             next_poll_at: Instant::now() + Duration::from_secs(initial_secs),
             pending_trigger: CodexEvaluationTrigger::Timer,
+            event_driven_healthy: false,
         }
+    }
+
+    /// agent-relay#18 (zero-poll architecture): the caller (`terminal_session::run_managed_terminal_inner`)
+    /// calls this every tick with `codex_runtime::EventDrivenRuntime::is_healthy()`'s current
+    /// answer — never cached/sticky across ticks, so a transition out of healthy (a disconnect,
+    /// a thread-ended relearn) takes effect on the very next tick, restoring the ordinary timer
+    /// safety net immediately rather than trusting a health reading that may already be stale.
+    pub(crate) fn set_event_driven_healthy(&mut self, healthy: bool) {
+        if healthy == self.event_driven_healthy {
+            return;
+        }
+        // Compared against the *actual* combined suppression state (health alone is not enough —
+        // an operator's own `PollMode::Fixed` override must never be reported as suppressed), so
+        // this traces only when the periodic timer's real behavior actually changes.
+        let was_suppressed = self.timer_suppressed();
+        self.event_driven_healthy = healthy;
+        let is_suppressed = self.timer_suppressed();
+        if is_suppressed == was_suppressed {
+            return;
+        }
+        // Traced only on the transition, never every tick, exactly like every other trace in this
+        // module — this is the durable proof (Phase 5's own requirement) that a session actually
+        // ran with its periodic timer suppressed, and for how much of its lifetime, rather than a
+        // claim only true in the code review that added it.
+        auto_handoff::trace_event(
+            &self.project_state_dir,
+            if is_suppressed {
+                "codex_poll_timer_suppressed_event_driven_healthy"
+            } else {
+                "codex_poll_timer_resumed_event_driven_unhealthy"
+            },
+        );
+    }
+
+    /// Whether [`Self::tick`]'s own periodic timer is currently suppressed in favor of
+    /// event-driven-only operation — `true` exactly when healthy and not under an operator's own
+    /// explicit fixed-interval override. A test/caller can use this to prove "zero periodic
+    /// quota reads while healthy" directly, without needing to drive real wall-clock time.
+    #[must_use]
+    fn timer_suppressed(&self) -> bool {
+        self.event_driven_healthy && matches!(self.mode, PollMode::Adaptive)
     }
 
     /// One supervision tick (called on the existing 300ms cadence — see
@@ -211,7 +263,16 @@ impl CodexPollScheduler {
             }
             return;
         }
-        if Instant::now() < self.next_poll_at {
+        // agent-relay#18 (zero-poll architecture): while the timer is suppressed, wall-clock
+        // elapsing alone must never make a poll due — only `pending_trigger` having been set to
+        // something other than `Timer` (by `notify_event`/`request_reconciliation`) can. This is
+        // the entire mechanism: nothing else in this function changes between the two modes.
+        let due = if self.timer_suppressed() {
+            !matches!(self.pending_trigger, CodexEvaluationTrigger::Timer)
+        } else {
+            Instant::now() >= self.next_poll_at
+        };
+        if !due {
             return;
         }
         // GitHub #18: consumed here, exactly once, regardless of whether a plan actually gets
@@ -338,6 +399,184 @@ mod tests {
     use super::*;
     use relay_provider_codex::observer::ObserverEvent;
     use std::process::Command;
+
+    // --- agent-relay#18 (zero-poll architecture): healthy event-driven supervision performs
+    // exactly zero periodic quota reads, proven by keeping a healthy scheduler "alive" (ticked)
+    // across far more than one old polling interval and asserting the plan closure is never
+    // invoked unless something other than the timer made it due ---
+
+    #[test]
+    fn a_healthy_scheduler_never_fires_on_the_timer_alone_however_many_ticks_pass() {
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
+        scheduler.set_event_driven_healthy(true);
+        // `next_poll_at` is already far in the past — multiple old (even the most aggressive,
+        // 5s-critical) polling intervals' worth — so if the timer check ran at all, this would be
+        // due many times over. 500 ticks is deliberately far more than one real session would
+        // ever see in this gap, to make "it just never happened to be checked" an impossible
+        // explanation for the assertion holding.
+        scheduler.next_poll_at = Instant::now() - Duration::from_secs(10_000);
+        for _ in 0..500 {
+            scheduler.tick(
+                |_trigger| {
+                    panic!("a healthy, unoverridden scheduler must never plan from the timer")
+                },
+                |_| panic!("a healthy, unoverridden scheduler must never spawn from the timer"),
+            );
+        }
+    }
+
+    #[test]
+    fn a_genuine_usage_limit_event_still_produces_exactly_one_evaluation_while_healthy() {
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
+        scheduler.set_event_driven_healthy(true);
+        scheduler.next_poll_at = Instant::now() - Duration::from_secs(10_000);
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        let mut plan_calls = 0;
+        scheduler.tick(
+            |trigger| {
+                plan_calls += 1;
+                assert_eq!(trigger, CodexEvaluationTrigger::UsageLimitEvent);
+                Some(AutoWatchPlan {
+                    args: Vec::new(),
+                    log_path: PathBuf::new(),
+                    triggered_unix_ms: 0,
+                    trigger: "test",
+                })
+            },
+            |_| Some(quick_child()),
+        );
+        assert_eq!(
+            plan_calls, 1,
+            "a real usageLimitExceeded must still reach exactly one evaluation while healthy"
+        );
+        // And the timer alone, ticked again immediately after, must not plan a second one.
+        scheduler.tick(
+            |_trigger| panic!("the timer must stay suppressed after the event-triggered read"),
+            |_| panic!("the timer must stay suppressed after the event-triggered read"),
+        );
+    }
+
+    #[test]
+    fn a_reconnect_reconciliation_still_fires_exactly_once_while_healthy() {
+        // Covers the "successful observer attach/re-attach reconciliation" one-shot-read
+        // category directly, under the healthy/suppressed scheduler — not merely under the
+        // ordinary (pre-#18-zero-poll) adaptive mode the pre-existing test for this already used.
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
+        scheduler.set_event_driven_healthy(true);
+        scheduler.next_poll_at = Instant::now() - Duration::from_secs(10_000);
+        scheduler.request_reconciliation();
+        let mut plan_calls = 0;
+        scheduler.tick(
+            |trigger| {
+                plan_calls += 1;
+                assert_eq!(trigger, CodexEvaluationTrigger::ReconnectReconciliation);
+                None
+            },
+            |_| panic!("no plan means nothing to spawn"),
+        );
+        assert_eq!(plan_calls, 1);
+    }
+
+    #[test]
+    fn a_duplicate_usage_limit_event_while_healthy_still_queues_only_one_evaluation() {
+        let mut scheduler =
+            CodexPollScheduler::with_mode(PollMode::Adaptive, PathBuf::new(), PathBuf::new(), None);
+        scheduler.set_event_driven_healthy(true);
+        scheduler.next_poll_at = Instant::now() - Duration::from_secs(10_000);
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        scheduler.notify_event(ObserverEvent::UsageLimitExceeded);
+        let mut plan_calls = 0;
+        scheduler.tick(
+            |_trigger| {
+                plan_calls += 1;
+                Some(AutoWatchPlan {
+                    args: Vec::new(),
+                    log_path: PathBuf::new(),
+                    triggered_unix_ms: 0,
+                    trigger: "test",
+                })
+            },
+            |_| Some(quick_child()),
+        );
+        assert_eq!(
+            plan_calls, 1,
+            "three duplicate events arriving before the next tick must still produce one evaluation"
+        );
+    }
+
+    #[test]
+    fn an_operators_explicit_fixed_override_is_never_suppressed_even_while_healthy() {
+        // Phase 5's own distinction: zero-poll suppression targets the *default* (no override)
+        // adaptive cadence specifically, never a `RELAY_CODEX_POLL_SECS` override an operator set
+        // themselves — that is a visible, deliberate choice, not the hidden "just in case" safety
+        // net this feature removes.
+        let mut scheduler = CodexPollScheduler::with_mode(
+            PollMode::Fixed(60),
+            PathBuf::new(),
+            PathBuf::new(),
+            None,
+        );
+        scheduler.set_event_driven_healthy(true);
+        scheduler.next_poll_at = Instant::now() - Duration::from_secs(10_000);
+        let mut plan_calls = 0;
+        scheduler.tick(
+            |_trigger| {
+                plan_calls += 1;
+                None
+            },
+            |_| panic!("no plan means nothing to spawn"),
+        );
+        assert_eq!(
+            plan_calls, 1,
+            "a fixed override's own timer must keep firing regardless of event-driven health"
+        );
+    }
+
+    #[test]
+    fn health_transitions_are_traced_only_on_actual_change_not_every_tick() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut scheduler = CodexPollScheduler::with_mode(
+            PollMode::Adaptive,
+            PathBuf::new(),
+            dir.path().to_path_buf(),
+            None,
+        );
+        scheduler.set_event_driven_healthy(true);
+        scheduler.set_event_driven_healthy(true);
+        scheduler.set_event_driven_healthy(true);
+        let log = std::fs::read_to_string(dir.path().join(auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert_eq!(
+            log.matches("codex_poll_timer_suppressed_event_driven_healthy")
+                .count(),
+            1,
+            "repeating the same health value must trace the transition exactly once: {log}"
+        );
+        scheduler.set_event_driven_healthy(false);
+        let log = std::fs::read_to_string(dir.path().join(auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert!(log.contains("codex_poll_timer_resumed_event_driven_unhealthy"));
+    }
+
+    #[test]
+    fn a_fixed_override_never_traces_a_health_transition_since_it_was_never_actually_suppressed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut scheduler = CodexPollScheduler::with_mode(
+            PollMode::Fixed(60),
+            PathBuf::new(),
+            dir.path().to_path_buf(),
+            None,
+        );
+        scheduler.set_event_driven_healthy(true);
+        assert!(
+            !dir.path().join(auto_handoff::LOG_FILE_NAME).exists(),
+            "a fixed override's timer behavior never actually changes, so nothing should be traced"
+        );
+    }
 
     // --- GitHub #16: event notification pre-empts cadence without a second scheduling policy ---
 

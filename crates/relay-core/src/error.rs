@@ -99,6 +99,17 @@ pub enum Error {
     TransferVerificationFailed,
     #[error("another handoff is already in progress for this project")]
     OrchestrationLockHeld,
+    /// agent-relay#18: Codex's app-server protocol broadcasts certain lifecycle notifications to
+    /// every client sharing a `CODEX_HOME`, with no client/session-scoped filter — two live
+    /// sessions sharing one profile could misattribute each other's threads. `0` is the profile
+    /// directory a caller should report; never the recorded holder's pid (irrelevant to the user
+    /// and not worth exposing).
+    #[error(
+        "Codex profile '{0}' is already in use by another live session.\nEvent-safe \
+         supervision requires one live Codex session per profile.\nUse another Codex profile or \
+         stop the existing session."
+    )]
+    ProfileSessionLockHeld(PathBuf),
     #[error("writer lease is corrupted or incompatible")]
     CorruptedLease,
     #[error("handoff journal is corrupted or incompatible")]
@@ -300,6 +311,7 @@ impl Error {
             Self::TargetArtifactDiverges => "target_artifact_diverges",
             Self::TransferVerificationFailed => "transfer_verification_failed",
             Self::OrchestrationLockHeld => "orchestration_lock_held",
+            Self::ProfileSessionLockHeld(_) => "profile_session_lock_held",
             Self::CorruptedLease => "corrupted_lease",
             Self::CorruptedJournal => "corrupted_journal",
             Self::TransactionNotFound(_) => "transaction_not_found",
