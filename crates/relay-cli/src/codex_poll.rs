@@ -349,6 +349,10 @@ impl CodexPollScheduler {
             // variant itself (GitHub #18 follow-up) to drive a re-learning reconnect and never
             // forwards it here in practice.
             ObserverEvent::ThreadEnded => {}
+            // GitHub #18 (mid-session thread-replacement follow-up): `EventDrivenRuntime::tick`
+            // intercepts this variant itself to request reconciliation and never forwards it here
+            // in practice — same reasoning as `ThreadEnded` above.
+            ObserverEvent::ThreadReplaced(_) => {}
         }
     }
 

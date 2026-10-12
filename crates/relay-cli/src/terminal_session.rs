@@ -1006,6 +1006,12 @@ fn report_event_driven_transition(event: crate::codex_runtime::TickEvent, json_m
                 "[Relay] event-driven Codex observation ended; GitHub #13's polling remains active"
             );
         }
+        crate::codex_runtime::TickEvent::ThreadReplaced(thread_id) => {
+            eprintln!(
+                "[Relay] event-driven Codex observer followed its thread's replacement, same \
+                 connection (now watching thread {thread_id})"
+            );
+        }
     }
 }
 

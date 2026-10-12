@@ -323,6 +323,49 @@ again, for an entire session, never once reaching `Attached`. Two compounding ca
 Together: under profile exclusivity, a thread id a worker generation learns from its own
 pre-launch-established connection is authoritative for the life of the supervised session.
 
+### Fail-closed on a fresh-launch prelisten failure
+
+The prelisten connection above is itself best-effort (the daemon could stop responding in the
+instant between being confirmed alive and the connection attempt). An earlier version absorbed a
+prelisten failure the same way every other best-effort step in `EventDrivenRuntime::start` is
+absorbed: fall through with no pre-connected socket, letting the attach worker open an ordinary
+reconnecting connection instead. That silently re-opened the exact race the prelisten step exists
+to close — the interactive TUI would still launch, and its own `thread/started` broadcast could
+still win against the now-unconnected-in-advance worker. For a fresh launch specifically there is
+no safe degraded mode that still claims event-driven coverage, so a prelisten failure now fails
+`start` closed (`None`), falling back to launching the interactive command completely unsupervised
+(ordinary #13 polling only) rather than a session that silently carries the pre-fix race while
+still claiming to be event-driven.
+
+### Mid-session thread replacement without ever reconnecting
+
+A thread can legitimately end mid-session (the user starts a new one) — the app-server's own
+authoritative `thread/closed`/`thread/archived`/`thread/deleted`/`notLoaded`-status signal reports
+this exactly as it does for a never-yet-resumed thread (see above). The old recovery tore the
+connection down and opened a fresh one to listen for the replacement's `thread/started` — which
+reopens the same missed-broadcast race the fresh-launch fix above exists to close, just mid-session
+instead of at launch.
+
+Under profile exclusivity there is no need to reconnect at all: the *same* already-live connection
+that received the authoritative end can simply keep listening for the next `thread/started`
+broadcast and resume it directly — nothing else could legitimately produce that broadcast on this
+`CODEX_HOME`. `relay_provider_codex::observer::read_loop`'s background reader now does exactly
+this: on an authoritative end for its current thread, it waits (unbounded — there is no way to
+know how long a real user takes to start their next thread) on the same socket for the replacement,
+retrying a benign resume failure against it exactly like a self-learned id does (never discarding
+it for a relearn that cannot find anything), and only reports `ThreadEnded`/`ThreadReplaced` to the
+caller — `EventDrivenRuntime` never leaves `Attached` for this, and requests exactly one
+reconciliation on success, same as any other (re)attach.
+
+This honestly does **not** close one narrower case: if the connection itself also fails (a daemon
+replacement, a crash) *before* a replacement was ever learned on it, there is no live connection
+left to keep listening on, and the old missed-broadcast race applies again — `EventDrivenRuntime`
+detects this (the old thread was confirmed ended and no replacement ever arrived) and relearns via
+an ordinary reconnect, exactly like a fresh launch, rather than resuming the confirmed-ended id.
+This double-fault window is substantially narrower than the original bug (it requires the thread
+ending and the connection dying within the same unbounded wait) and degrades safely — it still
+eventually attaches — rather than looping forever.
+
 Only the observer (or its still-retrying background worker) is torn down as part of normal session
 cleanup — the daemon itself is never terminated by Relay, on a normal exit or otherwise: it is
 shared and Codex-owned, potentially serving other sessions or tools with nothing to do with this

@@ -14,7 +14,10 @@ use std::{
     cell::Cell,
     os::unix::net::UnixStream,
     path::Path,
-    sync::mpsc::{self, Receiver},
+    sync::{
+        Arc, Mutex,
+        mpsc::{self, Receiver},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -27,7 +30,10 @@ use crate::events;
 /// One decoded, sanitized signal from the observed runtime. Never raw provider output, never an
 /// account id, never conversation content — only what the two functions in `crate::events`
 /// already decided, or (GitHub #17/#18) the fact that this connection is no longer usable.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+///
+/// Not `Copy` (GitHub #18 mid-session thread-replacement follow-up): [`Self::ThreadReplaced`]
+/// carries an owned thread id.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ObserverEvent {
     /// A turn on the observed thread failed with the structured `usageLimitExceeded` error.
     /// Callers must treat this exactly like GitHub #13's own trigger: start the existing
@@ -49,9 +55,19 @@ pub enum ObserverEvent {
     /// (`thread/closed`/`thread/archived`/`thread/deleted`, or `thread/status/changed` reporting
     /// `notLoaded`) reported *this exact subscribed thread* as ended — never inferred from an
     /// absence of other events. Unlike `Disconnected`, the connection itself is still live; only
-    /// this specific thread is confirmed done. Callers must stop watching it and re-learn the
-    /// active thread (listen for a fresh `thread/started`), never keep resuming the same id.
+    /// this specific thread is confirmed done. Informational only as of the GitHub #18 mid-session
+    /// thread-replacement follow-up: the underlying connection is **not** torn down over this —
+    /// [`Self::ThreadReplaced`] (or [`Self::Disconnected`], if the connection itself also fails
+    /// while no replacement has been learned yet) is the actionable follow-up signal.
     ThreadEnded,
+    /// GitHub #18 (mid-session thread-replacement follow-up): after a [`Self::ThreadEnded`] for
+    /// the previously-subscribed thread, this exact same already-live connection (never a
+    /// reconnect) waited for the next `thread/started` broadcast and successfully resumed it.
+    /// Carries the new thread id — authoritative under profile exclusivity for the same reason a
+    /// fresh launch's self-learned id is (see `relay_cli::codex_runtime::KnownThread`'s own doc
+    /// comment): there is no second Relay-managed TUI this broadcast could have come from, and
+    /// (unlike a fresh launch) no reconnect ever happened for it to race.
+    ThreadReplaced(String),
 }
 
 /// Why the background connection ended, for diagnostics only — every variant is handled
@@ -172,7 +188,11 @@ pub struct Observer {
     /// and a caller must see that fact exactly once, not on every 300ms tick forever (GitHub
     /// #18's "duplicate disconnect signals are coalesced" requirement).
     disconnect_reported: Cell<bool>,
-    pub thread_id: String,
+    /// GitHub #18 (mid-session thread-replacement follow-up): shared with the background reader
+    /// thread, which updates this in place on a successful same-connection [`ObserverEvent::ThreadReplaced`]
+    /// — a plain `String` field could not reflect that without unsafe aliasing, since the reader
+    /// thread already owns the socket and keeps running. Read via [`Self::thread_id`].
+    thread_id: Arc<Mutex<String>>,
 }
 
 impl Observer {
@@ -263,21 +283,39 @@ impl Observer {
                 ResumeFailure::TargetEnded => ObserverError::ResumeTargetEnded(resolved_thread_id),
             });
         }
-        socket
-            .get_ref()
-            .set_read_timeout(None)
-            .map_err(|_| ObserverError::Handshake)?;
+        // GitHub #18 (mid-session thread-replacement follow-up — live-reproduced under heavy
+        // parallel test load): clearing the attach-time read timeout can itself fail (observed
+        // `EINVAL`) if the peer closes at essentially the same instant `resume` above succeeds —
+        // a real possibility, not just a test artifact, since a daemon can legitimately tear down
+        // a subscription right after confirming it. Failing attach outright over this would be
+        // wrong: the resume already succeeded, so this is a live, attached connection that happens
+        // to be closing — exactly what [`read_loop`] (tolerant of its own read timeout remaining
+        // set — see that function's own doc comment) and [`Observer::drain_events`] already exist
+        // to report, via an ordinary `Disconnected`, not a confusing attach failure. Best-effort
+        // only: never fails attach itself.
+        let _ = socket.get_ref().set_read_timeout(None);
 
         let (sender, events) = mpsc::channel();
-        let subscribed_thread_id = resolved_thread_id.clone();
-        let reader = thread::spawn(move || read_loop(socket, sender, subscribed_thread_id));
+        let thread_id = Arc::new(Mutex::new(resolved_thread_id));
+        let reader_thread_id = Arc::clone(&thread_id);
+        let reader = thread::spawn(move || read_loop(socket, sender, reader_thread_id));
         Ok(Self {
             events,
             shutdown: shutdown_handle,
             reader: Some(reader),
             disconnect_reported: Cell::new(false),
-            thread_id: resolved_thread_id,
+            thread_id,
         })
+    }
+
+    /// The thread id this observer is subscribed to *right now* — GitHub #18 (mid-session
+    /// thread-replacement follow-up): after a same-connection [`ObserverEvent::ThreadReplaced`],
+    /// this reflects the replacement, never the one originally attached to. A method rather than a
+    /// plain field precisely because it can change out from under a caller holding `&Observer`
+    /// without that caller needing a `&mut`.
+    #[must_use]
+    pub fn thread_id(&self) -> String {
+        self.thread_id.lock().expect("thread_id mutex").clone()
     }
 
     /// Non-blocking drain — the caller's own tick loop (GitHub #13's existing 300ms cadence,
@@ -558,18 +596,99 @@ fn read_matching_result_for_resume(
     Err(ResumeFailure::TimedOut)
 }
 
+/// How long [`wait_for_replacement_and_resume`] pauses between repeated `thread/resume` attempts
+/// against a just-learned replacement thread id — mirrors `relay_cli::codex_runtime::KnownThread`'s
+/// own reasoning (a self-learned id is retried, never discarded), but here the retry is a plain
+/// `thread/resume` call on the *same* already-open connection rather than a fresh reconnect, so a
+/// short fixed pause (rather than the caller's own exponential backoff) is enough to avoid
+/// hammering a transiently-busy daemon while the thread's first turn is still starting.
+const REPLACEMENT_RESUME_RETRY_PAUSE: Duration = Duration::from_millis(500);
+
+/// GitHub #18 (mid-session thread-replacement follow-up): waits — unbounded, since there is no way
+/// to know how long a real user takes to start their next thread — on `socket` for the next
+/// `thread/started` broadcast, exactly like [`wait_for_first_thread`] but without that function's
+/// [`ATTACH_TIMEOUT`] deadline (which exists only to bound a *fresh launch's* best-effort attach,
+/// never this already-attached, already-healthy connection). Returns `None` only once the
+/// connection itself fails.
+fn wait_for_next_thread_started(socket: &mut WebSocket<UnixStream>) -> Option<String> {
+    loop {
+        let message = match socket.read() {
+            Ok(message) => message,
+            // Same reasoning as `read_loop`'s own tolerance: the attach-time read timeout may
+            // still be set (clearing it is best-effort — see `Observer::finish_attach`), and an
+            // ordinary timeout here must never be mistaken for the connection having died.
+            Err(error) if is_timeout(&error) => continue,
+            Err(_) => return None,
+        };
+        let Message::Text(text) = message else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        if value.get("method").and_then(Value::as_str) == Some("thread/started")
+            && let Some(id) = value
+                .get("params")
+                .and_then(|params| params.get("thread"))
+                .and_then(|thread| thread.get("id"))
+                .and_then(Value::as_str)
+        {
+            return Some(id.to_owned());
+        }
+    }
+}
+
+/// GitHub #18 (mid-session thread-replacement follow-up): after an authoritative
+/// [`ObserverEvent::ThreadEnded`] for the previously-subscribed thread, waits for and resumes the
+/// next thread on this exact same already-live connection — never a reconnect, which would risk
+/// missing the one-shot broadcast exactly as a fresh launch's own prelisten exists to prevent (see
+/// this module's own doc comment and `relay_cli::codex_runtime::KnownThread`). A resume failure
+/// against the newly-learned id is never evidence the id itself is wrong (mirrors
+/// `KnownThread::SelfLearned`'s reasoning exactly): retried on the same id after a short pause. If
+/// the newly-learned thread *itself* turns out to already be authoritatively ended
+/// (`ResumeFailure::TargetEnded` — a pathological but possible back-to-back case), this waits for
+/// yet another broadcast rather than giving up, however many times that repeats. Returns `None`
+/// only once the connection itself becomes unusable while no replacement has been resumed yet —
+/// the caller must then reconnect and *relearn* (the old id is confirmed gone; there is nothing
+/// left on this connection to resume).
+fn wait_for_replacement_and_resume(socket: &mut WebSocket<UnixStream>) -> Option<String> {
+    loop {
+        let candidate_id = wait_for_next_thread_started(socket)?;
+        loop {
+            match resume(socket, &candidate_id) {
+                Ok(()) => return Some(candidate_id),
+                Err(ResumeFailure::TargetEnded) => break,
+                Err(_) => thread::sleep(REPLACEMENT_RESUME_RETRY_PAUSE),
+            }
+        }
+    }
+}
+
 /// The background reader: blocks on `socket.read()` until the socket is shut down (from
 /// [`Observer::stop`]/[`Observer::drop`]) or the server closes it, decoding only the two
 /// notification shapes `crate::events` knows about and dropping everything else — including any
 /// notification shape a future Codex version might add, which must stay inert here exactly as
-/// `crate::events`'s own doc comment requires. Always sends exactly one terminal event (either
-/// [`ObserverEvent::ThreadEnded`] or [`ObserverEvent::Disconnected`]) as its last act before
-/// returning (GitHub #17/#18's identified gap: without this, a dead observer was indistinguishable
-/// from "nothing happened yet").
+/// `crate::events`'s own doc comment requires. Always sends exactly one terminal
+/// [`ObserverEvent::Disconnected`] as its last act before returning (GitHub #17/#18's identified
+/// gap: without this, a dead observer was indistinguishable from "nothing happened yet").
+///
+/// GitHub #18 (mid-session thread-replacement follow-up): an authoritative
+/// [`ObserverEvent::ThreadEnded`] for the currently-subscribed thread no longer ends this loop.
+/// Instead, [`wait_for_replacement_and_resume`] keeps this exact connection alive and waiting on
+/// the caller's behalf; on success, `thread_id` (shared with [`Observer::thread_id`]) is updated
+/// in place, [`ObserverEvent::ThreadReplaced`] is sent, and dispatch resumes against the new id —
+/// never tearing down and reconnecting, which is the whole point (see this module's own doc
+/// comment for why a reconnect here would risk missing the one-shot broadcast). If the connection
+/// instead fails while no replacement has been resumed yet, a plain `Disconnected` is sent, same
+/// as any other connection failure — the caller (`relay_cli::codex_runtime::EventDrivenRuntime`)
+/// distinguishes "disconnected with a still-valid known thread" from "disconnected with the old
+/// thread confirmed gone and no replacement learned" by tracking whether a `ThreadReplaced` has
+/// been seen since the last `ThreadEnded`, and relearns (rather than resumes the confirmed-gone id)
+/// in the latter case.
 fn read_loop(
     mut socket: WebSocket<UnixStream>,
     sender: mpsc::Sender<ObserverEvent>,
-    thread_id: String,
+    thread_id: Arc<Mutex<String>>,
 ) {
     loop {
         let message = match socket.read() {
@@ -578,6 +697,14 @@ fn read_loop(
                 let _ignored = sender.send(ObserverEvent::Disconnected(DisconnectReason::Closed));
                 return;
             }
+            // GitHub #18 (mid-session thread-replacement follow-up): [`Observer::finish_attach`]
+            // clearing the attach-time read timeout is best-effort — if it failed (observed
+            // `EINVAL` under a peer-closes-at-the-same-instant race), this socket may still be
+            // using the short attach-time timeout rather than blocking indefinitely. Without this
+            // branch, every ordinary idle period longer than that timeout would misreport a
+            // perfectly healthy, merely-quiet connection as `Disconnected`. A genuine timeout is
+            // retried exactly like the attach-time code already does elsewhere in this module.
+            Err(error) if is_timeout(&error) => continue,
             Err(_) => {
                 let _ignored =
                     sender.send(ObserverEvent::Disconnected(DisconnectReason::ReadError));
@@ -596,12 +723,30 @@ fn read_loop(
         let Some(params) = value.get("params") else {
             continue;
         };
+        let current_thread_id = thread_id.lock().expect("thread_id mutex").clone();
         // GitHub #18 follow-up: an authoritative "this exact subscribed thread has ended" signal
-        // always wins over any other decoding and ends this reader loop promptly — there is
-        // nothing further worth draining for a thread the server itself just confirmed is done.
-        if events::notification_reports_this_thread_ended(method, params, &thread_id) {
-            let _ignored = sender.send(ObserverEvent::ThreadEnded);
-            return;
+        // always wins over any other decoding.
+        if events::notification_reports_this_thread_ended(method, params, &current_thread_id) {
+            if sender.send(ObserverEvent::ThreadEnded).is_err() {
+                return; // the caller dropped the receiver; nothing left to report to.
+            }
+            match wait_for_replacement_and_resume(&mut socket) {
+                Some(new_thread_id) => {
+                    *thread_id.lock().expect("thread_id mutex") = new_thread_id.clone();
+                    if sender
+                        .send(ObserverEvent::ThreadReplaced(new_thread_id))
+                        .is_err()
+                    {
+                        return;
+                    }
+                    continue;
+                }
+                None => {
+                    let _ignored =
+                        sender.send(ObserverEvent::Disconnected(DisconnectReason::ReadError));
+                    return;
+                }
+            }
         }
         let event = match method {
             "error" if events::error_notification_is_usage_limit_exceeded(params) => {
@@ -710,7 +855,7 @@ mod tests {
 
         let observer =
             Observer::attach(&socket_path, &codex_home, Some("thread-1")).expect("attach");
-        assert_eq!(observer.thread_id, "thread-1");
+        assert_eq!(observer.thread_id(), "thread-1");
 
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut saw_usage_limit = false;
@@ -720,7 +865,9 @@ mod tests {
                 match event {
                     ObserverEvent::UsageLimitExceeded => saw_usage_limit = true,
                     ObserverEvent::RateLimitsHint(hint) => saw_hint = Some(hint),
-                    ObserverEvent::Disconnected(_) | ObserverEvent::ThreadEnded => {}
+                    ObserverEvent::Disconnected(_)
+                    | ObserverEvent::ThreadEnded
+                    | ObserverEvent::ThreadReplaced(_) => {}
                 }
             }
             thread::sleep(Duration::from_millis(20));
@@ -740,7 +887,7 @@ mod tests {
         install_fake_server(listener, &codex_home, "learned-thread");
 
         let observer = Observer::attach(&socket_path, &codex_home, None).expect("attach");
-        assert_eq!(observer.thread_id, "learned-thread");
+        assert_eq!(observer.thread_id(), "learned-thread");
         observer.stop();
     }
 
@@ -1025,6 +1172,423 @@ mod tests {
         );
     }
 
+    // --- GitHub #18 (mid-session thread-replacement follow-up): the same connection survives a
+    // thread ending and resumes its replacement without ever reconnecting ---
+
+    fn send_notification(socket: &mut WebSocket<UnixStream>, value: Value) {
+        let _ = socket.send(Message::Text(value.to_string().into()));
+        let _ = socket.flush();
+    }
+
+    fn respond_to_resume(socket: &mut WebSocket<UnixStream>, id: &Value) {
+        send_notification(socket, json!({"id": id, "result": {}}));
+    }
+
+    /// A scripted fake server driving the exact T → T2 transition this follow-up targets: attaches
+    /// to `first_thread_id`, then (once a signal arrives on `advance_rx`, so the test controls
+    /// timing precisely) emits an authoritative `thread/closed` for it, optionally sends one or
+    /// more *unrelated* historical-thread notifications first (never mistaken for the replacement),
+    /// then broadcasts `thread/started` for `second_thread_id` and answers its `thread/resume`.
+    /// `resume_rejections` lets a test make the replacement's first N `thread/resume` calls fail
+    /// with the confirmed-benign "no rollout found" signature before succeeding, exercising the
+    /// same-connection retry path.
+    fn install_fake_server_with_thread_replacement(
+        listener: UnixListener,
+        codex_home: &Path,
+        first_thread_id: &str,
+        second_thread_id: &str,
+        advance_rx: Receiver<()>,
+        unrelated_historical_thread_id: Option<&str>,
+        mut resume_rejections: u32,
+    ) {
+        let codex_home = codex_home.to_path_buf();
+        let first_thread_id = first_thread_id.to_owned();
+        let second_thread_id = second_thread_id.to_owned();
+        let unrelated_historical_thread_id = unrelated_historical_thread_id.map(str::to_owned);
+        thread::spawn(move || {
+            let Ok((stream, _addr)) = listener.accept() else {
+                return;
+            };
+            let Ok(mut socket) = tungstenite::accept(stream) else {
+                return;
+            };
+            loop {
+                let Ok(Message::Text(text)) = socket.read() else {
+                    return;
+                };
+                let Ok(value) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
+                match value.get("method").and_then(Value::as_str) {
+                    Some("initialize") => {
+                        let id = value["id"].clone();
+                        send_notification(
+                            &mut socket,
+                            json!({"id": id, "result": {"codexHome": codex_home.to_string_lossy()}}),
+                        );
+                    }
+                    Some("initialized") => {
+                        send_notification(
+                            &mut socket,
+                            json!({"method": "thread/started", "params": {"thread": {"id": first_thread_id}}}),
+                        );
+                    }
+                    Some("thread/resume") => {
+                        let id = value["id"].clone();
+                        let requested = value
+                            .get("params")
+                            .and_then(|p| p.get("threadId"))
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        if requested == second_thread_id && resume_rejections > 0 {
+                            resume_rejections -= 1;
+                            send_notification(
+                                &mut socket,
+                                json!({"id": id, "error": {"code": -32600, "message": "no rollout found for thread id t2"}}),
+                            );
+                            continue;
+                        }
+                        respond_to_resume(&mut socket, &id);
+                        if requested == first_thread_id {
+                            // Wait for the test's own go-ahead before ending this thread, so the
+                            // test can deterministically control exactly when the transition
+                            // starts relative to the observer's own state.
+                            let _ = advance_rx.recv();
+                            if let Some(ref unrelated) = unrelated_historical_thread_id {
+                                // An unrelated, already-existing thread's own lifecycle
+                                // notification must never be mistaken for the live replacement —
+                                // sent with a *different* method/id than anything this observer
+                                // is waiting on.
+                                send_notification(
+                                    &mut socket,
+                                    json!({
+                                        "method": "thread/status/changed",
+                                        "params": {"threadId": unrelated, "status": {"type": "idle"}}
+                                    }),
+                                );
+                            }
+                            send_notification(
+                                &mut socket,
+                                json!({"method": "thread/closed", "params": {"threadId": first_thread_id}}),
+                            );
+                            send_notification(
+                                &mut socket,
+                                json!({"method": "thread/started", "params": {"thread": {"id": second_thread_id}}}),
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn an_authoritative_thread_ended_resumes_its_replacement_on_the_same_connection() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("tr1.sock");
+        let listener = UnixListener::bind(&socket_path).expect("bind");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let (advance_tx, advance_rx) = mpsc::channel();
+        install_fake_server_with_thread_replacement(
+            listener,
+            &codex_home,
+            "thread-1",
+            "thread-2",
+            advance_rx,
+            None,
+            0,
+        );
+
+        let observer =
+            Observer::attach(&socket_path, &codex_home, Some("thread-1")).expect("attach");
+        assert_eq!(observer.thread_id(), "thread-1");
+        advance_tx
+            .send(())
+            .expect("tell the fake server to end thread-1");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut saw_thread_ended = false;
+        let mut replaced_with = None;
+        while Instant::now() < deadline && replaced_with.is_none() {
+            for event in observer.drain_events() {
+                match event {
+                    ObserverEvent::ThreadEnded => saw_thread_ended = true,
+                    ObserverEvent::ThreadReplaced(id) => replaced_with = Some(id),
+                    _ => {}
+                }
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            saw_thread_ended,
+            "must report the authoritative ThreadEnded first"
+        );
+        assert_eq!(
+            replaced_with,
+            Some("thread-2".to_owned()),
+            "must resume the replacement thread without ever reconnecting"
+        );
+        assert_eq!(
+            observer.thread_id(),
+            "thread-2",
+            "thread_id() must reflect the replacement from this point on"
+        );
+        observer.stop();
+    }
+
+    #[test]
+    fn a_replacement_resume_rejection_is_retried_on_the_same_id_and_connection() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("tr2.sock");
+        let listener = UnixListener::bind(&socket_path).expect("bind");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let (advance_tx, advance_rx) = mpsc::channel();
+        install_fake_server_with_thread_replacement(
+            listener,
+            &codex_home,
+            "thread-1",
+            "thread-2",
+            advance_rx,
+            None,
+            2, // first two thread/resume attempts against thread-2 are rejected
+        );
+
+        let observer =
+            Observer::attach(&socket_path, &codex_home, Some("thread-1")).expect("attach");
+        advance_tx
+            .send(())
+            .expect("tell the fake server to end thread-1");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut replaced_with = None;
+        while Instant::now() < deadline && replaced_with.is_none() {
+            for event in observer.drain_events() {
+                if let ObserverEvent::ThreadReplaced(id) = event {
+                    replaced_with = Some(id);
+                }
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            replaced_with,
+            Some("thread-2".to_owned()),
+            "a benign resume rejection against the newly-learned id must be retried on the same \
+             connection, never discarded and never a reconnect"
+        );
+        observer.stop();
+    }
+
+    #[test]
+    fn an_unrelated_historical_threads_notification_is_never_mistaken_for_the_replacement() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("tr3.sock");
+        let listener = UnixListener::bind(&socket_path).expect("bind");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let (advance_tx, advance_rx) = mpsc::channel();
+        install_fake_server_with_thread_replacement(
+            listener,
+            &codex_home,
+            "thread-1",
+            "thread-2",
+            advance_rx,
+            Some("some-old-historical-thread"),
+            0,
+        );
+
+        let observer =
+            Observer::attach(&socket_path, &codex_home, Some("thread-1")).expect("attach");
+        advance_tx
+            .send(())
+            .expect("tell the fake server to end thread-1");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut replaced_with = None;
+        while Instant::now() < deadline && replaced_with.is_none() {
+            for event in observer.drain_events() {
+                if let ObserverEvent::ThreadReplaced(id) = event {
+                    replaced_with = Some(id);
+                }
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            replaced_with,
+            Some("thread-2".to_owned()),
+            "an unrelated historical thread's own notification must never be mistaken for, or \
+             block, the live replacement"
+        );
+        observer.stop();
+    }
+
+    #[test]
+    fn a_connection_that_dies_while_awaiting_a_replacement_still_reports_disconnected() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("tr4.sock");
+        let listener = UnixListener::bind(&socket_path).expect("bind");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        // A fake server that ends thread-1 and then, instead of ever broadcasting a replacement,
+        // simply closes the connection — simulating a daemon replacement/crash that happens while
+        // the observer is waiting for the next thread/started broadcast.
+        let codex_home_clone = codex_home.clone();
+        thread::spawn(move || {
+            let Ok((stream, _addr)) = listener.accept() else {
+                return;
+            };
+            let Ok(mut socket) = tungstenite::accept(stream) else {
+                return;
+            };
+            loop {
+                let Ok(Message::Text(text)) = socket.read() else {
+                    return;
+                };
+                let Ok(value) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
+                match value.get("method").and_then(Value::as_str) {
+                    Some("initialize") => {
+                        let id = value["id"].clone();
+                        send_notification(
+                            &mut socket,
+                            json!({"id": id, "result": {"codexHome": codex_home_clone.to_string_lossy()}}),
+                        );
+                    }
+                    Some("initialized") => {
+                        send_notification(
+                            &mut socket,
+                            json!({"method": "thread/started", "params": {"thread": {"id": "thread-1"}}}),
+                        );
+                    }
+                    Some("thread/resume") => {
+                        let id = value["id"].clone();
+                        respond_to_resume(&mut socket, &id);
+                        send_notification(
+                            &mut socket,
+                            json!({"method": "thread/closed", "params": {"threadId": "thread-1"}}),
+                        );
+                        // Deliberately never broadcasts a replacement — the connection just ends,
+                        // immediately, deliberately racing `Observer::finish_attach`'s own
+                        // post-resume bookkeeping (see that function's own doc comment for why
+                        // this exact race is real, not just a test artifact).
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        let observer =
+            Observer::attach(&socket_path, &codex_home, Some("thread-1")).expect("attach");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut saw_thread_ended = false;
+        let mut disconnected = false;
+        while Instant::now() < deadline && !disconnected {
+            for event in observer.drain_events() {
+                match event {
+                    ObserverEvent::ThreadEnded => saw_thread_ended = true,
+                    ObserverEvent::Disconnected(_) => disconnected = true,
+                    _ => {}
+                }
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(saw_thread_ended);
+        assert!(
+            disconnected,
+            "a connection that dies while awaiting a replacement must still surface Disconnected, \
+             never hang"
+        );
+    }
+
+    #[test]
+    fn repeated_thread_replacements_all_succeed_on_the_same_connection() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("tr5.sock");
+        let listener = UnixListener::bind(&socket_path).expect("bind");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let codex_home_clone = codex_home.clone();
+        thread::spawn(move || {
+            let Ok((stream, _addr)) = listener.accept() else {
+                return;
+            };
+            let Ok(mut socket) = tungstenite::accept(stream) else {
+                return;
+            };
+            let chain = ["thread-1", "thread-2", "thread-3"];
+            loop {
+                let Ok(Message::Text(text)) = socket.read() else {
+                    return;
+                };
+                let Ok(value) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
+                match value.get("method").and_then(Value::as_str) {
+                    Some("initialize") => {
+                        let id = value["id"].clone();
+                        send_notification(
+                            &mut socket,
+                            json!({"id": id, "result": {"codexHome": codex_home_clone.to_string_lossy()}}),
+                        );
+                    }
+                    Some("initialized") => {
+                        send_notification(
+                            &mut socket,
+                            json!({"method": "thread/started", "params": {"thread": {"id": chain[0]}}}),
+                        );
+                    }
+                    Some("thread/resume") => {
+                        let id = value["id"].clone();
+                        let requested = value
+                            .get("params")
+                            .and_then(|p| p.get("threadId"))
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        respond_to_resume(&mut socket, &id);
+                        if let Some(position) = chain.iter().position(|id| *id == requested)
+                            && position + 1 < chain.len()
+                        {
+                            send_notification(
+                                &mut socket,
+                                json!({"method": "thread/closed", "params": {"threadId": requested}}),
+                            );
+                            send_notification(
+                                &mut socket,
+                                json!({"method": "thread/started", "params": {"thread": {"id": chain[position + 1]}}}),
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        let observer =
+            Observer::attach(&socket_path, &codex_home, Some("thread-1")).expect("attach");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut replacements = Vec::new();
+        while Instant::now() < deadline && replacements.len() < 2 {
+            for event in observer.drain_events() {
+                if let ObserverEvent::ThreadReplaced(id) = event {
+                    replacements.push(id);
+                }
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            replacements,
+            vec!["thread-2".to_owned(), "thread-3".to_owned()],
+            "repeated T -> T2 -> T3 transitions must each succeed in order, all on one connection"
+        );
+        observer.stop();
+    }
+
     /// Test-only accessor: a second handle to the same underlying socket as `observer`'s own
     /// `shutdown` field, so a test can end the connection without going through `stop()` (which
     /// would join the reader thread before the test gets to call `drain_events` itself).
@@ -1104,7 +1668,7 @@ mod tests {
 
         let observer = Observer::attach(&endpoint, &codex_home, Some(&thread_id))
             .expect("attach observer to the already-populated thread");
-        assert_eq!(observer.thread_id, thread_id);
+        assert_eq!(observer.thread_id(), thread_id);
 
         drive_second_real_turn(&endpoint, &thread_id);
 
@@ -1189,7 +1753,7 @@ mod tests {
 
         let reconnected = Observer::attach(&endpoint, &codex_home, Some(&thread_id))
             .expect("reconnect against the same real runtime and thread");
-        assert_eq!(reconnected.thread_id, thread_id);
+        assert_eq!(reconnected.thread_id(), thread_id);
 
         let deadline = Instant::now() + Duration::from_secs(30);
         let mut saw_completion = false;
@@ -1279,7 +1843,8 @@ mod tests {
         };
         let driven_thread_id = driver.join().expect("driver thread");
         assert_eq!(
-            observer.thread_id, driven_thread_id,
+            observer.thread_id(),
+            driven_thread_id,
             "the observer must have learned and attached to the exact thread the driver created"
         );
 
@@ -1400,7 +1965,8 @@ mod tests {
         let turn_attempted_at = Instant::now();
         let (driven_thread_id, turn_response) = driver.join().expect("driver thread");
         assert_eq!(
-            observer.thread_id, driven_thread_id,
+            observer.thread_id(),
+            driven_thread_id,
             "the observer must have learned and attached to the exact thread the driver created"
         );
 
@@ -1432,6 +1998,9 @@ mod tests {
                     }
                     ObserverEvent::ThreadEnded => {
                         println!("observer's thread authoritatively ended while waiting");
+                    }
+                    ObserverEvent::ThreadReplaced(new_id) => {
+                        println!("observer resumed a replacement thread while waiting: {new_id}");
                     }
                 }
             }

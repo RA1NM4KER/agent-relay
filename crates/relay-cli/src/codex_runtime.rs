@@ -169,6 +169,33 @@
 //! pre-launch-established connection is authoritative for the life of the supervised session —
 //! there is no second broadcast, and no second Relay-managed TUI, for it to ever be confused
 //! with. See [`KnownThread`]'s own doc comment for the full reasoning.
+//!
+//! ## Hardening follow-up: fail-closed prelisten, and mid-session replacement without reconnecting
+//!
+//! Two gaps the above left, closed together:
+//!
+//! 1. **A fresh-launch prelisten failure used to re-open the exact race it exists to close.**
+//!    [`EventDrivenRuntime::start`] absorbed a failed [`Observer::connect_and_handshake`] the same
+//!    way every other best-effort step there is absorbed — falling through with no pre-connected
+//!    socket, so the attach worker opened an ordinary reconnecting connection instead, racing the
+//!    interactive TUI's own startup exactly like the original bug. There is no safe degraded mode
+//!    for a fresh launch that still claims event-driven coverage, so [`EventDrivenRuntime::start`]
+//!    now fails closed (`None`) on this specific failure — see
+//!    [`EventDrivenRuntime::prelisten_for_fresh_launch`].
+//! 2. **A legitimate mid-session thread end still reopened the same race, just later.** The old
+//!    recovery tore the observer down and opened a fresh connection to listen for the replacement
+//!    thread's own `thread/started` — missing it was exactly as possible as at a fresh launch.
+//!    Under the same profile-exclusivity reasoning, the *same* already-live connection can simply
+//!    keep listening for the replacement instead of ever reconnecting:
+//!    `relay_provider_codex::observer::read_loop` now does this directly (see its own doc comment),
+//!    reporting [`ObserverEvent::ThreadEnded`] (informational) followed by
+//!    [`ObserverEvent::ThreadReplaced`] (actionable) to [`EventDrivenRuntime::tick`], which never
+//!    leaves [`AttachState::Attached`] for this and requests exactly one reconciliation on success,
+//!    same as any other (re)attach. Honestly not closed: if the connection *also* fails before a
+//!    replacement was ever learned on it (tracked via `EventDrivenRuntime::awaiting_thread_replacement`),
+//!    there is nothing left to keep listening on and `tick` relearns via an ordinary reconnect —
+//!    narrower than the original bug (it needs both faults within the same unbounded wait) and
+//!    degrades safely rather than looping.
 
 use std::{
     os::unix::net::UnixStream,
@@ -263,6 +290,10 @@ pub(crate) enum TickEvent {
     /// The attach worker gave up permanently (app-server confirmed dead, or shutdown requested
     /// before a first successful attach).
     GaveUp,
+    /// GitHub #18 (mid-session thread-replacement follow-up): the previously-subscribed thread
+    /// authoritatively ended and this same already-live connection (never a reconnect) resumed
+    /// its replacement, carried here.
+    ThreadReplaced(String),
 }
 
 /// Where this runtime's attach/subscribe attempt currently stands. See this module's own doc
@@ -308,6 +339,13 @@ pub(crate) struct EventDrivenRuntime {
     /// from a lease — see [`AttachOutcome::Attached`]'s own doc comment. Carried across a plain
     /// `Disconnected` reconnect so the reconnected worker keeps treating this id as authoritative.
     thread_is_self_learned: bool,
+    /// GitHub #18 (mid-session thread-replacement follow-up): `true` from the moment the current
+    /// `Attached` observer reports [`ObserverEvent::ThreadEnded`] until it either reports
+    /// [`ObserverEvent::ThreadReplaced`] (same connection, success — see [`Self::tick`]) or
+    /// disconnects first. A plain `Disconnected` while this is `true` means the old thread is
+    /// confirmed gone *and* no replacement was ever learned on this connection — the only correct
+    /// recovery is to relearn (`KnownThread::None`), never to resume the confirmed-dead id.
+    awaiting_thread_replacement: bool,
 }
 
 impl EventDrivenRuntime {
@@ -361,34 +399,81 @@ impl EventDrivenRuntime {
         // a connection opened only after the interactive client has already been launched is
         // racing it, and this is the one point in this function's own best-effort contract where
         // a short, bounded extra wait (the daemon was *just* confirmed running above, so this is
-        // fast) buys a correctness guarantee a background retry loop structurally cannot. Any
-        // failure here is absorbed exactly like every other step in this function: the worker
-        // below falls back to an ordinary reconnecting `Observer::attach`, re-opening the original
-        // race window rather than failing the launch.
-        let initial_socket = if thread_id.is_none() {
-            match Observer::connect_and_handshake(&daemon.endpoint, config_dir) {
-                Ok(socket) => {
-                    crate::auto_handoff::trace_event(
-                        project_state_dir,
-                        "codex_event_driven_prelisten_established",
-                    );
-                    Some(socket)
-                }
-                Err(_) => {
-                    crate::auto_handoff::trace_event(
-                        project_state_dir,
-                        "codex_event_driven_prelisten_failed",
-                    );
-                    None
-                }
+        // fast) buys a correctness guarantee a background retry loop structurally cannot.
+        //
+        // GitHub #18 (fail-closed follow-up): an earlier version of this function absorbed a
+        // prelisten failure the same way every other best-effort step here is absorbed — `None`
+        // here, falling through to an ordinary reconnecting `Observer::attach` in the worker
+        // below. That silently re-opened the exact race this prelisten step exists to close: the
+        // interactive TUI would still launch, and its own `thread/started` broadcast could still
+        // win the race against the worker's first (now unconnected-in-advance) attempt. For a
+        // fresh launch specifically, there is no safe degraded mode that still claims event-driven
+        // coverage — so a prelisten failure now fails this function closed (`None`, exactly like
+        // every other hard failure above), falling back to launching the interactive command
+        // completely unsupervised (ordinary GitHub #13 polling only), never a session that
+        // silently carries the pre-fix race while still claiming to be event-driven.
+        if thread_id.is_none() {
+            let initial_socket =
+                Self::prelisten_for_fresh_launch(&daemon.endpoint, config_dir, project_state_dir)?;
+            return Self::finish_start(
+                codex_executable,
+                config_dir,
+                project_state_dir,
+                daemon,
+                KnownThread::None,
+                Some(initial_socket),
+            );
+        }
+        Self::finish_start(
+            codex_executable,
+            config_dir,
+            project_state_dir,
+            daemon,
+            KnownThread::FromLease(thread_id.expect("checked above").to_owned()),
+            None,
+        )
+    }
+
+    /// GitHub #18 (fail-closed follow-up): the fresh-launch prelisten attempt itself, split out
+    /// of [`Self::start`] purely for direct testability — it needs only an actual daemon endpoint
+    /// to connect to, not the env-var gate or [`ensure_managed_daemon`] that precede it in
+    /// `start`. `None` means the caller must fail this session's event-driven runtime closed
+    /// entirely (see `start`'s own doc comment for why — there is no safe degraded mode here).
+    fn prelisten_for_fresh_launch(
+        endpoint: &Path,
+        config_dir: &Path,
+        project_state_dir: &Path,
+    ) -> Option<WebSocket<UnixStream>> {
+        match Observer::connect_and_handshake(endpoint, config_dir) {
+            Ok(socket) => {
+                crate::auto_handoff::trace_event(
+                    project_state_dir,
+                    "codex_event_driven_prelisten_established",
+                );
+                Some(socket)
             }
-        } else {
-            None
-        };
-        let known = match thread_id {
-            Some(id) => KnownThread::FromLease(id.to_owned()),
-            None => KnownThread::None,
-        };
+            Err(_) => {
+                crate::auto_handoff::trace_event(
+                    project_state_dir,
+                    "codex_event_driven_prelisten_failed",
+                );
+                None
+            }
+        }
+    }
+
+    /// The remainder of [`Self::start`] once a fresh launch's prelisten has either succeeded or
+    /// been determined inapplicable (a resume, which never prelistens — see [`Self::start`]'s own
+    /// doc comment for why a fresh launch's prelisten failure instead returns `None` directly,
+    /// never reaching this).
+    fn finish_start(
+        codex_executable: &Path,
+        config_dir: &Path,
+        project_state_dir: &Path,
+        daemon: relay_provider_codex::runtime::ManagedDaemon,
+        known: KnownThread,
+        initial_socket: Option<WebSocket<UnixStream>>,
+    ) -> Option<Self> {
         let state = spawn_attach_worker(
             codex_executable.to_path_buf(),
             daemon.endpoint.clone(),
@@ -406,6 +491,7 @@ impl EventDrivenRuntime {
             project_state_dir: project_state_dir.to_path_buf(),
             state,
             thread_is_self_learned: false,
+            awaiting_thread_replacement: false,
         })
     }
 
@@ -441,7 +527,7 @@ impl EventDrivenRuntime {
                     identity,
                     self_learned,
                 }) => {
-                    let thread_id = observer.thread_id.clone();
+                    let thread_id = observer.thread_id();
                     self.thread_is_self_learned = self_learned;
                     // GitHub #18 follow-up: store whatever daemon this attach actually succeeded
                     // against — after a rediscovery, this is the *replacement* daemon, never the
@@ -492,16 +578,40 @@ impl EventDrivenRuntime {
             },
             AttachState::Attached(observer) => {
                 let mut disconnected = false;
-                // GitHub #18 follow-up: distinct from a mere socket `Disconnected` — the server
-                // itself authoritatively confirmed this exact subscribed thread has ended, so the
-                // reconnect below must re-learn the active thread rather than keep resuming it.
-                let mut thread_ended = false;
+                let mut replaced_with: Option<String> = None;
                 for event in observer.drain_events() {
                     match event {
                         ObserverEvent::Disconnected(_) => disconnected = true,
+                        // GitHub #18 (mid-session thread-replacement follow-up): informational
+                        // only — the same connection is now trying, internally, to learn and
+                        // resume the replacement (see `relay_provider_codex::observer::read_loop`'s
+                        // own doc comment). `self.awaiting_thread_replacement` tracks this across
+                        // ticks so a plain `Disconnected` seen before a `ThreadReplaced` ever
+                        // arrives is correctly treated as "the old thread is confirmed gone and
+                        // nothing has replaced it," never "resume the confirmed-dead id."
                         ObserverEvent::ThreadEnded => {
-                            disconnected = true;
-                            thread_ended = true;
+                            crate::auto_handoff::trace_event(
+                                &self.project_state_dir,
+                                "codex_event_driven_thread_ended_authoritatively",
+                            );
+                            self.awaiting_thread_replacement = true;
+                        }
+                        ObserverEvent::ThreadReplaced(new_thread_id) => {
+                            crate::auto_handoff::trace_event(
+                                &self.project_state_dir,
+                                "codex_event_driven_thread_replaced_same_connection",
+                            );
+                            crate::auto_handoff::trace_event(
+                                &self.project_state_dir,
+                                "codex_reconnect_reconciliation_requested",
+                            );
+                            scheduler.request_reconciliation();
+                            self.awaiting_thread_replacement = false;
+                            // A thread replaced on the same connection was necessarily learned by
+                            // this exact observer's own listen, never supplied from a lease — same
+                            // provenance reasoning as a fresh launch's self-learned id.
+                            self.thread_is_self_learned = true;
+                            replaced_with = Some(new_thread_id);
                         }
                         _ => {
                             // GitHub #18: durable proof that Relay actually received this event,
@@ -516,55 +626,49 @@ impl EventDrivenRuntime {
                     }
                 }
                 if disconnected {
-                    let known_thread_id = observer.thread_id.clone();
-                    if thread_ended {
-                        // GitHub #18 follow-up: the authoritative signal that beat the "benign
-                        // forever" case this follow-up exists for — re-learn the active thread
-                        // via a fresh `thread/started` broadcast instead of resuming a thread the
-                        // server itself just confirmed is done.
+                    let known_thread_id = observer.thread_id();
+                    // GitHub #18 (observability follow-up): a mid-session disconnect previously
+                    // left the same kind of durable gap as a `GaveUp` that never attached.
+                    crate::auto_handoff::trace_event(
+                        &self.project_state_dir,
+                        "codex_event_driven_observer_disconnected",
+                    );
+                    let known = if self.awaiting_thread_replacement {
+                        // GitHub #18 (mid-session thread-replacement follow-up): the old thread is
+                        // confirmed gone and this connection never learned a replacement before it
+                        // also died (the narrower double-fault this follow-up honestly does not
+                        // close — see this module's own doc comment) — resuming `known_thread_id`
+                        // would resume a thread the server itself already confirmed ended. Relearn
+                        // instead, exactly like a fresh launch.
                         crate::auto_handoff::trace_event(
                             &self.project_state_dir,
-                            "codex_event_driven_thread_ended_authoritatively",
+                            "codex_event_driven_disconnected_while_awaiting_replacement",
                         );
-                        self.state = spawn_attach_worker(
-                            self.codex_executable.clone(),
-                            self.endpoint.clone(),
-                            self.codex_home.clone(),
-                            KnownThread::None,
-                            None,
-                            self.daemon_identity.clone(),
-                            self.project_state_dir.clone(),
-                        );
-                        TickEvent::Reconnecting(known_thread_id)
-                    } else {
-                        // GitHub #18 (observability follow-up): a mid-session disconnect
-                        // previously left the same kind of durable gap as a `GaveUp` that never
-                        // attached.
-                        crate::auto_handoff::trace_event(
-                            &self.project_state_dir,
-                            "codex_event_driven_observer_disconnected",
-                        );
+                        self.awaiting_thread_replacement = false;
+                        KnownThread::None
+                    } else if self.thread_is_self_learned {
                         // GitHub #18 (fresh-attach determinism follow-up): an ordinary reconnect
-                        // keeps whatever provenance this id already had — a plain disconnect is not
-                        // evidence the id is wrong, and a self-learned id must keep being treated
-                        // as authoritative across a reconnect, never silently downgraded to
-                        // lease-supplied (which would let a later `ResumeRejected` relearn it away).
-                        let known = if self.thread_is_self_learned {
-                            KnownThread::SelfLearned(known_thread_id.clone())
-                        } else {
-                            KnownThread::FromLease(known_thread_id.clone())
-                        };
-                        self.state = spawn_attach_worker(
-                            self.codex_executable.clone(),
-                            self.endpoint.clone(),
-                            self.codex_home.clone(),
-                            known,
-                            None,
-                            self.daemon_identity.clone(),
-                            self.project_state_dir.clone(),
-                        );
-                        TickEvent::Reconnecting(known_thread_id)
-                    }
+                        // keeps whatever provenance this id already had — a plain disconnect is
+                        // not evidence the id is wrong, and a self-learned id must keep being
+                        // treated as authoritative across a reconnect, never silently downgraded
+                        // to lease-supplied (which would let a later `ResumeRejected` relearn it
+                        // away).
+                        KnownThread::SelfLearned(known_thread_id.clone())
+                    } else {
+                        KnownThread::FromLease(known_thread_id.clone())
+                    };
+                    self.state = spawn_attach_worker(
+                        self.codex_executable.clone(),
+                        self.endpoint.clone(),
+                        self.codex_home.clone(),
+                        known,
+                        None,
+                        self.daemon_identity.clone(),
+                        self.project_state_dir.clone(),
+                    );
+                    TickEvent::Reconnecting(known_thread_id)
+                } else if let Some(new_thread_id) = replaced_with {
+                    TickEvent::ThreadReplaced(new_thread_id)
                 } else {
                     TickEvent::Nothing
                 }
@@ -1128,6 +1232,62 @@ mod tests {
         assert!(result.is_none());
     }
 
+    #[test]
+    fn a_fresh_launch_prelisten_failure_fails_closed_rather_than_reopening_the_race() {
+        // GitHub #18 (fail-closed follow-up): no listener at all at this endpoint, so
+        // `Observer::connect_and_handshake` fails immediately (`ObserverError::Connect`). The one
+        // and only correct outcome is `None` — never a fallback that proceeds into an
+        // event-driven session with `initial_socket: None`, which would silently reopen the
+        // fresh-launch `thread/started` race this prelisten step exists to close.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let nobody_listening = dir.path().join("nobody-is-listening.sock");
+        let result = EventDrivenRuntime::prelisten_for_fresh_launch(
+            &nobody_listening,
+            dir.path(),
+            dir.path(),
+        );
+        assert!(
+            result.is_none(),
+            "a prelisten failure must fail closed, never fall through with no connection"
+        );
+        let log = std::fs::read_to_string(dir.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert!(
+            log.contains("codex_event_driven_prelisten_failed"),
+            "the fail-closed decision must be durably traced: {log}"
+        );
+        assert!(
+            !log.contains("codex_event_driven_prelisten_established"),
+            "a failure must never also claim success: {log}"
+        );
+    }
+
+    #[test]
+    fn a_fresh_launch_prelisten_success_returns_a_usable_pre_connected_socket() {
+        // The mirror-image case: a real listener answering the handshake must return `Some`, with
+        // the established breadcrumb traced and the failure one absent.
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_path = scratch.path().join("daemon.sock");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let _listener = install_fake_app_server_ws_with_relearnable_thread(
+            &socket_path,
+            &codex_home,
+            "unused",
+            "unused",
+        );
+        let result = EventDrivenRuntime::prelisten_for_fresh_launch(
+            &socket_path,
+            &codex_home,
+            scratch.path(),
+        );
+        assert!(result.is_some(), "a real handshake must succeed");
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert!(log.contains("codex_event_driven_prelisten_established"));
+        assert!(!log.contains("codex_event_driven_prelisten_failed"));
+    }
+
     // --- agent-relay#18 (zero-poll architecture): profile exclusivity ---
 
     #[test]
@@ -1212,6 +1372,7 @@ mod tests {
             project_state_dir: scratch.path().to_path_buf(),
             state,
             thread_is_self_learned: false,
+            awaiting_thread_replacement: false,
         };
         // Give the worker a moment to actually start its connect attempt before stopping it.
         thread::sleep(Duration::from_millis(20));
@@ -1432,7 +1593,8 @@ mod tests {
         match rx.recv_timeout(Duration::from_secs(10)).expect("outcome") {
             AttachOutcome::Attached { observer, .. } => {
                 assert_eq!(
-                    observer.thread_id, "relearned-thread",
+                    observer.thread_id(),
+                    "relearned-thread",
                     "must recover by relearning the thread that was actually resumable, \
                      never keep retrying the permanently-rejected one"
                 );
@@ -1602,7 +1764,8 @@ mod tests {
                 ..
             } => {
                 assert_eq!(
-                    observer.thread_id, "fresh-thread",
+                    observer.thread_id(),
+                    "fresh-thread",
                     "must keep retrying the one genuine, self-learned thread, never discard it \
                      for a relearn that can never find anything"
                 );
@@ -1692,7 +1855,8 @@ mod tests {
                 ..
             } => {
                 assert_eq!(
-                    observer.thread_id, "fresh-thread",
+                    observer.thread_id(),
+                    "fresh-thread",
                     "the pre-connected socket must have caught the broadcast that fired during \
                      the simulated TUI-startup delay"
                 );
@@ -1816,7 +1980,8 @@ mod tests {
         match rx.recv_timeout(Duration::from_secs(90)).expect("outcome") {
             AttachOutcome::Attached { observer, .. } => {
                 assert_eq!(
-                    observer.thread_id, "relearned-thread",
+                    observer.thread_id(),
+                    "relearned-thread",
                     "must eventually recover by relearning after persistent timeouts, \
                      never keep retrying a thread id that never answers at all"
                 );
@@ -2106,7 +2271,8 @@ mod tests {
         match rx.recv_timeout(Duration::from_secs(10)).expect("outcome") {
             AttachOutcome::Attached { observer, .. } => {
                 assert_eq!(
-                    observer.thread_id, "relearned-thread",
+                    observer.thread_id(),
+                    "relearned-thread",
                     "must recover via the authoritative close signal, never keep retrying a \
                      thread id that will never stop answering the confirmed-benign response"
                 );
@@ -2246,7 +2412,13 @@ mod tests {
     /// `thread/closed` notification for that same id. Simulates the already-attached, already-
     /// subscribed case: the live connection stays open and usable, but the specific thread it was
     /// watching is authoritatively reported done shortly after.
-    fn install_fake_app_server_ws_closes_its_thread_right_after_attach(
+    /// GitHub #18 (mid-session thread-replacement follow-up): the connection is deliberately
+    /// closed (not left open) immediately after the authoritative `thread/closed` — simulating
+    /// the narrower double-fault this follow-up honestly does not close: the old thread confirmed
+    /// ended *and* this exact connection also died before a replacement was ever learned on it.
+    /// The correct recovery is the ordinary reconnect-and-relearn path (`KnownThread::None`),
+    /// never resuming the confirmed-ended id.
+    fn install_fake_app_server_ws_closes_its_thread_then_disconnects(
         socket_path: &Path,
         codex_home: &Path,
         thread_id: &str,
@@ -2295,6 +2467,105 @@ mod tests {
                             .into(),
                         ));
                         let _ = socket.flush();
+                        // Deliberately never broadcasts a replacement — the connection just ends,
+                        // simulating a daemon replacement/crash racing the thread ending.
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        });
+        listener
+    }
+
+    /// GitHub #18 (mid-session thread-replacement follow-up): the primary, non-double-fault case
+    /// — after the authoritative `thread/closed`, this exact same connection broadcasts and
+    /// resumes `replacement_thread_id`, never closing at all.
+    fn install_fake_app_server_ws_resumes_a_replacement_thread_on_the_same_connection(
+        socket_path: &Path,
+        codex_home: &Path,
+        thread_id: &str,
+        replacement_thread_id: &str,
+    ) -> std::os::unix::net::UnixListener {
+        let listener = std::os::unix::net::UnixListener::bind(socket_path).expect("bind");
+        let codex_home = codex_home.to_path_buf();
+        let thread_id = thread_id.to_owned();
+        let replacement_thread_id = replacement_thread_id.to_owned();
+        let listener_clone = listener.try_clone().expect("clone listener");
+        thread::spawn(move || {
+            let Ok((stream, _addr)) = listener_clone.accept() else {
+                return;
+            };
+            let Ok(mut socket) = tungstenite::accept(stream) else {
+                return;
+            };
+            loop {
+                let Ok(tungstenite::Message::Text(text)) = socket.read() else {
+                    return;
+                };
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+                    continue;
+                };
+                match value.get("method").and_then(serde_json::Value::as_str) {
+                    Some("initialize") => {
+                        let id = value["id"].clone();
+                        let _ = socket.send(tungstenite::Message::Text(
+                            serde_json::json!({"id": id, "result": {"codexHome": codex_home.to_string_lossy()}})
+                                .to_string()
+                                .into(),
+                        ));
+                        let _ = socket.flush();
+                    }
+                    Some("thread/resume") => {
+                        let id = value["id"].clone();
+                        let requested = value
+                            .get("params")
+                            .and_then(|p| p.get("threadId"))
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned();
+                        let _ = socket.send(tungstenite::Message::Text(
+                            serde_json::json!({"id": id, "result": {}})
+                                .to_string()
+                                .into(),
+                        ));
+                        if requested == thread_id {
+                            let _ = socket.send(tungstenite::Message::Text(
+                                serde_json::json!({
+                                    "method": "thread/closed",
+                                    "params": {"threadId": thread_id},
+                                })
+                                .to_string()
+                                .into(),
+                            ));
+                            let _ = socket.send(tungstenite::Message::Text(
+                                serde_json::json!({
+                                    "method": "thread/started",
+                                    "params": {"thread": {"id": replacement_thread_id}},
+                                })
+                                .to_string()
+                                .into(),
+                            ));
+                        } else if requested == replacement_thread_id {
+                            // GitHub #18 test matrix requirement: a usage-limit event immediately
+                            // after the replacement thread's own resume succeeds must still reach
+                            // the scheduler — the same-connection replacement path must never
+                            // swallow or delay ordinary event dispatch once it resumes.
+                            let _ = socket.send(tungstenite::Message::Text(
+                                serde_json::json!({
+                                    "method": "error",
+                                    "params": {
+                                        "error": {"codexErrorInfo": "usageLimitExceeded", "message": "quota"},
+                                        "threadId": replacement_thread_id,
+                                        "turnId": "u1",
+                                        "willRetry": false,
+                                    }
+                                })
+                                .to_string()
+                                .into(),
+                            ));
+                        }
+                        let _ = socket.flush();
                     }
                     _ => {}
                 }
@@ -2304,18 +2575,131 @@ mod tests {
     }
 
     #[test]
-    fn an_attached_observers_authoritatively_ended_thread_relearns_the_active_thread_through_tick()
-    {
-        // Phase 4 adversarial case: unlike the resume-wait tests above, this is the
-        // *already-attached* case — the observer is live and subscribed, and only *afterward*
-        // does the server report this exact thread ended. `EventDrivenRuntime::tick` must treat
-        // this distinctly from an ordinary `Disconnected`: the reconnect it drives must re-learn
-        // (`known_thread_id: None`), never resume the same, now-confirmed-ended id.
+    fn an_attached_observers_authoritatively_ended_thread_resumes_its_replacement_on_the_same_connection_through_tick()
+     {
+        // GitHub #18 (mid-session thread-replacement follow-up) primary case: the observer is
+        // live and subscribed, the server reports this exact thread ended, and — on this exact
+        // same connection, never a reconnect — broadcasts and resumes a replacement. `tick()` must
+        // never transition out of `Attached` for this, and must request exactly one
+        // reconciliation, exactly like any other successful (re)attach.
         let scratch = tempfile::tempdir().expect("tempdir");
         let socket_a = scratch.path().join("a.sock");
         let codex_home = scratch.path().join("codex_home");
         std::fs::create_dir_all(&codex_home).expect("codex home");
-        let _listener_a = install_fake_app_server_ws_closes_its_thread_right_after_attach(
+        let _listener_a =
+            install_fake_app_server_ws_resumes_a_replacement_thread_on_the_same_connection(
+                &socket_a,
+                &codex_home,
+                "thread-1",
+                "thread-2",
+            );
+        let (mut child, identity) = live_identity();
+
+        let stop_flag = AtomicBool::new(false);
+        let (tx, rx) = mpsc::channel();
+        attach_worker_loop(
+            attach_target(
+                Path::new("/definitely/not/codex"),
+                &codex_home,
+                socket_a.clone(),
+                identity.clone(),
+            ),
+            KnownThread::FromLease("thread-1".to_owned()),
+            None,
+            &stop_flag,
+            &tx,
+            scratch.path(),
+        );
+        let observer = match rx.recv_timeout(Duration::from_secs(5)).expect("outcome") {
+            AttachOutcome::Attached { observer, .. } => observer,
+            AttachOutcome::GaveUp => panic!("must succeed against the fake daemon"),
+        };
+        assert_eq!(observer.thread_id(), "thread-1");
+
+        let mut runtime = EventDrivenRuntime {
+            endpoint: socket_a,
+            daemon_identity: identity,
+            codex_home,
+            codex_executable: PathBuf::from("/definitely/not/codex"),
+            project_state_dir: scratch.path().to_path_buf(),
+            state: AttachState::Attached(observer),
+            thread_is_self_learned: false,
+            awaiting_thread_replacement: false,
+        };
+        let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
+            scratch.path().to_path_buf(),
+            scratch.path().to_path_buf(),
+            None,
+        );
+
+        let mut saw_replaced = false;
+        wait_for(Duration::from_secs(5), || {
+            match runtime.tick(&mut scheduler) {
+                TickEvent::ThreadReplaced(id) if id == "thread-2" => {
+                    saw_replaced = true;
+                    true
+                }
+                _ => false,
+            }
+        });
+        assert!(
+            saw_replaced,
+            "must resume the replacement thread without ever leaving Attached"
+        );
+        assert!(
+            matches!(runtime.state, AttachState::Attached(_)),
+            "the connection must never have been torn down and reconnected"
+        );
+        assert!(!runtime.awaiting_thread_replacement);
+
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert!(
+            log.contains("codex_event_driven_thread_ended_authoritatively"),
+            "the authoritative end must be traced distinctly: {log}"
+        );
+        assert!(
+            log.contains("codex_event_driven_thread_replaced_same_connection"),
+            "the same-connection replacement must be traced distinctly: {log}"
+        );
+        assert!(
+            log.contains("codex_reconnect_reconciliation_requested"),
+            "a thread replacement must request reconciliation exactly like any other attach: {log}"
+        );
+
+        // GitHub #18 test matrix requirement: a usage-limit event immediately after the
+        // replacement thread's own attachment must still reach the scheduler, never swallowed or
+        // delayed by the same-connection replacement path.
+        wait_for(Duration::from_secs(5), || {
+            matches!(runtime.tick(&mut scheduler), TickEvent::Nothing)
+                && std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+                    .unwrap_or_default()
+                    .contains("codex_usage_limit_event_received")
+        });
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert!(
+            log.contains("codex_usage_limit_event_received"),
+            "a usage-limit event on the replacement thread must reach the scheduler: {log}"
+        );
+
+        runtime.stop();
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn a_double_fault_where_the_connection_also_dies_while_awaiting_a_replacement_relearns_through_tick()
+     {
+        // GitHub #18 (mid-session thread-replacement follow-up) honestly-undosed edge case: the
+        // old thread ends *and* this exact connection also dies before any replacement was ever
+        // learned on it. `tick()` must relearn (`KnownThread::None`), never resume the
+        // confirmed-ended id.
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let socket_a = scratch.path().join("a.sock");
+        let codex_home = scratch.path().join("codex_home");
+        std::fs::create_dir_all(&codex_home).expect("codex home");
+        let _listener_a = install_fake_app_server_ws_closes_its_thread_then_disconnects(
             &socket_a,
             &codex_home,
             "thread-1",
@@ -2341,7 +2725,7 @@ mod tests {
             AttachOutcome::Attached { observer, .. } => observer,
             AttachOutcome::GaveUp => panic!("must succeed against the first fake daemon"),
         };
-        assert_eq!(observer.thread_id, "thread-1");
+        assert_eq!(observer.thread_id(), "thread-1");
 
         // The relearn attempt the reconnect below must reach: broadcasts a fresh thread and
         // succeeds resume against it, exactly like the other relearnable fakes.
@@ -2375,6 +2759,7 @@ mod tests {
                 stop_flag: Arc::new(AtomicBool::new(false)),
             },
             thread_is_self_learned: false,
+            awaiting_thread_replacement: false,
         };
         let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
             scratch.path().to_path_buf(),
@@ -2385,9 +2770,9 @@ mod tests {
         let first = runtime.tick(&mut scheduler);
         assert_eq!(first, TickEvent::Attached("thread-1".to_owned()));
 
-        // Give the fake's own `thread/closed` (queued right after the resume success it already
-        // answered) time to actually arrive over the real socket and be decoded by the real
-        // background reader thread — polled, never a fixed-length guess.
+        // Give the fake's own `thread/closed`-then-disconnect (queued right after the resume
+        // success it already answered) time to actually arrive over the real socket and be
+        // decoded by the real background reader thread — polled, never a fixed-length guess.
         wait_for(Duration::from_secs(5), || {
             matches!(
                 runtime.tick(&mut scheduler),
@@ -2408,7 +2793,8 @@ mod tests {
         {
             AttachOutcome::Attached { observer, .. } => {
                 assert_eq!(
-                    observer.thread_id, "thread-2",
+                    observer.thread_id(),
+                    "thread-2",
                     "must have re-learned the active thread, never resumed the ended one"
                 );
                 observer.stop();
@@ -2421,6 +2807,10 @@ mod tests {
         assert!(
             log.contains("codex_event_driven_thread_ended_authoritatively"),
             "the already-attached authoritative end must be traced distinctly: {log}"
+        );
+        assert!(
+            log.contains("codex_event_driven_disconnected_while_awaiting_replacement"),
+            "the double-fault recovery path must be traced distinctly: {log}"
         );
         let _ = child.kill();
         let _ = child.wait();
@@ -2552,7 +2942,7 @@ mod tests {
             }
             AttachOutcome::GaveUp => panic!("must succeed against the first fake daemon"),
         };
-        assert_eq!(observer.thread_id, "fresh-thread");
+        assert_eq!(observer.thread_id(), "fresh-thread");
 
         // The reconnect target: rejects "fresh-thread" once (never "no rollout found"), then
         // succeeds — the same shape as the primary regression test above, now reached via a
@@ -2586,6 +2976,7 @@ mod tests {
                 stop_flag: Arc::new(AtomicBool::new(false)),
             },
             thread_is_self_learned: false,
+            awaiting_thread_replacement: false,
         };
         let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
             scratch.path().to_path_buf(),
@@ -2616,7 +3007,8 @@ mod tests {
         {
             AttachOutcome::Attached { observer, .. } => {
                 assert_eq!(
-                    observer.thread_id, "fresh-thread",
+                    observer.thread_id(),
+                    "fresh-thread",
                     "the reconnect must retry the same self-learned id through fake B's \
                      rejection, never relearn — there is nothing else to learn"
                 );
@@ -2666,7 +3058,7 @@ mod tests {
         );
         match rx.recv().expect("outcome") {
             AttachOutcome::Attached { observer, .. } => {
-                assert_eq!(observer.thread_id, "thread-1");
+                assert_eq!(observer.thread_id(), "thread-1");
                 observer.stop();
             }
             AttachOutcome::GaveUp => panic!("must eventually succeed once resume stops failing"),
@@ -2743,6 +3135,7 @@ mod tests {
                 stop_flag: Arc::new(AtomicBool::new(false)),
             },
             thread_is_self_learned: false,
+            awaiting_thread_replacement: false,
         };
         let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
             scratch.path().to_path_buf(),
@@ -3038,7 +3431,8 @@ exit 1
             AttachOutcome::GaveUp => panic!("must recover by rediscovering the replacement daemon"),
         };
         assert_eq!(
-            observer2.thread_id, "thread-1",
+            observer2.thread_id(),
+            "thread-1",
             "must reattach to the SAME known thread, never re-learn it"
         );
         assert_eq!(
@@ -3149,7 +3543,7 @@ exit 1
             } => (observer, endpoint, identity),
             AttachOutcome::GaveUp => panic!("must eventually recover via daemon C"),
         };
-        assert_eq!(observer.thread_id, "thread-1");
+        assert_eq!(observer.thread_id(), "thread-1");
         assert_eq!(endpoint, socket_c);
         assert_eq!(identity.pid, identity_c.pid);
         observer.stop();
@@ -3232,6 +3626,7 @@ exit 1
                 stop_flag: Arc::new(AtomicBool::new(false)),
             },
             thread_is_self_learned: false,
+            awaiting_thread_replacement: false,
         };
         let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
             scratch.path().to_path_buf(),
