@@ -214,184 +214,77 @@ explicit `relay watch run` or the Herdr event.
 Codex → Claude and Codex → other Codex profiles are `STATE_CONTINUATION` (a new session seeded from
 the state bundle); cross-profile native resume is not supported.
 
-### Experimental: event-driven wake-up (GitHub #16), opt-in only
+### Event-driven wake-up (GitHub #16/#18), opt-in only
 
-**Current status: inert for every real session.** A live incident proved this feature's observer
-can race the real interactive Codex client for the same thread's single-writer slot and lose —
-the daemon rejects the interactive client's own `thread/resume` as `"already has an active
-writer"`, which is exactly what surfaces as "This conversation is open in another app." Every
-real `relay codex`/`relay resume` launch always already knows its thread id by the time this
-feature would attach, so `EventDrivenRuntime::start` now unconditionally declines rather than risk
-that conflict again. Setting `RELAY_CODEX_EVENT_DRIVEN=1` today changes nothing observable: GitHub
-#13's own polling (which never calls `thread/resume` and has never produced this conflict) remains
-the sole live usage coverage. The rest of this section describes the feature's intended design,
-left in place as design documentation pending a live-verified, non-conflicting subscription
-mechanism — see `crates/relay-cli/src/codex_runtime.rs`'s own module doc for the full finding.
-
-Set `RELAY_CODEX_EVENT_DRIVEN=1` to let a supervised Codex terminal wake up immediately on Codex's
-own structured turn-failure error (`usageLimitExceeded`) or its `account/rateLimits/updated`
-notification, rather than only ever finding out on the next poll above. Unset (the default),
+Set `RELAY_CODEX_EVENT_DRIVEN=1` to let a supervised Codex terminal wake up as soon as Codex's own
+local rollout file for the already-known thread gains a structured `usage_limit_exceeded`
+exhaustion record, rather than only ever finding out on the next poll above. Unset (the default),
 nothing here changes: every launch/resume/switch behaves exactly as already described. This
-feature never becomes authoritative on its own: either signal, and a successful (re)connect (see
-below), only ever triggers the same `account/rateLimits/read` evaluation, and
-`ordinaryUsageAllowed == false` remains the sole exhaustion verdict.
+feature never becomes authoritative on its own: the signal only ever triggers the same
+`account/rateLimits/read` evaluation, and `ordinaryUsageAllowed == false` remains the sole
+exhaustion verdict.
 
-**#13's periodic timer is suppressed — never removed — while this session is healthy.** "Healthy"
-means: the observer is currently attached (not mid-reconnect) *and* this exact Codex profile's
-exclusivity lock is held (see below) — `crates/relay-cli/src/codex_poll.rs`'s
-`CodexPollScheduler::set_event_driven_healthy`/`timer_suppressed`. While healthy, the periodic
-timer that would otherwise fire on its own adaptive cadence never does; only a real
-`usageLimitExceeded` event or a successful (re)attach's own one-shot reconciliation read (both
-already existing triggers) can make an evaluation due. The moment health cannot be confirmed — a
-disconnect, a reconnect in progress, the feature never attaching at all — the ordinary adaptive
+**This replaced an app-server-connected observer design (2026-10-13).** Two earlier rounds of this
+feature attached a passive connection to Codex's shared app-server daemon and subscribed via
+`thread/resume` — the same operation the interactive client itself uses. A live incident
+(`proj-43efc346dfb87732`) proved, via the real daemon's own structured logs, that this observer's
+own `thread/resume` could win a race against the interactive client's own resume and claim the
+thread-store's single active-writer slot first — the daemon then rejected the *interactive*
+client's own resume as `"already has an active writer"`, which is exactly what surfaces as "This
+conversation is open in another app." The app-server's own protocol exposes no separate,
+authoritative "read-only subscribe" distinct from `thread/resume`, so there was no live-verified
+way to receive a thread's notifications without risking that conflict.
+
+The current design (`relay_provider_codex::rollout::RolloutWatcher`) never opens an app-server
+connection at all. Every Codex thread's conversation is durably persisted, append-only, as a
+`.jsonl` file under `CODEX_HOME/sessions/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<thread-id>.jsonl` —
+live-confirmed against real historical artifacts from a real `codex-cli 0.156.0` profile. The
+filename's trailing UUID *and* the file's own first record (`session_meta`'s `session_id`) both
+structurally name the exact thread id — never a heuristic (no "newest file," no "only file in the
+directory"). A failed turn's exhaustion record is a `task_complete` event whose
+`error.codex_error_info` is exactly `usage_limit_exceeded`. Relay watches this file with an
+ordinary OS-level filesystem watcher (`notify`, FSEvents on macOS / inotify on Linux) — there is no
+writer slot to contend for, by construction rather than by proof.
+
+**#13's periodic timer is suppressed — never removed — while this watch is healthy.** "Healthy"
+means the watcher has located and is caught up on the exact rollout file for the known thread —
+`crates/relay-cli/src/codex_poll.rs`'s `CodexPollScheduler::set_event_driven_healthy`/
+`timer_suppressed`. While healthy, the periodic timer that would otherwise fire on its own adaptive
+cadence never does; only a real `usage_limit_exceeded` record, or a watch recovering after a
+transient filesystem error (which triggers exactly one reconciliation read, same reasoning as a
+reconnect), makes an evaluation due. The moment health cannot be confirmed, the ordinary adaptive
 timer resumes immediately, visibly (traced durably), never silently. An operator's own explicit
-`RELAY_CODEX_POLL_SECS=N` fixed-interval override is left alone regardless of health: that is a
-deliberate, visible choice, not the implicit safety net this suppression specifically targets.
+`RELAY_CODEX_POLL_SECS=N` fixed-interval override is left alone regardless of health.
 
-Mechanically: enabling this ensures Codex's own shared local app-server daemon is running for the
-profile's `CODEX_HOME` (`codex app-server daemon start` — the same officially supported
-multi-client backend `codex agents` already relies on to list every session across simultaneous
-local invocations), then attaches Relay's own passive observer to that daemon's well-known control
-socket in the background — this happens immediately and never blocks the interactive command from
-starting. **The interactive command itself is never modified: no `--remote` flag, no other
-argument is ever added.** An earlier version of this feature spawned a *private*
-`codex app-server --listen unix://…` and appended `--remote unix://…` to the interactive command
-so it would attach to that private runtime; a real dogfood session found this silently broke
-persisted permission arguments (`--yolo`, `--sandbox`, etc.) — Codex's own TUI (live-verified
-against `codex-cli 0.155.0`) explicitly refuses to carry a CLI permission override into a
-`--remote`-mode resume, restoring the resumed thread's saved settings instead, which is not the
-same as an ordinary local `--yolo` invocation. An ordinary local `codex resume` with **no**
-`--remote` flag at all auto-discovers and reuses this exact same daemon on its own, and Codex
-treats a connection it made itself to it as an ordinary local session for permission purposes —
-so every already-resolved provider argument keeps meaning exactly what it always did.
+Never reacts to history that predates the watch: a *newly discovered* rollout file is baselined at
+its current end (or, if the watcher had already run earlier in the same session, at the durable
+offset it had reached), never at byte zero — a thread resumed after the account's quota has since
+reset must never immediately re-fire a stale handoff from an already-resolved exhaustion. Attaching
+never blocks the interactive command from starting: if the rollout file does not exist yet (a
+genuinely fresh thread whose first turn has not started), the watch simply stays unhealthy — never
+a startup failure — until the background loop finds it, typically within a few hundred milliseconds
+of it actually appearing. Filesystem notifications are themselves treated as hints, not guarantees:
+every wake (a real OS notification, or the loop's own bounded periodic re-check) re-reads every
+byte appended since the last durable offset, so coalesced or entirely missed OS notifications can
+never lose a record.
 
-- **A resume** (Relay's own lease already names the thread) attaches directly.
-- **A fresh launch** (no thread exists yet) waits for the real `thread/started` broadcast to learn
-  the id, then retries `thread/resume` on a cheap local interval — live-verified (GitHub #17) that
-  this succeeds as soon as the thread's *first* turn has *started*, not completed, so the observer
-  reliably catches that first turn's own outcome (including a real `usageLimitExceeded`, were the
-  account already exhausted) rather than being excluded the way it was in #16.
-- **If the observer's connection dies** (crash, dropped connection, anything short of the
-  app-server itself dying) — live-verified with a genuine abrupt disconnect, including mid-turn —
-  Relay detects this locally (no provider call) and reconnects on the same cheap local interval,
-  reusing the now-known thread id (never re-learned; the broadcast only fires once). **Every
-  successful (re)attach — the first one or any later reconnect — triggers exactly one authoritative
-  `account/rateLimits/read`** before resuming event-driven operation, so a gap of any length is
-  always reconciled against current truth rather than assumed benign. The retry/reconnect interval
-  never grows large enough to matter (bounded at a few seconds) and is entirely local socket
-  activity — never a provider call — so it costs nothing meaningful even across an arbitrarily long
-  wait for a real user's first message.
+**Known, honestly-disclosed residual gap:** a thread replaced mid-session (the previous
+app-server-connected design had explicit machinery for this, learned from a live `thread/started`
+broadcast this design no longer listens for) is not specially handled. Nothing currently causes a
+real `relay codex`/`relay resume` session's thread id to change without also ending that session's
+own supervision, so this is believed moot in practice; if it ever is not, the watcher simply stops
+seeing new activity in the now-stale file and #13's polling — which never depends on any thread id
+— remains the unaffected safety net.
 
-### Profile exclusivity: why a learned `thread/started` broadcast can be trusted
-
-Codex's app-server protocol broadcasts `thread/started` to *every* client connected to the same
-`CODEX_HOME`, with no client/session-scoped filter anywhere in the protocol (confirmed exhaustively
-against the app-server's own generated schema). Two live Relay sessions sharing one Codex profile
-could therefore cause the thread-learning path above to attach to a thread that actually belongs to
-the *other* session — a configuration this project's own history shows actually happens (the same
-profile used by two simultaneous Relay-supervised sessions/projects).
-
-Relay closes this with a `relay_core::handoff::ProfileSessionLock` for this exact `CODEX_HOME` —
-a genuine OS `flock`, not a pid file, so a crash releases it with no staleness window and no
-PID-reuse ambiguity to reason about. At most one live Relay-managed *interactive Codex TUI* may
-hold it at a time, which is what makes trusting a freshly-learned `thread/started` broadcast
-*safe* rather than a guess: there is no second Relay-managed TUI left for it to have come from.
-
-The lock is acquired by the terminal supervisor itself, **before the interactive Codex command is
-ever spawned** — not only before attaching the observer to it. An earlier version of this fix had
-only `EventDrivenRuntime::start` acquire it, which left a second session's interactive TUI free to
-launch unobserved and broadcast its own `thread/started` into the first session's live observer,
-fully defeating the invariant. A second session attempting to start while the first still holds
-the lock is refused **visibly** — `Codex profile '<dir>' is already in use by another live
-session...` — and its interactive Codex process is never launched at all; this is the one
-`RELAY_CODEX_EVENT_DRIVEN=1` path where a refusal is not a silent fallback to ordinary polling.
-
-This does **not** close one narrower, honestly-accepted case: an entirely unmanaged `codex`
-process a user points at this same `CODEX_HOME` by hand, bypassing Relay. No mechanism could close
-that short of a Codex protocol change, since Codex itself has no notion of this lock — the same
-boundary profile isolation already draws everywhere else (Relay guarantees what it controls, never
-a user's own direct misuse of their own files).
-
-### Fresh-attach determinism: closing the "learn, then lose" race
-
-A real natural exhaustion showed a *fresh* launch (no known thread id, profile exclusivity held
-correctly, pinned Codex version correct, the interactive TUI and its one real thread healthy
-throughout) alternate `NoThread` → an affirmative `ResumeRejected` → a relearn attempt → `NoThread`
-again, for an entire session, never once reaching `Attached`. Two compounding causes, both fixed:
-
-1. `thread/started` broadcasts exactly once, system-wide, to whoever is already connected at that
-   instant. The attach worker previously opened its connection only on its own first retry — after
-   the caller had already spawned the interactive TUI — a race the TUI's own startup could win,
-   after which no later reconnect could ever see the broadcast again. The observer's connection is
-   now established and handshaken *before* the caller spawns the interactive TUI, for a fresh
-   launch specifically, and the attach worker's first iteration reuses that exact connection.
-2. Even when the broadcast *was* caught, an affirmative rejection of the resulting resume cleared
-   the learned id and waited for a fresh broadcast to relearn from — correct for an id *supplied*
-   from a prior lease (which can legitimately be stale), but structurally unable to ever succeed
-   for an id this exact worker generation had just *learned* from the one-shot broadcast itself,
-   since no second one is ever coming. A self-learned id is now retried through rejections,
-   never discarded for a relearn that could never find anything.
-
-Together: under profile exclusivity, a thread id a worker generation learns from its own
-pre-launch-established connection is authoritative for the life of the supervised session.
-
-### Fail-closed on a fresh-launch prelisten failure
-
-The prelisten connection above is itself best-effort (the daemon could stop responding in the
-instant between being confirmed alive and the connection attempt). An earlier version absorbed a
-prelisten failure the same way every other best-effort step in `EventDrivenRuntime::start` is
-absorbed: fall through with no pre-connected socket, letting the attach worker open an ordinary
-reconnecting connection instead. That silently re-opened the exact race the prelisten step exists
-to close — the interactive TUI would still launch, and its own `thread/started` broadcast could
-still win against the now-unconnected-in-advance worker. For a fresh launch specifically there is
-no safe degraded mode that still claims event-driven coverage, so a prelisten failure now fails
-`start` closed (`None`), falling back to launching the interactive command completely unsupervised
-(ordinary #13 polling only) rather than a session that silently carries the pre-fix race while
-still claiming to be event-driven.
-
-### Mid-session thread replacement without ever reconnecting
-
-A thread can legitimately end mid-session (the user starts a new one) — the app-server's own
-authoritative `thread/closed`/`thread/archived`/`thread/deleted`/`notLoaded`-status signal reports
-this exactly as it does for a never-yet-resumed thread (see above). The old recovery tore the
-connection down and opened a fresh one to listen for the replacement's `thread/started` — which
-reopens the same missed-broadcast race the fresh-launch fix above exists to close, just mid-session
-instead of at launch.
-
-Under profile exclusivity there is no need to reconnect at all: the *same* already-live connection
-that received the authoritative end can simply keep listening for the next `thread/started`
-broadcast and resume it directly — nothing else could legitimately produce that broadcast on this
-`CODEX_HOME`. `relay_provider_codex::observer::read_loop`'s background reader now does exactly
-this: on an authoritative end for its current thread, it waits (unbounded — there is no way to
-know how long a real user takes to start their next thread) on the same socket for the replacement,
-retrying a benign resume failure against it exactly like a self-learned id does (never discarding
-it for a relearn that cannot find anything), and only reports `ThreadEnded`/`ThreadReplaced` to the
-caller — `EventDrivenRuntime` never leaves `Attached` for this, and requests exactly one
-reconciliation on success, same as any other (re)attach.
-
-This honestly does **not** close one narrower case: if the connection itself also fails (a daemon
-replacement, a crash) *before* a replacement was ever learned on it, there is no live connection
-left to keep listening on, and the old missed-broadcast race applies again — `EventDrivenRuntime`
-detects this (the old thread was confirmed ended and no replacement ever arrived) and relearns via
-an ordinary reconnect, exactly like a fresh launch, rather than resuming the confirmed-ended id.
-This double-fault window is substantially narrower than the original bug (it requires the thread
-ending and the connection dying within the same unbounded wait) and degrades safely — it still
-eventually attaches — rather than looping forever.
-
-Only the observer (or its still-retrying background worker) is torn down as part of normal session
-cleanup — the daemon itself is never terminated by Relay, on a normal exit or otherwise: it is
-shared and Codex-owned, potentially serving other sessions or tools with nothing to do with this
-Relay Session, and must keep running exactly as if Relay had never been involved. What this still
-deliberately does **not** attempt:
-
-- **Periodic provider polling has not been removed as a mechanism.** #13's adaptive cadence table
-  is unchanged and remains exactly what runs whenever this feature is off, fails to attach, hasn't
-  reconnected yet, or an operator has set an explicit fixed interval — it is only its *periodic
-  timer specifically* that is suppressed while this session is proven healthy (see above).
+The profile exclusivity lock (`relay_core::handoff::ProfileSessionLock`, a genuine OS `flock` on
+the exact `CODEX_HOME`) is acquired by the terminal supervisor before the interactive Codex command
+is ever spawned, independent of whether this feature is even enabled — it is this codebase's own
+"one active writer/owner per Relay Session" invariant applied at the profile level, kept regardless
+of which (if any) event-driven mechanism is in use.
 
 Only activates for a Codex CLI version this was live-verified against
 (`relay_provider_codex::VERIFIED_VERSIONS`); any other version silently declines and #13 alone
-covers that session. See `crates/relay-provider-codex/src/{events,observer,runtime}.rs` and
+covers that session. See `crates/relay-provider-codex/src/rollout.rs` and
 `crates/relay-cli/src/codex_runtime.rs`.
 
 ## Working state (Issue #5)

@@ -4,6 +4,30 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+### Codex event-driven wake-up: replaced the app-server observer with a rollout-file watch
+
+- **Fixed a real "This conversation is open in another app" failure (agent-relay#18).** A live
+  incident proved the opt-in event-driven observer's own `thread/resume` call, against Codex's
+  shared app-server daemon, could win a race against the real interactive client's own resume for
+  the identical thread and get the daemon's thread-store to reject the *interactive* client with
+  `"thread-store conflict: thread <id> already has an active writer"` — confirmed via the real
+  daemon's own structured logs, not inferred from the UI. The app-server's own protocol exposes no
+  read-only subscribe distinct from `thread/resume`, so there was no way to fix the race by
+  reordering alone.
+- **`RELAY_CODEX_EVENT_DRIVEN=1` now watches Codex's own local rollout file instead of connecting
+  to the app-server at all.** Every Codex thread's conversation is durably persisted, append-only,
+  as a `.jsonl` file under `CODEX_HOME/sessions/<YYYY>/<MM>/<DD>/`, structurally naming its exact
+  thread id in both the filename and its own first record; a failed turn's exhaustion is a
+  `task_complete` record whose `error.codex_error_info` is `usage_limit_exceeded`. Relay watches
+  this file with an ordinary OS-level filesystem watcher (`notify`) — there is nothing to contend
+  for a writer slot with, by construction. See `crates/relay-provider-codex/src/rollout.rs`.
+- Removed the now-dead app-server-connected observer machinery
+  (`relay-provider-codex::{events,runtime}`, `observer::Observer` and its `thread/resume`-based
+  attach/reconnect state machine in `relay-cli::codex_runtime`) rather than leaving it in place
+  looking production-capable. The `tungstenite` dependency is no longer needed anywhere in the
+  workspace.
+- See `docs/automatic-handoff.md`'s "Event-driven wake-up" section for the full design.
+
 ### Handoff checkpoint for non-Git workspaces
 
 - **Automatic handoff no longer requires a Relay-managed project directory to be a Git

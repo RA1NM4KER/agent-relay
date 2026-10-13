@@ -996,24 +996,13 @@ fn report_event_driven_transition(event: crate::codex_runtime::TickEvent, json_m
     }
     match event {
         crate::codex_runtime::TickEvent::Nothing => {}
-        crate::codex_runtime::TickEvent::Attached(thread_id) => {
-            eprintln!("[Relay] event-driven Codex observation attached (thread {thread_id})");
-        }
-        crate::codex_runtime::TickEvent::Reconnecting(thread_id) => {
+        crate::codex_runtime::TickEvent::BecameUnhealthy => {
             eprintln!(
-                "[Relay] event-driven Codex observer disconnected; reconnecting (thread {thread_id})"
+                "[Relay] event-driven Codex observation lost coverage; GitHub #13's polling is active"
             );
         }
-        crate::codex_runtime::TickEvent::GaveUp => {
-            eprintln!(
-                "[Relay] event-driven Codex observation ended; GitHub #13's polling remains active"
-            );
-        }
-        crate::codex_runtime::TickEvent::ThreadReplaced(thread_id) => {
-            eprintln!(
-                "[Relay] event-driven Codex observer followed its thread's replacement, same \
-                 connection (now watching thread {thread_id})"
-            );
+        crate::codex_runtime::TickEvent::BecameRecovered => {
+            eprintln!("[Relay] event-driven Codex observation recovered");
         }
     }
 }

@@ -852,8 +852,12 @@ fn event_runtime_reuses_the_resolved_terminal_codex_executable() {
             .join("auto-handoff.log"),
     )
     .expect("event-runtime trace");
+    // `codex_event_driven_watch_started` is only ever traced *after* `version_verified` succeeds
+    // (see `codex_runtime::EventDrivenRuntime::start`) — this is exactly what proves both the
+    // PATH-discovered and the explicit-override executable each passed the exact verified-version
+    // gate. `FakeCodex` never creates a real rollout file, so the watch never reports healthy.
     assert_eq!(
-        trace.matches("codex_event_driven_daemon_ready").count(),
+        trace.matches("codex_event_driven_watch_started").count(),
         2,
         "both PATH discovery and an explicit override must pass the exact verified-version gate: {trace}"
     );
