@@ -31,14 +31,33 @@
 //! anything as exhaustion. This module never makes a provider call, never opens a socket, and
 //! never mutates anything outside its own small durable offset-tracking state file.
 //!
-//! ## Never re-triggers on old history
+//! ## Never re-triggers on old history, and never skips post-watch history either
 //!
-//! [`RolloutWatcher::attach`] baselines a *newly discovered* rollout file at its current end —
-//! Relay must never react to an exhaustion record already in the file before this session started
-//! watching it (a thread resumed after the account's quota has since reset must not immediately
-//! re-fire a stale handoff from a previous, already-resolved exhaustion). A *durable* offset
-//! (persisted under the project's own state directory, like every other GitHub #18 trace) is used
-//! instead, across a watcher restart within the *same* session — see [`WatchState`].
+//! Two different files need two different baselines, and conflating them is a real bug this
+//! module was once shipped with: a file that already existed *before* [`RolloutWatcher::attach`]
+//! was ever called baselines at its current end (never react to an exhaustion already resolved by
+//! a previous session). A file that did **not** exist yet at that exact moment — the OS watch is
+//! always installed first, so its later appearance is provably entirely post-watch — baselines at
+//! byte zero instead: every byte in it, including anything written before the background loop's
+//! own first lazy discovery gets around to opening it, is eligible. [`RolloutWatcher::attach`]'s
+//! own one synchronous, non-blocking locate decides which case applies and only it ever uses the
+//! "existed already" baseline; every lazy (re)discovery the background loop performs on its own
+//! always uses the "did not exist yet" baseline instead — which is also the only safe choice for a
+//! file *re*-discovered after a transient error, since by then this watcher had already been
+//! reading it and a stray re-baseline at a merely-current end could just as easily skip real,
+//! unprocessed content. A *durable* offset (persisted under the project's own state directory)
+//! always wins over either baseline, across a watcher restart within the *same* session or a
+//! same-session recovery from a transient error — but only when its own `(thread_id, path, dev,
+//! ino)` all still match the file actually being opened, and its recorded offset is no larger
+//! than that file's current length — never a different file generation that happened to land at
+//! the same path, and never a merely-clamped, silently-trusted offset for a file that shrank
+//! since it was saved (an independent review of this exact module found both of these: a stale
+//! offset left over from a different inode, and one larger than the current file, were each being
+//! clamped-and-trusted instead of rejected outright) — see [`WatchState`]/[`open_tail`]. The
+//! "existed already" baseline, additionally, uses the file's last *complete* line boundary, never
+//! its raw length (the same review found a length landing mid-line — the file's last record only
+//! partially written at the exact instant of `attach()`'s own synchronous stat — could otherwise
+//! permanently tear that one record in two).
 //!
 //! ## Missed-event recovery
 //!
@@ -153,8 +172,13 @@ impl RolloutWatcher {
         // after this returns, writing its first turn before a background thread's own first loop
         // iteration ever ran). A file that does not exist *yet* is not retried here — seeing it
         // appear is entirely the background loop's job (see this function's own doc comment).
-        let initial_tail = find_rollout_file(codex_home, thread_id)
-            .and_then(|path| open_tail(&path, thread_id, state_file).ok());
+        // `Baseline::ExistedBeforeWatch` is correct here, and *only* here: this is the one place
+        // that can actually prove the file was already there, as opposed to a lazy discovery by
+        // the background loop later, which can never tell "existed before the watch" apart from
+        // "created the instant after" and must always assume the latter (see `worker_loop`).
+        let initial_tail = find_rollout_file(codex_home, thread_id).and_then(|path| {
+            open_tail(&path, thread_id, state_file, Baseline::ExistedBeforeWatch).ok()
+        });
 
         let (events_tx, events) = mpsc::channel();
         let stop_flag = Arc::new(AtomicBool::new(false));
@@ -221,6 +245,22 @@ impl Drop for RolloutWatcher {
     }
 }
 
+/// Guarantees `healthy` becomes `false` the moment [`worker_loop`] stops providing live coverage,
+/// for *any* reason — an early `return` on a disconnected channel or a dead event consumer, an
+/// unrecoverable watch-rebuild failure, an ordinary `stop()`, or (since `Drop` still runs while a
+/// panic unwinds a stack) a panic. This exists specifically so that adding a new exit path to
+/// [`worker_loop`] in the future can never silently reintroduce "the worker is gone but `healthy`
+/// still says `true`" — the exact class of bug a live review of this module once found.
+struct HealthGuard<'a> {
+    healthy: &'a AtomicBool,
+}
+
+impl Drop for HealthGuard<'_> {
+    fn drop(&mut self) {
+        self.healthy.store(false, Ordering::Relaxed);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn worker_loop(
     codex_home: PathBuf,
@@ -233,6 +273,7 @@ fn worker_loop(
     healthy: &AtomicBool,
     events_tx: &mpsc::Sender<RolloutEvent>,
 ) {
+    let _health_guard = HealthGuard { healthy };
     let sessions_dir = codex_home.join("sessions");
     let mut already_signaled = false;
     // `tail` is `Some` already when [`RolloutWatcher::attach`]'s own synchronous locate attempt
@@ -240,17 +281,31 @@ fn worker_loop(
     // genuinely fresh thread whose first turn has not started) — `healthy` just stays `false`
     // until it appears. See [`RolloutWatcher::attach`]'s own doc comment for why that search never
     // blocks `attach` itself.
+    //
+    // `healthy` is set to `true` in exactly one place *in this loop*: right after a *successful*
+    // `read_new_lines`, on a `Tail` that is either freshly (re)discovered this same iteration or
+    // already established from a previous one. That is the only point in `worker_loop` that
+    // actually proves live, caught-up coverage — setting it anywhere else here (e.g. merely on a
+    // successful `open_tail`, or merely on a successful watch rebuild) would let `healthy` go
+    // `true` before a single byte of the file has actually been read this generation, which is
+    // exactly how a prior version of this function could report `true` immediately after a
+    // backend-error recovery without ever having proven it caught back up. (The *initial* value
+    // this loop receives is set once, separately, by [`RolloutWatcher::attach`]'s own synchronous
+    // open — trivially proven healthy there too, since baselining at a verified line boundary
+    // with nothing unread yet *is* "caught up," just established before this loop's first
+    // iteration rather than inside it.)
     loop {
         if stop_flag.load(Ordering::Relaxed) {
             return;
         }
         if tail.is_none() {
+            // Always `Baseline::Zero` here — see `open_tail`'s own doc comment and this module's
+            // top-level doc comment for why a lazy discovery can never safely assume "this file's
+            // current content is history that predates the watch," unlike `RolloutWatcher::attach`'s
+            // own one synchronous locate.
             if let Some(path) = find_rollout_file(&codex_home, &thread_id) {
-                match open_tail(&path, &thread_id, &state_file) {
-                    Ok(opened) => {
-                        tail = Some(opened);
-                        healthy.store(true, Ordering::Relaxed);
-                    }
+                match open_tail(&path, &thread_id, &state_file, Baseline::Zero) {
+                    Ok(opened) => tail = Some(opened),
                     Err(_) => healthy.store(false, Ordering::Relaxed),
                 }
             }
@@ -274,6 +329,10 @@ fn worker_loop(
         };
         match current_tail.read_new_lines() {
             Ok(lines) => {
+                // Proven: a valid, identity-checked handle was just read successfully. This is
+                // the one and only place `healthy` becomes `true` — see this function's own doc
+                // comment for why nowhere earlier is good enough.
+                healthy.store(true, Ordering::Relaxed);
                 for line in &lines {
                     let Ok(value) = serde_json::from_str::<Value>(line) else {
                         continue;
@@ -289,6 +348,8 @@ fn worker_loop(
                     let _ = WatchState {
                         thread_id: thread_id.clone(),
                         path: current_tail.path.clone(),
+                        dev: current_tail.dev,
+                        ino: current_tail.ino,
                         offset: current_tail.offset,
                     }
                     .save(&state_file);
@@ -302,30 +363,96 @@ fn worker_loop(
     }
 }
 
+/// Which byte offset to fall back to when no durable [`WatchState`] matches — see this module's
+/// own doc comment for why these are *not* interchangeable.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Baseline {
+    /// The file is known to have already existed before this exact watch started — skip
+    /// whatever history is already in it.
+    ExistedBeforeWatch,
+    /// The file either did not exist yet when the watch started (so everything in it, however it
+    /// got there before a lazy discovery opened it, is provably post-watch), or this is a
+    /// *re*-open of a file this same watcher had already been reading before a transient error —
+    /// never skip real content on a guess.
+    Zero,
+}
+
 /// Opens an incremental reader for `path`, resuming from a durably persisted offset if
-/// [`WatchState::load`] finds one for the exact same `(thread_id, path)` pair — never a different
-/// thread's or a different path's offset applied to this file. Otherwise baselines fresh at the
-/// file's current end (see this module's own doc comment for why: never react to history that
-/// predates this watch).
-fn open_tail(path: &Path, thread_id: &str, state_file: &Path) -> std::io::Result<Tail> {
-    let file = fs::File::open(path)?;
-    let len = file.metadata()?.len();
+/// [`WatchState::load`] finds one for the exact same `(thread_id, path)` pair, the exact same
+/// device/inode (never a stale offset left over from a *different* file generation that happened
+/// to occupy this same path earlier), *and* an offset no larger than the file's current length
+/// (never one larger — that can only mean the file shrank since the offset was saved, which is
+/// itself proof the persisted value is no longer trustworthy, not something to silently clamp and
+/// treat as "already caught up"). Otherwise falls back to `baseline` (see this module's own doc
+/// comment for why the two baselines are not interchangeable).
+///
+/// `Baseline::ExistedBeforeWatch`'s fallback is the file's last *complete* line boundary, never
+/// its raw current length: a length that happens to land mid-line (the file's last record is only
+/// partially written at the exact instant this synchronous call runs) would otherwise permanently
+/// tear that record in two — the earlier half silently skipped as "history," the trailing half
+/// (just the eventual `\n`) read later as a bogus empty line. Scanning for complete lines costs one
+/// full read of whatever already exists, which is bounded (a rollout file's historical content is
+/// always finite, and this only runs once, at the very first synchronous locate).
+fn open_tail(
+    path: &Path,
+    thread_id: &str,
+    state_file: &Path,
+    baseline: Baseline,
+) -> std::io::Result<Tail> {
+    use std::io::Read as _;
+    use std::os::unix::fs::MetadataExt as _;
+    let mut file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    let dev = metadata.dev();
+    let ino = metadata.ino();
+    let len = metadata.len();
+    let fallback = match baseline {
+        Baseline::ExistedBeforeWatch => {
+            let mut buf = Vec::new();
+            file.read_to_end(&mut buf)?;
+            last_complete_line_boundary(&buf)
+        }
+        Baseline::Zero => 0,
+    };
     let offset = WatchState::load(state_file)
-        .filter(|state| state.thread_id == thread_id && state.path == path)
-        .map_or(len, |state| state.offset.min(len));
+        .filter(|state| {
+            state.thread_id == thread_id
+                && state.path == path
+                && state.dev == dev
+                && state.ino == ino
+                && state.offset <= len
+        })
+        .map_or(fallback, |state| state.offset);
     Ok(Tail {
         file,
         path: path.to_owned(),
+        dev,
+        ino,
         offset,
     })
 }
 
-/// Durable, restart-safe tailing state — see [`open_tail`]'s own doc comment for why both fields
-/// must match before an offset is trusted.
+/// The byte offset immediately after the last `\n` in `buf` — `0` if `buf` contains no complete
+/// line at all. Mirrors [`Tail::read_new_lines`]'s own line-splitting loop exactly (same
+/// "advance past a `\n`, never past a trailing partial line" rule) so the two can never disagree
+/// about what counts as "a complete line."
+#[must_use]
+fn last_complete_line_boundary(buf: &[u8]) -> u64 {
+    let mut consumed = 0usize;
+    while let Some(relative_newline) = buf[consumed..].iter().position(|&byte| byte == b'\n') {
+        consumed += relative_newline + 1;
+    }
+    consumed as u64
+}
+
+/// Durable, restart-safe tailing state — see [`open_tail`]'s own doc comment for why every field
+/// must match (and the offset must be in range) before it is trusted.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct WatchState {
     thread_id: String,
     path: PathBuf,
+    dev: u64,
+    ino: u64,
     offset: u64,
 }
 
@@ -348,13 +475,36 @@ impl WatchState {
 struct Tail {
     file: fs::File,
     path: PathBuf,
+    /// Device/inode at open time — an already-open handle keeps referring to the same underlying
+    /// file even after its path is unlinked or replaced (ordinary POSIX semantics), so a mismatch
+    /// against a *fresh*, path-based stat is the only way to notice "the file at this path is no
+    /// longer the file this handle is reading" (a remove-and-recreate, or a rename swap).
+    dev: u64,
+    ino: u64,
     offset: u64,
 }
 
 impl Tail {
     /// Reads every complete line appended since `offset`, advancing it past exactly what was
-    /// consumed. Returns an empty vec (not an error) when nothing new is there yet.
+    /// consumed. Returns an empty vec (not an error) when nothing new is there yet. An error here
+    /// (identity mismatch, truncation, or an ordinary I/O failure) always means "this handle can
+    /// no longer be trusted" — the caller drops it and re-discovers the file fresh, by content,
+    /// from scratch.
     fn read_new_lines(&mut self) -> std::io::Result<Vec<String>> {
+        use std::os::unix::fs::MetadataExt as _;
+        let current = fs::metadata(&self.path)?;
+        if current.dev() != self.dev || current.ino() != self.ino {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "the file at this path was replaced or recreated since it was opened",
+            ));
+        }
+        if current.len() < self.offset {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "the rollout file shrank past the last known offset",
+            ));
+        }
         self.file.seek(SeekFrom::Start(self.offset))?;
         let mut buf = Vec::new();
         self.file.read_to_end(&mut buf)?;
@@ -573,11 +723,8 @@ mod tests {
     fn tail_reads_only_complete_lines_and_resumes_a_split_write() {
         let dir = tempfile::tempdir().unwrap();
         let path = write_rollout(dir.path(), "t1", &[session_meta("t1")]);
-        let mut tail = Tail {
-            file: fs::File::open(&path).unwrap(),
-            path: path.clone(),
-            offset: 0,
-        };
+        let no_state_file = dir.path().join("no-state.json");
+        let mut tail = open_tail(&path, "t1", &no_state_file, Baseline::Zero).unwrap();
         let first = tail.read_new_lines().unwrap();
         assert_eq!(first.len(), 1);
         // Simulate a write split mid-line: partial bytes with no trailing newline yet.
@@ -601,7 +748,8 @@ mod tests {
     #[test]
     fn a_watcher_never_reacts_to_history_that_predates_it() {
         let codex_home = tempfile::tempdir().unwrap();
-        let state_file = tempfile::tempdir().unwrap().path().join("state.json");
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
         // An old, already-resolved exhaustion already sits in the file before the watcher ever
         // starts (e.g. a thread resumed long after the account's quota reset).
         let path = write_rollout(
@@ -624,7 +772,8 @@ mod tests {
     #[test]
     fn a_new_exhaustion_after_attach_is_signaled_exactly_once() {
         let codex_home = tempfile::tempdir().unwrap();
-        let state_file = tempfile::tempdir().unwrap().path().join("state.json");
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
         let path = write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
         let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
         std::thread::sleep(Duration::from_millis(400));
@@ -646,7 +795,8 @@ mod tests {
     #[test]
     fn file_created_after_watch_begins_is_still_found() {
         let codex_home = tempfile::tempdir().unwrap();
-        let state_file = tempfile::tempdir().unwrap().path().join("state.json");
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
         fs::create_dir_all(codex_home.path().join("sessions")).unwrap();
         let codex_home_path = codex_home.path().to_owned();
         let handle = thread::spawn(move || {
@@ -671,7 +821,8 @@ mod tests {
     #[test]
     fn unrelated_simultaneous_thread_writes_never_trigger_the_watcher() {
         let codex_home = tempfile::tempdir().unwrap();
-        let state_file = tempfile::tempdir().unwrap().path().join("state.json");
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
         write_rollout(codex_home.path(), "watched", &[session_meta("watched")]);
         let other = write_rollout(codex_home.path(), "other", &[session_meta("other")]);
         let watcher = RolloutWatcher::attach(codex_home.path(), "watched", &state_file).unwrap();
@@ -687,7 +838,8 @@ mod tests {
     #[test]
     fn a_restart_resumes_from_the_durable_offset_without_resignaling() {
         let codex_home = tempfile::tempdir().unwrap();
-        let state_file = tempfile::tempdir().unwrap().path().join("state.json");
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
         let path = write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
         let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
         append(&path, &[task_complete_exhausted(1)]);
@@ -712,7 +864,8 @@ mod tests {
     #[test]
     fn attach_succeeds_immediately_but_stays_unhealthy_when_nothing_ever_matches() {
         let codex_home = tempfile::tempdir().unwrap();
-        let state_file = tempfile::tempdir().unwrap().path().join("state.json");
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
         fs::create_dir_all(codex_home.path().join("sessions")).unwrap();
         let watcher = RolloutWatcher::attach(codex_home.path(), "never-appears", &state_file)
             .expect("attach never blocks on the file existing — see its own doc comment");
@@ -725,7 +878,8 @@ mod tests {
     #[test]
     fn many_records_delivered_in_one_write_are_all_parsed() {
         let codex_home = tempfile::tempdir().unwrap();
-        let state_file = tempfile::tempdir().unwrap().path().join("state.json");
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
         let path = write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
         let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
         let mut batch = Vec::new();
@@ -734,6 +888,353 @@ mod tests {
         }
         batch.push(task_complete_exhausted(200));
         append(&path, &batch);
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![RolloutEvent::UsageLimitExceeded]
+        );
+        watcher.stop();
+    }
+
+    // --- Regression: file created after attach, fully written before first lazy discovery ---
+
+    #[test]
+    fn a_rollout_created_and_fully_written_before_first_locate_is_never_skipped() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        fs::create_dir_all(codex_home.path().join("sessions")).unwrap();
+        // Attach while the file does not exist at all yet.
+        let watcher = RolloutWatcher::attach(codex_home.path(), "late-thread", &state_file)
+            .expect("attach never blocks on the file existing");
+        assert!(!watcher.is_healthy());
+        // The entire file — header, ordinary records, *and* the exhaustion record — is written in
+        // one shot, simulating the interactive client completing a whole first turn before the
+        // background loop's own first lazy discovery ever gets a chance to run.
+        write_rollout(
+            codex_home.path(),
+            "late-thread",
+            &[
+                session_meta("late-thread"),
+                task_complete_ok(1),
+                task_complete_exhausted(2),
+            ],
+        );
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![RolloutEvent::UsageLimitExceeded],
+            "every byte of a file that did not exist when the watch started must be eligible, \
+             never silently baselined past"
+        );
+        assert!(watcher.is_healthy());
+        watcher.stop();
+    }
+
+    #[test]
+    fn many_writes_before_first_locate_are_all_still_caught() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        fs::create_dir_all(codex_home.path().join("sessions")).unwrap();
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        let mut lines = vec![session_meta("t1")];
+        for ordinal in 1..150 {
+            lines.push(task_complete_ok(ordinal));
+        }
+        lines.push(task_complete_exhausted(150));
+        write_rollout(codex_home.path(), "t1", &lines);
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![RolloutEvent::UsageLimitExceeded]
+        );
+        watcher.stop();
+    }
+
+    #[test]
+    fn a_partial_final_line_before_first_locate_is_not_lost() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        fs::create_dir_all(codex_home.path().join("sessions")).unwrap();
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        let path = write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
+        {
+            let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+            file.write_all(task_complete_exhausted(1).as_bytes())
+                .unwrap();
+            // No trailing newline yet — the line is not complete when the background loop first
+            // discovers this file.
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(
+            watcher.drain_events().is_empty(),
+            "an incomplete final line must never be parsed as a record yet"
+        );
+        append(&path, &[String::new()]); // writes just the trailing newline
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![RolloutEvent::UsageLimitExceeded],
+            "completing the line later must still be caught, including by the first discovery"
+        );
+        watcher.stop();
+    }
+
+    #[test]
+    fn an_unrelated_rollout_created_first_does_not_affect_the_watched_threads_baseline() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        fs::create_dir_all(codex_home.path().join("sessions")).unwrap();
+        let watcher = RolloutWatcher::attach(codex_home.path(), "watched", &state_file).unwrap();
+        write_rollout(
+            codex_home.path(),
+            "other",
+            &[session_meta("other"), task_complete_exhausted(1)],
+        );
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(watcher.drain_events().is_empty());
+        assert!(
+            !watcher.is_healthy(),
+            "the watched thread's own file still does not exist"
+        );
+        write_rollout(
+            codex_home.path(),
+            "watched",
+            &[session_meta("watched"), task_complete_exhausted(2)],
+        );
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![RolloutEvent::UsageLimitExceeded]
+        );
+        watcher.stop();
+    }
+
+    // --- Regression: worker exit paths must never leave `is_healthy()` stuck `true` ---
+
+    #[test]
+    fn dropping_the_watcher_without_stop_never_leaves_it_reporting_healthy() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(watcher.is_healthy());
+        drop(watcher);
+        // Nothing left to assert against (the handle is gone) — this test's real purpose is that
+        // `Drop` (background worker join) does not panic or hang, exercising the same shutdown
+        // path `HealthGuard` relies on.
+    }
+
+    #[test]
+    fn a_file_replaced_at_the_same_path_is_detected_and_recovered() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        let path = write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(watcher.is_healthy());
+        // Replace the file at the exact same path with a new inode (remove + recreate, not an
+        // in-place append) — the same shape a rename-swap would produce.
+        fs::remove_file(&path).unwrap();
+        write_rollout(
+            codex_home.path(),
+            "t1",
+            &[session_meta("t1"), task_complete_exhausted(1)],
+        );
+        std::thread::sleep(Duration::from_millis(700));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![RolloutEvent::UsageLimitExceeded],
+            "a replaced file must be rediscovered by content, never silently read from the old \
+             (now-detached) handle forever"
+        );
+        assert!(watcher.is_healthy());
+        watcher.stop();
+    }
+
+    #[test]
+    fn a_truncated_file_is_detected_rather_than_silently_read_as_empty_forever() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        let path = write_rollout(
+            codex_home.path(),
+            "t1",
+            &[session_meta("t1"), task_complete_ok(1), task_complete_ok(2)],
+        );
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(watcher.is_healthy());
+        // Truncate in place (same inode, shorter length) — distinct from the replace case above.
+        {
+            let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+            file.set_len(10).unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(600));
+        // However this resolves (unhealthy until re-caught-up, or already recovered by the next
+        // check), it must never crash and must never silently stay healthy while reading nothing
+        // meaningful forever — recovery is proven by the exhaustion record below still landing.
+        append(&path, &[task_complete_exhausted(3)]);
+        std::thread::sleep(Duration::from_millis(600));
+        let events = watcher.drain_events();
+        assert!(
+            events.is_empty() || events == vec![RolloutEvent::UsageLimitExceeded],
+            "must never duplicate-signal even across a truncation recovery: {events:?}"
+        );
+        watcher.stop();
+    }
+
+    // --- Regression: recovery must actually restore healthy coverage, not stay degraded ---
+
+    #[test]
+    fn healthy_only_becomes_true_after_a_proven_successful_read_not_merely_on_discovery() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        // `attach` itself already performed the one synchronous locate-and-read-free open; by the
+        // time any time at all has passed, the background loop must have performed at least one
+        // real `read_new_lines` to justify `healthy`.
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(watcher.is_healthy());
+        watcher.stop();
+    }
+
+    // --- Regression (independent review): a stale/impossible offset must never be blindly
+    // clamped-and-trusted — it must be rejected outright, falling back to a safe baseline, never
+    // silently skipping content this exact watcher never actually read. ---
+
+    #[test]
+    fn a_stale_offset_larger_than_the_same_files_current_length_is_never_trusted() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        let path = write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
+        let metadata = fs::metadata(&path).unwrap();
+        use std::os::unix::fs::MetadataExt as _;
+        let stale = WatchState {
+            thread_id: "t1".to_owned(),
+            path: path.clone(),
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+            offset: 10_000_000, // larger than this exact file will ever be in this test
+        };
+        stale.save(&state_file).unwrap();
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(
+            watcher.is_healthy(),
+            "an impossible stale offset must never be trusted, but must also never leave the \
+             watcher stuck unhealthy forever"
+        );
+        append(&path, &[task_complete_exhausted(1)]);
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![RolloutEvent::UsageLimitExceeded],
+            "content appended after attach must never be lost to a bogus, too-large durable offset"
+        );
+        watcher.stop();
+    }
+
+    #[test]
+    fn a_stale_offset_from_a_different_file_generation_at_the_same_path_is_never_trusted() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        // An old `WatchState` survives from a *previous* file generation at this exact path (a
+        // different inode) — live-plausible if a prior session's state file was never cleaned up
+        // and a new thread later happens to produce a same-shaped path.
+        let old_path = write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
+        let old_metadata = fs::metadata(&old_path).unwrap();
+        use std::os::unix::fs::MetadataExt as _;
+        let stale = WatchState {
+            thread_id: "t1".to_owned(),
+            path: old_path.clone(),
+            dev: old_metadata.dev(),
+            ino: old_metadata.ino(),
+            offset: old_metadata.len(), // plausible-looking, even in-range, for the OLD file
+        };
+        stale.save(&state_file).unwrap();
+        // Replace the file in place (new inode) with fresh content nobody has read yet.
+        fs::remove_file(&old_path).unwrap();
+        let path = write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(watcher.is_healthy());
+        append(&path, &[task_complete_exhausted(1)]);
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![RolloutEvent::UsageLimitExceeded],
+            "an in-range-looking offset left over from a different file generation at the same \
+             path must never suppress detection of genuinely new content"
+        );
+        watcher.stop();
+    }
+
+    #[test]
+    fn a_record_torn_by_attachs_own_synchronous_stat_is_never_lost() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        let path = write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
+        // Simulate a torn write: the exhaustion record's bytes landed, but not yet its trailing
+        // newline, at the exact instant `attach()` performs its one synchronous locate-and-open —
+        // this is the one place that baselines by raw file length rather than re-reading forward.
+        {
+            let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+            file.write_all(task_complete_exhausted(1).as_bytes())
+                .unwrap();
+        }
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        // Complete the torn write shortly after attach.
+        append(&path, &[String::new()]);
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![RolloutEvent::UsageLimitExceeded],
+            "a record whose trailing newline lands after attach's own synchronous stat must \
+             still be caught whole, never torn into a skipped half and a bogus empty line"
+        );
+        watcher.stop();
+    }
+
+    #[test]
+    fn a_corrupt_state_file_degrades_to_the_baseline_rather_than_erroring() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        fs::write(&state_file, b"not valid json at all").unwrap();
+        write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(watcher.is_healthy());
+        watcher.stop();
+    }
+
+    #[test]
+    fn a_usage_limit_record_written_immediately_after_recovery_is_still_caught() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        let path = write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(watcher.is_healthy());
+        // Simulate a transient disruption and recovery via a replace (see the dedicated replace
+        // test above), then immediately append the exhaustion record on the new file.
+        fs::remove_file(&path).unwrap();
+        let replaced = write_rollout(codex_home.path(), "t1", &[session_meta("t1")]);
+        std::thread::sleep(Duration::from_millis(500));
+        append(&replaced, &[task_complete_exhausted(1)]);
         std::thread::sleep(Duration::from_millis(600));
         assert_eq!(
             watcher.drain_events(),

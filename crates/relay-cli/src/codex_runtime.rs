@@ -329,4 +329,177 @@ mod tests {
             "the real production shape must always resolve to a known thread id, never None"
         );
     }
+
+    /// GitHub #18 (zero-poll acceptance, end to end): the one piece neither `rollout.rs`'s own
+    /// tests (which prove a real rollout file produces `RolloutEvent::UsageLimitExceeded` exactly
+    /// once) nor `codex_poll.rs`'s own tests (which prove `notify_event(UsageLimitExceeded)`
+    /// produces exactly one triggered evaluation, and that a healthy scheduler never fires from
+    /// its timer alone, however many ticks pass) individually exercise: the one-line forwarding in
+    /// [`EventDrivenRuntime::tick`] that actually connects them. Constructs `EventDrivenRuntime`
+    /// directly (its `start` constructor is intentionally not exercised here — see this module's
+    /// own test coverage for that gate) around a real [`RolloutWatcher`] over a real temporary
+    /// `CODEX_HOME`, and a real [`crate::codex_poll::CodexPollScheduler`], with no fake `codex`
+    /// process and no app-server/subprocess involved at all.
+    #[test]
+    fn a_rollout_exhaustion_event_reaches_the_scheduler_as_exactly_one_triggered_evaluation() {
+        use std::time::{Duration, Instant};
+
+        let codex_home = tempfile::tempdir().expect("tempdir");
+        let project_state_dir = tempfile::tempdir().expect("tempdir");
+        let state_dir = tempfile::tempdir().expect("tempdir");
+        let sessions_dir = codex_home.path().join("sessions/2026/10/13");
+        std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
+        let rollout_path = sessions_dir.join("rollout-2026-10-13T00-00-00-t1.jsonl");
+        std::fs::write(
+            &rollout_path,
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "timestamp": "2026-10-13T00:00:00.000Z",
+                    "ordinal": 0,
+                    "type": "session_meta",
+                    "payload": {"session_id": "t1", "id": "t1", "cwd": "/work"},
+                })
+            ),
+        )
+        .expect("write rollout header");
+
+        let watch_state_file = project_state_dir
+            .path()
+            .join("codex_rollout_watch_state.json");
+        let watcher = relay_provider_codex::rollout::RolloutWatcher::attach(
+            codex_home.path(),
+            "t1",
+            &watch_state_file,
+        )
+        .expect("attach");
+        let mut runtime = EventDrivenRuntime {
+            watcher,
+            project_state_dir: project_state_dir.path().to_path_buf(),
+            was_healthy: false,
+        };
+        let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
+            state_dir.path().to_path_buf(),
+            project_state_dir.path().to_path_buf(),
+            None,
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !runtime.is_healthy() {
+            runtime.tick(&mut scheduler);
+            scheduler.set_event_driven_healthy(runtime.is_healthy());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(runtime.is_healthy(), "watcher must become healthy");
+
+        // Becoming healthy for the first time itself queues exactly one reconciliation read (the
+        // existing, intended "a successful attach always re-establishes ground truth once"
+        // behavior — see `EventDrivenRuntime::tick`'s own `(false, true)` transition) — drain it
+        // once, deliberately, before asserting "zero reads" below, so that assertion is about the
+        // *steady state* while healthy, not a false reading of this one expected evaluation. The
+        // wait loop above only calls `tick()` while *not yet* healthy, so when the rollout file
+        // already exists at `attach` time (the common case, exercised here) the watcher can be
+        // healthy from its very first instant and that loop's body never runs at all — the
+        // transition this comment describes is only ever actually observed on the next `tick()`
+        // call, which is this one.
+        runtime.tick(&mut scheduler);
+        scheduler.set_event_driven_healthy(runtime.is_healthy());
+        let mut reconciliation_calls = 0u32;
+        scheduler.tick(
+            |trigger| {
+                reconciliation_calls += 1;
+                assert_eq!(
+                    trigger,
+                    crate::auto_handoff::CodexEvaluationTrigger::ReconnectReconciliation
+                );
+                None
+            },
+            |_| None,
+        );
+        assert_eq!(reconciliation_calls, 1);
+
+        // Zero periodic quota reads while healthy, however many ticks pass — mirrors
+        // `codex_poll::tests::a_healthy_scheduler_never_fires_on_the_timer_alone_however_many_ticks_pass`,
+        // here driven through the real `EventDrivenRuntime::tick` as well.
+        for _ in 0..30 {
+            runtime.tick(&mut scheduler);
+            scheduler.set_event_driven_healthy(runtime.is_healthy());
+            scheduler.tick(
+                |_trigger| {
+                    panic!(
+                        "a healthy watcher must never let the timer alone make an evaluation due"
+                    )
+                },
+                |_| panic!("must never spawn from the timer while healthy"),
+            );
+        }
+
+        // The exact-thread structured exhaustion record.
+        {
+            use std::io::Write as _;
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&rollout_path)
+                .expect("open rollout for append");
+            writeln!(
+                file,
+                "{}",
+                serde_json::json!({
+                    "timestamp": "2026-10-13T00:00:02.000Z",
+                    "ordinal": 1,
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "task_complete",
+                        "turn_id": "t",
+                        "error": {"message": "limit", "codex_error_info": "usage_limit_exceeded"},
+                    },
+                })
+            )
+            .expect("append exhaustion record");
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut plan_calls = 0u32;
+        let mut saw_trigger = None;
+        while Instant::now() < deadline && plan_calls == 0 {
+            runtime.tick(&mut scheduler);
+            scheduler.set_event_driven_healthy(runtime.is_healthy());
+            scheduler.tick(
+                |trigger| {
+                    plan_calls += 1;
+                    saw_trigger = Some(trigger);
+                    None
+                },
+                |_| None,
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(
+            plan_calls, 1,
+            "exactly one evaluation must be triggered by the rollout-sourced exhaustion event"
+        );
+        assert_eq!(
+            saw_trigger,
+            Some(crate::auto_handoff::CodexEvaluationTrigger::UsageLimitEvent)
+        );
+
+        let trace = std::fs::read_to_string(project_state_dir.path().join("auto-handoff.log"))
+            .unwrap_or_default();
+        assert!(
+            trace.contains("codex_usage_limit_event_received"),
+            "the durable trace must record receipt of the rollout-sourced exhaustion event: {trace}"
+        );
+
+        // Draining again, and ticking further, must never produce a second evaluation.
+        for _ in 0..10 {
+            runtime.tick(&mut scheduler);
+            scheduler.set_event_driven_healthy(runtime.is_healthy());
+            scheduler.tick(
+                |_trigger| panic!("must never trigger a second evaluation for the same event"),
+                |_| panic!("must never spawn a second evaluation for the same event"),
+            );
+        }
+
+        runtime.stop();
+    }
 }
