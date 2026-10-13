@@ -216,6 +216,18 @@ the state bundle); cross-profile native resume is not supported.
 
 ### Experimental: event-driven wake-up (GitHub #16), opt-in only
 
+**Current status: inert for every real session.** A live incident proved this feature's observer
+can race the real interactive Codex client for the same thread's single-writer slot and lose —
+the daemon rejects the interactive client's own `thread/resume` as `"already has an active
+writer"`, which is exactly what surfaces as "This conversation is open in another app." Every
+real `relay codex`/`relay resume` launch always already knows its thread id by the time this
+feature would attach, so `EventDrivenRuntime::start` now unconditionally declines rather than risk
+that conflict again. Setting `RELAY_CODEX_EVENT_DRIVEN=1` today changes nothing observable: GitHub
+#13's own polling (which never calls `thread/resume` and has never produced this conflict) remains
+the sole live usage coverage. The rest of this section describes the feature's intended design,
+left in place as design documentation pending a live-verified, non-conflicting subscription
+mechanism — see `crates/relay-cli/src/codex_runtime.rs`'s own module doc for the full finding.
+
 Set `RELAY_CODEX_EVENT_DRIVEN=1` to let a supervised Codex terminal wake up immediately on Codex's
 own structured turn-failure error (`usageLimitExceeded`) or its `account/rateLimits/updated`
 notification, rather than only ever finding out on the next poll above. Unset (the default),

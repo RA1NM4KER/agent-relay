@@ -19,6 +19,39 @@
 //! back to launching the interactive command exactly as before, and is never surfaced as a
 //! startup failure.
 //!
+//! ## CURRENT STATUS: inert for every real caller (GitHub #18 writer-conflict follow-up)
+//!
+//! A live incident (`proj-43efc346dfb87732`, 2026-10-13, thread
+//! `01a133b0-37a2-7883-979b-a994ab9089e9`) proved, via the real app-server daemon's own
+//! structured logs (never inferred from the UI alone), that this module's observer can win a
+//! race against the real interactive client's own `thread/resume` for the identical thread and
+//! get rejected by the daemon's thread-store as `"already has an active writer"` — the literal,
+//! confirmed cause of a real "This conversation is open in another app" failure, a session-
+//! breaking violation of this codebase's own first invariant (one writer/owner; never weaken it).
+//! [`EventDrivenRuntime::start`] now unconditionally declines ([`None`]) whenever `thread_id` is
+//! `Some` — see [`EventDrivenRuntime::after_daemon_ready`]'s own doc comment for the full finding
+//! and why no live-verified safe alternative exists yet.
+//!
+//! Separately, and discovered independently while investigating the incident above: every real
+//! `relay codex`/`relay resume` call this module's single production caller
+//! (`terminal_session::run_managed_terminal_inner`) ever makes passes `Some(thread_id)` — never
+//! `None`. A brand-new `relay codex` launch creates its native thread first
+//! (`relay_provider_codex::launch_new_thread`) and then resumes it by id, exactly like `relay
+//! resume`'s own lease continuation (`plan_codex_resume` always resumes an already-known
+//! `lease.session_id`). The `thread_id.is_none()` branch below — the entire fresh-launch
+//! prelisten/[`KnownThread::SelfLearned`] machinery two earlier rounds of this same GitHub #18
+//! work built and tested — is consequently dead code for every current real caller; it was
+//! exercised only by this module's own synthetic `None`-shaped tests, never by production. See
+//! [`the_real_relay_codex_terminal_session_launch_shape_is_always_a_known_thread_id`] in this
+//! module's own tests for the proof.
+//!
+//! **Net effect: with the one fix above in place, this module currently never attaches an
+//! observer for any real session.** GitHub #13's own polling — which never calls
+//! `thread/resume` and has never once produced this conflict — remains the sole live usage
+//! coverage for every real Codex session until a live-verified, non-conflicting subscription
+//! mechanism is found (see `after_daemon_ready`'s doc comment for the directions already ruled
+//! out or left open).
+//!
 //! **agent-relay#18: the interactive command's own arguments are never touched by this module.**
 //! An earlier version appended `--remote <endpoint>` here so the interactive client would attach
 //! to a private app-server this module spawned — live-verified against `codex-cli 0.155.0` to
@@ -391,6 +424,26 @@ impl EventDrivenRuntime {
             return None;
         };
         crate::auto_handoff::trace_event(project_state_dir, "codex_event_driven_daemon_ready");
+        Self::after_daemon_ready(
+            codex_executable,
+            config_dir,
+            project_state_dir,
+            daemon,
+            thread_id,
+        )
+    }
+
+    /// The remainder of [`Self::start`] once the daemon is confirmed running — split out purely
+    /// for direct testability (it needs only an already-confirmed [`ManagedDaemon`], never the
+    /// env-var gate, [`version_verified`], or [`ensure_managed_daemon`] that precede it in
+    /// `start`).
+    fn after_daemon_ready(
+        codex_executable: &Path,
+        config_dir: &Path,
+        project_state_dir: &Path,
+        daemon: relay_provider_codex::runtime::ManagedDaemon,
+        thread_id: Option<&str>,
+    ) -> Option<Self> {
         // GitHub #18 (fresh-attach determinism follow-up): for a genuinely fresh launch (no known
         // thread id), establish and handshake the observer's own connection to the daemon right
         // here — *before* returning to the caller, which spawns the interactive Codex client only
@@ -424,14 +477,46 @@ impl EventDrivenRuntime {
                 Some(initial_socket),
             );
         }
-        Self::finish_start(
-            codex_executable,
-            config_dir,
+        // GitHub #18 (CRITICAL follow-up — live-reproduced and root-caused, never guessed): a
+        // known thread id here is always one the caller's own interactive `TerminalCommand` is
+        // about to resume too (`terminal_session::run_managed_terminal_inner` derives
+        // `known_thread_id` directly from `command.args` whenever they are `["resume", id, ...]`
+        // — the shape every real `relay codex`/`relay resume` launch actually builds; see this
+        // module's own top-level doc comment for why the `None` branch above is consequently
+        // never reached by any current production caller). A live incident
+        // (`proj-43efc346dfb87732`, 2026-10-13, thread `01a133b0-37a2-7883-979b-a994ab9089e9`)
+        // proved — via the real app-server daemon's own structured logs, not inference — that
+        // this observer's own `thread/resume` call, racing ahead of the interactive client's own
+        // resume (the attach worker below starts trying the instant this function returns,
+        // strictly before the caller ever spawns the interactive process), can win that race and
+        // claim the thread-store's single per-thread "active writer" slot. The daemon then
+        // rejected the real interactive `codex-tui` client's own subsequent `thread/resume` with
+        // an explicit `thread-store conflict: thread <id> already has an active writer` error,
+        // which is exactly what surfaces to the user as "This conversation is open in another
+        // app." — a session-breaking failure of the one invariant this whole module's own doc
+        // comment already states must never be weakened: the interactive client must always be
+        // able to become the sole driving owner of its own thread.
+        //
+        // There is no currently-verified way to let this observer subscribe to a thread without
+        // contending for that same single-writer slot — `thread/resume` is the only operation
+        // that receives a thread's live turn/error notifications, and the app-server's own
+        // protocol schema (confirmed against the real `codex app-server generate-json-schema`
+        // output) exposes no separate, authoritative "read-only subscribe" primitive, nor any
+        // live-confirmed signal this module could safely wait on for "the interactive client has
+        // already claimed the writer slot" before attempting its own resume. Reordering alone
+        // (delaying this worker's first attempt until after the interactive process is spawned)
+        // would only improve the odds, never guarantee them, and guessing wrong here reproduces
+        // today's exact incident — unacceptable for an invariant this load-bearing. Until a
+        // live-verified, non-conflicting subscription mechanism is found, a known thread id
+        // declines event-driven observation entirely, exactly like every other hard failure in
+        // this function: GitHub #13's own polling, which never calls `thread/resume` and has
+        // never once produced this conflict, remains the sole live coverage for every real
+        // `relay codex`/`relay resume` session.
+        crate::auto_handoff::trace_event(
             project_state_dir,
-            daemon,
-            KnownThread::FromLease(thread_id.expect("checked above").to_owned()),
-            None,
-        )
+            "codex_event_driven_known_thread_declined_writer_conflict_risk",
+        );
+        None
     }
 
     /// GitHub #18 (fail-closed follow-up): the fresh-launch prelisten attempt itself, split out
@@ -1286,6 +1371,74 @@ mod tests {
             .expect("durable trace log");
         assert!(log.contains("codex_event_driven_prelisten_established"));
         assert!(!log.contains("codex_event_driven_prelisten_failed"));
+    }
+
+    #[test]
+    fn a_known_thread_id_declines_event_driven_observation_entirely() {
+        // GitHub #18 (CRITICAL follow-up): a known thread id is the shape every real production
+        // `relay codex`/`relay resume` launch actually passes — never `None` (see this module's
+        // own top-level doc comment and `terminal_session::run_managed_terminal_inner`'s own
+        // `known_thread_id` derivation). A live incident proved this observer's own
+        // `thread/resume` can win a race against the interactive client's own resume for the
+        // exact same thread and get rejected by the daemon's thread-store with "already has an
+        // active writer" — the literal cause of the real "This conversation is open in another
+        // app" failure. `after_daemon_ready` must therefore decline (`None`) for ANY known thread
+        // id, unconditionally, never attempting `Observer::attach` at all for this shape.
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let (mut child, identity) = live_identity();
+        let daemon = relay_provider_codex::runtime::ManagedDaemon {
+            endpoint: scratch.path().join("daemon.sock"),
+            identity,
+        };
+
+        let result = EventDrivenRuntime::after_daemon_ready(
+            Path::new("/definitely/not/codex"),
+            scratch.path(),
+            scratch.path(),
+            daemon,
+            Some("01a133b0-37a2-7883-979b-a994ab9089e9"),
+        );
+        assert!(
+            result.is_none(),
+            "a known thread id must decline event-driven observation entirely"
+        );
+        let log = std::fs::read_to_string(scratch.path().join(crate::auto_handoff::LOG_FILE_NAME))
+            .expect("durable trace log");
+        assert!(
+            log.contains("codex_event_driven_known_thread_declined_writer_conflict_risk"),
+            "the decline must be durably traced, not silent: {log}"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn the_real_relay_codex_terminal_session_launch_shape_is_always_a_known_thread_id() {
+        // GitHub #18 Phase 4 audit: proves, from the real production call shape
+        // `terminal_session::run_managed_terminal_inner` actually builds (never a synthetic
+        // `thread_id: None` this module's own tests used to exercise as if it were the common
+        // case), that a brand-new `relay codex` launch's interactive command is always
+        // `["resume", <thread-id>, ...]` — i.e. `EventDrivenRuntime::start` always receives
+        // `Some(thread_id)`, never `None`, for both `relay codex`'s own bootstrap-then-resume
+        // lifecycle (`relay_provider_codex::launch_new_thread` creates the thread first) and
+        // `relay resume`'s lease-continuation lifecycle (`plan_codex_resume` always resumes an
+        // already-known `lease.session_id`). The synthetic `None` path this module's
+        // `prelisten_for_fresh_launch`/`KnownThread::None` machinery still supports is dead code
+        // for every current real caller — this test exists so a future change to either
+        // `launch_new_thread` or `plan_codex_resume` that revives a genuine `None` case is forced
+        // to update this test's own assertion, rather than silently going unnoticed again.
+        let command_args: Vec<std::ffi::OsString> =
+            vec!["resume".into(), "01a133b0-example".into()];
+        let known_thread_id = (command_args.first().map(std::ffi::OsString::as_os_str)
+            == Some(std::ffi::OsStr::new("resume")))
+        .then(|| command_args.get(1))
+        .flatten()
+        .and_then(|arg| arg.to_str());
+        assert_eq!(
+            known_thread_id,
+            Some("01a133b0-example"),
+            "the real production shape must always resolve to a known thread id, never None"
+        );
     }
 
     // --- agent-relay#18 (zero-poll architecture): profile exclusivity ---
