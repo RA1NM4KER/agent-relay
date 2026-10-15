@@ -120,7 +120,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    io::{Read as _, Seek as _, SeekFrom},
+    io::{BufRead as _, BufReader, Read as _, Seek as _, SeekFrom},
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -815,21 +815,50 @@ fn rollout_header_names_thread(path: &Path, thread_id: &str) -> bool {
     session_id == Some(thread_id)
 }
 
+/// Safety ceiling for a single `session_meta` header line, kept comfortably above real observed
+/// sizes: a live-confirmed pinned `codex-cli 0.156.0` rollout's first record (its `base_instructions`
+/// payload included) runs to 22,275 bytes. A fixed small chunk (the previous implementation read
+/// only 8,192 bytes and never found that record's newline, which is the exact GitHub #18 live
+/// preflight failure this constant fixes) is therefore unsafe; this ceiling exists only so a
+/// corrupt or pathological file without any newline is never read in full — hitting it is treated
+/// as "not yet readable" (visibly unhealthy, retried later), never silently misparsed.
+const MAX_SESSION_META_LINE_BYTES: usize = 1024 * 1024;
+
 /// Reads `path`'s own first record and returns its `payload` object iff that first record is a
 /// well-formed `session_meta` line — `None` for an unreadable file, a header not yet fully
-/// flushed (no complete first line yet), or a first record of any other type. Every rollout's
-/// identity (thread id, `parent_thread_id`, `forked_from_id`, `ephemeral`) always lives in this
-/// exact shape (live-confirmed against real `codex-cli 0.156.0` artifacts — see this module's own
-/// doc comment), so [`rollout_header_names_thread`] and [`classify_rollout_header`] both read it
-/// through this one function, never duplicating the parsing.
+/// flushed (no complete first line yet), a first line beyond [`MAX_SESSION_META_LINE_BYTES`], or a
+/// first record of any other type. Every rollout's identity (thread id, `parent_thread_id`,
+/// `forked_from_id`, `ephemeral`) always lives in this exact shape (live-confirmed against real
+/// `codex-cli 0.156.0` artifacts — see this module's own doc comment), so
+/// [`rollout_header_names_thread`] and [`classify_rollout_header`] both read it through this one
+/// function, never duplicating the parsing. Bounded by `read_until(b'\n')` rather than a fixed
+/// chunk size, so a first record of any size up to the ceiling is found correctly, without ever
+/// reading a multi-megabyte rollout in full just to identify it.
 fn read_session_meta_payload(path: &Path) -> Option<Value> {
-    let mut file = fs::File::open(path).ok()?;
-    // The header is always the very first line and always small — never read more than one
-    // bounded chunk to find it, so a huge file never costs more than this fixed amount to check.
-    let mut buf = vec![0u8; 8192];
-    let read = file.read(&mut buf).ok()?;
-    let newline = buf[..read].iter().position(|&byte| byte == b'\n')?;
-    let first_line = std::str::from_utf8(&buf[..newline]).ok()?;
+    let file = fs::File::open(path).ok()?;
+    let mut reader = BufReader::new(file);
+    let mut first_line: Vec<u8> = Vec::new();
+    loop {
+        let read = reader
+            .by_ref()
+            .take((MAX_SESSION_META_LINE_BYTES - first_line.len()) as u64 + 1)
+            .read_until(b'\n', &mut first_line)
+            .ok()?;
+        if read == 0 {
+            // EOF before a complete line was ever found — header not yet fully flushed (or an
+            // empty file). Retried on a later tick, never misread as a verdict.
+            return None;
+        }
+        if first_line.last() == Some(&b'\n') {
+            first_line.pop();
+            break;
+        }
+        if first_line.len() > MAX_SESSION_META_LINE_BYTES {
+            // No newline within the safety ceiling — fail closed rather than read without bound.
+            return None;
+        }
+    }
+    let first_line = std::str::from_utf8(&first_line).ok()?;
     let value: Value = serde_json::from_str(first_line).ok()?;
     if value.get("type").and_then(Value::as_str) != Some("session_meta") {
         return None;
@@ -970,6 +999,25 @@ mod tests {
             "type": "session_meta",
             "payload": {
                 "session_id": thread_id, "id": thread_id, "cwd": "/work", "ephemeral": true,
+            },
+        })
+        .to_string()
+    }
+
+    /// A real pinned `codex-cli 0.156.0` `session_meta` line, padded with a large
+    /// `base_instructions` payload the same way the real provider's own first record is — a live
+    /// GitHub #18 attach against such a rollout produced a 22,275-byte first line, which the
+    /// previous 8,192-byte fixed-chunk read could never find a newline within. This helper
+    /// defaults past that real size so a regression here is caught long before it recurs.
+    fn session_meta_with_large_base_instructions(thread_id: &str, min_bytes: usize) -> String {
+        let base_instructions = "x".repeat(min_bytes);
+        serde_json::json!({
+            "timestamp": "2026-10-13T00:00:00.000Z",
+            "ordinal": 0,
+            "type": "session_meta",
+            "payload": {
+                "session_id": thread_id, "id": thread_id, "cwd": "/work",
+                "base_instructions": base_instructions,
             },
         })
         .to_string()
@@ -1131,6 +1179,35 @@ mod tests {
         assert!(
             watcher.drain_events().is_empty(),
             "must signal at most once per watcher, never once per matching record"
+        );
+        watcher.stop();
+    }
+
+    /// GitHub #18 live preflight regression: a real pinned `codex-cli 0.156.0` attach produced a
+    /// 22,275-byte first `session_meta` record (its `base_instructions` payload), which the
+    /// previous fixed-8,192-byte `read_session_meta_payload` could never find a newline within —
+    /// `find_rollout_file` returned `None` forever, `initial_tail` stayed `None`, and the watcher
+    /// never became healthy, leaving timer polling active indefinitely. This first line is built
+    /// well beyond that real size (32 KiB of padding, ~32,100 bytes total) so this exact failure
+    /// can never regress.
+    #[test]
+    fn a_first_record_far_larger_than_eight_kibibytes_is_still_discovered_and_becomes_healthy() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        let first_line = session_meta_with_large_base_instructions("t1", 32 * 1024);
+        assert!(
+            first_line.len() > 22_275,
+            "fixture must exceed the real live-confirmed first-record size"
+        );
+        write_rollout(codex_home.path(), "t1", &[first_line]);
+        assert!(find_rollout_file(codex_home.path(), "t1").is_some());
+
+        let watcher = RolloutWatcher::attach(codex_home.path(), "t1", &state_file).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(
+            watcher.is_healthy(),
+            "a session_meta far larger than 8 KiB must still be discovered and attached"
         );
         watcher.stop();
     }

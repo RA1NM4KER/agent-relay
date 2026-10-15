@@ -51,6 +51,21 @@ All notable changes to Agent Relay will be documented here.
   `ephemeral`), never by heuristic. See `crates/relay-provider-codex/src/rollout.rs`'s own module
   doc for the full design and `crates/relay-cli/src/codex_runtime.rs` for the
   `RolloutEvent::ThreadTransitioned` wiring.
+- **Fixed a real live-preflight failure: rollout discovery could never find a header larger than
+  8 KiB (agent-relay#18).** `read_session_meta_payload` read a single fixed 8,192-byte chunk
+  looking for the first record's newline. A real pinned `codex-cli 0.156.0` rollout's first
+  `session_meta` record — its `base_instructions` payload included — is 22,275 bytes, so
+  `find_rollout_file` could never locate it: `initial_tail` stayed `None`, the watcher never
+  became healthy, and GitHub #13's timer polling correctly stayed the sole safety net for the
+  entire session, but the zero-poll architecture never engaged at all. `read_session_meta_payload`
+  now reads bounded by the record itself (`BufRead::read_until(b'\n', ..)`), with a 1 MiB safety
+  ceiling well above any real observed size; exceeding it fails closed (`None`, visibly unhealthy,
+  retried later), never silently misparsed. `EventDrivenRuntime` also now traces
+  `codex_event_driven_discovery_stalled` once if a watch never becomes healthy within 10 seconds,
+  so a future discovery failure is distinguishable in the durable trace from an ordinary startup
+  window, not indistinguishable from it as `codex_event_driven_watch_started` alone was. See
+  `crates/relay-provider-codex/src/rollout.rs` (`read_session_meta_payload`) and
+  `crates/relay-cli/src/codex_runtime.rs` (`DISCOVERY_STALL_THRESHOLD`).
 
 ### Handoff checkpoint for non-Git workspaces
 

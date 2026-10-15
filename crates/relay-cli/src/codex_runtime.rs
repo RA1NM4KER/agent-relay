@@ -76,6 +76,7 @@
 //! tree — the caller's `TerminalCommand` is launched completely unmodified.
 
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use relay_core::handoff::ProfileSessionLock;
 use relay_provider_codex::{
@@ -84,6 +85,17 @@ use relay_provider_codex::{
 };
 
 pub const EVENT_DRIVEN_ENV: &str = "RELAY_CODEX_EVENT_DRIVEN";
+
+/// agent-relay#18 live preflight incident: a real attach whose rollout discovery never succeeds
+/// (the 8,192-byte `read_session_meta_payload` ceiling that previously could not find a real
+/// 22,275-byte first record, or any future discovery failure) traced only
+/// `codex_event_driven_watch_started` once and then nothing else distinctive — every later tick's
+/// own trace was indistinguishable from the ordinary not-yet-healthy startup window, so the durable
+/// trace alone could not tell "still starting up" apart from "stuck forever" after the fact. Kept
+/// well above any real startup latency (the file usually already exists by `attach`'s own
+/// synchronous locate attempt — see `RolloutWatcher::attach`'s own doc comment) so this never fires
+/// for an ordinary healthy start.
+const DISCOVERY_STALL_THRESHOLD: Duration = Duration::from_secs(10);
 
 #[must_use]
 pub(crate) fn event_driven_enabled() -> bool {
@@ -113,6 +125,8 @@ pub(crate) struct EventDrivenRuntime {
     watcher: RolloutWatcher,
     project_state_dir: std::path::PathBuf,
     was_healthy: bool,
+    started_at: Instant,
+    discovery_stall_traced: bool,
 }
 
 impl EventDrivenRuntime {
@@ -168,6 +182,8 @@ impl EventDrivenRuntime {
                     watcher,
                     project_state_dir: project_state_dir.to_path_buf(),
                     was_healthy: false,
+                    started_at: Instant::now(),
+                    discovery_stall_traced: false,
                 })
             }
             Err(AttachError::WatchUnavailable) => {
@@ -224,6 +240,23 @@ impl EventDrivenRuntime {
             }
         }
         let healthy = self.watcher.is_healthy();
+        // Durable diagnostics for a discovery that never succeeds in the first place — see
+        // `DISCOVERY_STALL_THRESHOLD`'s own doc comment. Distinct from `BecameUnhealthy` below,
+        // which only ever fires after a *prior* healthy period; this fires once for a watch that
+        // never became healthy at all.
+        if !healthy && !self.was_healthy && !self.discovery_stall_traced {
+            let elapsed = self.started_at.elapsed();
+            if elapsed >= DISCOVERY_STALL_THRESHOLD {
+                self.discovery_stall_traced = true;
+                crate::auto_handoff::trace_event(
+                    &self.project_state_dir,
+                    &format!(
+                        "codex_event_driven_discovery_stalled:{}s",
+                        elapsed.as_secs()
+                    ),
+                );
+            }
+        }
         let transition = match (self.was_healthy, healthy) {
             (true, false) => {
                 crate::auto_handoff::trace_event(
@@ -405,6 +438,8 @@ mod tests {
             watcher,
             project_state_dir: project_state_dir.path().to_path_buf(),
             was_healthy: false,
+            started_at: Instant::now(),
+            discovery_stall_traced: false,
         };
         let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
             state_dir.path().to_path_buf(),
@@ -577,6 +612,8 @@ mod tests {
             watcher,
             project_state_dir: project_state_dir.path().to_path_buf(),
             was_healthy: false,
+            started_at: Instant::now(),
+            discovery_stall_traced: false,
         };
         let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
             state_dir.path().to_path_buf(),
@@ -726,6 +763,65 @@ mod tests {
             Some(crate::auto_handoff::CodexEvaluationTrigger::UsageLimitEvent)
         );
 
+        runtime.stop();
+    }
+
+    /// GitHub #18 live preflight incident: a real attach whose rollout discovery never succeeds
+    /// previously traced only `codex_event_driven_watch_started` once, then nothing else
+    /// distinctive, forever — so a durable trace alone could never tell "still starting up" apart
+    /// from "stuck forever" after the fact. Constructs a watcher over a thread id whose rollout
+    /// file deliberately never appears, ticks past [`DISCOVERY_STALL_THRESHOLD`] by rewinding
+    /// `started_at` (never a real multi-second `sleep`, keeping this test fast and deterministic),
+    /// and proves the distinct stall diagnostic is traced exactly once.
+    #[test]
+    fn a_discovery_that_never_succeeds_is_traced_distinctly_from_watch_started() {
+        let codex_home = tempfile::tempdir().expect("tempdir");
+        let project_state_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(codex_home.path().join("sessions")).expect("sessions dir");
+        let watch_state_file = project_state_dir
+            .path()
+            .join("codex_rollout_watch_state.json");
+        let watcher = relay_provider_codex::rollout::RolloutWatcher::attach(
+            codex_home.path(),
+            "never-appears",
+            &watch_state_file,
+        )
+        .expect("attach");
+        let mut runtime = EventDrivenRuntime {
+            watcher,
+            project_state_dir: project_state_dir.path().to_path_buf(),
+            was_healthy: false,
+            started_at: Instant::now() - (DISCOVERY_STALL_THRESHOLD + Duration::from_secs(1)),
+            discovery_stall_traced: false,
+        };
+        let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
+            tempfile::tempdir().expect("tempdir").path().to_path_buf(),
+            project_state_dir.path().to_path_buf(),
+            None,
+        );
+        assert!(!runtime.is_healthy());
+        runtime.tick(&mut scheduler);
+        let trace = std::fs::read_to_string(project_state_dir.path().join("auto-handoff.log"))
+            .unwrap_or_default();
+        assert!(
+            trace.contains("codex_event_driven_discovery_stalled"),
+            "a discovery that never succeeds must be traced distinctly: {trace}"
+        );
+        // Never traced twice for the same still-stalled watcher.
+        let before_second_tick = trace
+            .matches("codex_event_driven_discovery_stalled")
+            .count();
+        runtime.tick(&mut scheduler);
+        let trace_after =
+            std::fs::read_to_string(project_state_dir.path().join("auto-handoff.log"))
+                .unwrap_or_default();
+        assert_eq!(
+            trace_after
+                .matches("codex_event_driven_discovery_stalled")
+                .count(),
+            before_second_tick,
+            "must trace the stall at most once, not once per tick"
+        );
         runtime.stop();
     }
 }
