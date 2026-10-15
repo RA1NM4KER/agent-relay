@@ -48,6 +48,35 @@ pub const INTERVAL_MS_ENV: &str = "RELAY_AUTO_WATCH_INTERVAL_MS";
 pub const LOG_FILE_NAME: &str = "auto-handoff.log";
 const LOG_TRUNCATE_ABOVE_BYTES: u64 = 64 * 1024;
 
+/// A live agent-relay#18 preflight (2026-10-15) found this log's own truncation could erase the
+/// one piece of evidence its acceptance depends on: a session that watched a 22,275-byte
+/// `session_meta` header correctly emitted `codex_event_driven_watch_started` at attach, then
+/// polled on an ordinary ~125s timer cadence for ~2 hours while that watch stayed stuck — and
+/// `codex_timer_poll`'s own repeated evaluations, each capped by [`LOG_TRUNCATE_ABOVE_BYTES`],
+/// silently wiped the original `watch_started` line long before anyone went looking for it. The
+/// ordinary per-evaluation churn (`--- automatic handoff evaluation triggered ---` headers,
+/// `codex_timer_poll`, usage-check detail) is exactly what truncation exists to bound — it is
+/// high-frequency and disposable. The event-driven runtime's own lifecycle is the opposite: sparse
+/// (lifecycle transitions, never once-per-poll) and the exact causal record agent-relay#18's own
+/// acceptance needs reconstructable after the fact. [`open_log`] now carries matching lines
+/// forward across a truncation instead of discarding them, capped at
+/// [`MAX_PRESERVED_LIFECYCLE_LINES`] so a pathologically flapping watch still cannot make this
+/// unbounded.
+const MAX_PRESERVED_LIFECYCLE_LINES: usize = 50;
+
+/// `true` for every real agent-relay#18 event-driven lifecycle trace line this codebase currently
+/// emits — [`crate::codex_runtime`]'s own `codex_event_driven_*` attach/health/transition labels,
+/// [`crate::codex_poll`]'s `codex_poll_timer_suppressed_event_driven_healthy` /
+/// `..._resumed_event_driven_unhealthy` (the durable proof a session's periodic timer actually
+/// went quiet), and the `codex_usage_limit_event_*` / `codex_reconnect_reconciliation_*` lines
+/// that are an event-driven observation's own direct consequence. Never the ordinary
+/// `codex_timer_poll`/usage-check-detail churn truncation exists to bound.
+fn is_event_driven_lifecycle_line(line: &str) -> bool {
+    line.contains("_event_driven_")
+        || line.contains("codex_usage_limit_event")
+        || line.contains("codex_reconnect_reconciliation")
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct AutoWatchPlan {
     pub args: Vec<OsString>,
@@ -487,6 +516,22 @@ pub(crate) fn trace_event(project_state_dir: &Path, label: &str) {
 fn open_log(path: &Path, triggered_unix_ms: u64, trigger: &str) -> Option<std::fs::File> {
     use std::io::Write as _;
     let too_large = std::fs::metadata(path).is_ok_and(|meta| meta.len() > LOG_TRUNCATE_ABOVE_BYTES);
+    // Read before truncating, never after — once `options.open` below runs with `truncate(true)`
+    // the previous contents are gone. See `is_event_driven_lifecycle_line`'s own doc comment.
+    let preserved = too_large
+        .then(|| std::fs::read_to_string(path).ok())
+        .flatten()
+        .map(|contents| {
+            let mut lines: Vec<&str> = contents
+                .lines()
+                .filter(|line| is_event_driven_lifecycle_line(line))
+                .collect();
+            if lines.len() > MAX_PRESERVED_LIFECYCLE_LINES {
+                lines = lines[lines.len() - MAX_PRESERVED_LIFECYCLE_LINES..].to_vec();
+            }
+            lines.join("\n")
+        })
+        .unwrap_or_default();
     let mut options = std::fs::OpenOptions::new();
     options.create(true).append(!too_large).write(true);
     if too_large {
@@ -498,6 +543,13 @@ fn open_log(path: &Path, triggered_unix_ms: u64, trigger: &str) -> Option<std::f
         options.mode(0o600);
     }
     let mut file = options.open(path).ok()?;
+    if !preserved.is_empty() {
+        let _ignored = writeln!(
+            file,
+            "--- preserved across truncation (agent-relay#18 event-driven lifecycle) ---"
+        );
+        let _ignored = writeln!(file, "{preserved}");
+    }
     let _ignored = writeln!(file, "--- automatic handoff evaluation triggered ---");
     let _ignored = writeln!(file, "[trace unix_ms={triggered_unix_ms}] {trigger}");
     Some(file)
@@ -576,6 +628,85 @@ mod tests {
             );
             std::fs::remove_file(&log_path).expect("reset log between cases");
         }
+    }
+
+    /// GitHub #18 (2026-10-15 live preflight): the exact scenario that erased
+    /// `codex_event_driven_watch_started` evidence from a real session — a sparse lifecycle line
+    /// written once, then enough ordinary `codex_timer_poll` evaluations to cross
+    /// [`LOG_TRUNCATE_ABOVE_BYTES`] — must now preserve that line across the truncation it causes,
+    /// while the ordinary churn that caused it is still actually discarded (truncation must still
+    /// bound the file, not merely grow a second unbounded section).
+    #[test]
+    fn a_sparse_event_driven_lifecycle_line_survives_the_truncation_its_own_poll_noise_causes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let log_path = dir.path().join(LOG_FILE_NAME);
+
+        trace_event(dir.path(), "codex_event_driven_watch_started");
+
+        // Pad past `LOG_TRUNCATE_ABOVE_BYTES` with the exact ordinary noise a real session
+        // produces every poll — never the lifecycle line itself.
+        while std::fs::metadata(&log_path)
+            .map(|meta| meta.len())
+            .unwrap_or(0)
+            <= LOG_TRUNCATE_ABOVE_BYTES
+        {
+            open_log(&log_path, 1_000, CodexEvaluationTrigger::Timer.as_str()).expect("log");
+        }
+        // The call above crossed the threshold but was itself still in append mode (`too_large`
+        // was checked *before* it ran) — the next call is the one that actually truncates.
+        open_log(&log_path, 1_000, CodexEvaluationTrigger::Timer.as_str()).expect("log");
+
+        let contents = std::fs::read_to_string(&log_path).expect("read log");
+        assert!(
+            contents.contains("codex_event_driven_watch_started"),
+            "the sparse lifecycle line must survive the truncation its own poll noise caused: \
+             {contents}"
+        );
+        assert!(
+            (contents.len() as u64) < LOG_TRUNCATE_ABOVE_BYTES,
+            "truncation must still actually bound the file's ordinary churn, not just grow a \
+             second unbounded section: {} bytes",
+            contents.len()
+        );
+    }
+
+    /// A pathologically flapping watch (many `BecameUnhealthy`/`BecameRecovered` transitions) must
+    /// not turn "preserve the lifecycle" into its own unbounded-growth path.
+    #[test]
+    fn preserved_lifecycle_lines_are_capped_even_under_pathological_flapping() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let log_path = dir.path().join(LOG_FILE_NAME);
+        for index in 0..(MAX_PRESERVED_LIFECYCLE_LINES * 3) {
+            trace_event(
+                dir.path(),
+                &format!("codex_event_driven_became_unhealthy_{index}"),
+            );
+        }
+        while std::fs::metadata(&log_path)
+            .map(|meta| meta.len())
+            .unwrap_or(0)
+            <= LOG_TRUNCATE_ABOVE_BYTES
+        {
+            open_log(&log_path, 1_000, CodexEvaluationTrigger::Timer.as_str()).expect("log");
+        }
+        open_log(&log_path, 1_000, CodexEvaluationTrigger::Timer.as_str()).expect("log");
+        let contents = std::fs::read_to_string(&log_path).expect("read log");
+        let preserved_count = contents
+            .lines()
+            .filter(|line| line.contains("codex_event_driven_became_unhealthy_"))
+            .count();
+        assert!(
+            preserved_count <= MAX_PRESERVED_LIFECYCLE_LINES,
+            "preserved lifecycle lines must stay capped, got {preserved_count}: {contents}"
+        );
+        // The most recent transitions are the ones worth keeping, never the oldest.
+        assert!(
+            contents.contains(&format!(
+                "codex_event_driven_became_unhealthy_{}",
+                MAX_PRESERVED_LIFECYCLE_LINES * 3 - 1
+            )),
+            "must keep the most recent preserved lines, not the oldest: {contents}"
+        );
     }
 
     #[test]

@@ -66,6 +66,18 @@ All notable changes to Agent Relay will be documented here.
   window, not indistinguishable from it as `codex_event_driven_watch_started` alone was. See
   `crates/relay-provider-codex/src/rollout.rs` (`read_session_meta_payload`) and
   `crates/relay-cli/src/codex_runtime.rs` (`DISCOVERY_STALL_THRESHOLD`).
+- **`auto-handoff.log`'s own size-bounding truncation could erase the exact evidence agent-relay#18
+  needs after the fact.** The live session behind the fix above ran for ~2 hours: its single
+  `codex_event_driven_watch_started` line (written once, at attach) was silently wiped by a later
+  `codex_timer_poll` evaluation's own truncation once ordinary per-poll churn crossed the log's
+  64 KiB cap — confirmed directly against the real file. `open_log` now carries forward lines
+  matching the event-driven runtime's own lifecycle vocabulary (`codex_event_driven_*`,
+  `codex_poll_timer_suppressed_event_driven_healthy`/`..._resumed_event_driven_unhealthy`,
+  `codex_usage_limit_event_*`, `codex_reconnect_reconciliation_*`) across a truncation instead of
+  discarding them, capped at 50 most-recent lines so a pathologically flapping watch still cannot
+  make this unbounded; the ordinary `codex_timer_poll`/usage-check churn that actually grows the
+  file is still fully bounded exactly as before. See `crates/relay-cli/src/auto_handoff.rs`
+  (`is_event_driven_lifecycle_line`, `open_log`).
 
 ### Handoff checkpoint for non-Git workspaces
 
