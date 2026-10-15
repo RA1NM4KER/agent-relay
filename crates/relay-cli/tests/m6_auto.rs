@@ -232,6 +232,8 @@ case "$1" in
   login|logout) exit 0 ;;
   exec)
     cat >/dev/null
+    [ -f "$CODEX_HOME/exec_fail" ] && exit 1
+    [ -f "$CODEX_HOME/exec_slow" ] && sleep 2
     printf '{{"codex_home":"%s"}}\n' "$CODEX_HOME" >> "{exec_log}"
     n=$(wc -l < "{exec_log}" | tr -d ' ')
     tid="01a-auto-thread"; [ "$n" -gt 1 ] && tid="01a-auto-thread-$n"
@@ -264,6 +266,7 @@ case "$1" in
         *'"method":"thread/read"'*)
           tid=$(printf '%s' "$line" | sed -n 's/.*"threadId":"\([^"]*\)".*/\1/p')
           case "$tid" in 01a-auto-thread*) ok=1 ;; *) ok=0 ;; esac
+          [ -f "$CODEX_HOME/thread_read_fail" ] && ok=0
           if [ "$ok" = 1 ]; then
             printf '{{"id":%s,"result":{{"thread":{{"id":"%s"}}}}}}\n' "$id" "$tid"
           else
@@ -2006,6 +2009,286 @@ fn relay_codex_starts_a_new_codex_session_and_keeps_user_arguments_off_the_boots
             "-c",
             "model=\"o3\""
         ])]
+    );
+}
+
+/// agent-relay#18 (Phase 3, deterministic regression): the exact bug the ordering fix closes.
+/// Before the fix, `relay codex`'s fresh-launch path called `launch_new_thread` (a real `codex
+/// exec` thread-creation subprocess) *before* ever checking this profile's exclusivity lock, so a
+/// second, concurrent `relay codex --profile <same>` could create a real, stray top-level thread
+/// in an already-claimed profile's `CODEX_HOME` and only discover the conflict afterwards, at
+/// attach time — by which point a structurally top-level rollout indistinguishable from a genuine
+/// in-TUI `/new` already existed. Two `relay codex --profile codex-main --no-attach` invocations
+/// are started as close to simultaneously as this harness can manage (both `Command::spawn`ed
+/// before either is waited on), with the fake `codex exec` deliberately slowed (the `exec_slow`
+/// marker) so the winner's lock-held window is wide enough to make the race deterministic rather
+/// than a timing coin flip. Exactly one may cross the provider boundary; the loser must be refused
+/// with `profile_session_lock_held` *before* `launch_new_thread` ever runs — proven here by the
+/// fake `codex exec` subprocess (and therefore thread creation) having run exactly once in total.
+#[test]
+fn two_simultaneous_relay_codex_launches_on_the_same_profile_let_exactly_one_create_a_thread() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    std::fs::write(codex_home(&world).join("exec_slow"), "").expect("marker");
+
+    let project_text = world.project.path().to_string_lossy().into_owned();
+    let codex_text = codex_exe(&world);
+    let spawn = || {
+        relay_command(
+            root,
+            &[
+                "codex",
+                "--profile",
+                "codex-main",
+                "--project-dir",
+                &project_text,
+                "--no-attach",
+                "--codex-executable",
+                &codex_text,
+            ],
+        )
+        // `relay_command` does not pipe stdio itself (`.output()`, used by the blocking `relay()`
+        // helper, does that implicitly) — `.spawn()` alone defaults to inheriting the test
+        // process's own stdout/stderr, which would leave `wait_with_output` with nothing to
+        // capture at all.
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn relay codex")
+    };
+    // Both children are spawned (non-blocking) before either is waited on, so their windows
+    // genuinely overlap rather than running one after the other.
+    let first = spawn();
+    let second = spawn();
+    let first = first.wait_with_output().expect("wait first");
+    let second = second.wait_with_output().expect("wait second");
+
+    let outcomes = [&first, &second];
+    let successes = outcomes
+        .iter()
+        .filter(|output| output.status.success())
+        .count();
+    assert_eq!(
+        successes,
+        1,
+        "exactly one of the two simultaneous launches must cross the provider boundary: {} / {}",
+        String::from_utf8_lossy(&first.stderr),
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let refused = outcomes
+        .iter()
+        .find(|output| !output.status.success())
+        .expect("one output refused");
+    let error: Value = serde_json::from_slice(&refused.stderr).expect("error json");
+    assert_eq!(error["error"]["code"], "profile_session_lock_held");
+
+    // The loser never ran `codex exec` at all: thread creation happened at most once, for the
+    // winner only. This is the literal "loser creates zero thread/rollout artifacts" assertion —
+    // this fake `codex` never writes a real rollout file, so the exec invocation count is the
+    // strongest signal this harness can give that no stray thread was created.
+    assert_eq!(
+        argv_starting(root, "codex", "exec").len(),
+        1,
+        "the refused launch must never have called `codex exec`"
+    );
+    assert_eq!(lease_owner(root), "codex-main");
+}
+
+/// agent-relay#18 (Phase 6, `relay resume` while the same profile is actively occupied): unlike
+/// the fresh-launch race above, `relay resume` never creates a thread at all — it only reaches
+/// `terminal_session.rs`'s own (now-unconditional) profile exclusivity lock right before spawning
+/// the interactive attach. Held here exactly as another live Relay-managed session would hold it,
+/// a resume of a *different*, dormant session on that same profile must be refused before `codex
+/// resume` is ever invoked.
+#[test]
+fn relay_resume_into_an_already_occupied_profile_never_invokes_codex_resume() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    let project_text = world.project.path().to_string_lossy().into_owned();
+    let codex_text = codex_exe(&world);
+    let launch = relay(
+        root,
+        &[
+            "codex",
+            "--profile",
+            "codex-main",
+            "--project-dir",
+            &project_text,
+            "--no-attach",
+            "--codex-executable",
+            &codex_text,
+        ],
+    );
+    assert!(
+        launch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launch.stderr)
+    );
+
+    let codex_config_dir = profile_dir(root, "codex-main", "codex");
+    let _held = relay_core::handoff::ProfileSessionLock::try_acquire(&codex_config_dir)
+        .expect("acquire the profile's own lock, exactly as a live session would hold it");
+
+    let resumed = relay(
+        root,
+        &[
+            "resume",
+            "--project-dir",
+            &project_text,
+            "--claude-executable",
+            &claude_exe(&world),
+            "--codex-executable",
+            &codex_text,
+        ],
+    );
+    assert!(
+        !resumed.status.success(),
+        "a resume into an already-occupied profile must not succeed"
+    );
+    let error: Value = serde_json::from_slice(&resumed.stderr).expect("error json");
+    assert_eq!(error["error"]["code"], "profile_session_lock_held");
+    assert!(argv_starting(root, "codex", "resume").is_empty());
+}
+
+/// agent-relay#18 (Phase 2, failure/crash ordering): "lock acquired → `launch_new_thread` fails."
+/// The profile exclusivity lock must release cleanly on the failed `codex exec` (a real `flock`,
+/// released the instant the process holding it exits or drops the guard — never a separate
+/// staleness check), and no phantom Relay session/lease may be left behind, since
+/// `sessions::create_session` is only ever reached *after* `launch_new_thread` succeeds. Proven
+/// two ways: the failed launch reports `codex`'s own failure (never `profile_session_lock_held` —
+/// it never raced anything, it simply never got that far), and a second, immediately-following
+/// `relay codex` on the very same profile succeeds normally, which would be impossible if the
+/// first attempt's lock were still held.
+#[test]
+fn a_failed_thread_creation_releases_the_profile_lock_and_leaves_no_phantom_session() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    std::fs::write(codex_home(&world).join("exec_fail"), "").expect("marker");
+
+    let project_text = world.project.path().to_string_lossy().into_owned();
+    let codex_text = codex_exe(&world);
+    let failed = relay(
+        root,
+        &[
+            "codex",
+            "--profile",
+            "codex-main",
+            "--project-dir",
+            &project_text,
+            "--no-attach",
+            "--codex-executable",
+            &codex_text,
+        ],
+    );
+    assert!(
+        !failed.status.success(),
+        "a failed `codex exec` must not report success"
+    );
+    let error: Value = serde_json::from_slice(&failed.stderr).expect("error json");
+    assert_ne!(
+        error["error"]["code"], "profile_session_lock_held",
+        "a failed thread creation never raced anything — it must not report a lock conflict"
+    );
+    // No session/lease exists yet: `sessions::create_session` is only ever reached after
+    // `launch_new_thread` succeeds, so the project's own state directory was never created at all.
+    assert!(
+        std::fs::read_dir(root.join("state").join("projects"))
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(true),
+        "a failed thread creation must leave no project/session state behind"
+    );
+
+    std::fs::remove_file(codex_home(&world).join("exec_fail")).expect("clear marker");
+    let second = relay(
+        root,
+        &[
+            "codex",
+            "--profile",
+            "codex-main",
+            "--project-dir",
+            &project_text,
+            "--no-attach",
+            "--codex-executable",
+            &codex_text,
+        ],
+    );
+    assert!(
+        second.status.success(),
+        "the lock must have been released by the failed attempt: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert_eq!(lease_owner(root), "codex-main");
+}
+
+/// agent-relay#18 (Phase 2, failure/crash ordering): "lock acquired → thread created → later
+/// terminal launch fails." `plan_codex_resume`'s own thread verification (`verify_codex_thread`)
+/// runs synchronously, before any interactive process is ever spawned — a real failure window
+/// between a successful `launch_new_thread` and the interactive attach actually taking over. The
+/// session/lease this window's own thread creation left behind must not survive as a phantom
+/// active claim: `run_codex_inner`'s wrapping closure must release it (`release_after_exit`)
+/// exactly as an ordinary interactive-launch failure already does, and the profile lock (dropped
+/// with it) must not stay held — proven by a second, immediately-following `relay codex` on the
+/// same profile succeeding normally.
+#[test]
+fn a_post_creation_pre_attach_failure_releases_both_the_session_and_the_profile_lock() {
+    let world = world_opts(true, &[], false);
+    let root = world.root.path();
+    std::fs::write(codex_home(&world).join("thread_read_fail"), "").expect("marker");
+
+    let project_text = world.project.path().to_string_lossy().into_owned();
+    let codex_text = codex_exe(&world);
+    let failed = relay(
+        root,
+        &[
+            "codex",
+            "--profile",
+            "codex-main",
+            "--project-dir",
+            &project_text,
+            "--codex-executable",
+            &codex_text,
+        ],
+    );
+    assert!(
+        !failed.status.success(),
+        "an unverifiable thread must not report success"
+    );
+    let error: Value = serde_json::from_slice(&failed.stderr).expect("error json");
+    assert_eq!(error["error"]["code"], "codex_thread_not_verified");
+    // Exactly one real thread-creation subprocess ran (the failure is in verification, after
+    // creation, not a repeat of Phase 3's own race).
+    assert_eq!(argv_starting(root, "codex", "exec").len(), 1);
+    // The session this failed attempt created was released back out (its lease cleared), not
+    // left active: `release_after_exit` only clears a lease whose recorded process is provably
+    // gone, exactly the case here (the `codex exec` process that created the thread already
+    // exited before verification ever ran).
+    assert!(
+        std::fs::read_dir(project_root_dir(root).join("sessions"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .all(|entry| !entry.path().join("lease.json").exists()),
+        "a post-creation pre-attach failure must never leave an active lease behind"
+    );
+
+    std::fs::remove_file(codex_home(&world).join("thread_read_fail")).expect("clear marker");
+    let second = relay(
+        root,
+        &[
+            "codex",
+            "--profile",
+            "codex-main",
+            "--project-dir",
+            &project_text,
+            "--no-attach",
+            "--codex-executable",
+            &codex_text,
+        ],
+    );
+    assert!(
+        second.status.success(),
+        "the profile lock must have been released by the failed attempt: {}",
+        String::from_utf8_lossy(&second.stderr)
     );
 }
 

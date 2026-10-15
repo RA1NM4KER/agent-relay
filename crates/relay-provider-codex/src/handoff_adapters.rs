@@ -25,8 +25,8 @@ use std::{
 use relay_core::{
     Error, Result,
     handoff::{
-        LaunchDirective, LivenessVerdict, ProcessIdentity, SessionStopper, SourceLiveness,
-        TargetLauncher, TargetVerification, render_bootstrap_prompt,
+        LaunchDirective, LivenessVerdict, ProcessIdentity, ProfileSessionLock, SessionStopper,
+        SourceLiveness, TargetLauncher, TargetVerification, render_bootstrap_prompt,
     },
 };
 use serde_json::Value;
@@ -256,6 +256,16 @@ impl TargetLauncher for CodexTargetLauncher {
             // PROVIDER_CAPABILITIES.native_session_transfer.
             return Err(Error::ProviderUnsupported);
         };
+        // agent-relay#18 (profile exclusivity before thread creation): a handoff/switch/recovery
+        // bootstrap target is a *different* CODEX_HOME than the source being vacated, but it can
+        // still collide with a second, unrelated Relay-managed operation racing to bootstrap (or
+        // already interactively driving) the very same target profile — the same "stray top-level
+        // rollout created before the exclusivity check" gap this issue's own investigation found in
+        // `relay codex`'s fresh-launch path. Held only for this call's own duration (acquire,
+        // bootstrap, verify, drop): the eventual interactive attach to this target happens later,
+        // often in a different process entirely, and re-acquires its own lock at that point (see
+        // `terminal_session::run_managed_terminal_inner`).
+        let _profile_lock = ProfileSessionLock::try_acquire(target_config_dir)?;
         let inspector = CodexInspector::discover(self.codex_executable.as_deref())?;
         let executable = inspector.executable().to_path_buf();
         let prompt = render_bootstrap_prompt(bundle);

@@ -28,6 +28,30 @@ All notable changes to Agent Relay will be documented here.
   workspace.
 - See `docs/automatic-handoff.md`'s "Event-driven wake-up" section for the full design.
 
+### Codex event-driven wake-up: profile-domain watching and launch-ordering fix
+
+- **Closed a profile-exclusivity ordering gap (agent-relay#18).** `relay codex`'s fresh-launch
+  path, and the handoff/switch/automatic-handoff bootstrap path, each created a Codex thread
+  (`codex exec`) *before* ever checking the profile's exclusivity lock — only the later interactive
+  attach checked it. A second, concurrent Relay-managed operation on the same profile could
+  therefore create a real, stray top-level rollout file in an already-supervised `CODEX_HOME`
+  before being refused. Both paths now acquire the lock before any provider action that could
+  create a thread; the lock itself is now unconditional, not gated behind the opt-in event-driven
+  flag — it is this codebase's own "one active writer/owner per Relay Session" invariant, kept
+  regardless.
+- **`RolloutWatcher` is now a profile-domain watcher, not a single-thread one.** A live supervised
+  Codex TUI can change which native thread it drives mid-session without ending supervision — real
+  in-TUI commands (`/new`, `/fork`, "resume a saved chat"), not a theoretical pathway. The watcher
+  now tracks a single mutable "currently authoritative top-level thread," rebinding it on
+  structural evidence: `/fork` via the new thread's own `forked_from_id`; `/new` and "resume a
+  saved chat" via post-watch growth on another structurally top-level rollout, attributable to the
+  one supervised TUI precisely because the ordering fix above makes "no other Relay-controlled
+  operation can be driving a top-level thread on this profile right now" a provable invariant.
+  Subagents and ephemeral side-conversations are excluded structurally (`parentThreadId`/
+  `ephemeral`), never by heuristic. See `crates/relay-provider-codex/src/rollout.rs`'s own module
+  doc for the full design and `crates/relay-cli/src/codex_runtime.rs` for the
+  `RolloutEvent::ThreadTransitioned` wiring.
+
 ### Handoff checkpoint for non-Git workspaces
 
 - **Automatic handoff no longer requires a Relay-managed project directory to be a Git

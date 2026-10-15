@@ -268,19 +268,41 @@ every wake (a real OS notification, or the loop's own bounded periodic re-check)
 byte appended since the last durable offset, so coalesced or entirely missed OS notifications can
 never lose a record.
 
-**Known, honestly-disclosed residual gap:** a thread replaced mid-session (the previous
-app-server-connected design had explicit machinery for this, learned from a live `thread/started`
-broadcast this design no longer listens for) is not specially handled. Nothing currently causes a
-real `relay codex`/`relay resume` session's thread id to change without also ending that session's
-own supervision, so this is believed moot in practice; if it ever is not, the watcher simply stops
-seeing new activity in the now-stale file and #13's polling — which never depends on any thread id
-— remains the unaffected safety net.
+**Mid-session thread replacement is handled, not merely disclosed as a gap.** A live supervised
+Codex TUI genuinely can change which native thread it drives without ending supervision — real,
+pinned-version-confirmed in-TUI commands (`/new`, `/fork`, "resume a saved chat"), not a
+theoretical pathway. `RolloutWatcher` is a *profile-domain* watcher: it recursively watches the
+whole `sessions` tree and tracks a single mutable "currently authoritative top-level thread,"
+rebinding it when structural evidence proves the authoritative thread changed:
+
+* **Subagents and ephemeral side-conversations are excluded structurally.** Codex's own protocol
+  documents `Thread.parentThreadId` as set only for a subagent, and `Thread.ephemeral` threads as
+  never materialized on disk. Either one is permanently ignored.
+* **`/fork` is attributed via `forked_from_id`** — a fork's own `session_meta` names the exact
+  thread it was forked from, a direct structural claim, not an inference.
+* **`/new` and "resume a saved chat" are attributed via profile exclusivity plus post-watch
+  growth.** Neither carries any link back to the previous thread. What makes attributing activity
+  on some *other* top-level rollout to *this* session's own TUI non-heuristic is that every
+  Relay-controlled path that could create or drive a top-level Codex thread on this profile is now
+  serialized behind the exact same exclusivity lock this session already holds for its entire run
+  (see below) — acquired *before* any provider action that could create a thread, not only at
+  interactive-attach time. Within that supported lifecycle, structurally top-level activity on a
+  rollout other than the one currently bound has no other possible source, so it can only be this
+  session's own TUI. Growth is measured from the exact moment this watch started (or, for a file
+  created afterward, from zero) — never "newest file" or mtime.
+
+An entirely unmanaged `codex` process a user points at this same `CODEX_HOME` by hand remains
+explicitly out of scope — no mechanism could close that, the same residual boundary profile
+isolation already draws everywhere else.
 
 The profile exclusivity lock (`relay_core::handoff::ProfileSessionLock`, a genuine OS `flock` on
-the exact `CODEX_HOME`) is acquired by the terminal supervisor before the interactive Codex command
-is ever spawned, independent of whether this feature is even enabled — it is this codebase's own
-"one active writer/owner per Relay Session" invariant applied at the profile level, kept regardless
-of which (if any) event-driven mechanism is in use.
+the exact `CODEX_HOME`) is acquired *before* any Relay-controlled action that could create or drive
+a top-level Codex thread on that profile — not only at interactive-attach time. Fresh launches
+(`relay codex`) acquire it before `launch_new_thread` ever runs `codex exec`; handoff/switch/
+automatic-handoff bootstrap targets acquire it inside `CodexTargetLauncher::launch_and_verify`
+before their own `codex exec` call. It is unconditional, independent of whether this feature is
+even enabled — it is this codebase's own "one active writer/owner per Relay Session" invariant
+applied at the profile level.
 
 Only activates for a Codex CLI version this was live-verified against
 (`relay_provider_codex::VERIFIED_VERSIONS`); any other version silently declines and #13 alone

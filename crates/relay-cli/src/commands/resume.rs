@@ -305,7 +305,13 @@ fn resume_session(
     // `None` (the conservative fallback — see the comment where it is set), and it is simply
     // never consulted at all when the resolved owner is not Codex.
     context.seed_codex_poll_schedule(codex_poll_seed);
-    run_managed_terminal(&context, command, resolved_profile, Some(&record_process))
+    run_managed_terminal(
+        &context,
+        command,
+        resolved_profile,
+        Some(&record_process),
+        None,
+    )
 }
 
 /// Runs the same one-shot automatic-handoff evaluation `relay watch run` performs, in-process, for

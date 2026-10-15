@@ -315,6 +315,7 @@ pub(crate) fn run(
         command,
         primary.clone(),
         Some(&record_process),
+        None,
     );
     if result.is_err() {
         // The provider never ran: no ghost session, no lease.
@@ -593,7 +594,7 @@ fn run_claude_resume(
         json_mode,
     )?;
     context.adopt_result = Some(result_path);
-    run_managed_terminal(&context, command, profile.name.clone(), None)
+    run_managed_terminal(&context, command, profile.name.clone(), None, None)
 }
 
 /// Whether profile `config_dir` holds a saved transcript for `session_id` in any project.

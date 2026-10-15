@@ -446,6 +446,79 @@ fn switch_claude_to_codex_is_state_continuation_and_moves_the_lease() {
     assert!(prompt.contains("Do not continue the task yet"));
 }
 
+/// agent-relay#18 (Phase 1/4, `relay switch` → Codex while the target profile is already
+/// occupied): `CodexTargetLauncher::launch_and_verify` acquires the target's own exclusivity lock
+/// before ever running `codex exec` (see `handoff_adapters.rs`'s own doc comment on that call).
+/// Held here exactly as another live Relay-managed session would hold it, a switch *into* that
+/// profile must be refused before any thread is created — never with a stray top-level rollout
+/// left behind in an already-supervised `CODEX_HOME`, and never by silently picking a different,
+/// unoccupied target instead.
+#[test]
+fn switch_into_an_already_occupied_codex_profile_is_refused_before_any_thread_is_created() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+
+    let claude = FakeClaude::new(
+        root.path(),
+        "alice",
+        "aaaa2222",
+        "22222222-2222-4222-8222-222222222222",
+        4343,
+    );
+    login_claude(root.path(), "alice", &claude);
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-occupied-thread");
+    login_codex(root.path(), "codex-main", &codex);
+    launch_claude_writer(root.path(), project.path(), "alice", &claude);
+
+    let codex_config_dir = root
+        .path()
+        .join("config/profiles/codex-main/codex")
+        .canonicalize()
+        .expect("codex config dir exists after login");
+    let _held = relay_core::handoff::ProfileSessionLock::try_acquire(&codex_config_dir)
+        .expect("acquire the target's own lock, exactly as a live session would hold it");
+
+    let output = relay(
+        root.path(),
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--claude-executable",
+            &claude.path_text(),
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(
+        !output.status.success(),
+        "a switch into an occupied profile must not succeed"
+    );
+    assert_eq!(
+        json_stderr(&output)["error"]["code"],
+        "profile_session_lock_held"
+    );
+    // No thread was ever created for the occupied profile.
+    assert!(codex.exec_invocations().is_empty());
+    // The source lease never moved: alice is still the owner.
+    let status = relay(
+        root.path(),
+        &[
+            "lock",
+            "status",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+        ],
+    );
+    assert_eq!(
+        json_stdout(&status)["data"]["lease"]["owner_profile"],
+        "alice"
+    );
+}
+
 #[test]
 fn switch_codex_to_claude_is_also_state_continuation() {
     skip_without_process_env_scan!();

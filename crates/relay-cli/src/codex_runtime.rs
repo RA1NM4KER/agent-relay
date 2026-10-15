@@ -4,10 +4,16 @@
 //! `relay_provider_codex::rollout` for the actual filesystem mechanics this wires together; this
 //! module owns only the session-scoped orchestration (when to start it, when to stop it).
 //!
-//! **Off by default.** [`event_driven_enabled`] gates every entry point in this module —
-//! unset/not `"1"`, every Codex launch/resume/switch path is byte-for-byte what it was before
-//! GitHub #16. GitHub #13 is completely unaffected either way: its own polling never depends on
-//! anything in this module, by construction.
+//! **Off by default.** [`event_driven_enabled`] gates every entry point in this module *except*
+//! the profile exclusivity lock (`acquire_profile_lock`'s own call site in
+//! `terminal_session::run_managed_terminal_inner`): unset/not `"1"`, no [`EventDrivenRuntime`] is
+//! ever started, so no rollout watch runs and GitHub #13's own polling is the sole safety net,
+//! exactly as before GitHub #16. The exclusivity lock itself is unconditional (agent-relay#18,
+//! profile exclusivity before thread creation) — it is this codebase's own "one active
+//! writer/owner per Relay Session" invariant (`AGENTS.md`) applied at the profile level, and its
+//! correctness cannot depend on whether the opt-in observer feature happens to be on. GitHub #13
+//! is completely unaffected either way: its own polling never depends on anything in this module,
+//! by construction.
 //!
 //! Every entry point here is best-effort in the same sense the rest of Codex supervision already
 //! is: any failure at any step (version unverified, no known thread id, the file never appeared)
@@ -46,13 +52,21 @@
 //! id; the structured `usage_limit_exceeded` record shape; append-only; never reacts to history
 //! that predates the watch).
 //!
-//! **Known, honestly-disclosed residual gap:** a thread that gets *replaced* mid-session (the
-//! previous observer design had explicit machinery for this, learned from a live `thread/started`
-//! broadcast this module no longer ever listens for) is not specially handled here. Nothing
-//! currently causes a real `relay codex`/`relay resume` session's thread id to change without also
-//! ending that session's own supervision, so this is believed moot in practice; if it ever is not,
-//! the watcher simply stops seeing new activity for the old (now-wrong) file and GitHub #13's
-//! polling — which never depends on any thread id at all — remains the unaffected safety net.
+//! **Mid-session thread replacement is now handled, not merely disclosed as a gap.** A live
+//! supervised TUI genuinely can change which native thread it drives without ending supervision —
+//! real, pinned-version-confirmed in-TUI commands (`/new`, `/fork`, "resume a saved chat"), not a
+//! theoretical pathway. `relay_provider_codex::rollout::RolloutWatcher` is a profile-domain watcher
+//! (see its own module doc), not a single-thread one: it rebinds to whichever thread becomes
+//! authoritative, using `/fork`'s own `forked_from_id` link directly, and — for `/new`/"resume a
+//! saved chat," which carry no such link — the profile exclusivity lock this module acquires
+//! *before* any Relay-controlled thread creation (not only at interactive-attach time) to make
+//! "no other in-scope actor can be driving a top-level thread in this `CODEX_HOME` right now" a
+//! provable invariant rather than an assumption. [`EventDrivenRuntime::tick`] reports a transition
+//! via `TickEvent`'s own health-transition reporting staying silent (a transition never flips
+//! [`EventDrivenRuntime::is_healthy`]) while still requesting exactly one reconciliation. An
+//! entirely unmanaged `codex` process a user points at this same `CODEX_HOME` by hand remains
+//! explicitly out of scope — the same residual boundary profile isolation already draws
+//! everywhere else; see `relay_core::handoff::lock`'s own doc comment.
 //!
 //! **The interactive command's own arguments are never touched by this module**, for the same
 //! reason agent-relay#18's very first fix established: an earlier design had the interactive
@@ -192,6 +206,20 @@ impl EventDrivenRuntime {
                     scheduler.notify_event(
                         relay_provider_codex::observer::ObserverEvent::UsageLimitExceeded,
                     );
+                }
+                // agent-relay#18 (profile-domain watching): the watcher itself already caught up
+                // and stayed healthy throughout (see `RolloutEvent::ThreadTransitioned`'s own doc
+                // comment) — the one thing a caller still needs is exactly one authoritative
+                // reconciliation against the *new* thread, the same action already taken on
+                // recovery from an unhealthy gap, so a transition that happened to land right at
+                // (or just after) an exhaustion is still corroborated promptly rather than waiting
+                // for whatever happens to run next.
+                RolloutEvent::ThreadTransitioned(new_thread_id) => {
+                    crate::auto_handoff::trace_event(
+                        &self.project_state_dir,
+                        &format!("codex_event_driven_thread_transitioned:{new_thread_id}"),
+                    );
+                    scheduler.request_reconciliation();
                 }
             }
         }
@@ -499,6 +527,204 @@ mod tests {
                 |_| panic!("must never spawn a second evaluation for the same event"),
             );
         }
+
+        runtime.stop();
+    }
+
+    /// GitHub #18 (Phase 7, zero-poll acceptance through a profile-domain transition): the same
+    /// end-to-end chain as
+    /// [`a_rollout_exhaustion_event_reaches_the_scheduler_as_exactly_one_triggered_evaluation`],
+    /// but the thread the supervised TUI is driving changes mid-session (`/new`, `/fork`, or
+    /// "resume a saved chat") before exhaustion ever happens — proving the zero-periodic-reads
+    /// invariant survives a transition, that the transition itself produces exactly one
+    /// reconciliation-triggered evaluation (never a health-transition diagnostic — a transition
+    /// must never flip `is_healthy()` false), and that the exhaustion on the *new* thread still
+    /// reaches the scheduler as exactly one `UsageLimitEvent`-triggered evaluation.
+    #[test]
+    fn a_profile_domain_transition_costs_one_reconciliation_and_zero_periodic_reads() {
+        use std::time::{Duration, Instant};
+
+        let codex_home = tempfile::tempdir().expect("tempdir");
+        let project_state_dir = tempfile::tempdir().expect("tempdir");
+        let state_dir = tempfile::tempdir().expect("tempdir");
+        let sessions_dir = codex_home.path().join("sessions/2026/10/13");
+        std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
+        let original_path = sessions_dir.join("rollout-2026-10-13T00-00-00-t1.jsonl");
+        std::fs::write(
+            &original_path,
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "timestamp": "2026-10-13T00:00:00.000Z",
+                    "ordinal": 0,
+                    "type": "session_meta",
+                    "payload": {"session_id": "t1", "id": "t1", "cwd": "/work"},
+                })
+            ),
+        )
+        .expect("write original rollout header");
+
+        let watch_state_file = project_state_dir
+            .path()
+            .join("codex_rollout_watch_state.json");
+        let watcher = relay_provider_codex::rollout::RolloutWatcher::attach(
+            codex_home.path(),
+            "t1",
+            &watch_state_file,
+        )
+        .expect("attach");
+        let mut runtime = EventDrivenRuntime {
+            watcher,
+            project_state_dir: project_state_dir.path().to_path_buf(),
+            was_healthy: false,
+        };
+        let mut scheduler = crate::codex_poll::CodexPollScheduler::new(
+            state_dir.path().to_path_buf(),
+            project_state_dir.path().to_path_buf(),
+            None,
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !runtime.is_healthy() {
+            runtime.tick(&mut scheduler);
+            scheduler.set_event_driven_healthy(runtime.is_healthy());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(runtime.is_healthy(), "watcher must become healthy on t1");
+        // Drain the one reconciliation the initial health transition itself queues (see the
+        // sibling test's own comment on this exact behavior) before measuring the steady state.
+        runtime.tick(&mut scheduler);
+        scheduler.set_event_driven_healthy(runtime.is_healthy());
+        scheduler.tick(|_trigger| None, |_| None);
+
+        // `/new` (or `/fork`, or "resume a saved chat"): a second, structurally top-level rollout
+        // appears for a different thread id, with no exhaustion in it yet.
+        let new_chat_path = sessions_dir.join("rollout-2026-10-13T00-01-00-t2.jsonl");
+        std::fs::write(
+            &new_chat_path,
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "timestamp": "2026-10-13T00:01:00.000Z",
+                    "ordinal": 0,
+                    "type": "session_meta",
+                    "payload": {"session_id": "t2", "id": "t2", "cwd": "/work"},
+                })
+            ),
+        )
+        .expect("write new-chat rollout header");
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut transitions = Vec::new();
+        let mut reconciliation_calls = 0u32;
+        loop {
+            let tick_event = runtime.tick(&mut scheduler);
+            if !matches!(tick_event, TickEvent::Nothing) {
+                transitions.push(tick_event);
+            }
+            scheduler.set_event_driven_healthy(runtime.is_healthy());
+            assert!(
+                runtime.is_healthy(),
+                "a profile-domain transition must never flip healthy false"
+            );
+            scheduler.tick(
+                |trigger| {
+                    reconciliation_calls += 1;
+                    assert_eq!(
+                        trigger,
+                        crate::auto_handoff::CodexEvaluationTrigger::ReconnectReconciliation
+                    );
+                    None
+                },
+                |_| None,
+            );
+            if reconciliation_calls > 0 || Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(
+            reconciliation_calls, 1,
+            "the transition itself must trigger exactly one reconciliation"
+        );
+        assert!(
+            transitions
+                .iter()
+                .all(|event| matches!(event, TickEvent::Nothing)),
+            "a transition must never be reported as a health-transition diagnostic: {transitions:?}"
+        );
+        let trace = std::fs::read_to_string(project_state_dir.path().join("auto-handoff.log"))
+            .unwrap_or_default();
+        assert!(
+            trace.contains("codex_event_driven_thread_transitioned:t2"),
+            "the durable trace must record the transition to the new thread: {trace}"
+        );
+
+        // Zero periodic quota reads while healthy, however many ticks pass, exactly as before the
+        // transition — the whole point of a transition costing one reconciliation, not an open
+        // season of polling.
+        for _ in 0..30 {
+            runtime.tick(&mut scheduler);
+            scheduler.set_event_driven_healthy(runtime.is_healthy());
+            scheduler.tick(
+                |_trigger| {
+                    panic!(
+                        "a healthy watcher must never let the timer alone make an evaluation due"
+                    )
+                },
+                |_| panic!("must never spawn from the timer while healthy"),
+            );
+        }
+
+        // Exhaustion on the *new* thread (`t2`) — never `t1`, which is now abandoned — must still
+        // reach the scheduler as exactly one `UsageLimitEvent`-triggered evaluation.
+        {
+            use std::io::Write as _;
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&new_chat_path)
+                .expect("open new-chat rollout for append");
+            writeln!(
+                file,
+                "{}",
+                serde_json::json!({
+                    "timestamp": "2026-10-13T00:01:02.000Z",
+                    "ordinal": 1,
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "task_complete",
+                        "turn_id": "t",
+                        "error": {"message": "limit", "codex_error_info": "usage_limit_exceeded"},
+                    },
+                })
+            )
+            .expect("append exhaustion record to the new thread");
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut plan_calls = 0u32;
+        let mut saw_trigger = None;
+        while Instant::now() < deadline && plan_calls == 0 {
+            runtime.tick(&mut scheduler);
+            scheduler.set_event_driven_healthy(runtime.is_healthy());
+            scheduler.tick(
+                |trigger| {
+                    plan_calls += 1;
+                    saw_trigger = Some(trigger);
+                    None
+                },
+                |_| None,
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(
+            plan_calls, 1,
+            "exactly one evaluation must be triggered by the new thread's own exhaustion event"
+        );
+        assert_eq!(
+            saw_trigger,
+            Some(crate::auto_handoff::CodexEvaluationTrigger::UsageLimitEvent)
+        );
 
         runtime.stop();
     }

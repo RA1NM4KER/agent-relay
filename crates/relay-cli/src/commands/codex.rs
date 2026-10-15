@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use relay_core::{
     Error, Profile, ProfileName, ProfileService, ProviderKind, RelayPaths,
     automation::{AutomationDecision, AutomationPolicy, LedgerStore, ProfileCandidate, decide},
-    handoff::{ExecutionIntent, ProjectId},
+    handoff::{ExecutionIntent, ProfileSessionLock, ProjectId},
     usage::UsageState,
 };
 use serde_json::{Value, json};
@@ -196,6 +196,18 @@ fn route_exhausted_codex_start(
 
 /// The Codex counterpart of [`perform_launch`]: creates a fresh Codex thread (Relay's own
 /// arguments only) and a new Relay session with its lease for it.
+///
+/// agent-relay#18 (profile exclusivity before thread creation): acquires this profile's
+/// exclusivity lock *before* `launch_new_thread` ever runs `codex exec`, not only later at
+/// interactive-TUI-spawn time. The previous ordering let a second, concurrent `relay codex
+/// --profile <same>` invocation create a real, stray top-level rollout file in an
+/// already-supervised profile's `CODEX_HOME` and only discover the conflict afterwards, at attach
+/// time — by which point the damage (a structurally top-level thread indistinguishable from a
+/// genuine in-TUI `/new`) was already done. Refused up front instead: nothing is allocated,
+/// `launch_new_thread` is never called, and the caller sees `Error::ProfileSessionLockHeld` before
+/// any provider action. The returned lock must be held by the caller for exactly as long as this
+/// profile must stay exclusively claimed (through the interactive attach for a normal launch, or
+/// dropped immediately for `--no-attach` — see `run_codex_inner`).
 fn perform_codex_launch(
     service: &ProfileService,
     paths: &RelayPaths,
@@ -203,14 +215,22 @@ fn perform_codex_launch(
     canonical_project: &Path,
     executables: &providers::ExecutableOverrides,
     execution_intent: ExecutionIntent,
-) -> Result<(sessions::SessionCtx, relay_core::handoff::WriterLease), Error> {
+) -> Result<
+    (
+        sessions::SessionCtx,
+        relay_core::handoff::WriterLease,
+        ProfileSessionLock,
+    ),
+    Error,
+> {
     let _ = service;
+    let profile_lock = ProfileSessionLock::try_acquire(&profile.config_dir)?;
     let launched = relay_provider_codex::launch_new_thread(
         &profile.config_dir,
         canonical_project,
         executables.codex.as_deref(),
     )?;
-    sessions::create_session(
+    let (session, lease) = sessions::create_session(
         paths,
         canonical_project,
         profile,
@@ -225,7 +245,8 @@ fn perform_codex_launch(
         false,
         current_unix_ms(),
         execution_intent,
-    )
+    )?;
+    Ok((session, lease, profile_lock))
 }
 
 /// `relay codex`: start a NEW Relay-managed Codex conversation, symmetric with `relay claude`.
@@ -337,7 +358,7 @@ fn run_codex_inner(
         profile.name
     ));
     progress.set_label("Creating the Codex session…");
-    let (session, lease) = perform_codex_launch(
+    let (session, lease, profile_lock) = perform_codex_launch(
         service,
         paths,
         profile,
@@ -350,62 +371,76 @@ fn run_codex_inner(
         },
     )?;
     progress.finish();
-    // A brand-new managed conversation: only Codex's arguments carry over to it.
-    provider_args::ProviderArgs::fresh_for(ProviderKind::Codex, args.provider_args.clone())
-        .save(&session.dir)?;
+    // agent-relay#18 (Phase 2, failure/crash ordering): from here on, the session/lease already
+    // exist for a real thread Relay just created. Any failure before the interactive terminal
+    // actually takes over — a provider-args save, planning the resume command, building the
+    // continuation context — must not leave a phantom active lease behind: it is released back to
+    // dormant exactly like a normal interactive-command failure already is below.  `profile_lock`
+    // is captured by this closure and dropped at whichever return point is taken (no_attach: right
+    // here; attach failure: here too; attach success: handed to `run_managed_terminal`, which
+    // becomes the sole holder for the rest of this continuation's life).
+    let result = (|| -> Result<CommandOutput, Error> {
+        // A brand-new managed conversation: only Codex's arguments carry over to it.
+        provider_args::ProviderArgs::fresh_for(ProviderKind::Codex, args.provider_args.clone())
+            .save(&session.dir)?;
 
-    let fallback: Vec<String> =
-        auto_handoff::hierarchy_without(&preferences, &profile.name, |_| true)
-            .into_iter()
-            .map(ProfileName::to_string)
-            .collect();
-    if args.no_attach {
-        let human = format!(
-            "Profile: {}\nNew Codex session started (thread {}).\n\nOpen it with:\n    relay resume",
-            profile.name, lease.session_id
-        );
-        return success(
-            "codex",
-            human,
-            json!({
-                "profile": profile.name.as_str(),
-                "fallback": fallback,
-                "relay_session_id": session.id.as_str(),
-                "session_id": lease.session_id,
-                "new_session": true,
-            }),
-        );
-    }
+        let fallback: Vec<String> =
+            auto_handoff::hierarchy_without(&preferences, &profile.name, |_| true)
+                .into_iter()
+                .map(ProfileName::to_string)
+                .collect();
+        if args.no_attach {
+            // Nothing stays running: the profile is no longer exclusively claimed once this
+            // short-lived invocation exits (dropping `profile_lock`), exactly as a dormant session
+            // needs no continuous observation until something later resumes it.
+            let human = format!(
+                "Profile: {}\nNew Codex session started (thread {}).\n\nOpen it with:\n    relay resume",
+                profile.name, lease.session_id
+            );
+            return success(
+                "codex",
+                human,
+                json!({
+                    "profile": profile.name.as_str(),
+                    "fallback": fallback,
+                    "relay_session_id": session.id.as_str(),
+                    "session_id": lease.session_id,
+                    "new_session": true,
+                }),
+            );
+        }
 
-    let message = args.message.join(" ");
-    let command = plan_codex_resume(
-        providers::executable_override(ProviderKind::Codex, &executables),
-        &profile.config_dir,
-        &canonical_project,
-        &lease.session_id,
-        &args.provider_args,
-        (!message.trim().is_empty()).then_some(message.as_str()),
-    )?;
-    let lease_store = session.lease_store();
-    let lock = session.lock();
-    let native = lease.session_id.clone();
-    let record_process = |pid: u32| record_writer_process(&lease_store, &lock, &native, pid);
-    let context = ContinuationContext::new(
-        service,
-        paths,
-        &canonical_project,
-        &session,
-        args.claude_executable.clone(),
-        args.codex_executable.clone(),
-        json_mode,
-    )?;
-    context.seed_codex_poll_schedule(codex_poll_seed);
-    let result = run_managed_terminal(
-        &context,
-        command,
-        profile.name.clone(),
-        Some(&record_process),
-    );
+        let message = args.message.join(" ");
+        let command = plan_codex_resume(
+            providers::executable_override(ProviderKind::Codex, &executables),
+            &profile.config_dir,
+            &canonical_project,
+            &lease.session_id,
+            &args.provider_args,
+            (!message.trim().is_empty()).then_some(message.as_str()),
+        )?;
+        let lease_store = session.lease_store();
+        let lock = session.lock();
+        let native = lease.session_id.clone();
+        let record_process = |pid: u32| record_writer_process(&lease_store, &lock, &native, pid);
+        let context = ContinuationContext::new(
+            service,
+            paths,
+            &canonical_project,
+            &session,
+            args.claude_executable.clone(),
+            args.codex_executable.clone(),
+            json_mode,
+        )?;
+        context.seed_codex_poll_schedule(codex_poll_seed);
+        run_managed_terminal(
+            &context,
+            command,
+            profile.name.clone(),
+            Some(&record_process),
+            Some(profile_lock),
+        )
+    })();
     if result.is_err() {
         sessions::release_after_exit(paths, &canonical_project, &session.id, &registered);
     }

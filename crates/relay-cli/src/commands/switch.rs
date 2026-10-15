@@ -244,7 +244,7 @@ pub(crate) fn run(
                 json_mode,
             )?;
             context.seed_codex_poll_schedule(codex_poll_seed);
-            run_managed_terminal(&context, command, target.name.clone(), None)
+            run_managed_terminal(&context, command, target.name.clone(), None, None)
         }
         ProviderKind::Claude | ProviderKind::Fake => success(
             "switch",

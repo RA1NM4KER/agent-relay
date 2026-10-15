@@ -217,8 +217,15 @@ pub(crate) fn run_managed_terminal(
     first: terminal::TerminalCommand,
     first_owner: ProfileName,
     on_first_spawn: Option<&dyn Fn(u32)>,
+    initial_profile_lock: Option<ProfileSessionLock>,
 ) -> Result<CommandOutput, Error> {
-    let code = run_managed_terminal_inner(context, first, first_owner, on_first_spawn);
+    let code = run_managed_terminal_inner(
+        context,
+        first,
+        first_owner,
+        on_first_spawn,
+        initial_profile_lock,
+    );
     context.rebind_from_adoption();
     let control = context.control();
     control.clear_supervisor();
@@ -527,6 +534,7 @@ fn run_managed_terminal_inner(
     first: terminal::TerminalCommand,
     first_owner: ProfileName,
     on_first_spawn: Option<&dyn Fn(u32)>,
+    initial_profile_lock: Option<ProfileSessionLock>,
 ) -> Result<i32, Error> {
     use std::io::Write as _;
     let timing = terminal::Timing::default();
@@ -537,6 +545,15 @@ fn run_managed_terminal_inner(
     // The last "no eligible fallback" standoff already shown to the user in this terminal, so a
     // detached poll that keeps re-confirming the same standoff is reported once, not every cycle.
     let mut last_shown_no_eligible_fallback: Option<NoEligibleFallbackRecord> = None;
+    // agent-relay#18 (profile exclusivity before thread creation): a caller that already created
+    // this continuation's native thread (`relay codex`'s fresh launch) acquired this profile's
+    // exclusivity lock *before* that provider action and must keep holding the very same lock
+    // through the interactive attach below — acquiring a second, independent lock on the same path
+    // from this same process would simply fail (`flock` exclusion is per open file description,
+    // not per process; see `relay_core::handoff::lock`'s own tests). `Option::take` below consumes
+    // it for continuation 0 only; every later continuation (a different owner profile, reached only
+    // after an in-run handoff moved the lease) acquires fresh, exactly as before.
+    let mut initial_profile_lock = initial_profile_lock;
 
     for continuation in 0..=MAX_CONTINUATIONS {
         let _ = std::io::stdout().flush();
@@ -587,8 +604,18 @@ fn run_managed_terminal_inner(
             // `thread/started` into the daemon a first session's observer is listening on, fully
             // defeating the invariant if only the observer (and not the launch itself) were
             // refused. See `codex_runtime::acquire_profile_lock`'s own doc comment.
-            if crate::codex_runtime::event_driven_enabled() {
-                match crate::codex_runtime::acquire_profile_lock(
+            //
+            // agent-relay#18 (profile exclusivity before thread creation): unconditional now, not
+            // gated on `event_driven_enabled()` — this is this codebase's own "one active
+            // writer/owner per Relay Session" invariant (`AGENTS.md`) applied at the profile
+            // level, and its correctness cannot depend on whether the opt-in observer feature
+            // happens to be on; only `EventDrivenRuntime::start` below stays gated. If a caller
+            // already secured this exact lock before creating this continuation's own native
+            // thread (`run_codex_inner`'s fresh-launch path, continuation 0 only), reuse that
+            // held lock instead of acquiring a second, independently-doomed one on the same path.
+            match initial_profile_lock.take() {
+                Some(lock) => profile_lock = Some(lock),
+                None => match crate::codex_runtime::acquire_profile_lock(
                     &profile.config_dir,
                     &context.project_state_dir(),
                     context.json_mode,
@@ -597,7 +624,7 @@ fn run_managed_terminal_inner(
                     None => {
                         return Err(Error::ProfileSessionLockHeld(profile.config_dir.clone()));
                     }
-                }
+                },
             }
             if let Some(runtime) = crate::codex_runtime::EventDrivenRuntime::start(
                 // `plan_codex_resume` has already discovered, canonicalized, and verified the

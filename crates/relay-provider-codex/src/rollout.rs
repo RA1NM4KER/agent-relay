@@ -66,8 +66,59 @@
 //! re-check) re-reads every byte appended since the last durably-recorded offset and parses every
 //! complete line found, so coalesced or entirely missed OS notifications can never lose a record —
 //! only ever delay noticing it by at most one periodic re-check interval.
+//!
+//! ## Profile-domain watching (mid-session thread transitions)
+//!
+//! A live supervised Codex TUI can change which native thread it is driving *without ending
+//! supervision* — real, pinned-version-confirmed in-TUI commands: "start a new chat during a
+//! conversation" (`/new`), "fork the current chat" (`/fork`), "resume a saved chat". Watching only
+//! the originally-known thread id forever would leave `is_healthy()` reporting `true` on a now-
+//! stale file while the real conversation moved elsewhere — a silent missed-exhaustion risk, not
+//! merely a residual gap.
+//!
+//! This watcher therefore does not bind to one thread id forever. It recursively watches the whole
+//! `sessions` tree (already necessary just to find the first file — see above) and tracks a single
+//! mutable "currently authoritative top-level thread," rebinding it when — and only when —
+//! structural evidence proves the authoritative thread changed:
+//!
+//! * **Subagents and ephemeral side-conversations are excluded structurally, not heuristically.**
+//!   Codex's own protocol documents `Thread.parentThreadId` as "only set if this thread is a
+//!   subagent," and `Thread.ephemeral` threads are never materialized on disk at all. Any rollout
+//!   whose own `session_meta` carries a non-null `parent_thread_id` is permanently ignored — see
+//!   [`classify_rollout_header`].
+//! * **`/fork` is attributed via `forked_from_id`.** A fork's own `session_meta` names the exact
+//!   thread it was forked from — a direct, documented structural claim, not an inference. A new
+//!   top-level rollout whose `forked_from_id` equals the currently-bound thread id is always a
+//!   transition candidate, independent of whether it has grown at all yet.
+//! * **`/new` and "resume a saved chat" are attributed via profile exclusivity plus structural
+//!   top-level activity.** Neither carries any link back to the previous thread — by design, a new
+//!   chat is a fresh conversation and a resumed chat is an *existing*, independently-created one.
+//!   What makes attributing post-watch activity on *some other* top-level rollout to *this*
+//!   session's own TUI non-heuristic is `relay_core::handoff::ProfileSessionLock`: as of this
+//!   issue's own ordering fix (profile exclusivity enforced *before* any Relay-controlled thread
+//!   creation, not only at interactive-attach time — see `relay_cli::codex_runtime`'s own module
+//!   doc), every Relay-controlled path that could create or drive a top-level Codex thread in this
+//!   profile is serialized behind the exact same lock this session already holds for its entire
+//!   run. Within that *supported* lifecycle (an unmanaged `codex` process a user points at this
+//!   same `CODEX_HOME` by hand remains explicitly out of scope — no mechanism could close that, the
+//!   same residual boundary profile isolation already draws everywhere else), structurally
+//!   top-level activity on a rollout other than the one currently bound has no other possible
+//!   source: not Codex's own shared daemon (confirmed against its protocol schema — every thread
+//!   creation request, `thread/start`/`resume`/`fork`, is client-initiated; no server-initiated
+//!   creation notification exists), not a second Relay-controlled launch/switch/handoff on this
+//!   profile (now refused before it ever reaches `codex exec`), and not a subagent (excluded
+//!   structurally above). It can only be this session's own supervised TUI.
+//!
+//! A candidate's own growth is detected cheaply (a stat, not a content read) against its length the
+//! *first time it is ever seen* — itself computed the same way file identity already is, by reading
+//! just its header, never its full content, unless and until it actually becomes the transition
+//! target. Only then is its full current content read once, to compute the same line-boundary-safe
+//! starting offset [`open_tail`]'s own "existed already" baseline already uses, so nothing written
+//! between first sight and the transition is ever skipped. See [`worker_loop`] and
+//! [`classify_rollout_header`].
 
 use std::{
+    collections::{HashMap, HashSet},
     fs,
     io::{Read as _, Seek as _, SeekFrom},
     path::{Path, PathBuf},
@@ -86,13 +137,20 @@ use serde_json::Value;
 
 /// One decoded signal this module exists to report. A wake-up hint only — see this module's own
 /// doc comment — never itself a handoff decision.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RolloutEvent {
-    /// The watched thread's rollout gained a structured `task_complete` record whose
+    /// The currently-bound thread's rollout gained a structured `task_complete` record whose
     /// `error.codex_error_info` is exactly `usage_limit_exceeded`. Reported at most once per
-    /// [`RolloutWatcher`] (see its own doc comment) regardless of how many matching records a
-    /// single read turns up, or how many times a restart re-opens the same durable offset.
+    /// currently-bound thread (see this module's own doc comment on profile-domain watching) —
+    /// [`Self::ThreadTransitioned`] resets this guard for whichever thread becomes current next.
     UsageLimitExceeded,
+    /// agent-relay#18 (profile-domain watching): the authoritative top-level thread changed —
+    /// `/new`, `/fork`, or "resume a saved chat" in the one supervised TUI holding this profile's
+    /// exclusivity lock (see this module's own doc comment for why that lock makes every other
+    /// in-scope actor's own structural activity unambiguous). Carries the new thread id so a
+    /// caller can request exactly one reconciliation, the same action already taken on recovery
+    /// from an unhealthy gap — a transition never itself flips [`RolloutWatcher::is_healthy`].
+    ThreadTransitioned(String),
 }
 
 /// Why [`RolloutWatcher::attach`] could not start observing at all — a silent, best-effort
@@ -167,6 +225,24 @@ impl RolloutWatcher {
             .watch(&sessions_dir, RecursiveMode::Recursive)
             .map_err(|_| AttachError::WatchUnavailable)?;
 
+        // agent-relay#18 (profile-domain watching, restart continuity): a durable `WatchState`
+        // from a *previous* run of this same session can now name a thread id different from
+        // `thread_id` — a profile-domain transition the background loop made before a restart
+        // (process crash, or an ordinary stop/resume of this same continuation). Resuming bound to
+        // `thread_id` unconditionally would silently rebind back to the *original* thread, losing
+        // the transition entirely. A persisted state is only trusted here when its own file still
+        // verifiably exists at the exact `(path, dev, ino)` it names — never a path alone, for the
+        // same reason `open_tail`'s own matching never trusts a path alone.
+        let resumed_thread_id = WatchState::load(state_file)
+            .filter(|state| {
+                use std::os::unix::fs::MetadataExt as _;
+                fs::metadata(&state.path).is_ok_and(|metadata| {
+                    metadata.dev() == state.dev && metadata.ino() == state.ino
+                })
+            })
+            .map(|state| state.thread_id);
+        let effective_thread_id = resumed_thread_id.as_deref().unwrap_or(thread_id);
+
         // One synchronous, non-blocking locate attempt — closes the race the file-already-exists
         // common case would otherwise have (the interactive client, launched by the caller right
         // after this returns, writing its first turn before a background thread's own first loop
@@ -176,16 +252,44 @@ impl RolloutWatcher {
         // that can actually prove the file was already there, as opposed to a lazy discovery by
         // the background loop later, which can never tell "existed before the watch" apart from
         // "created the instant after" and must always assume the latter (see `worker_loop`).
-        let initial_tail = find_rollout_file(codex_home, thread_id).and_then(|path| {
-            open_tail(&path, thread_id, state_file, Baseline::ExistedBeforeWatch).ok()
+        let initial_tail = find_rollout_file(codex_home, effective_thread_id).and_then(|path| {
+            open_tail(
+                &path,
+                effective_thread_id,
+                state_file,
+                Baseline::ExistedBeforeWatch,
+            )
+            .ok()
         });
+
+        // agent-relay#18 (profile-domain watching): every *other* `.jsonl` already on disk at this
+        // exact synchronous moment gets its length recorded now, cheaply (a stat, never a content
+        // read) — exactly the same "existed before the watch" moment `initial_tail` above proves
+        // for the known thread's own file, generalized to every sibling. Without this, a candidate
+        // the background loop only gets around to classifying *later* would wrongly baseline at
+        // whatever had *already* accumulated on it by then, silently treating real pre-existing
+        // history as "post-watch growth" the first time anything appends to it. A file that
+        // genuinely does not exist yet at this moment is correctly absent from this map;
+        // [`worker_loop`] treats "never seen before, not in this map" as baseline zero, which is
+        // exactly right for a file whose entire existence is provably post-watch.
+        let mut pre_existing_lengths = HashMap::new();
+        let mut all_paths = Vec::new();
+        collect_jsonl_files(&sessions_dir, &mut all_paths);
+        for path in all_paths {
+            if initial_tail.as_ref().is_some_and(|tail| tail.path == path) {
+                continue;
+            }
+            if let Ok(metadata) = fs::metadata(&path) {
+                pre_existing_lengths.insert(path, metadata.len());
+            }
+        }
 
         let (events_tx, events) = mpsc::channel();
         let stop_flag = Arc::new(AtomicBool::new(false));
         let healthy = Arc::new(AtomicBool::new(initial_tail.is_some()));
         let worker_stop = Arc::clone(&stop_flag);
         let worker_healthy = Arc::clone(&healthy);
-        let thread_id = thread_id.to_owned();
+        let thread_id = effective_thread_id.to_owned();
         let codex_home = codex_home.to_owned();
         let state_file = state_file.to_owned();
         let worker = thread::spawn(move || {
@@ -194,6 +298,7 @@ impl RolloutWatcher {
                 thread_id,
                 state_file,
                 initial_tail,
+                pre_existing_lengths,
                 watcher,
                 fs_rx,
                 &worker_stop,
@@ -261,12 +366,27 @@ impl Drop for HealthGuard<'_> {
     }
 }
 
+/// A top-level (non-subagent, non-ephemeral) rollout file seen but not yet (or no longer) bound as
+/// the current thread — see this module's own doc comment on profile-domain watching.
+/// `first_seen_len` is a cheap stat (never a content read) of the file's length the moment it was
+/// first classified — or, for a file already present at [`RolloutWatcher::attach`]'s own
+/// synchronous moment, that exact moment's length (via `pre_existing_lengths`), never whatever
+/// happened to accumulate by the time the background loop got around to it. Growth past it is the
+/// generic `/new`/"resume a saved chat" transition signal, detected with another stat, never a
+/// content read, on every tick until it actually fires.
+struct Candidate {
+    thread_id: String,
+    forked_from_id: Option<String>,
+    first_seen_len: u64,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn worker_loop(
     codex_home: PathBuf,
     thread_id: String,
     state_file: PathBuf,
     mut tail: Option<Tail>,
+    pre_existing_lengths: HashMap<PathBuf, u64>,
     mut watcher: RecommendedWatcher,
     fs_rx: Receiver<notify::Result<notify::Event>>,
     stop_flag: &AtomicBool,
@@ -275,7 +395,17 @@ fn worker_loop(
 ) {
     let _health_guard = HealthGuard { healthy };
     let sessions_dir = codex_home.join("sessions");
+    let mut current_thread_id = thread_id;
     let mut already_signaled = false;
+    // Every other top-level rollout this loop has ever classified, keyed by path. A candidate is
+    // removed the instant it becomes `tail` (it is no longer "other"); a file proven *not*
+    // top-level (subagent, or an unreadable/not-yet-written header) is simply never inserted here
+    // and is re-checked every tick until it classifies one way or the other — see
+    // [`classify_rollout_header`].
+    let mut candidates: HashMap<PathBuf, Candidate> = HashMap::new();
+    // Files proven, once, to be structurally *not* top-level — permanently skipped, never
+    // re-classified (a subagent rollout never becomes a top-level one).
+    let mut not_top_level: HashSet<PathBuf> = HashSet::new();
     // `tail` is `Some` already when [`RolloutWatcher::attach`]'s own synchronous locate attempt
     // found the file (the common case for a real launch). `None` means a not-yet-existing file (a
     // genuinely fresh thread whose first turn has not started) — `healthy` just stays `false`
@@ -293,7 +423,8 @@ fn worker_loop(
     // this loop receives is set once, separately, by [`RolloutWatcher::attach`]'s own synchronous
     // open — trivially proven healthy there too, since baselining at a verified line boundary
     // with nothing unread yet *is* "caught up," just established before this loop's first
-    // iteration rather than inside it.)
+    // iteration rather than inside it.) A thread transition never touches `healthy` at all — see
+    // [`RolloutEvent::ThreadTransitioned`]'s own doc comment.
     loop {
         if stop_flag.load(Ordering::Relaxed) {
             return;
@@ -303,8 +434,8 @@ fn worker_loop(
             // top-level doc comment for why a lazy discovery can never safely assume "this file's
             // current content is history that predates the watch," unlike `RolloutWatcher::attach`'s
             // own one synchronous locate.
-            if let Some(path) = find_rollout_file(&codex_home, &thread_id) {
-                match open_tail(&path, &thread_id, &state_file, Baseline::Zero) {
+            if let Some(path) = find_rollout_file(&codex_home, &current_thread_id) {
+                match open_tail(&path, &current_thread_id, &state_file, Baseline::Zero) {
                     Ok(opened) => tail = Some(opened),
                     Err(_) => healthy.store(false, Ordering::Relaxed),
                 }
@@ -324,41 +455,144 @@ fn worker_loop(
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
         }
-        let Some(current_tail) = tail.as_mut() else {
-            continue;
-        };
-        match current_tail.read_new_lines() {
-            Ok(lines) => {
-                // Proven: a valid, identity-checked handle was just read successfully. This is
-                // the one and only place `healthy` becomes `true` — see this function's own doc
-                // comment for why nowhere earlier is good enough.
-                healthy.store(true, Ordering::Relaxed);
-                for line in &lines {
-                    let Ok(value) = serde_json::from_str::<Value>(line) else {
-                        continue;
-                    };
-                    if !already_signaled && record_is_usage_limit_exceeded(&value) {
-                        already_signaled = true;
-                        if events_tx.send(RolloutEvent::UsageLimitExceeded).is_err() {
-                            return;
+        if let Some(current_tail) = tail.as_mut() {
+            match current_tail.read_new_lines() {
+                Ok(lines) => {
+                    // Proven: a valid, identity-checked handle was just read successfully. This
+                    // is the one and only place `healthy` becomes `true` — see this function's
+                    // own doc comment for why nowhere earlier is good enough.
+                    healthy.store(true, Ordering::Relaxed);
+                    for line in &lines {
+                        let Ok(value) = serde_json::from_str::<Value>(line) else {
+                            continue;
+                        };
+                        if !already_signaled && record_is_usage_limit_exceeded(&value) {
+                            already_signaled = true;
+                            if events_tx.send(RolloutEvent::UsageLimitExceeded).is_err() {
+                                return;
+                            }
                         }
                     }
-                }
-                if !lines.is_empty() {
-                    let _ = WatchState {
-                        thread_id: thread_id.clone(),
-                        path: current_tail.path.clone(),
-                        dev: current_tail.dev,
-                        ino: current_tail.ino,
-                        offset: current_tail.offset,
+                    if !lines.is_empty() {
+                        let _ = WatchState {
+                            thread_id: current_thread_id.clone(),
+                            path: current_tail.path.clone(),
+                            dev: current_tail.dev,
+                            ino: current_tail.ino,
+                            offset: current_tail.offset,
+                        }
+                        .save(&state_file);
                     }
-                    .save(&state_file);
+                }
+                Err(_) => {
+                    healthy.store(false, Ordering::Relaxed);
+                    tail = None;
                 }
             }
-            Err(_) => {
-                healthy.store(false, Ordering::Relaxed);
-                tail = None;
+        }
+        // Profile-domain scan: every other rollout under this `CODEX_HOME`, classified once and
+        // then only stat-checked, looking for authoritative evidence the TUI moved on — see this
+        // module's own doc comment on profile-domain watching for why this never needs a heuristic.
+        let mut discovered = Vec::new();
+        collect_jsonl_files(&sessions_dir, &mut discovered);
+        for path in discovered {
+            if tail.as_ref().is_some_and(|current| current.path == path) {
+                continue;
             }
+            if not_top_level.contains(&path) {
+                continue;
+            }
+            if !candidates.contains_key(&path) {
+                match classify_rollout_header(&path) {
+                    Classification::NotYetReadable => continue,
+                    Classification::NotTopLevel => {
+                        not_top_level.insert(path);
+                        continue;
+                    }
+                    Classification::TopLevel(header) => {
+                        // `pre_existing_lengths` wins when present: it is `attach()`'s own
+                        // synchronous-moment length, never a later, possibly-already-grown one —
+                        // see this struct's own doc comment and this module's doc comment on
+                        // profile-domain watching for why that distinction is load-bearing, not
+                        // cosmetic. Absent from it (and never previously a candidate) means this
+                        // file's entire existence is provably post-watch: baseline zero.
+                        let first_seen_len = pre_existing_lengths.get(&path).copied().unwrap_or(0);
+                        candidates.insert(
+                            path.clone(),
+                            Candidate {
+                                thread_id: header.thread_id,
+                                forked_from_id: header.forked_from_id,
+                                first_seen_len,
+                            },
+                        );
+                    }
+                }
+            }
+            let Some(candidate) = candidates.get(&path) else {
+                continue;
+            };
+            // Never a transition target: this *is* the currently-bound thread, merely not yet
+            // (re)bound as `tail` this exact tick — the dedicated lazy-(re)discovery at the top of
+            // this loop owns that, on this tick or the next. Without this check, a brand-new or
+            // just-replaced file for the already-current thread can race that dedicated path
+            // (whichever of the two first notices the file wins, nondeterministically) and get
+            // spuriously reported as a `ThreadTransitioned` into the thread it already is.
+            if candidate.thread_id == current_thread_id {
+                continue;
+            }
+            let is_fork_of_current =
+                candidate.forked_from_id.as_deref() == Some(current_thread_id.as_str());
+            let grew =
+                fs::metadata(&path).is_ok_and(|metadata| metadata.len() > candidate.first_seen_len);
+            if !is_fork_of_current && !grew {
+                continue;
+            }
+            let Ok(content) = fs::read(&path) else {
+                continue;
+            };
+            let safe_len = (candidate.first_seen_len as usize).min(content.len());
+            let baseline_offset = last_complete_line_boundary(&content[..safe_len]);
+            let new_thread_id = candidate.thread_id.clone();
+            candidates.remove(&path);
+            let Ok(new_tail) = open_tail(
+                &path,
+                &new_thread_id,
+                &state_file,
+                Baseline::At(baseline_offset),
+            ) else {
+                continue;
+            };
+            // The abandoned thread becomes an ordinary candidate in its own right, baselined at
+            // its length *right now* — never zero, which would make its own pre-existing content
+            // look like fresh post-watch growth the instant it is (re)classified and immediately
+            // bounce the transition straight back to it. A genuine bounce back (the TUI actually
+            // resumes this same thread again later) still works correctly: it would need *real*
+            // growth past this exact point, exactly like any other "resume a saved chat".
+            if let Some(abandoned) = tail.take() {
+                if let Ok(metadata) = fs::metadata(&abandoned.path) {
+                    candidates.insert(
+                        abandoned.path,
+                        Candidate {
+                            thread_id: current_thread_id.clone(),
+                            forked_from_id: None,
+                            first_seen_len: metadata.len(),
+                        },
+                    );
+                }
+            }
+            tail = Some(new_tail);
+            current_thread_id = new_thread_id.clone();
+            already_signaled = false;
+            if events_tx
+                .send(RolloutEvent::ThreadTransitioned(new_thread_id))
+                .is_err()
+            {
+                return;
+            }
+            // Re-enter the outer loop fresh: the next iteration reads the new `tail`'s own new
+            // lines (including anything between `baseline_offset` and now) before this scan ever
+            // runs again.
+            break;
         }
     }
 }
@@ -375,6 +609,12 @@ enum Baseline {
     /// *re*-open of a file this same watcher had already been reading before a transient error —
     /// never skip real content on a guess.
     Zero,
+    /// An explicit, already-computed line-boundary-safe offset — used only for a profile-domain
+    /// transition, where [`worker_loop`] has already read the candidate's own content up to its
+    /// first-seen length and computed the safe boundary itself (see this module's own doc comment
+    /// on profile-domain watching). Never a raw, unchecked length: the caller is responsible for
+    /// having already applied [`last_complete_line_boundary`].
+    At(u64),
 }
 
 /// Opens an incremental reader for `path`, resuming from a durably persisted offset if
@@ -413,6 +653,7 @@ fn open_tail(
             last_complete_line_boundary(&buf)
         }
         Baseline::Zero => 0,
+        Baseline::At(offset) => offset,
     };
     let offset = WatchState::load(state_file)
         .filter(|state| {
@@ -564,28 +805,7 @@ fn collect_jsonl_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn rollout_header_names_thread(path: &Path, thread_id: &str) -> bool {
-    let Ok(mut file) = fs::File::open(path) else {
-        return false;
-    };
-    // The header is always the very first line and always small — never read more than one
-    // bounded chunk to find it, so a huge file never costs more than this fixed amount to check.
-    let mut buf = vec![0u8; 8192];
-    let Ok(read) = file.read(&mut buf) else {
-        return false;
-    };
-    let Some(newline) = buf[..read].iter().position(|&byte| byte == b'\n') else {
-        return false;
-    };
-    let Ok(first_line) = std::str::from_utf8(&buf[..newline]) else {
-        return false;
-    };
-    let Ok(value) = serde_json::from_str::<Value>(first_line) else {
-        return false;
-    };
-    if value.get("type").and_then(Value::as_str) != Some("session_meta") {
-        return false;
-    }
-    let Some(payload) = value.get("payload") else {
+    let Some(payload) = read_session_meta_payload(path) else {
         return false;
     };
     let session_id = payload
@@ -593,6 +813,84 @@ fn rollout_header_names_thread(path: &Path, thread_id: &str) -> bool {
         .and_then(Value::as_str)
         .or_else(|| payload.get("id").and_then(Value::as_str));
     session_id == Some(thread_id)
+}
+
+/// Reads `path`'s own first record and returns its `payload` object iff that first record is a
+/// well-formed `session_meta` line — `None` for an unreadable file, a header not yet fully
+/// flushed (no complete first line yet), or a first record of any other type. Every rollout's
+/// identity (thread id, `parent_thread_id`, `forked_from_id`, `ephemeral`) always lives in this
+/// exact shape (live-confirmed against real `codex-cli 0.156.0` artifacts — see this module's own
+/// doc comment), so [`rollout_header_names_thread`] and [`classify_rollout_header`] both read it
+/// through this one function, never duplicating the parsing.
+fn read_session_meta_payload(path: &Path) -> Option<Value> {
+    let mut file = fs::File::open(path).ok()?;
+    // The header is always the very first line and always small — never read more than one
+    // bounded chunk to find it, so a huge file never costs more than this fixed amount to check.
+    let mut buf = vec![0u8; 8192];
+    let read = file.read(&mut buf).ok()?;
+    let newline = buf[..read].iter().position(|&byte| byte == b'\n')?;
+    let first_line = std::str::from_utf8(&buf[..newline]).ok()?;
+    let value: Value = serde_json::from_str(first_line).ok()?;
+    if value.get("type").and_then(Value::as_str) != Some("session_meta") {
+        return None;
+    }
+    value.get("payload").cloned()
+}
+
+/// One rollout header's identity-relevant fields, once proven [`Classification::TopLevel`] — see
+/// this module's own doc comment on profile-domain watching.
+struct CandidateHeader {
+    thread_id: String,
+    forked_from_id: Option<String>,
+}
+
+/// Whether a rollout — other than the one currently bound — is eligible to ever become a
+/// profile-domain transition target.
+enum Classification {
+    /// No complete, parseable `session_meta` header yet — retry on a later tick. Never cached as
+    /// [`Self::NotTopLevel`]: a file that is merely mid-write right now may well be exactly the
+    /// transition this watcher needs to catch next tick.
+    NotYetReadable,
+    /// Codex's own protocol documents `Thread.parentThreadId` as set only for a subagent, and
+    /// `Thread.ephemeral` threads as never materialized on disk (so a non-null `ephemeral: true`
+    /// here is itself unexpected, but handled the same way regardless). Permanently irrelevant —
+    /// see this module's own doc comment on profile-domain watching for why this exclusion is
+    /// structural, never a heuristic.
+    NotTopLevel,
+    /// A genuine top-level (non-subagent, non-ephemeral) rollout — a transition candidate.
+    TopLevel(CandidateHeader),
+}
+
+/// Classifies a rollout other than the one currently bound, from its header alone (never its full
+/// content — see this module's own doc comment on profile-domain watching for why that read is
+/// deferred to the moment a transition actually fires).
+fn classify_rollout_header(path: &Path) -> Classification {
+    let Some(payload) = read_session_meta_payload(path) else {
+        return Classification::NotYetReadable;
+    };
+    let Some(thread_id) = payload
+        .get("session_id")
+        .and_then(Value::as_str)
+        .or_else(|| payload.get("id").and_then(Value::as_str))
+    else {
+        return Classification::NotYetReadable;
+    };
+    let parent_thread_id = payload.get("parent_thread_id").and_then(Value::as_str);
+    let ephemeral = payload
+        .get("ephemeral")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if parent_thread_id.is_some() || ephemeral {
+        return Classification::NotTopLevel;
+    }
+    let forked_from_id = payload
+        .get("forked_from_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    Classification::TopLevel(CandidateHeader {
+        thread_id: thread_id.to_owned(),
+        forked_from_id,
+    })
 }
 
 /// `true` exactly for Codex's own structured exhaustion record shape, live-confirmed against four
@@ -628,6 +926,51 @@ mod tests {
             "ordinal": 0,
             "type": "session_meta",
             "payload": {"session_id": thread_id, "id": thread_id, "cwd": "/work"},
+        })
+        .to_string()
+    }
+
+    /// Codex's own protocol documents `Thread.parentThreadId` as set only for a subagent — see
+    /// this module's own doc comment on profile-domain watching.
+    fn session_meta_subagent(thread_id: &str, parent_thread_id: &str) -> String {
+        serde_json::json!({
+            "timestamp": "2026-10-13T00:00:00.000Z",
+            "ordinal": 0,
+            "type": "session_meta",
+            "payload": {
+                "session_id": thread_id, "id": thread_id, "cwd": "/work",
+                "parent_thread_id": parent_thread_id,
+            },
+        })
+        .to_string()
+    }
+
+    /// A top-level (non-subagent) rollout whose own `session_meta` names the exact thread it was
+    /// forked from — see this module's own doc comment on profile-domain watching.
+    fn session_meta_forked(thread_id: &str, forked_from_id: &str) -> String {
+        serde_json::json!({
+            "timestamp": "2026-10-13T00:00:00.000Z",
+            "ordinal": 0,
+            "type": "session_meta",
+            "payload": {
+                "session_id": thread_id, "id": thread_id, "cwd": "/work",
+                "forked_from_id": forked_from_id,
+            },
+        })
+        .to_string()
+    }
+
+    /// Codex's own protocol documents `Thread.ephemeral` threads as never materialized on disk —
+    /// this exercises the defensive classification path anyway (see this module's own doc comment
+    /// on profile-domain watching).
+    fn session_meta_ephemeral(thread_id: &str) -> String {
+        serde_json::json!({
+            "timestamp": "2026-10-13T00:00:00.000Z",
+            "ordinal": 0,
+            "type": "session_meta",
+            "payload": {
+                "session_id": thread_id, "id": thread_id, "cwd": "/work", "ephemeral": true,
+            },
         })
         .to_string()
     }
@@ -819,18 +1162,190 @@ mod tests {
     }
 
     #[test]
-    fn unrelated_simultaneous_thread_writes_never_trigger_the_watcher() {
+    fn a_subagents_own_exhaustion_is_never_attributed_to_the_supervised_thread() {
+        // agent-relay#18 (profile-domain watching): the one case that remains permanently
+        // excluded, never a profile-domain transition target regardless of growth — Codex's own
+        // protocol documents `parentThreadId` as set only for a subagent (see this module's own
+        // doc comment). Pre-dating the GitHub #18 profile-domain redesign, this test used to prove
+        // *no* other thread's activity was ever attributed; under that redesign, attributing
+        // genuine top-level activity on another thread to this session is the *intended* new
+        // behavior (see the sibling tests for `/new`/`/fork`/"resume a saved chat"), so only the
+        // structurally-excluded subagent case is still asserted here.
         let codex_home = tempfile::tempdir().unwrap();
         let state_dir = tempfile::tempdir().unwrap();
         let state_file = state_dir.path().join("state.json");
         write_rollout(codex_home.path(), "watched", &[session_meta("watched")]);
-        let other = write_rollout(codex_home.path(), "other", &[session_meta("other")]);
+        let subagent = write_rollout(
+            codex_home.path(),
+            "subagent",
+            &[session_meta_subagent("subagent", "watched")],
+        );
         let watcher = RolloutWatcher::attach(codex_home.path(), "watched", &state_file).unwrap();
-        append(&other, &[task_complete_exhausted(1)]);
+        append(&subagent, &[task_complete_exhausted(1)]);
         std::thread::sleep(Duration::from_millis(600));
         assert!(
             watcher.drain_events().is_empty(),
-            "an unrelated thread's own exhaustion must never be attributed to this watch"
+            "a subagent's own exhaustion must never be attributed to the supervised thread"
+        );
+        watcher.stop();
+    }
+
+    #[test]
+    fn an_ephemeral_side_conversations_own_exhaustion_is_never_attributed() {
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        write_rollout(codex_home.path(), "watched", &[session_meta("watched")]);
+        let side = write_rollout(codex_home.path(), "side", &[session_meta_ephemeral("side")]);
+        let watcher = RolloutWatcher::attach(codex_home.path(), "watched", &state_file).unwrap();
+        append(&side, &[task_complete_exhausted(1)]);
+        std::thread::sleep(Duration::from_millis(600));
+        assert!(
+            watcher.drain_events().is_empty(),
+            "an ephemeral side-conversation's own exhaustion must never be attributed"
+        );
+        watcher.stop();
+    }
+
+    #[test]
+    fn a_fork_is_followed_via_its_own_forked_from_id_even_before_it_grows() {
+        // agent-relay#18 (Phase 5, `/fork`): a fork's own `session_meta` names the exact thread it
+        // was forked from — an immediate, zero-growth-required transition signal, unlike `/new`
+        // and "resume a saved chat" below.
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        write_rollout(codex_home.path(), "watched", &[session_meta("watched")]);
+        let watcher = RolloutWatcher::attach(codex_home.path(), "watched", &state_file).unwrap();
+        let forked = write_rollout(
+            codex_home.path(),
+            "forked",
+            &[session_meta_forked("forked", "watched")],
+        );
+        std::thread::sleep(Duration::from_millis(500));
+        append(&forked, &[task_complete_exhausted(1)]);
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![
+                RolloutEvent::ThreadTransitioned("forked".to_owned()),
+                RolloutEvent::UsageLimitExceeded,
+            ]
+        );
+        assert!(
+            watcher.is_healthy(),
+            "a transition must never flip healthy false"
+        );
+        watcher.stop();
+    }
+
+    #[test]
+    fn a_new_chat_started_after_attach_is_followed_as_the_authoritative_thread() {
+        // agent-relay#18 (Phase 5, `/new`): no link back to the previous thread at all — the
+        // profile exclusivity invariant (this module's own doc comment on profile-domain
+        // watching) is what makes attributing this to the supervised TUI non-heuristic.
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        write_rollout(codex_home.path(), "watched", &[session_meta("watched")]);
+        let watcher = RolloutWatcher::attach(codex_home.path(), "watched", &state_file).unwrap();
+        let new_chat = write_rollout(
+            codex_home.path(),
+            "new-chat",
+            &[session_meta("new-chat"), task_complete_exhausted(1)],
+        );
+        let _ = new_chat;
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![
+                RolloutEvent::ThreadTransitioned("new-chat".to_owned()),
+                RolloutEvent::UsageLimitExceeded,
+            ]
+        );
+        assert!(watcher.is_healthy());
+        watcher.stop();
+    }
+
+    #[test]
+    fn resuming_a_pre_existing_saved_chat_is_followed_via_post_watch_growth() {
+        // agent-relay#18 (Phase 5, "resume a saved chat"): the hardest case — the target rollout
+        // already exists, with no structural marker at all for "being actively driven again."
+        // Post-watch growth on it (never its mtime, never "newest file") is the only signal, and
+        // it must be measured from the exact moment this watch started, not from whenever the
+        // background loop happens to first notice the file (see `RolloutWatcher::attach`'s own doc
+        // comment on `pre_existing_lengths`).
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        write_rollout(codex_home.path(), "watched", &[session_meta("watched")]);
+        let saved = write_rollout(
+            codex_home.path(),
+            "saved-chat",
+            &[session_meta("saved-chat")],
+        );
+        let watcher = RolloutWatcher::attach(codex_home.path(), "watched", &state_file).unwrap();
+        append(&saved, &[task_complete_exhausted(1)]);
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![
+                RolloutEvent::ThreadTransitioned("saved-chat".to_owned()),
+                RolloutEvent::UsageLimitExceeded,
+            ]
+        );
+        assert!(watcher.is_healthy());
+        watcher.stop();
+    }
+
+    #[test]
+    fn a_saved_chat_resumed_with_no_growth_yet_is_never_a_premature_transition() {
+        // The mere *existence* of another top-level rollout, pre-dating this watch, is never
+        // itself evidence of anything — only post-watch growth (or an explicit fork link) is.
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        write_rollout(codex_home.path(), "watched", &[session_meta("watched")]);
+        write_rollout(codex_home.path(), "dormant", &[session_meta("dormant")]);
+        let watcher = RolloutWatcher::attach(codex_home.path(), "watched", &state_file).unwrap();
+        std::thread::sleep(Duration::from_millis(600));
+        assert!(watcher.drain_events().is_empty());
+        watcher.stop();
+    }
+
+    #[test]
+    fn only_the_candidate_that_actually_grew_is_followed_never_the_merely_newest_file() {
+        // GitHub #18's explicit "no newest-file/mtime ordering" requirement: two structurally
+        // identical, equally pre-existing candidates — only the one that actually produces
+        // post-watch evidence (an append, here) may ever win, regardless of which file is newer
+        // by name, mtime, or directory order.
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        write_rollout(codex_home.path(), "watched", &[session_meta("watched")]);
+        let older = write_rollout(
+            codex_home.path(),
+            "older-candidate",
+            &[session_meta("older-candidate")],
+        );
+        // Created after `older-candidate` but *before* the watch starts — so it gets a real,
+        // attach-time baseline too, exactly like `older-candidate`; the only difference between
+        // them is which one is later appended to.
+        write_rollout(
+            codex_home.path(),
+            "newer-candidate",
+            &[session_meta("newer-candidate")],
+        );
+        let watcher = RolloutWatcher::attach(codex_home.path(), "watched", &state_file).unwrap();
+        append(&older, &[task_complete_exhausted(1)]);
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![
+                RolloutEvent::ThreadTransitioned("older-candidate".to_owned()),
+                RolloutEvent::UsageLimitExceeded,
+            ],
+            "the candidate that actually grew must win, never the merely newer/younger file"
         );
         watcher.stop();
     }
@@ -857,6 +1372,48 @@ mod tests {
         assert!(
             restarted.drain_events().is_empty(),
             "a restart must resume from the durable offset, never replay an already-seen record"
+        );
+        restarted.stop();
+    }
+
+    #[test]
+    fn a_restart_after_a_profile_domain_transition_resumes_bound_to_the_new_thread_not_the_original()
+     {
+        // agent-relay#18 (Phase 5/6, restart continuity): a watcher constructed with the
+        // *originally*-known thread id, restarted after a profile-domain transition already moved
+        // it elsewhere, must resume bound to wherever it last authoritatively was — never silently
+        // snap back to the construction-time id, which would both re-arm `already_signaled` for a
+        // thread already fully caught up and (worse) stop observing the thread actually active.
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        write_rollout(codex_home.path(), "original", &[session_meta("original")]);
+        let watcher = RolloutWatcher::attach(codex_home.path(), "original", &state_file).unwrap();
+        let resumed = write_rollout(
+            codex_home.path(),
+            "resumed-elsewhere",
+            &[session_meta("resumed-elsewhere")],
+        );
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![RolloutEvent::ThreadTransitioned(
+                "resumed-elsewhere".to_owned()
+            )]
+        );
+        watcher.stop();
+
+        // Constructed with the *original* thread id again, exactly as a real caller would after a
+        // process restart (it only ever knows the launch-time thread id) — must resume on
+        // `resumed-elsewhere`, proven by catching an exhaustion appended to it, and never signal
+        // anything for `original` (which never changes again).
+        let restarted = RolloutWatcher::attach(codex_home.path(), "original", &state_file).unwrap();
+        append(&resumed, &[task_complete_exhausted(1)]);
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(
+            restarted.drain_events(),
+            vec![RolloutEvent::UsageLimitExceeded],
+            "a restart must resume bound to the last authoritative thread, not the original one"
         );
         restarted.stop();
     }
@@ -983,7 +1540,14 @@ mod tests {
     }
 
     #[test]
-    fn an_unrelated_rollout_created_first_does_not_affect_the_watched_threads_baseline() {
+    fn a_subagent_created_first_does_not_affect_the_watched_threads_baseline() {
+        // Pre-dating the GitHub #18 profile-domain redesign, this test used `"other"` as a
+        // same-standing top-level thread to prove it could never affect `"watched"`'s own
+        // baseline; under the redesign, a genuine top-level thread appearing before `"watched"`
+        // itself does (correctly, see `a_new_chat_appearing_before_the_originally_known_thread_
+        // is_still_followed` below) become the authoritative thread. What must still never happen
+        // is a *subagent*'s own activity affecting anything, structurally excluded regardless of
+        // timing.
         let codex_home = tempfile::tempdir().unwrap();
         let state_dir = tempfile::tempdir().unwrap();
         let state_file = state_dir.path().join("state.json");
@@ -991,8 +1555,11 @@ mod tests {
         let watcher = RolloutWatcher::attach(codex_home.path(), "watched", &state_file).unwrap();
         write_rollout(
             codex_home.path(),
-            "other",
-            &[session_meta("other"), task_complete_exhausted(1)],
+            "subagent",
+            &[
+                session_meta_subagent("subagent", "watched"),
+                task_complete_exhausted(1),
+            ],
         );
         std::thread::sleep(Duration::from_millis(400));
         assert!(watcher.drain_events().is_empty());
@@ -1010,6 +1577,38 @@ mod tests {
             watcher.drain_events(),
             vec![RolloutEvent::UsageLimitExceeded]
         );
+        watcher.stop();
+    }
+
+    #[test]
+    fn a_new_chat_appearing_before_the_originally_known_thread_is_still_followed() {
+        // agent-relay#18 (Phase 5): production never actually reaches this exact shape (the
+        // originally-known thread id always already exists by the time `attach` is called — see
+        // `relay_cli::codex_runtime`'s own module doc) — but the watcher's own correctness must
+        // not depend on that assumption holding. A genuine top-level thread appearing before the
+        // originally-known one ever does is exactly as attributable as any other post-watch
+        // top-level activity under the profile exclusivity invariant (this module's own doc
+        // comment on profile-domain watching) — never specially exempted just because it is not
+        // the thread id this watcher happened to start with.
+        let codex_home = tempfile::tempdir().unwrap();
+        let state_dir = tempfile::tempdir().unwrap();
+        let state_file = state_dir.path().join("state.json");
+        fs::create_dir_all(codex_home.path().join("sessions")).unwrap();
+        let watcher = RolloutWatcher::attach(codex_home.path(), "watched", &state_file).unwrap();
+        write_rollout(
+            codex_home.path(),
+            "actually-current",
+            &[session_meta("actually-current"), task_complete_exhausted(1)],
+        );
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            watcher.drain_events(),
+            vec![
+                RolloutEvent::ThreadTransitioned("actually-current".to_owned()),
+                RolloutEvent::UsageLimitExceeded,
+            ]
+        );
+        assert!(watcher.is_healthy());
         watcher.stop();
     }
 
