@@ -283,24 +283,30 @@ fn rebind_or_release(
     store: &SessionStore<'_>,
     view: &RelaySessionView,
     lease: &WriterLease,
-    rebound: Option<ProcessIdentity>,
+    rebound: Option<(ProcessIdentity, Option<String>)>,
     registered: &[Profile],
     now_unix_ms: u64,
 ) -> Result<(), Error> {
-    let Some(identity) = rebound else {
+    let Some((identity, title)) = rebound else {
         release_session(store, view, registered, now_unix_ms)?;
         return Ok(());
     };
     let id = &view.record.relay_session_id;
     let mut updated = lease.clone();
     updated.owner_process = identity;
-    match store
+    let result = match store
         .session_lock(id)
         .try_with(|| store.lease_store(id).save(&updated))
     {
         Ok(()) | Err(Error::OrchestrationLockHeld) => Ok(()),
         Err(error) => Err(error),
+    };
+    // GitHub #11: opportunistic only — this title capture never affects the rebind outcome above,
+    // and a failure here (e.g. the lock briefly held) is never surfaced as a reconciliation error.
+    if let Some(title) = title.filter(|title| !title.is_empty()) {
+        let _ignored = store.set_title_if_absent(id, &title);
     }
+    result
 }
 
 /// The supervised provider process ended: release the session's lease if (and only if) its
@@ -395,7 +401,10 @@ fn short(text: &str) -> &str {
     text.get(..8).unwrap_or(text)
 }
 
-/// `Claude  megan  8c91a3f0  native 11fa…  5m ago`
+/// `Claude  megan  8c91a3f0  native 11fa…  5m ago`, or, when GitHub #11's opportunistically
+/// captured provider-native title is available, `my-auth-refactor · Claude  megan  8c91a3f0  …`
+/// — display metadata only, prepended ahead of the existing identity-based line, never replacing
+/// it.
 #[must_use]
 pub fn describe(view: &RelaySessionView, registered: &[Profile], now_unix_ms: u64) -> String {
     let provider = registered
@@ -411,7 +420,12 @@ pub fn describe(view: &RelaySessionView, registered: &[Profile], now_unix_ms: u6
             |profile| provider_label(profile.provider).to_owned(),
         );
     format!(
-        "{}  {}  {}  native {}  {}",
+        "{}{}  {}  {}  native {}  {}",
+        view.record
+            .title
+            .as_deref()
+            .map(|title| format!("{title} · "))
+            .unwrap_or_default(),
         if provider == "codex" {
             "Codex "
         } else {

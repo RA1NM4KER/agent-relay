@@ -155,6 +155,13 @@ pub struct RelaySessionRecord {
     /// existing behavior.
     #[serde(default)]
     pub execution_intent: ExecutionIntent,
+    /// GitHub #11: a provider-native display title, captured opportunistically whenever Relay
+    /// already reads one for another reason (never from a dedicated provider call made just to
+    /// populate this). Display metadata only — never consulted by resume, ownership, handoff, or
+    /// conflict detection; an absent title falls back cleanly to the existing id-based display.
+    /// An old record predating this field safely deserializes as `None`.
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 impl RelaySessionRecord {
@@ -179,6 +186,7 @@ impl RelaySessionRecord {
             native_session_id,
             provisional,
             execution_intent: ExecutionIntent::default(),
+            title: None,
         }
     }
 
@@ -464,6 +472,29 @@ impl<'a> SessionStore<'a> {
         })
     }
 
+    /// GitHub #11: opportunistically records a provider-native display title the first time
+    /// Relay observes one for this session — never from a dedicated provider call made just for
+    /// this; callers pass in whatever they already read for another reason (e.g. a liveness
+    /// check). Never overwrites an existing title (a later rename is rare and not worth chasing
+    /// here) and never errors on a session that no longer exists — this is best-effort display
+    /// metadata, not something any caller's own success should depend on. A blank title is
+    /// treated as absent. Self-locking, like [`Self::set_execution_intent`].
+    pub fn set_title_if_absent(&self, id: &RelaySessionId, title: &str) -> Result<()> {
+        if title.is_empty() {
+            return Ok(());
+        }
+        self.session_lock(id).try_with(|| {
+            let Some(mut record) = self.load_record(id)? else {
+                return Ok(());
+            };
+            if record.title.is_none() {
+                record.title = Some(title.to_owned());
+                self.save_record(&record)?;
+            }
+            Ok(())
+        })
+    }
+
     /// Removes a whole session directory (provisional cleanup). Refuses while a lease exists.
     pub fn remove(&self, id: &RelaySessionId) -> Result<()> {
         if self.lease_store(id).load()?.is_some() {
@@ -713,6 +744,53 @@ mod tests {
                 .all(|view| view.state() == SessionState::Active)
         );
         assert!(views.iter().all(|view| view.profile().as_str() == "megan"));
+    }
+
+    /// GitHub #11: `relay status`'s dormant-session display trusts `list()`'s own ordering
+    /// completely (it only truncates, never re-sorts) — so ties must be broken deterministically
+    /// here, not left to whatever order a directory listing happens to return.
+    #[test]
+    fn dormant_sessions_with_identical_activity_timestamps_sort_deterministically_by_id() {
+        let root = tempdir().expect("root");
+        let paths = paths(root.path());
+        let store = SessionStore::new(&paths, project());
+        let mut records: Vec<RelaySessionRecord> = (0..5)
+            .map(|index| {
+                let mut record = record(&project(), "megan", &format!("n{index}"));
+                record.last_activity_unix_ms = 500; // identical for every one of them
+                record
+            })
+            .collect();
+        // Saved in a scrambled order: if anything here depended on save/creation order rather
+        // than the id comparison `list()` documents, this would catch it.
+        records.swap(0, 3);
+        records.swap(1, 4);
+        for record in &records {
+            store.save_record(record).expect("save");
+        }
+
+        let first_pass: Vec<RelaySessionId> = store
+            .list()
+            .expect("list")
+            .into_iter()
+            .map(|view| view.record.relay_session_id)
+            .collect();
+        let mut expected = first_pass.clone();
+        expected.sort();
+        assert_eq!(
+            first_pass, expected,
+            "equal timestamps must still produce one fixed, id-ordered sequence"
+        );
+        // And stable across repeated calls — never re-randomized by filesystem iteration order.
+        for _ in 0..3 {
+            let again: Vec<RelaySessionId> = store
+                .list()
+                .expect("list")
+                .into_iter()
+                .map(|view| view.record.relay_session_id)
+                .collect();
+            assert_eq!(again, first_pass);
+        }
     }
 
     #[test]

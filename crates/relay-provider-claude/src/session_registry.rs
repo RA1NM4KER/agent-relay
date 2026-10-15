@@ -38,6 +38,22 @@ pub struct AgentSessionRecord {
     pub cwd: Option<String>,
     #[serde(default)]
     pub state: Option<String>,
+    /// GitHub #11: Claude Code's own display name for this session (live-confirmed present on
+    /// every real session, auto-derived when the user never set one explicitly via `claude
+    /// --name`) — shown in Claude's own prompt box, `/resume` picker, and terminal title. Never
+    /// scraped: this is the exact structured field `claude agents --json` already returns.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// A live session match: the process identity [`find_live_pid_for_session`] exists to establish,
+/// plus whatever display title Claude's own listing already carried alongside it — GitHub #11:
+/// never a second query, since both come from the one `claude agents --json` call this function
+/// already makes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LiveSession {
+    pub identity: ProcessIdentity,
+    pub title: Option<String>,
 }
 
 /// Lists currently-active sessions (interactive and background) for one profile's config dir, as
@@ -83,17 +99,18 @@ pub fn find_live_pid_for_session(
     mode: ClaudeConfigMode,
     claude_executable: Option<&Path>,
     session_id: &str,
-) -> Option<ProcessIdentity> {
+) -> Option<LiveSession> {
     let sessions = query_active_sessions(config_dir, mode, claude_executable).ok()?;
-    let pid = sessions
+    let record = sessions
         .into_iter()
-        .find(|record| record.session_id == session_id)?
-        .pid?;
+        .find(|record| record.session_id == session_id)?;
+    let pid = record.pid?;
     let identity = ProcessIdentity::query(pid);
-    identity
-        .start_time_fingerprint
-        .is_some()
-        .then_some(identity)
+    identity.start_time_fingerprint.is_some().then_some(())?;
+    Some(LiveSession {
+        identity,
+        title: record.name,
+    })
 }
 
 fn run_bounded(
@@ -221,7 +238,9 @@ mod tests {
             "11111111-2222-3333-4444-555555555555",
         )
         .expect("a live match");
-        assert_eq!(found.pid, this_pid);
+        assert_eq!(found.identity.pid, this_pid);
+        // GitHub #11: the title comes from the exact same listing — never a second query.
+        assert_eq!(found.title.as_deref(), Some("x"));
         // A different session id in the same listing is never matched.
         assert!(
             super::find_live_pid_for_session(

@@ -2286,6 +2286,270 @@ fn relays_own_launch_flags_are_never_stored_as_the_users_provider_arguments() {
     assert!(!stored.contains("settings"), "{stored}");
 }
 
+// ---- GitHub #11: dormant-session display truncation and provider-native titles --------------
+
+/// The project's `relay status` human-readable text (never `--json`).
+fn status_human(world: &World) -> String {
+    let output = base_command(
+        world.root.path(),
+        false,
+        &[
+            "status",
+            "--project",
+            world.project.path().to_str().unwrap(),
+        ],
+    )
+    .output()
+    .expect("relay status");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// Overwrites one field of a session's durable record directly on disk — used only to force
+/// deterministic, distinguishable `last_activity_unix_ms` values (a real CLI round trip cannot
+/// reliably produce several *distinct* millisecond timestamps) or to simulate a provider-native
+/// title already having been captured.
+fn set_record_field(dir: &Path, field: &str, value: Value) {
+    let path = dir.join("session.json");
+    let mut record: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    record[field] = value;
+    std::fs::write(&path, serde_json::to_string_pretty(&record).unwrap()).unwrap();
+}
+
+/// Creates `count` real dormant sessions (each a genuine `relay claude` round trip against the
+/// fake provider, not a hand-written fixture), then spreads their `last_activity_unix_ms` far
+/// enough apart (and deliberately out of creation order) that recency sorting is unambiguous and
+/// distinguishable from "whatever order the filesystem happens to return."
+fn make_dormant_sessions_with_distinct_recency(world: &World, count: usize) -> Vec<PathBuf> {
+    for _ in 0..count {
+        let output = world
+            .new_session_command("0", true, &[])
+            .output()
+            .expect("relay claude");
+        assert!(output.status.success());
+    }
+    let mut dirs = world.session_dirs();
+    dirs.sort(); // a stable, arbitrary-but-fixed order to assign recency against
+    for (index, dir) in dirs.iter().enumerate() {
+        // Deliberately NOT increasing with creation/sorted order: index 0 gets the newest
+        // timestamp, proving the display order comes from the recorded timestamp, never from
+        // directory/creation order.
+        let activity = 1_700_000_000_000u64 + ((count - index) as u64) * 60_000;
+        set_record_field(dir, "last_activity_unix_ms", serde_json::json!(activity));
+    }
+    dirs
+}
+
+#[test]
+fn active_sessions_are_never_hidden_by_dormant_truncation() {
+    let world = world();
+    make_dormant_sessions_with_distinct_recency(&world, 5);
+    // One active session, on top of the 5 dormant ones above.
+    let mut live = world
+        .new_session_command("40", true, &[])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("live");
+    wait_for("an active session", Duration::from_secs(20), || {
+        world
+            .session_dirs()
+            .iter()
+            .any(|dir| dir.join("lease.json").exists())
+    });
+
+    let human = status_human(&world);
+    assert!(human.contains("ACTIVE"), "{human}");
+    assert!(
+        !human.contains("Dormant sessions: none"),
+        "the active session must not crowd out the dormant summary: {human}"
+    );
+    assert!(
+        human.contains("+ 2 more dormant sessions"),
+        "5 dormant - the default 3 shown = 2 more: {human}"
+    );
+
+    let _ignored = live.kill();
+    let _ignored = live.wait();
+}
+
+#[test]
+fn only_the_most_recent_n_dormant_sessions_are_shown_by_recency_not_filesystem_order() {
+    let world = world();
+    let dirs = make_dormant_sessions_with_distinct_recency(&world, 5);
+    // `dirs` is sorted by directory name (arbitrary); the 3 *newest by timestamp* are the ones
+    // assigned the smallest `index` in `make_dormant_sessions_with_distinct_recency`.
+    let newest_three: Vec<String> = dirs[..3]
+        .iter()
+        .map(|dir| world.record_of(dir)["relay_session_id"].as_str().unwrap()[..8].to_owned())
+        .collect();
+    let oldest_two: Vec<String> = dirs[3..]
+        .iter()
+        .map(|dir| world.record_of(dir)["relay_session_id"].as_str().unwrap()[..8].to_owned())
+        .collect();
+
+    let human = status_human(&world);
+    assert!(human.contains("Recent dormant sessions"), "{human}");
+    for id in &newest_three {
+        assert!(human.contains(id.as_str()), "missing newest {id}: {human}");
+    }
+    for id in &oldest_two {
+        assert!(
+            !human.contains(id.as_str()),
+            "an older session must be summarized, not individually listed: {id} in {human}"
+        );
+    }
+    assert!(human.contains("+ 2 more dormant sessions"), "{human}");
+    assert!(human.contains("Run: relay resume"), "{human}");
+}
+
+#[test]
+fn older_dormant_sessions_are_summarized_never_deleted_pruned_or_mutated() {
+    let world = world();
+    let dirs = make_dormant_sessions_with_distinct_recency(&world, 6);
+    let before: Vec<Value> = dirs.iter().map(|dir| world.record_of(dir)).collect();
+
+    let human = status_human(&world);
+    assert!(human.contains("+ 3 more dormant sessions"), "{human}");
+
+    // Every session directory and record still exists, byte-for-byte unchanged by merely running
+    // `relay status` (reconciliation does not touch dormant records at all).
+    assert_eq!(world.session_dirs().len(), 6, "nothing was deleted");
+    let after: Vec<Value> = dirs.iter().map(|dir| world.record_of(dir)).collect();
+    assert_eq!(before, after, "status must never mutate dormant records");
+
+    // And the JSON `sessions` list still names every one of them, by id.
+    let sessions = status_sessions(&world);
+    assert_eq!(sessions.len(), 6, "JSON must retain the complete set");
+    for dir in &dirs {
+        let id = world.record_of(dir)["relay_session_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            sessions
+                .iter()
+                .any(|session| session["relay_session_id"] == id),
+            "JSON dropped {id}"
+        );
+    }
+}
+
+#[test]
+fn fewer_than_the_default_limit_of_dormant_sessions_render_without_a_summary_footer() {
+    let world = world();
+    // Zero dormant sessions.
+    let empty = status_human(&world);
+    assert!(empty.contains("Dormant sessions: none"), "{empty}");
+    assert!(!empty.contains("more dormant"), "{empty}");
+
+    // Two dormant sessions: fewer than the default limit of 3, so every one is shown in full,
+    // under the plain (not "Recent") header, with no "+ N more" footer.
+    make_dormant_sessions_with_distinct_recency(&world, 2);
+    let two = status_human(&world);
+    assert!(two.contains("Dormant sessions\n"), "{two}");
+    assert!(!two.contains("Recent dormant sessions"), "{two}");
+    assert!(!two.contains("more dormant"), "{two}");
+    for dir in world.session_dirs() {
+        let id = world.record_of(&dir)["relay_session_id"].as_str().unwrap()[..8].to_owned();
+        assert!(two.contains(&id), "{two}");
+    }
+}
+
+#[test]
+fn relay_resume_still_sees_every_dormant_session_regardless_of_status_truncation() {
+    let world = world();
+    make_dormant_sessions_with_distinct_recency(&world, 5);
+    let project = world.project.path().to_str().unwrap().to_owned();
+    let ambiguous = json_relay(&world, &["resume", "--project-dir", &project]);
+    assert!(!ambiguous.status.success());
+    assert_eq!(error_code(&ambiguous), "session_ambiguous");
+    let message = serde_json::from_slice::<Value>(&ambiguous.stderr)
+        .ok()
+        .and_then(|value| value["error"]["message"].as_str().map(str::to_owned))
+        .unwrap_or_default();
+    assert!(
+        message.contains("has 5:"),
+        "the resume picker must still count every dormant session, not just the 3 `status` \
+         shows: {message}"
+    );
+}
+
+#[test]
+fn an_optional_title_is_shown_when_present_and_falls_back_cleanly_when_absent() {
+    let world = world();
+    let output = world
+        .new_session_command("0", true, &[])
+        .output()
+        .expect("relay claude");
+    assert!(output.status.success());
+    let dir = world.session_dirs().remove(0);
+    let id_prefix = world.record_of(&dir)["relay_session_id"].as_str().unwrap()[..8].to_owned();
+
+    // Absent (the real, untouched record): falls back to the existing id-based display.
+    let without_title = status_human(&world);
+    assert!(without_title.contains(&id_prefix), "{without_title}");
+    assert!(!without_title.contains(" · "), "{without_title}");
+
+    // Present: shown ahead of the existing identity-based line, which still names the session.
+    set_record_field(&dir, "title", serde_json::json!("my-auth-refactor"));
+    let with_title = status_human(&world);
+    assert!(with_title.contains("my-auth-refactor · "), "{with_title}");
+    assert!(
+        with_title.contains(&id_prefix),
+        "the id-based display must still be present alongside the title: {with_title}"
+    );
+
+    // And the JSON row carries it too, additively.
+    let sessions = status_sessions(&world);
+    assert_eq!(sessions[0]["title"], "my-auth-refactor");
+}
+
+#[test]
+fn a_title_never_affects_session_identity_resume_or_selection() {
+    let world = world();
+    let output = world
+        .new_session_command("0", true, &[])
+        .output()
+        .expect("relay claude");
+    assert!(output.status.success());
+    let dir = world.session_dirs().remove(0);
+    let record = world.record_of(&dir);
+    let id = record["relay_session_id"].as_str().unwrap().to_owned();
+    let native = record["native_session_id"].as_str().unwrap().to_owned();
+    set_record_field(
+        &dir,
+        "title",
+        serde_json::json!("totally-unrelated-display-text"),
+    );
+
+    // `--session` resolution still works by id, completely unaffected by the title.
+    let project = world.project.path().to_str().unwrap().to_owned();
+    let mut command = base_command(
+        world.root.path(),
+        false,
+        &["resume", "--project-dir", &project, "--session", &id[..8]],
+    );
+    command.env("RELAY_TEST_SLEEP", "0").stdin(Stdio::null());
+    let output = command.output().expect("resume --session");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        argv_log(world.root.path())
+            .iter()
+            .any(|argv| argv.first().map(String::as_str) == Some("--resume")
+                && argv.get(1) == Some(&native)),
+        "resume must still target the exact native session, untouched by the title"
+    );
+}
+
 #[test]
 fn several_dormant_sessions_need_a_choice_and_one_can_be_named() {
     let world = world();

@@ -17,6 +17,14 @@ use crate::{
     util::current_unix_ms,
 };
 
+/// GitHub #11: default `relay status` human-readable output shows only this many of the most
+/// recently active dormant sessions — older ones are summarized, never deleted, forgotten, or
+/// hidden from JSON/`relay resume`'s own complete picker. Chosen as a small number consistent
+/// with this file's other "only what's decision-relevant" defaults (e.g. the single-session
+/// `Current` focus above); not a flag-configurable value because `relay resume` already exposes
+/// the complete set for anyone who needs it.
+const RECENT_DORMANT_DISPLAY_LIMIT: usize = 3;
+
 pub(crate) fn run_profiles(
     service: &ProfileService,
     paths: &RelayPaths,
@@ -120,9 +128,16 @@ pub(crate) fn run_status(
     let mut session_rows = Vec::new();
     let mut lines_active = Vec::new();
     let mut lines_dormant = Vec::new();
+    // GitHub #11: every dormant session is still counted (and still fully present in
+    // `session_rows`/`relay resume`'s own picker) — only the human-readable `lines_dormant`
+    // display is capped, below.
+    let mut dormant_total = 0usize;
     // The session decision-oriented "Current" focuses on: the most recently active session, so
     // repeated `relay status` calls track whichever conversation you actually touched last.
     let mut focus: Option<&relay_core::handoff::RelaySessionView> = None;
+    // `views` is already sorted newest-activity-first (see `SessionStore::list`'s own doc
+    // comment) — never filesystem order — so both `lines_active`/`lines_dormant` and the
+    // dormant-display cap below inherit that same deterministic recency ordering for free.
     for view in &views {
         let dir = store.session_dir(&view.record.relay_session_id);
         let in_transaction =
@@ -143,7 +158,10 @@ pub(crate) fn run_status(
                 }
             }
             relay_core::handoff::SessionState::Dormant => {
-                lines_dormant.push(format!("  {line}  DORMANT"));
+                dormant_total += 1;
+                if lines_dormant.len() < RECENT_DORMANT_DISPLAY_LIMIT {
+                    lines_dormant.push(format!("  {line}  DORMANT"));
+                }
             }
         }
         session_rows.push(json!({
@@ -162,6 +180,9 @@ pub(crate) fn run_status(
             // either way, so there is no reason to expose it only for the one focused/active
             // session `current_session` already covers.
             "execution_intent": view.record.execution_intent,
+            // GitHub #11: additive, optional provider-native display title — never identity,
+            // never consulted by resume/ownership/handoff. `null` when none was ever captured.
+            "title": view.record.title,
         }));
     }
 
@@ -183,6 +204,19 @@ pub(crate) fn run_status(
         } else {
             format!("{title}\n{}", lines.join("\n"))
         }
+    };
+    // GitHub #11: `lines_dormant` already holds at most `RECENT_DORMANT_DISPLAY_LIMIT` entries,
+    // newest first; `dormant_total` is the real count. Nothing here deletes, prunes, or forgets
+    // the rest — `relay resume` and the JSON `sessions` list above still see every one of them.
+    let dormant_hidden = dormant_total.saturating_sub(lines_dormant.len());
+    let dormant_section = if dormant_hidden == 0 {
+        listing("Dormant sessions", &lines_dormant)
+    } else {
+        format!(
+            "Recent dormant sessions\n{}\n\n  + {dormant_hidden} more dormant session{}\n  Run: relay resume",
+            lines_dormant.join("\n"),
+            if dormant_hidden == 1 { "" } else { "s" },
+        )
     };
 
     let readiness = readiness::assess_for_project_reporting(
@@ -264,7 +298,7 @@ pub(crate) fn run_status(
     human.push_str(&format!(
         "\n\n{}\n\n{}\n\nPrimary profile: {} ({})\nFallback: {}\nAutomatic handoff installed: {}\nHerdr: {}",
         listing("Active sessions", &lines_active),
-        listing("Dormant sessions", &lines_dormant),
+        dormant_section,
         primary,
         primary_auth,
         fallback_display,

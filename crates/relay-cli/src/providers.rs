@@ -123,6 +123,11 @@ pub fn codex_usage_reading(
 /// Codex has no structural per-thread liveness signal (no equivalent of `claude agents --json`),
 /// so this always returns `None` for it: a Codex session whose recorded process is gone stays
 /// dormant rather than being guessed back into activity.
+///
+/// GitHub #11: the second element is whatever display title Claude's own listing already carried
+/// for this session (its own auto-derived name, live-confirmed present for every real session) —
+/// never a second provider query, since it comes from the exact same structured call this
+/// function already makes to establish liveness.
 #[must_use]
 pub fn discover_live_owner(
     provider: ProviderKind,
@@ -130,7 +135,7 @@ pub fn discover_live_owner(
     config_dir: &Path,
     native_session_id: &str,
     claude_config_mode: ClaudeConfigMode,
-) -> Option<relay_core::handoff::ProcessIdentity> {
+) -> Option<(relay_core::handoff::ProcessIdentity, Option<String>)> {
     match provider {
         ProviderKind::Claude | ProviderKind::Fake => {
             relay_provider_claude::find_live_pid_for_session(
@@ -139,6 +144,7 @@ pub fn discover_live_owner(
                 executables.claude.as_deref(),
                 native_session_id,
             )
+            .map(|live| (live.identity, live.title))
         }
         ProviderKind::Codex => None,
     }

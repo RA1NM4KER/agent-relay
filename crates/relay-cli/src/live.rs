@@ -227,7 +227,7 @@ pub fn identify_external(
         .map_err(|_| refuse("could not query Claude's live session registry"))?;
     let record = sessions
         .into_iter()
-        .find(|record| record.session_id == session_id && record.pid == Some(identity.pid))
+        .find(|record| record.session_id == session_id && record.pid == Some(identity.identity.pid))
         .ok_or_else(|| {
             refuse("the running process for this session could not be identified unambiguously")
         })?;
@@ -256,7 +256,7 @@ pub fn identify_external(
         config_dir: config,
         session_id: session_id.to_owned(),
         project: cwd,
-        pid: identity.pid,
+        pid: identity.identity.pid,
     })
 }
 
