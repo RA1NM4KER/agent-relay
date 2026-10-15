@@ -45,6 +45,13 @@ pub struct TerminalCommand {
     #[allow(clippy::struct_field_names)]
     pub env_removals: Vec<OsString>,
     pub current_dir: Option<PathBuf>,
+    /// GitHub #11/#25: a provider-native display title, when the planning step already happened
+    /// to discover one while doing something else it needed to do anyway (never from a call made
+    /// just for this). The one caller that persists it (`run_managed_terminal_inner`) is the
+    /// single place every launch path converges, so every `TerminalCommand` constructor sets this
+    /// explicitly rather than via `Default` — a silently-omitted title is worse than an explicit
+    /// `None`.
+    pub discovered_title: Option<String>,
 }
 
 impl TerminalCommand {
@@ -231,6 +238,7 @@ mod tests {
             envs: Vec::new(),
             env_removals: Vec::new(),
             current_dir: None,
+            discovered_title: None,
         }
     }
 

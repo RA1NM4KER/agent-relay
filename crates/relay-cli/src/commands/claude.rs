@@ -296,6 +296,9 @@ pub(crate) fn run(
         envs,
         env_removals,
         current_dir: Some(canonical_project.clone()),
+        // A fresh launch's thread has no title yet; Claude's own title capture happens
+        // separately, opportunistically, in `sessions::reconcile`.
+        discovered_title: None,
     };
 
     let lease_store = session.lease_store();
@@ -576,6 +579,7 @@ fn run_claude_resume(
         envs,
         env_removals,
         current_dir: Some(canonical_project.to_path_buf()),
+        discovered_title: None,
     };
     if !json_mode {
         println!(

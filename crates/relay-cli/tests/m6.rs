@@ -214,7 +214,13 @@ case "$1" in
         *'"method":"thread/read"'*)
           tid=$(printf '%s' "$line" | sed -n 's/.*"threadId":"\([^"]*\)".*/\1/p')
           if [ "$tid" = "{thread_id}" ]; then
-            printf '{{"id":%s,"result":{{"thread":{{"id":"%s"}}}}}}\n' "$id" "$tid"
+            # GitHub #11/#25: a marker file lets a test opt a thread into reporting a name, the
+            # exact structural shape codex-cli's own `thread/read` response carries.
+            if [ -f "$CODEX_HOME/thread_name.txt" ]; then
+              printf '{{"id":%s,"result":{{"thread":{{"id":"%s","name":"%s"}}}}}}\n' "$id" "$tid" "$(cat "$CODEX_HOME/thread_name.txt")"
+            else
+              printf '{{"id":%s,"result":{{"thread":{{"id":"%s"}}}}}}\n' "$id" "$tid"
+            fi
           else
             printf '{{"id":%s,"error":{{"code":-32600,"message":"thread not loaded"}}}}\n' "$id"
           fi ;;
@@ -1097,6 +1103,102 @@ fn an_unverified_codex_version_declines_event_driven_and_falls_back_to_polling()
         !trace.contains("codex_event_driven_watch_started"),
         "an unverified version must never reach the watch itself: {trace}"
     );
+}
+
+/// GitHub #11/#25: a Codex thread the user renamed in its own TUI has its `thread/read` response
+/// carry a `name` — Relay's existing pre-resume verification call already receives it, and must
+/// persist it as this Relay Session's display title, visible in `relay status`, without ever
+/// mutating the interactive resume argv or re-querying the provider a second time.
+#[test]
+fn a_renamed_codex_thread_has_its_native_title_captured_and_shown_in_status() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-renamed-thread");
+    login_codex(root.path(), "codex-main", &codex);
+    let setup = relay(
+        root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "codex-main",
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(
+        setup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&setup.stderr)
+    );
+
+    let launched = relay(
+        root.path(),
+        &[
+            "codex",
+            "--profile",
+            "codex-main",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(
+        launched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launched.stderr)
+    );
+
+    // The user renamed this thread in Codex's own TUI sometime before this resume.
+    std::fs::write(
+        root.path()
+            .join("config/profiles/codex-main/codex/thread_name.txt"),
+        "my-auth-refactor",
+    )
+    .expect("thread name marker");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_relay"))
+        .arg("--config-root")
+        .arg(root.path().join("config"))
+        .arg("--state-root")
+        .arg(root.path().join("state"))
+        .arg("resume")
+        .arg("codex-main")
+        .arg("--project-dir")
+        .arg(project.path())
+        .arg("--codex-executable")
+        .arg(&codex.executable)
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("CODEX_HOME")
+        .output()
+        .expect("run relay resume");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // The interactive argv is still exactly what was planned — the title capture never touches it.
+    let argv = codex.resume_argv_invocations();
+    assert_eq!(argv.len(), 1);
+    assert_eq!(argv[0], "resume 01a-renamed-thread");
+
+    let status = relay(
+        root.path(),
+        &["status", "--project", &project.path().to_string_lossy()],
+    );
+    assert!(
+        status.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let value: Value = serde_json::from_slice(&status.stdout).expect("json");
+    let sessions = value["data"]["sessions"].as_array().expect("sessions");
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["title"], "my-auth-refactor");
 }
 
 /// agent-relay#18's central regression: event-driven mode must never silently remove, replace, or

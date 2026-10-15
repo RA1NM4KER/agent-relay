@@ -312,6 +312,11 @@ pub fn read_rate_limits(
 pub struct ThreadIdentity {
     pub id: String,
     pub cwd: Option<PathBuf>,
+    /// GitHub #11/#25: the app-server's own `Thread.name` ("Optional user-facing thread title") —
+    /// real, but only ever populated if a user manually renamed the thread via Codex's own TUI;
+    /// `None` for the common case of a thread nobody renamed. Never a second request: this is the
+    /// exact `thread/read` response every caller already fetches to verify the thread exists.
+    pub title: Option<String>,
 }
 
 /// Proves that `thread_id` exists in the profile's own `CODEX_HOME` (metadata only — no turns are
@@ -340,6 +345,11 @@ pub fn read_thread(
     Ok(ThreadIdentity {
         id,
         cwd: thread.get("cwd").and_then(Value::as_str).map(PathBuf::from),
+        title: thread
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned),
     })
 }
 
@@ -540,11 +550,41 @@ mod tests {
         let identity = read_thread(&exe, dir.path(), "t-1").expect("identity");
         assert_eq!(identity.id, "t-1");
         assert_eq!(identity.cwd.as_deref(), Some(Path::new("/work/proj")));
+        // GitHub #11/#25: `preview` ("usually the first user message") is never mistaken for a
+        // title — a thread nobody renamed has no `name` at all, and `title` must be `None`, not
+        // fall back to `preview`.
+        assert_eq!(identity.title, None);
         std::fs::write(dir.path().join("thread_error"), "").unwrap();
         assert!(matches!(
             read_thread(&exe, dir.path(), "t-1"),
             Err(AppServerError::Rpc { .. })
         ));
+    }
+
+    #[test]
+    fn thread_read_captures_a_real_user_set_name_as_the_title_never_the_preview() {
+        let dir = home();
+        std::fs::write(
+            dir.path().join("thread.json"),
+            r#"{"thread":{"id":"t-1","cwd":"/work/proj","name":"my-auth-refactor","preview":"fix the auth bug"}}"#,
+        )
+        .unwrap();
+        let exe = fake::install(dir.path());
+        let identity = read_thread(&exe, dir.path(), "t-1").expect("identity");
+        assert_eq!(identity.title.as_deref(), Some("my-auth-refactor"));
+    }
+
+    #[test]
+    fn thread_read_treats_an_empty_name_as_absent() {
+        let dir = home();
+        std::fs::write(
+            dir.path().join("thread.json"),
+            r#"{"thread":{"id":"t-1","cwd":"/work/proj","name":""}}"#,
+        )
+        .unwrap();
+        let exe = fake::install(dir.path());
+        let identity = read_thread(&exe, dir.path(), "t-1").expect("identity");
+        assert_eq!(identity.title, None);
     }
 
     #[test]

@@ -557,6 +557,18 @@ fn run_managed_terminal_inner(
 
     for continuation in 0..=MAX_CONTINUATIONS {
         let _ = std::io::stdout().flush();
+        // GitHub #11/#25: whatever title `plan_codex_resume` already discovered while verifying
+        // this exact thread (never a new call) — persisted once, opportunistically, for this
+        // Relay Session. A no-op for every Claude launch (`discovered_title` is always `None`
+        // there) and for a Codex thread nobody ever renamed in its own TUI (also `None`).
+        if let Some(title) = command
+            .discovered_title
+            .take()
+            .filter(|title| !title.is_empty())
+            && let Ok(store) = sessions::open_store(&context.paths, &context.canonical_project)
+        {
+            let _ignored = store.set_title_if_absent(&context.session().id, &title);
+        }
         let owner_is_codex = context.service.list().is_ok_and(|registered| {
             registered
                 .iter()
@@ -1086,12 +1098,16 @@ enum ClaudeResumeAction {
 
 /// Builds (does not run) `codex resume <thread-id>` under the profile's own `CODEX_HOME`.
 /// Codex has no background-job/attach concept, so this is unconditional (`NATIVE_RESUME`).
+/// GitHub #11/#25: also returns whatever title the server's own `thread/read` response already
+/// carried (`None` for the common case of a thread nobody renamed in Codex's own TUI) — never a
+/// second request, since this is the exact one-shot verification call every real Codex
+/// resume/switch already makes.
 fn verify_codex_thread(
     codex_executable: &Path,
     config_dir: &Path,
     project_dir: &Path,
     thread_id: &str,
-) -> Result<(), Error> {
+) -> Result<Option<String>, Error> {
     let not_verified = || Error::CodexThreadNotVerified(thread_id.to_owned());
     let identity =
         relay_provider_codex::app_server::read_thread(codex_executable, config_dir, thread_id)
@@ -1099,14 +1115,14 @@ fn verify_codex_thread(
     if identity.id != thread_id {
         return Err(not_verified());
     }
-    if let Some(cwd) = identity.cwd {
+    if let Some(cwd) = &identity.cwd {
         let canonical =
             |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        if canonical(&cwd) != canonical(project_dir) {
+        if canonical(cwd) != canonical(project_dir) {
             return Err(not_verified());
         }
     }
-    Ok(())
+    Ok(identity.title)
 }
 
 pub(crate) fn plan_codex_resume(
@@ -1121,7 +1137,8 @@ pub(crate) fn plan_codex_resume(
     // NATIVE_RESUME is only claimed for a thread Codex itself confirms: the id must exist in this
     // profile's own CODEX_HOME and belong to this project. (An interactive `codex resume` with a
     // missing or stale id can otherwise start a different thread without any clear failure.)
-    verify_codex_thread(inspector.executable(), config_dir, project_dir, thread_id)?;
+    let discovered_title =
+        verify_codex_thread(inspector.executable(), config_dir, project_dir, thread_id)?;
     let mut args: Vec<OsString> = vec!["resume".into(), thread_id.into()];
     args.extend(extra_args.iter().map(OsString::from));
     if let Some(message) = initial_message {
@@ -1135,6 +1152,7 @@ pub(crate) fn plan_codex_resume(
         envs: vec![("CODEX_HOME".into(), config_dir.into())],
         env_removals: Vec::new(),
         current_dir: Some(project_dir.to_path_buf()),
+        discovered_title,
     })
 }
 
@@ -1160,6 +1178,11 @@ fn plan_claude_resume(
         envs,
         env_removals,
         current_dir: Some(project_dir.to_path_buf()),
+        // Claude has no equivalent already-made verification call to piggyback a title on (see
+        // this module's own doc comment on why Codex's `plan_codex_resume` has one and this
+        // doesn't) — Claude's own title capture already happens separately, opportunistically,
+        // in `sessions::reconcile`.
+        discovered_title: None,
     })
 }
 
@@ -1275,6 +1298,7 @@ pub(crate) fn plan_claude_attach(
         envs,
         env_removals,
         current_dir: None,
+        discovered_title: None,
     }
 }
 
