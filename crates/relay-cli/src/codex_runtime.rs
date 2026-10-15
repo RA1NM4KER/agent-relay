@@ -1,25 +1,34 @@
-//! GitHub #18: opt-in wiring for the event-driven wake-up that lets a supervised Codex terminal
-//! learn about a structured `usage_limit_exceeded` exhaustion from Codex's own local rollout file
-//! instead of only ever finding out on GitHub #13's own next poll. See
-//! `relay_provider_codex::rollout` for the actual filesystem mechanics this wires together; this
-//! module owns only the session-scoped orchestration (when to start it, when to stop it).
+//! GitHub #18: the event-driven wake-up that lets a supervised Codex terminal learn about a
+//! structured `usage_limit_exceeded` exhaustion from Codex's own local rollout file instead of
+//! only ever finding out on GitHub #13's own next poll. See `relay_provider_codex::rollout` for
+//! the actual filesystem mechanics this wires together; this module owns only the session-scoped
+//! orchestration (when to start it, when to stop it).
 //!
-//! **Off by default.** [`event_driven_enabled`] gates every entry point in this module *except*
-//! the profile exclusivity lock (`acquire_profile_lock`'s own call site in
-//! `terminal_session::run_managed_terminal_inner`): unset/not `"1"`, no [`EventDrivenRuntime`] is
-//! ever started, so no rollout watch runs and GitHub #13's own polling is the sole safety net,
-//! exactly as before GitHub #16. The exclusivity lock itself is unconditional (agent-relay#18,
-//! profile exclusivity before thread creation) — it is this codebase's own "one active
-//! writer/owner per Relay Session" invariant (`AGENTS.md`) applied at the profile level, and its
-//! correctness cannot depend on whether the opt-in observer feature happens to be on. GitHub #13
-//! is completely unaffected either way: its own polling never depends on anything in this module,
-//! by construction.
+//! **On by default for a verified Codex version (v0.5.0).** Real natural exhaustion has been
+//! live-proven end to end (2026-10-15, `codex-cli 0.156.0`): zero periodic
+//! `account/rateLimits/read` polling while the watch is healthy, exactly one authoritative read
+//! triggered by the real structured event, and a correct automatic handoff — see
+//! `relay_provider_codex::VERIFIED_VERSIONS`'s own doc comment for the full evidence. Disabling it
+//! is the exception now, not the default: [`event_driven_enabled`] returns `true` unless
+//! [`EVENT_DRIVEN_ENV`] is explicitly set to `"0"` — an emergency/debug escape hatch, never a
+//! required opt-in. An unverified Codex version is unaffected by this gate at all:
+//! [`EventDrivenRuntime::start`]'s own `version_verified` check still declines for it
+//! unconditionally, falling back to GitHub #13's structured adaptive polling exactly as before —
+//! this module never guesses at event-driven behavior for a version it hasn't verified. The
+//! profile exclusivity lock (`acquire_profile_lock`'s own call site in
+//! `terminal_session::run_managed_terminal_inner`) remains unconditional regardless of either
+//! gate — it is this codebase's own "one active writer/owner per Relay Session" invariant
+//! (`AGENTS.md`) applied at the profile level, and its correctness cannot depend on whether this
+//! module's own observer happens to be running. GitHub #13 is completely unaffected either way:
+//! its own polling never depends on anything in this module, by construction.
 //!
 //! Every entry point here is best-effort in the same sense the rest of Codex supervision already
-//! is: any failure at any step (version unverified, no known thread id, the file never appeared)
-//! falls back to launching the interactive command exactly as before, and is never surfaced as a
-//! startup failure. GitHub #13's own polling — unaffected by any of this, on or off — remains the
-//! permanent safety net for exactly the sessions this declines to cover.
+//! is: any failure at any step (version unverified, explicitly disabled, no known thread id, the
+//! file never appeared, the OS-level watch itself failing) falls back to launching the
+//! interactive command exactly as before, and is never surfaced as a startup failure. GitHub #13's
+//! own polling — unaffected by any of this, on or off — remains the permanent safety net for
+//! exactly the sessions this declines to cover, and resumes automatically if a watch that was
+//! healthy ever becomes unhealthy (see [`TickEvent::BecameUnhealthy`]).
 //!
 //! ## Why this replaced the app-server observer (2026-10-13 writer-conflict incident)
 //!
@@ -97,9 +106,14 @@ pub const EVENT_DRIVEN_ENV: &str = "RELAY_CODEX_EVENT_DRIVEN";
 /// for an ordinary healthy start.
 const DISCOVERY_STALL_THRESHOLD: Duration = Duration::from_secs(10);
 
+/// `true` unless explicitly disabled (`RELAY_CODEX_EVENT_DRIVEN=0`) — see this module's own doc
+/// comment on why this defaults on as of v0.5.0. There is no documented user contract for the
+/// historical `"1"`-to-opt-in shape (the feature was dogfood-only before now), so this is a plain
+/// default flip, not a value a caller still needs to set to get the current behavior; `"0"` is
+/// the one escape hatch kept, for an operator who needs to force polling-only supervision.
 #[must_use]
 pub(crate) fn event_driven_enabled() -> bool {
-    std::env::var(EVENT_DRIVEN_ENV).ok().as_deref() == Some("1")
+    std::env::var(EVENT_DRIVEN_ENV).ok().as_deref() != Some("0")
 }
 
 /// What [`EventDrivenRuntime::tick`] observed this call, for a caller's own one-time diagnostic
@@ -340,24 +354,30 @@ mod tests {
     }
 
     #[test]
-    fn env_var_gate_defaults_to_off() {
+    fn env_var_gate_defaults_to_on() {
         let _guard = env_lock();
         // Never mutates real process env (this workspace forbids `unsafe`, which `set_var`
-        // requires since Rust 2024) — relies on the ambient test environment not setting this.
+        // requires since Rust 2024) — relies on the ambient test environment not explicitly
+        // disabling this. v0.5.0: the gate defaults on; only an explicit `"0"` disables it.
         assert!(
             std::env::var(EVENT_DRIVEN_ENV).is_err()
-                || std::env::var(EVENT_DRIVEN_ENV).as_deref() != Ok("1")
-                || event_driven_enabled()
+                || std::env::var(EVENT_DRIVEN_ENV).as_deref() != Ok("0")
+                || !event_driven_enabled()
+        );
+        assert!(
+            std::env::var(EVENT_DRIVEN_ENV).as_deref() == Ok("0") || event_driven_enabled(),
+            "the gate must default to enabled, never require an explicit opt-in value"
         );
     }
 
+    /// `start` still declines for an unverified executable regardless of the (now default-on)
+    /// gate — the gate only ever controls whether this module runs *at all*; a verified version
+    /// is still required independently (see this module's own doc comment).
     #[test]
-    fn start_declines_silently_when_the_env_gate_is_off() {
+    fn start_declines_for_an_unverified_executable_even_with_the_gate_on() {
         let _guard = env_lock();
-        assert!(!event_driven_enabled() || std::env::var(EVENT_DRIVEN_ENV).as_deref() == Ok("1"));
-        if event_driven_enabled() {
-            // The ambient environment happens to have this set for some other reason — this test
-            // only verifies the off-by-default decline path, which does not apply here.
+        if !event_driven_enabled() {
+            // The ambient environment has explicitly disabled this — not what this test covers.
             return;
         }
         let dir = tempfile::tempdir().expect("tempdir");

@@ -4,80 +4,82 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
-### Codex event-driven wake-up: replaced the app-server observer with a rollout-file watch
+Nothing yet.
 
-- **Fixed a real "This conversation is open in another app" failure (agent-relay#18).** A live
-  incident proved the opt-in event-driven observer's own `thread/resume` call, against Codex's
-  shared app-server daemon, could win a race against the real interactive client's own resume for
-  the identical thread and get the daemon's thread-store to reject the *interactive* client with
-  `"thread-store conflict: thread <id> already has an active writer"` — confirmed via the real
-  daemon's own structured logs, not inferred from the UI. The app-server's own protocol exposes no
-  read-only subscribe distinct from `thread/resume`, so there was no way to fix the race by
-  reordering alone.
-- **`RELAY_CODEX_EVENT_DRIVEN=1` now watches Codex's own local rollout file instead of connecting
-  to the app-server at all.** Every Codex thread's conversation is durably persisted, append-only,
-  as a `.jsonl` file under `CODEX_HOME/sessions/<YYYY>/<MM>/<DD>/`, structurally naming its exact
+## v0.5.0 — 2026-10-15
+
+### Codex: event-driven exhaustion detection, on by default (agent-relay#18)
+
+A supervised Codex terminal now learns about a real `usage_limit_exceeded` exhaustion from
+Codex's own local rollout file, instead of only ever finding out on the next periodic usage poll
+— and, while that local observation is healthy, no periodic provider usage reads happen at all.
+This has been live-proven end to end (2026-10-15, `codex-cli 0.156.0`): a real natural exhaustion,
+zero periodic `account/rateLimits/read` polling for the 18.5 minutes before it, exactly one
+authoritative read triggered by the event itself, and a correct automatic handoff to a healthy
+fallback profile.
+
+- **On by default for a verified Codex version.** No environment variable is required to get
+  this. `RELAY_CODEX_EVENT_DRIVEN=0` remains as an emergency/debug override to force polling-only
+  supervision; there is no other configuration surface. An **unverified** Codex version is
+  unaffected either way — Relay never guesses at event-driven behavior for a version it hasn't
+  verified, and falls back to the structured adaptive polling below automatically and silently.
+- **How it works.** Every Codex thread's conversation is durably persisted, append-only, as a
+  `.jsonl` file under `CODEX_HOME/sessions/<YYYY>/<MM>/<DD>/`, structurally naming its exact
   thread id in both the filename and its own first record; a failed turn's exhaustion is a
   `task_complete` record whose `error.codex_error_info` is `usage_limit_exceeded`. Relay watches
-  this file with an ordinary OS-level filesystem watcher (`notify`) — there is nothing to contend
-  for a writer slot with, by construction. See `crates/relay-provider-codex/src/rollout.rs`.
-- Removed the now-dead app-server-connected observer machinery
-  (`relay-provider-codex::{events,runtime}`, `observer::Observer` and its `thread/resume`-based
-  attach/reconnect state machine in `relay-cli::codex_runtime`) rather than leaving it in place
-  looking production-capable. The `tungstenite` dependency is no longer needed anywhere in the
-  workspace.
-- See `docs/automatic-handoff.md`'s "Event-driven wake-up" section for the full design.
+  this file with an ordinary OS-level filesystem watcher (`notify`) — there is **no app-server
+  connection, no `thread/resume`, nothing to contend for a writer slot with**, by construction.
+  The watcher tracks the *whole profile domain*, not just one thread: a live supervised Codex TUI
+  can change which native thread it drives mid-session (`/new`, `/fork`, "resume a saved chat")
+  without ending supervision, and the watcher rebinds to whichever thread becomes authoritative —
+  `/fork` via the new thread's own `forked_from_id`; `/new`/"resume a saved chat" via profile
+  exclusivity (below) making "no other Relay-controlled operation can be driving a top-level
+  thread on this profile right now" a provable invariant. Subagents and ephemeral
+  side-conversations are excluded structurally, never by heuristic.
+- **Exhaustion itself is never authoritative.** The rollout event is a wake-up hint only: it
+  triggers exactly one real `account/rateLimits/read`, and `ordinaryUsageAllowed == false` remains
+  the sole exhaustion verdict, exactly as it always has been for the polling path.
+- **Automatic fallback, automatic recovery.** If the watch ever becomes unhealthy (a filesystem
+  error it cannot immediately recover from), GitHub #13's structured adaptive polling below
+  resumes automatically as the safety net — Relay never silently loses exhaustion coverage. On
+  recovery, exactly one reconciliation read re-establishes ground truth, then periodic polling is
+  suppressed again.
+- **Interactive provider arguments are never touched.** The supervised Codex command is always
+  launched with exactly the arguments already planned — no injected `--remote` or any other
+  provider-semantic mutation.
+- See `crates/relay-provider-codex/src/rollout.rs` and `crates/relay-cli/src/codex_runtime.rs` for
+  the mechanism, and `docs/automatic-handoff.md`'s "Event-driven wake-up" section for the full
+  design.
 
-### Codex event-driven wake-up: profile-domain watching and launch-ordering fix
+Bug fixes folded into this architecture along the way, kept here because they fixed real,
+live-found defects rather than because they are interesting history:
 
-- **Closed a profile-exclusivity ordering gap (agent-relay#18).** `relay codex`'s fresh-launch
-  path, and the handoff/switch/automatic-handoff bootstrap path, each created a Codex thread
-  (`codex exec`) *before* ever checking the profile's exclusivity lock — only the later interactive
-  attach checked it. A second, concurrent Relay-managed operation on the same profile could
-  therefore create a real, stray top-level rollout file in an already-supervised `CODEX_HOME`
-  before being refused. Both paths now acquire the lock before any provider action that could
-  create a thread; the lock itself is now unconditional, not gated behind the opt-in event-driven
-  flag — it is this codebase's own "one active writer/owner per Relay Session" invariant, kept
-  regardless.
-- **`RolloutWatcher` is now a profile-domain watcher, not a single-thread one.** A live supervised
-  Codex TUI can change which native thread it drives mid-session without ending supervision — real
-  in-TUI commands (`/new`, `/fork`, "resume a saved chat"), not a theoretical pathway. The watcher
-  now tracks a single mutable "currently authoritative top-level thread," rebinding it on
-  structural evidence: `/fork` via the new thread's own `forked_from_id`; `/new` and "resume a
-  saved chat" via post-watch growth on another structurally top-level rollout, attributable to the
-  one supervised TUI precisely because the ordering fix above makes "no other Relay-controlled
-  operation can be driving a top-level thread on this profile right now" a provable invariant.
-  Subagents and ephemeral side-conversations are excluded structurally (`parentThreadId`/
-  `ephemeral`), never by heuristic. See `crates/relay-provider-codex/src/rollout.rs`'s own module
-  doc for the full design and `crates/relay-cli/src/codex_runtime.rs` for the
-  `RolloutEvent::ThreadTransitioned` wiring.
-- **Fixed a real live-preflight failure: rollout discovery could never find a header larger than
-  8 KiB (agent-relay#18).** `read_session_meta_payload` read a single fixed 8,192-byte chunk
-  looking for the first record's newline. A real pinned `codex-cli 0.156.0` rollout's first
-  `session_meta` record — its `base_instructions` payload included — is 22,275 bytes, so
-  `find_rollout_file` could never locate it: `initial_tail` stayed `None`, the watcher never
-  became healthy, and GitHub #13's timer polling correctly stayed the sole safety net for the
-  entire session, but the zero-poll architecture never engaged at all. `read_session_meta_payload`
-  now reads bounded by the record itself (`BufRead::read_until(b'\n', ..)`), with a 1 MiB safety
-  ceiling well above any real observed size; exceeding it fails closed (`None`, visibly unhealthy,
-  retried later), never silently misparsed. `EventDrivenRuntime` also now traces
-  `codex_event_driven_discovery_stalled` once if a watch never becomes healthy within 10 seconds,
-  so a future discovery failure is distinguishable in the durable trace from an ordinary startup
-  window, not indistinguishable from it as `codex_event_driven_watch_started` alone was. See
-  `crates/relay-provider-codex/src/rollout.rs` (`read_session_meta_payload`) and
-  `crates/relay-cli/src/codex_runtime.rs` (`DISCOVERY_STALL_THRESHOLD`).
-- **`auto-handoff.log`'s own size-bounding truncation could erase the exact evidence agent-relay#18
-  needs after the fact.** The live session behind the fix above ran for ~2 hours: its single
-  `codex_event_driven_watch_started` line (written once, at attach) was silently wiped by a later
-  `codex_timer_poll` evaluation's own truncation once ordinary per-poll churn crossed the log's
-  64 KiB cap — confirmed directly against the real file. `open_log` now carries forward lines
-  matching the event-driven runtime's own lifecycle vocabulary (`codex_event_driven_*`,
-  `codex_poll_timer_suppressed_event_driven_healthy`/`..._resumed_event_driven_unhealthy`,
-  `codex_usage_limit_event_*`, `codex_reconnect_reconciliation_*`) across a truncation instead of
-  discarding them, capped at 50 most-recent lines so a pathologically flapping watch still cannot
-  make this unbounded; the ordinary `codex_timer_poll`/usage-check churn that actually grows the
-  file is still fully bounded exactly as before. See `crates/relay-cli/src/auto_handoff.rs`
-  (`is_event_driven_lifecycle_line`, `open_log`).
+- A fixed 8,192-byte read ceiling meant a real rollout's first record — 22,275 bytes once Codex's
+  own `base_instructions` payload is included — could never be found at all; discovery now reads
+  bounded by the record itself, with a 1 MiB safety ceiling that fails closed rather than silently
+  misparsing.
+- The durable trace log's own size-bounding truncation could erase the sparse lifecycle evidence
+  (attach, health transitions) needed to reconstruct what happened after the fact; it now carries
+  those lines forward across a truncation, capped so a flapping watch still cannot make it
+  unbounded.
+- A profile-exclusivity ordering gap let a second, concurrent Relay-managed operation on the same
+  profile create a stray Codex thread before ever being refused; profile exclusivity is now
+  acquired before any provider action that could create a thread, unconditionally.
+
+### Codex adaptive polling cadence (fallback path, agent-relay#13)
+
+- **Adaptive Codex polling cadence near quota limits.** A supervised Codex terminal's periodic
+  structured usage check (used automatically whenever the event-driven path above isn't active)
+  speeds up as the account's own read reports it getting closer to its limit — 120s at comfortable
+  usage (unchanged default), 15s at 90–97% trustworthy usage, 5s at 98%+ — instead of a single
+  fixed 120s interval regardless of how close the account is to being exhausted. The
+  `ordinaryUsageAllowed == false` verdict remains the *only* authoritative exhaustion signal — a
+  percentage only ever selects how soon to look again, never whether the account is exhausted —
+  and a fresh lower reading after a reset relaxes the cadence again rather than staying sticky.
+  `RELAY_CODEX_POLL_SECS` keeps its existing meaning: unset means adaptive, `0` disables polling,
+  and `N > 0` is a deterministic fixed override. A Codex session's own pre-launch/resume preflight
+  read seeds the *initial* cadence when it is already near the limit. See
+  `crates/relay-cli/src/codex_poll.rs` and `crates/relay-provider-codex/src/polling.rs`.
 
 ### Handoff checkpoint for non-Git workspaces
 
@@ -106,87 +108,6 @@ All notable changes to Agent Relay will be documented here.
   artifact, journals the classification, hashes and backup location, then resumes the same native
   session. Divergent, ahead, active, unreadable, or ambiguous artifacts remain fail-closed; this
   is not transcript merging.
-
-### Codex exhaustion detection
-
-- **Adaptive Codex polling cadence near quota limits (GitHub #13).** A supervised Codex terminal's
-  periodic structured usage check (Codex has no `StopFailure`-style exhaustion event to hook) now
-  speeds up as the account's own read reports it getting closer to its limit — 120s at comfortable
-  usage (unchanged default), 15s at 90–97% trustworthy usage, 5s at 98%+ — instead of a single fixed
-  120s interval regardless of how close the account is to being exhausted. A real live incident
-  found this let 10-20s of already-exhausted Codex UI pass, visibly, before Relay ever reacted; the
-  fast cadence cuts the worst case to roughly 5s plus the read's own latency (~0.7-1.7s). The
-  `ordinaryUsageAllowed == false` verdict remains the *only* authoritative exhaustion signal — a
-  percentage only ever selects how soon to look again, never whether the account is exhausted — and
-  a fresh lower reading after a reset relaxes the cadence again rather than staying sticky.
-  `RELAY_CODEX_POLL_SECS` keeps its existing meaning: unset now means adaptive (previously a fixed
-  120s), `0` still disables polling, and `N > 0` is still a deterministic fixed override. A Codex
-  session's own pre-launch/resume preflight read seeds the *initial* cadence when it is already
-  near the limit, so a session that starts at 98% does not wait out one comfortable interval before
-  its first fast poll. See `crates/relay-cli/src/codex_poll.rs` and
-  `crates/relay-provider-codex/src/polling.rs`.
-
-- **Experimental, opt-in event-driven Codex wake-up (GitHub #16/#17/#18), off by default.** Set
-  `RELAY_CODEX_EVENT_DRIVEN=1` to let a supervised Codex terminal wake up on Codex's own structured
-  turn-failure error (`usageLimitExceeded`) or its `account/rateLimits/updated` notification,
-  instead of only ever finding out on GitHub #13's own next poll. Unset (the default), every Codex
-  launch/resume/switch path is byte-for-byte unchanged; #13's adaptive polling remains fully active
-  as the watchdog either way, and this feature never becomes authoritative on its own — every
-  event, and every successful (re)attach, only ever triggers the same existing
-  `account/rateLimits/read` evaluation, and `ordinaryUsageAllowed == false` remains the sole
-  exhaustion verdict. Requires the exact Codex CLI version this was live-verified against
-  (`assess_version`'s `VERIFIED_VERSIONS`); an unverified version silently declines rather than
-  guessing at flags a different release may not support.
-  - **Fresh-launch activation (#18, reversing #16's own limitation).** Live-verified: `thread/
-    resume` succeeds once a thread's first turn has *started*, not completed. A fresh launch (no
-    thread id known yet) now waits for the real `thread/started` broadcast, then retries
-    `thread/resume` on a cheap local interval (never a provider call) until it succeeds — no fixed
-    timeout, since a real user may take any amount of time to send their first message.
-  - **Observer disconnect detection + automatic reconnect + reconciliation (#18).** A dead observer
-    connection is now a deterministic local signal (`ObserverEvent::Disconnected`), not silence
-    indistinguishable from "nothing happened yet." Detected disconnects (live-tested, including
-    abruptly mid-turn) trigger a local reconnect (same bounded backoff as fresh-launch activation,
-    reusing the already-known thread id — never re-learned) and, on success, exactly one
-    authoritative `account/rateLimits/read` before resuming event-driven operation — live-verified
-    to correctly pick up the remainder of a turn missed mid-flight.
-  - **Trigger-provenance tracing (#18).** A real natural exhaustion (dogfooded with two concurrent
-    Codex Relay Sessions) proved end-to-end handoff worked, but the durable trace could not prove
-    *why* the deciding evaluation ran — the periodic timer, a real `usageLimitExceeded` event, and
-    a post-reconnect reconciliation read all collapsed into the same generic `codex_poll` string.
-    The scheduler now carries a typed reason (`codex_timer_poll` / `codex_usage_limit_event` /
-    `codex_reconnect_reconciliation`), recorded verbatim in the durable auto-handoff log instead of
-    inferred later from timing; a `usageLimitExceeded` event is separately traced the moment it is
-    drained from the observer (`codex_usage_limit_event_received`), and an event that arrives while
-    an evaluation is already in flight is traced as coalesced into it rather than silently dropped
-    or starting a second read. No routing, polling, or handoff behavior changed — this only makes
-    the existing behavior provable after the fact. See `crates/relay-cli/src/{auto_handoff,
-    codex_poll,codex_runtime}.rs`.
-  - **Fixed: event-driven mode no longer changes the interactive session's own permission
-    semantics (#18).** A real dogfood session's persisted `--yolo` broke once event-driven mode
-    was enabled — Codex's own TUI (live-verified against `codex-cli 0.155.0`) rejects any CLI
-    permission override (`--yolo`, `--sandbox`, `-a`, any `-c approval_policy=…`/`sandbox_mode=…`)
-    outright when the interactive client is put in "remote task" mode (`--remote <ADDR>`), which
-    this feature previously always did so a separate Relay connection could observe the same
-    thread; dropping the override let the resume proceed but under Codex's non-`--yolo` default,
-    breaking approval-gated MCP writes that used to need none. The event runtime now ensures
-    Codex's own shared local app-server daemon is running (`codex app-server daemon start`,
-    the same officially supported multi-client backend `codex agents` already relies on) and
-    connects its own observer to that daemon's well-known control socket, instead of spawning a
-    private `--listen` app-server and appending `--remote` to the interactive command. The
-    interactive `TerminalCommand` is now launched completely unmodified — an ordinary local
-    `codex resume` with no `--remote` flag auto-discovers and reuses the exact same daemon on its
-    own, which Codex treats as an ordinary local session for permission purposes, keeping every
-    persisted provider argument meaning exactly what it always did. Also fixes the
-    executable-resolution regression this depends on staying fixed (already landed separately):
-    the event runtime always receives the terminal's own already-resolved executable, never a
-    second, potentially-relative `codex` lookup. See
-    `crates/relay-provider-codex/src/runtime.rs` (`ensure_managed_daemon`) and
-    `crates/relay-cli/src/codex_runtime.rs`.
-  - See `crates/relay-provider-codex/src/{events,observer,runtime}.rs` and
-    `crates/relay-cli/src/{codex_poll,codex_runtime}.rs` for the mechanism, and the
-    research/implementation history in GitHub #15/#16/#17/#18 for what was and was not
-    live-verified. Periodic polling itself has **not** been removed or reduced by this — see #18
-    for what remains before that can happen.
 
 ## v0.4.1 — 2026-09-25
 

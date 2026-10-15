@@ -29,24 +29,39 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Codex versions this crate was actually exercised against. See
 /// `relay-provider-claude::capabilities::VERIFIED_VERSIONS` for the same philosophy: newer
-/// patches within the same line are treated as unverified rather than rejected outright.
+/// patches within the same line are treated as unverified rather than rejected outright, never
+/// casually added just because a version appears compatible.
 ///
-/// `0.156.0` added agent-relay#18 (reusing `codex app-server daemon start`'s dedicated
-/// `CODEX_HOME/packages/app-server-daemon` bootstrap instead of the private `--listen`
-/// app-server this crate used before — see `crate::runtime`'s own module doc): live-verified
-/// against a real, isolated Relay profile `CODEX_HOME` on this exact version — daemon bootstrap,
-/// `Observer::attach`'s full handshake (`initialize`/`thread/resume`) against a real dormant
-/// thread, and `account/rateLimits/read`'s `ordinaryUsageAllowed` field, all through Relay's own
-/// unmodified production code. A source diff of `codex-app-server-protocol` between the
-/// `rust-v0.155.0` and `rust-v0.156.0` tags confirmed every wire field this crate depends on
-/// (`codexErrorInfo`'s `usageLimitExceeded` string, `RateLimitSnapshot`/`RateLimitWindow`,
-/// `ordinary_usage_allowed`, `thread/resume`'s core params/response shape) is byte-for-byte
-/// unchanged — every change in that diff was a new, optional, additive field or the removal of
-/// an already-deprecated method this crate never calls (`thread/rollback`). `0.155.0` itself
-/// cannot run `daemon start` against a typical Relay profile `CODEX_HOME` at all (it requires a
-/// full standalone-install layout under `CODEX_HOME`, which a bare profile config directory is
-/// not) — `0.156.0` is kept here specifically because it is the earliest version with the
-/// dedicated daemon package bootstrap this crate's production path now depends on.
+/// `0.156.0` is the strongest-verified entry: beyond the daemon-bootstrap and wire-protocol
+/// verification below, a real agent-relay#18 natural exhaustion was live-proven end to end on
+/// this exact version (2026-10-15) — a genuine `usage_limit_exceeded` structured record on a
+/// 22,275-byte `session_meta`, Relay's rollout watcher finding it with zero periodic
+/// `account/rateLimits/read` polling for the preceding 18.5 minutes, exactly one authoritative
+/// read following the event (`ordinaryUsageAllowed == false` as the sole verdict), and a
+/// completed automatic handoff to a healthy fallback profile with no writer conflict and
+/// unmodified interactive argv. See `crates/relay-provider-codex/src/rollout.rs`'s own module
+/// doc and `CHANGELOG.md`'s v0.5.0 entry for the full design this validates.
+///
+/// Separately, `0.156.0` added agent-relay#18's reuse of `codex app-server daemon start`'s
+/// dedicated `CODEX_HOME/packages/app-server-daemon` bootstrap (the shared per-`CODEX_HOME`
+/// daemon every real `relay codex`/`relay resume` launch already talks to) instead of a private
+/// `--listen` app-server — live-verified against a real, isolated Relay profile `CODEX_HOME` on
+/// this exact version: daemon bootstrap, and `account/rateLimits/read`'s `ordinaryUsageAllowed`
+/// field, through Relay's own unmodified production code. (An earlier, since-removed
+/// app-server-connected observer design also live-verified `thread/resume` against a real dormant
+/// thread on this version before a 2026-10-13 writer-conflict incident proved that whole approach
+/// unsafe — see `relay_cli::codex_runtime`'s own module doc; the current architecture is the pure
+/// filesystem `RolloutWatcher`, which never opens an app-server connection at all.) A source diff
+/// of `codex-app-server-protocol` between the `rust-v0.155.0` and `rust-v0.156.0` tags confirmed
+/// every wire field this crate depends on (`codexErrorInfo`'s `usageLimitExceeded` string,
+/// `RateLimitSnapshot`/`RateLimitWindow`, `ordinary_usage_allowed`) is byte-for-byte unchanged —
+/// every change in that diff was a new, optional, additive field or the removal of an
+/// already-deprecated method this crate never calls. `0.155.0` itself cannot run `daemon start`
+/// against a typical Relay profile `CODEX_HOME` at all (it requires a full standalone-install
+/// layout under `CODEX_HOME`, which a bare profile config directory is not) — `0.156.0` is kept
+/// here specifically because it is the earliest version with the dedicated daemon package
+/// bootstrap this crate's production path now depends on, and the only version with a real live
+/// natural-exhaustion proof behind it.
 pub const VERIFIED_VERSIONS: &[&str] = &["0.155.0", "0.156.0"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

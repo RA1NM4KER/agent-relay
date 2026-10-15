@@ -154,6 +154,13 @@ struct FakeCodex {
 
 impl FakeCodex {
     fn new(root: &Path, name: &str, thread_id: &str) -> Self {
+        Self::with_version(root, name, thread_id, "0.155.0")
+    }
+
+    /// Like [`Self::new`], but reporting an arbitrary `--version` string — agent-relay#18 v0.5.0:
+    /// lets a test exercise an unverified Codex version's own fail-safe decline without needing a
+    /// second, separately-maintained fake script.
+    fn with_version(root: &Path, name: &str, thread_id: &str, version: &str) -> Self {
         use std::os::unix::fs::PermissionsExt;
         let executable = root.join(format!("fake-codex-{name}"));
         let exec_log_path = root.join(format!("codex-exec-{name}.log"));
@@ -162,7 +169,7 @@ impl FakeCodex {
         let script = format!(
             r#"#!/bin/sh
 case "$1" in
-  --version) printf 'codex-cli 0.155.0\n' ;;
+  --version) printf 'codex-cli {version}\n' ;;
   doctor) printf '{{"checks":{{"auth.credentials":{{"status":"ok","summary":"logged in via fake"}}}}}}\n' ;;
   login) exit 0 ;;
   logout) exit 0 ;;
@@ -227,6 +234,7 @@ esac
             exec_log = exec_log_path.display(),
             resume_log = resume_log_path.display(),
             resume_argv_log = resume_argv_log_path.display(),
+            version = version,
         );
         std::fs::write(&executable, script).expect("fake codex script");
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
@@ -888,7 +896,6 @@ fn event_runtime_reuses_the_resolved_terminal_codex_executable() {
             .arg("--project-dir")
             .arg(project.path())
             .env("PATH", &path)
-            .env("RELAY_CODEX_EVENT_DRIVEN", "1")
             .env_remove("CLAUDE_CONFIG_DIR")
             .env_remove("CODEX_HOME");
         if explicit {
@@ -948,6 +955,150 @@ fn event_runtime_reuses_the_resolved_terminal_codex_executable() {
     }
 }
 
+/// agent-relay#18 v0.5.0: `RELAY_CODEX_EVENT_DRIVEN=0` is the one kept escape hatch, explicitly
+/// disabling the now-default event-driven path — proven by the complete *absence* of any
+/// `codex_event_driven_*` trace line (the gate short-circuits before `EventDrivenRuntime::start`
+/// ever runs, so there is nothing to trace, not even a decline reason), while the interactive
+/// session still runs to completion exactly as it would under polling-only supervision.
+#[test]
+fn explicit_disable_override_falls_back_to_polling_only_with_no_watcher_trace() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+    let codex = FakeCodex::new(root.path(), "codex-main", "01a-disabled-thread");
+    login_codex(root.path(), "codex-main", &codex);
+
+    let launched = relay(
+        root.path(),
+        &[
+            "codex",
+            "--profile",
+            "codex-main",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(
+        launched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launched.stderr)
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_relay"))
+        .arg("--config-root")
+        .arg(root.path().join("config"))
+        .arg("--state-root")
+        .arg(root.path().join("state"))
+        .arg("resume")
+        .arg("codex-main")
+        .arg("--project-dir")
+        .arg(project.path())
+        .arg("--codex-executable")
+        .arg(&codex.executable)
+        .env("RELAY_CODEX_EVENT_DRIVEN", "0")
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("CODEX_HOME")
+        .output()
+        .expect("run relay resume");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let canonical_project = std::fs::canonicalize(project.path()).expect("canonical project");
+    let project_id =
+        relay_core::handoff::ProjectId::for_canonical_path(&canonical_project).expect("project id");
+    let trace = std::fs::read_to_string(
+        root.path()
+            .join("state/projects")
+            .join(project_id.as_str())
+            .join("auto-handoff.log"),
+    )
+    .unwrap_or_default();
+    assert!(
+        !trace.contains("codex_event_driven"),
+        "an explicit RELAY_CODEX_EVENT_DRIVEN=0 must leave no event-driven trace at all, not \
+         even a decline reason: {trace}"
+    );
+}
+
+/// agent-relay#18 v0.5.0: an unverified Codex version must never be guessed at — the default-on
+/// event-driven gate still declines for it, visibly (`codex_event_driven_version_unverified`),
+/// and the interactive session still runs to completion on GitHub #13's structured adaptive
+/// polling, the existing fail-safe path.
+#[test]
+fn an_unverified_codex_version_declines_event_driven_and_falls_back_to_polling() {
+    let root = tempdir().expect("tempdir");
+    let project = tempdir().expect("project dir");
+    init_git_repo(project.path());
+    let codex =
+        FakeCodex::with_version(root.path(), "codex-main", "01a-unverified-thread", "9.9.9");
+    login_codex(root.path(), "codex-main", &codex);
+
+    let launched = relay(
+        root.path(),
+        &[
+            "codex",
+            "--profile",
+            "codex-main",
+            "--project-dir",
+            &project.path().to_string_lossy(),
+            "--no-attach",
+            "--codex-executable",
+            &codex.path_text(),
+        ],
+    );
+    assert!(
+        launched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launched.stderr)
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_relay"))
+        .arg("--config-root")
+        .arg(root.path().join("config"))
+        .arg("--state-root")
+        .arg(root.path().join("state"))
+        .arg("resume")
+        .arg("codex-main")
+        .arg("--project-dir")
+        .arg(project.path())
+        .arg("--codex-executable")
+        .arg(&codex.executable)
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("CODEX_HOME")
+        .output()
+        .expect("run relay resume");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let canonical_project = std::fs::canonicalize(project.path()).expect("canonical project");
+    let project_id =
+        relay_core::handoff::ProjectId::for_canonical_path(&canonical_project).expect("project id");
+    let trace = std::fs::read_to_string(
+        root.path()
+            .join("state/projects")
+            .join(project_id.as_str())
+            .join("auto-handoff.log"),
+    )
+    .unwrap_or_default();
+    assert!(
+        trace.contains("codex_event_driven_version_unverified"),
+        "an unverified Codex version must be declined visibly, never silently guessed at: {trace}"
+    );
+    assert!(
+        !trace.contains("codex_event_driven_watch_started"),
+        "an unverified version must never reach the watch itself: {trace}"
+    );
+}
+
 /// agent-relay#18's central regression: event-driven mode must never silently remove, replace, or
 /// alter the effective meaning of a persisted, permission-affecting provider argument
 /// (`--sandbox` here; `--yolo`/`-a`/`-c approval_policy=...` are rejected identically by Codex's
@@ -985,8 +1136,8 @@ fn event_driven_mode_never_mutates_persisted_permission_affecting_provider_args(
         String::from_utf8_lossy(&launched.stderr)
     );
 
-    // `relay()` (this file's own helper) does not thread extra env vars through; build the
-    // resume invocation directly so `RELAY_CODEX_EVENT_DRIVEN=1` reaches it.
+    // v0.5.0: event-driven mode is on by default for a verified Codex version — no opt-in env
+    // var needed to reach it.
     let output = Command::new(env!("CARGO_BIN_EXE_relay"))
         .arg("--config-root")
         .arg(root.path().join("config"))
@@ -998,7 +1149,6 @@ fn event_driven_mode_never_mutates_persisted_permission_affecting_provider_args(
         .arg(project.path())
         .arg("--codex-executable")
         .arg(&codex.executable)
-        .env("RELAY_CODEX_EVENT_DRIVEN", "1")
         .env_remove("CLAUDE_CONFIG_DIR")
         .env_remove("CODEX_HOME")
         .output()
@@ -1206,7 +1356,6 @@ esac
             .arg(project_a.path())
             .arg("--codex-executable")
             .arg(&codex_bin)
-            .env("RELAY_CODEX_EVENT_DRIVEN", "1")
             // agent-relay#18: this test keeps session A's interactive command alive far longer
             // than any other test in this suite — long enough for GitHub#13's own ordinary
             // polling cadence to fire for real. Each such poll spawns a *detached* child via
@@ -1266,7 +1415,6 @@ esac
             .arg(project_b.path())
             .arg("--codex-executable")
             .arg(&codex_bin)
-            .env("RELAY_CODEX_EVENT_DRIVEN", "1")
             .env("RELAY_CODEX_POLL_SECS", "0")
             .env_remove("CLAUDE_CONFIG_DIR")
             .env_remove("CODEX_HOME")

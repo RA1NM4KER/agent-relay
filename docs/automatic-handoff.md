@@ -201,10 +201,11 @@ target exists before `codex resume` runs). Anything unavailable, contradictory o
 account is `UNKNOWN`. Relay never reads `auth.json` and never matches English error text.
 
 Because Codex has no hook for "the limit was hit", a supervised Codex terminal (`relay resume`,
-`relay switch`) starts the same bounded one-shot evaluation the Claude hook starts, while that
-terminal is open. The interval is adaptive (GitHub #13): 2 minutes at comfortable usage (the
-default, unchanged), tightening to 15s once a trustworthy read reports 90%+ used and 5s at 98%+ —
-never inferring exhaustion from a percentage itself, only how soon to look again; the
+`relay switch`) falls back to a bounded one-shot evaluation on a periodic timer, while that
+terminal is open, whenever the event-driven wake-up below either isn't covering this Codex version
+or has lost local coverage. The interval is adaptive (GitHub #13): 2 minutes at comfortable usage
+(the default, unchanged), tightening to 15s once a trustworthy read reports 90%+ used and 5s at
+98%+ — never inferring exhaustion from a percentage itself, only how soon to look again; the
 `ordinaryUsageAllowed == false` verdict above remains the sole authoritative signal, and a fresh
 lower reading after a reset relaxes the cadence back to 2 minutes. `RELAY_CODEX_POLL_SECS=0` still
 disables polling entirely; `RELAY_CODEX_POLL_SECS=N` (`N > 0`) is still a deterministic fixed
@@ -214,15 +215,26 @@ explicit `relay watch run` or the Herdr event.
 Codex → Claude and Codex → other Codex profiles are `STATE_CONTINUATION` (a new session seeded from
 the state bundle); cross-profile native resume is not supported.
 
-### Event-driven wake-up (GitHub #16/#18), opt-in only
+### Event-driven wake-up (GitHub #16/#18), on by default
 
-Set `RELAY_CODEX_EVENT_DRIVEN=1` to let a supervised Codex terminal wake up as soon as Codex's own
-local rollout file for the already-known thread gains a structured `usage_limit_exceeded`
-exhaustion record, rather than only ever finding out on the next poll above. Unset (the default),
-nothing here changes: every launch/resume/switch behaves exactly as already described. This
-feature never becomes authoritative on its own: the signal only ever triggers the same
-`account/rateLimits/read` evaluation, and `ordinaryUsageAllowed == false` remains the sole
-exhaustion verdict.
+**Live-proven end to end (2026-10-15, `codex-cli 0.156.0`):** a real natural exhaustion — a
+genuine `usage_limit_exceeded` structured record — was detected via the local observation below
+with zero periodic `account/rateLimits/read` polling for the 18.5 minutes before it, exactly one
+authoritative read followed the event itself, and a correct automatic handoff to a healthy
+fallback profile completed, with no writer conflict and unmodified interactive Codex arguments.
+
+For a live-verified Codex version (`relay_provider_codex::VERIFIED_VERSIONS`), a supervised Codex
+terminal wakes up as soon as Codex's own local rollout file for the already-known thread gains a
+structured `usage_limit_exceeded` exhaustion record, rather than only ever finding out on the next
+poll above — **and makes no periodic provider usage reads at all while that local observation is
+healthy.** This is on by default; no configuration is needed to get it.
+`RELAY_CODEX_EVENT_DRIVEN=0` is the one kept override, forcing polling-only supervision (the
+behavior above, unconditionally) — an emergency/debug escape hatch, not something ordinary use
+needs to set. An unverified Codex version is unaffected by this gate either way: Relay never
+guesses at event-driven behavior for a version it hasn't verified, and the polling path above
+covers it exactly as if this feature did not exist. This feature never becomes authoritative on
+its own: the signal only ever triggers the same `account/rateLimits/read` evaluation, and
+`ordinaryUsageAllowed == false` remains the sole exhaustion verdict.
 
 **This replaced an app-server-connected observer design (2026-10-13).** Two earlier rounds of this
 feature attached a passive connection to Codex's shared app-server daemon and subscribed via

@@ -30,19 +30,29 @@ profile in one priority order. Claude → Claude continues the same native Claud
 involving Codex continues from a Relay state bundle in a new session — never the same native
 conversation across the two CLIs.
 
-Status: **v0.4.1, macOS-first.** The handoff, recovery, and usage-detection paths are validated
-live on macOS with Claude Code 2.1.276–2.1.278; Codex support was checked live against Codex CLI
-0.155.0 (structured usage reads, thread verification, Codex → Claude handoff by hand, pre-launch
-fallback from an exhausted Codex profile). Automatic handoff *from a real Codex exhaustion
-mid-session* has now been observed live: detection and evaluation ran correctly against a genuine
-exhaustion, though that specific incident had no eligible fallback available to hand off to (every
-configured fallback was independently exhausted at the same time) — see
-[docs/automatic-handoff.md](docs/automatic-handoff.md#no-eligible-fallback) for the diagnostics
-that case now produces. A full live handoff away from a real Codex exhaustion (to a healthy
-fallback) is still covered by fake-provider tests rather than observed live. Linux builds and
-passes the tests in CI but is not yet live-supported or validated (some process-scan code is
-macOS-specific). Relay runs entirely standalone — no separate tool required; an optional
-[Herdr](https://herdr.dev) integration exists for people already using Herdr (see
+Status: **v0.5.0, macOS-first.** The handoff, recovery, and usage-detection paths are validated
+live on macOS with Claude Code 2.1.276–2.1.278; Codex support is live-validated against Codex CLI
+0.156.0 (structured usage reads, thread verification, Codex → Claude handoff by hand, pre-launch
+fallback from an exhausted Codex profile). A **full live handoff away from a real Codex
+exhaustion, mid-session, to a healthy fallback profile has now been observed end to end**: a
+genuine `usage_limit_exceeded` exhaustion, detected and corroborated via Codex's own authoritative
+usage check, followed by a completed automatic handoff to a healthy Claude profile — not merely
+covered by fake-provider tests.
+
+While Relay's own local observation of a supervised Codex session is healthy, it makes **no
+periodic provider usage reads at all** — it watches Codex's own local rollout file for a
+structured exhaustion signal instead, and only reads Codex's usage API once that signal (or an
+ordinary recovery/reconnection) actually calls for it. That local signal is never authoritative on
+its own: Relay still confirms every exhaustion via Codex's own structured usage state before
+acting. Provider usage polling resumes automatically as a safety fallback if local observation
+ever becomes untrustworthy, and this whole mechanism is on by default for a live-verified Codex
+version — no configuration needed. See
+[docs/automatic-handoff.md](docs/automatic-handoff.md#event-driven-wake-up-github-1618-on-by-default)
+for the full design.
+
+Linux builds and passes the tests in CI but is not yet live-supported or validated (some
+process-scan code is macOS-specific). Relay runs entirely standalone — no separate tool required;
+an optional [Herdr](https://herdr.dev) integration exists for people already using Herdr (see
 ["Is Herdr required?"](#is-herdr-required)), also validated live.
 
 ## Install
@@ -180,8 +190,9 @@ Details: [docs/security.md](docs/security.md).
 
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) 2.1.x for Claude profiles (2.1.276–2.1.278
   validated; a newer 2.1.x patch works, `relay setup` explains if it isn't verified yet).
-- The [Codex CLI](https://developers.openai.com/codex) for Codex profiles (0.155.0 validated; other
-  versions are treated as unverified).
+- The [Codex CLI](https://developers.openai.com/codex) for Codex profiles (0.155.0 and 0.156.0
+  validated — 0.156.0 live-validated end to end against a real natural exhaustion; other versions
+  are treated as unverified).
 - `git` — Relay checkpoints a project's git state before a handoff.
 - [Herdr](https://herdr.dev) is optional.
 - macOS is the live-validated platform. Linux currently builds and passes the tests in CI but is not
@@ -418,18 +429,21 @@ relay handoff run --from claude-primary --to claude-backup --project ~/repos/foo
   session, which needs its first message on the command line.
 - Codex can be an automatic *source* as well as a target. Its exhaustion is read from Codex's own
   typed interface (`codex app-server` → `account/rateLimits/read`, `ordinaryUsageAllowed`), never
-  from error text; anything unavailable or ambiguous is `UNKNOWN` and moves nothing. Codex has no
-  limit event to hook, so while you are inside a supervised `relay resume`/`relay switch` Codex
-  session Relay checks that interface periodically, only for as long as that terminal is open — and
+  from error text; anything unavailable or ambiguous is `UNKNOWN` and moves nothing. For a
+  live-verified Codex version, Relay locally watches Codex's own rollout file for a structured
+  `usage_limit_exceeded` record while that observation is healthy — **no periodic provider usage
+  reads happen in that state** — and only calls the usage interface once that signal (or a
+  recovery/reconnection) actually calls for it; that local signal is never authoritative on its
+  own, so `ordinaryUsageAllowed` is still what decides. This is on by default, no configuration
+  needed (`RELAY_CODEX_EVENT_DRIVEN=0` forces polling-only supervision if you ever need it). If
+  local observation becomes untrustworthy, or the Codex version isn't live-verified, Relay falls
+  back to checking the usage interface periodically for as long as the terminal is open —
   adaptively: every 2 minutes at comfortable usage, tightening to 15s once a trustworthy read
   reports 90%+ used and 5s at 98%+, so a near-limit account is caught in roughly 5s instead of
   waiting out a full 2-minute interval (`RELAY_CODEX_POLL_SECS`, `0` disables, `N > 0` pins a fixed
-  interval instead). An off-by-default `RELAY_CODEX_EVENT_DRIVEN=1` lets a Codex terminal wake up
-  the moment Codex's own local rollout file for the known thread gains a structured
-  `usage_limit_exceeded` record, instead of only the periodic check, by watching that file
-  directly (never an app-server connection) — see
-  [docs/automatic-handoff.md](docs/automatic-handoff.md#event-driven-wake-up-github-1618-opt-in-only)
-  for exactly what it does and does not yet cover. Codex → Claude (and Codex → another Codex profile, tested with fakes only) hand over as state
+  interval instead). See
+  [docs/automatic-handoff.md](docs/automatic-handoff.md#event-driven-wake-up-github-1618-on-by-default)
+  for the full design. Codex → Claude (and Codex → another Codex profile, tested with fakes only) hand over as state
   continuation, never as the same native conversation; only same-profile Codex resume is native, and
   Relay confirms the thread with Codex before resuming it.
 - Before Relay enters a Codex terminal it checks Codex's structured usage immediately, so an already

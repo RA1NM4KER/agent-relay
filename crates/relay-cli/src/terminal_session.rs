@@ -575,23 +575,19 @@ fn run_managed_terminal_inner(
                 .into_iter()
                 .find(|profile| profile.name == owner.0)
                 .ok_or_else(|| Error::ProfileNotFound(owner.0.to_string()))?;
-            // GitHub #16/#17/#18, off by default (`RELAY_CODEX_EVENT_DRIVEN`): best-effort only,
-            // and — as of the GitHub #18 writer-conflict follow-up — currently a no-op for every
-            // real call this makes: `command.args` here is always `["resume", thread_id, ...]`
-            // (built by `plan_codex_resume`, including for a brand-new `relay codex` launch,
-            // which creates the native thread first), so `known_thread_id` below is always
-            // `Some`, and `EventDrivenRuntime::start` now unconditionally declines a known thread
-            // id (a live incident proved this runtime's own `thread/resume` can win a race
-            // against the interactive client's own resume for the identical thread and get
-            // rejected by the daemon's thread-store as "already has an active writer" — the
-            // literal cause of a real "This conversation is open in another app" failure; see
-            // `codex_runtime`'s own module doc for the full finding and why no live-verified safe
-            // alternative exists yet). `command` itself is never mutated by this block in any
-            // outcome — GitHub #18's fix: the interactive client always launches with exactly the
-            // arguments `plan_codex_resume` already resolved, never an added `--remote`, so it
-            // auto-discovers and reuses the same daemon this runtime would have confirmed,
-            // keeping ordinary local Codex permission semantics regardless of whether this
-            // runtime itself ever attaches.
+            // GitHub #16/#17/#18, on by default for a verified Codex version as of v0.5.0 (see
+            // `codex_runtime`'s own module doc): best-effort only — any failure at any step
+            // (unverified version, the rollout file never appearing, the OS-level watch itself
+            // failing) falls back to launching the interactive command exactly as before, never
+            // surfaced as a startup failure. `command.args` here is always
+            // `["resume", thread_id, ...]` (built by `plan_codex_resume`, including for a
+            // brand-new `relay codex` launch, which creates the native thread first), so
+            // `known_thread_id` below is always `Some` for every real caller. `command` itself is
+            // never mutated by this block in any outcome: the interactive client always launches
+            // with exactly the arguments `plan_codex_resume` already resolved, never an added
+            // `--remote`, so it auto-discovers and reuses the same daemon this runtime's own
+            // `RolloutWatcher` only ever reads from — never connects to — keeping ordinary local
+            // Codex permission semantics regardless of whether this runtime itself attaches.
             let known_thread_id = (command.args.first().map(std::ffi::OsString::as_os_str)
                 == Some(std::ffi::OsStr::new("resume")))
             .then(|| command.args.get(1))

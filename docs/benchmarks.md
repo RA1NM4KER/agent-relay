@@ -221,29 +221,27 @@ pay the full cost by design (they exist to actively verify, not to be fast); thi
 previously-noted "out of scope for this benchmarking pass" work, now done. See
 `crates/relay-cli/src/readiness.rs`'s `assess_for_project_reporting` doc comment for the mechanism.
 
-## 6. GitHub #16/#17/#18: the experimental event-driven Codex path — not yet a real benchmark
+## 6. GitHub #16/#17/#18: the event-driven Codex path (superseded section — see below)
 
-Three live tests against `codex-cli 0.155.0` and a real authenticated account (all
-`#[ignore]`d, run explicitly with `RELAY_BENCH_CODEX_HOME=…`) proved the mechanism end-to-end:
-`observer::tests::live_smoke_test_against_the_real_app_server` (attach to an already-populated
-thread, drive a second real turn, decode the resulting notification — **~10s**),
-`live_reconnect_after_disconnect_against_the_real_app_server` (kill an attached observer abruptly
-mid-session, reconnect while a second real turn is already in flight, receive its remainder —
-**~10s**), and `live_fresh_thread_activation_against_the_real_app_server` (attach with no known
-thread id against a freshly-started app-server, learn the thread from the real broadcast, resume
-once — and only once — a real driver's first turn actually starts — **~6s**). All three runs were
-dominated by the real model turn itself, not by any part of this mechanism.
+*(Historical note: an earlier round of this feature connected directly to Codex's shared
+app-server daemon and benchmarked three `#[ignore]`d live tests against it —
+`observer::tests::live_smoke_test_against_the_real_app_server` and two sibling tests. That
+app-server-connected design, and those tests, no longer exist: a 2026-10-13 writer-conflict
+incident proved it unsafe, and it was replaced by `relay_provider_codex::rollout::RolloutWatcher`,
+a pure filesystem watcher. The qualitative latency observations below are superseded by the
+real end-to-end validation that follows; this note is kept only so a reader following an old link
+isn't left looking for deleted tests.)*
 
-None of this is a latency measurement of the thing this feature actually exists to speed up:
-emission-to-observer-receipt timing, and disconnect-to-reconnect-to-reconciliation-read timing,
-were not instrumented to millisecond precision, so no specific number is claimed here for "how
-much faster than #13's ~0.7-1.7s read plus up to 5s/15s/120s cadence" this is. Qualitatively, the
-notification arrived in the same burst as `turn/completed` over a local socket, and reconnection
-(a local socket connect + handshake) is visibly sub-second in every manual observation made during
-this work — but "visibly sub-second" is not a number, and this section will be replaced with one
-once that instrumentation exists. Do not treat this feature as measured-fast; treat it as
-measured-real (it works, live, against the real binary, including its disconnect/reconnect and
-fresh-launch paths) and not yet measured-fast.
+The current architecture has a stronger result than a latency benchmark: a real natural
+`usage_limit_exceeded` exhaustion was live-proven end to end (2026-10-15, `codex-cli 0.156.0`) —
+zero periodic `account/rateLimits/read` polling for the 18.5 minutes before the exhaustion, the
+rollout watcher's own detection-to-trace latency measured at **475ms** from the real record's
+`completed_at` timestamp to Relay's own `codex_usage_limit_event_received` trace, one authoritative
+usage read following it, and a correct automatic handoff. See `docs/automatic-handoff.md`'s
+"Event-driven wake-up" section and `CHANGELOG.md`'s v0.5.0 entry for the full design; this is not
+yet a millisecond-precision instrumented benchmark of the filesystem-watch path itself (notify
+event latency, baseline-offset computation cost), so no systematic "how much faster than #13's
+polling" number is claimed here beyond that one real measurement.
 
 ## Known gaps in this pass
 
