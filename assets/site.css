@@ -349,13 +349,13 @@ td code {
 }
 .demo-profiles {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 16px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  margin-bottom: 28px;
+  gap: 6px;
+  margin-bottom: 18px;
 }
 .demo-profile {
-  padding: 13px 14px;
+  padding: 13px 10px;
   border: 1px solid var(--line);
   border-radius: 5px;
   transition: border-color 240ms ease;
@@ -383,6 +383,9 @@ td code {
   gap: 6px;
   color: var(--muted);
   font: 10px/1.5 var(--mono);
+  /* The longest label ("Context transferred") can wrap to two lines in the narrowest card;
+     reserving the space up front means that never shifts the surrounding layout. */
+  min-height: 30px;
 }
 .profile-state::before {
   content: "";
@@ -392,10 +395,10 @@ td code {
   border: 1px solid var(--muted);
   border-radius: 50%;
 }
-[data-owner="true"] .profile-state {
+.profile-state[data-tone="accent"] {
   color: var(--accent);
 }
-[data-owner="true"] .profile-state::before {
+.profile-state[data-tone="accent"]::before {
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -403,73 +406,22 @@ td code {
   color: var(--muted);
   text-align: center;
 }
-.demo-steps {
-  list-style: none;
+/* A single status line is the main storytelling device; the demo never needs a full
+   numbered-step breakdown to be understandable. */
+.demo-status {
+  /* Reserved for two lines at the smallest configured size: the longest status line must
+     never shift the surrounding layout relative to the shortest one. */
+  min-height: 39px;
   margin: 0;
-  padding: 0;
-}
-.demo-steps li {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  min-height: 69px;
-}
-.demo-steps li:last-child {
-  min-height: 50px;
-}
-.demo-steps li:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  top: 27px;
-  left: 12px;
-  bottom: 0;
-  width: 1px;
-  background: var(--line);
-  transition: background-color 240ms ease;
-}
-.step-marker {
-  flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  color: var(--muted);
-  font: 9px var(--mono);
-  transition: transform 240ms ease, border-color 240ms ease;
-}
-.demo-steps h3 {
-  font: 500 13px/1.6 var(--sans);
-  letter-spacing: -0.015em;
-  margin-bottom: 3px;
-}
-.demo-steps p {
-  font: 11px/1.7 var(--sans);
-}
-.demo-steps li[aria-current="step"] .step-marker {
-  transform: scale(1.08);
-  background: var(--accent);
-  color: var(--ink);
-  border-color: var(--accent);
-}
-.demo-steps li[aria-current="step"] h3 {
-  color: var(--accent);
-}
-.demo-steps li[data-complete="true"] .step-marker {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.demo-steps li[data-complete="true"]::after {
-  background: var(--accent);
+  font: 500 13px/1.5 var(--sans);
+  color: var(--text);
+  letter-spacing: -0.01em;
 }
 .demo-progress {
   display: none;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 5px;
-  margin-top: 20px;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 4px;
+  margin-top: 18px;
 }
 .demo-progress span {
   height: 2px;
@@ -1219,17 +1171,10 @@ tr:last-child td {
   }
   .demo-profiles {
     gap: 4px;
-    grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr) 14px minmax(0, 1fr);
   }
-  .demo-steps li {
-    min-height: 76px;
-    gap: 10px;
-  }
-  .demo-steps h3 {
+  .demo-status {
     font-size: 12px;
-  }
-  .demo-steps p {
-    font-size: 10px;
   }
   .demo-controls button {
     padding: 7px;
@@ -1363,6 +1308,17 @@ tr:last-child td {
   th,
   td {
     padding: 11px 12px;
+  }
+}
+/* Three cards in a row get too cramped on a phone; stack the routing chain vertically
+   instead of shrinking it past readability. */
+@media (max-width: 480px) {
+  .demo-profiles {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .profile-arrow {
+    transform: rotate(90deg);
   }
 }
 @media (prefers-reduced-motion: reduce) {

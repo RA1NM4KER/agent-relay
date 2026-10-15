@@ -21,26 +21,23 @@
       <div class="hero-meta"><a class="badge" href="https://github.com/RA1NM4KER/agent-relay/releases/tag/v0.5.0">v0.5.0</a><div class="meta-row"><span>v0.5.0</span><span>macOS-first</span><span>Open source</span><span>Runs locally</span></div></div>
     </div>
     <div class="hero-terminal">
-      <div class="terminal handoff-demo" id="handoff-demo" role="group" aria-label="Illustrative automatic Claude-to-Claude handoff" data-step="3">
+      <div class="terminal handoff-demo" id="handoff-demo" role="group" aria-label="Illustrative automatic handoff routing across Claude and Codex profiles" data-step="9">
         <div class="terminal-top"><div class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></div><span>AUTOMATIC HANDOFF</span><span class="demo-label">Demo</span></div>
         <div class="handoff-body">
-          <h2 class="sr-only">Automatic handoff example</h2>
+          <h2 class="sr-only">Automatic handoff routing example across three profiles</h2>
           <div class="demo-profiles" role="group" aria-label="Example profiles">
-            <div class="demo-profile" data-profile="source"><span class="profile-caption">PRIMARY</span><strong>claude-work</strong><span class="profile-state" id="source-state">Stopped</span></div>
+            <div class="demo-profile" data-profile="a" data-owner="true"><span class="profile-caption">PRIMARY</span><strong>claude-main</strong><span class="profile-state" data-tone="accent" id="profile-a-state">Active owner</span></div>
             <span class="profile-arrow" aria-hidden="true">→</span>
-            <div class="demo-profile" data-profile="target" data-owner="true"><span class="profile-caption">FALLBACK</span><strong>claude-backup</strong><span class="profile-state" id="target-state">Active owner</span></div>
+            <div class="demo-profile" data-profile="b"><span class="profile-caption">FALLBACK</span><strong>claude-fallback</strong><span class="profile-state" data-tone="muted" id="profile-b-state">Exhausted</span></div>
+            <span class="profile-arrow" aria-hidden="true">→</span>
+            <div class="demo-profile" data-profile="c"><span class="profile-caption">CODEX FALLBACK</span><strong>codex-main</strong><span class="profile-state" data-tone="muted" id="profile-c-state">Exhausted</span></div>
           </div>
-          <ol class="demo-steps" aria-label="Handoff sequence">
-            <li><span class="step-marker" aria-hidden="true">01</span><div><h3>Working on Claude</h3><p>Your conversation runs on claude-work.</p></div></li>
-            <li><span class="step-marker" aria-hidden="true">02</span><div><h3>Usage limit verified</h3><p>Structured signals confirm exhaustion.</p></div></li>
-            <li><span class="step-marker" aria-hidden="true">03</span><div><h3>Ready to hand over</h3><p>Fallback eligibility checked. Source stopped.</p></div></li>
-            <li><span class="step-marker" aria-hidden="true">04</span><div><h3>The conversation continues</h3><p>Backup session verified. Same Claude history.</p></div></li>
-          </ol>
-          <div class="demo-progress" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+          <p class="demo-status" id="demo-status">Continuing on claude-main</p>
+          <div class="demo-progress" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
           <div class="demo-playback" hidden><span id="demo-position">Handoff complete</span><div class="demo-controls"><button id="demo-toggle" type="button" aria-controls="handoff-demo">Pause</button><button id="demo-replay" type="button" aria-controls="handoff-demo">Replay <span aria-hidden="true">↻</span></button></div></div>
           <span class="sr-only" id="demo-announcement" role="status" aria-live="polite"></span>
         </div>
-        <div class="terminal-bottom"><span>ONE OWNER PER SESSION</span><span>SAME CLAUDE CONVERSATION</span></div>
+        <div class="terminal-bottom"><span>ONE OWNER PER SESSION</span><span>OWNERSHIP IS STICKY</span></div>
       </div>
       <p class="terminal-caption">Illustrative sequence, not live terminal output. Any handoff involving Codex starts a new session with transferred context.</p>
     </div>

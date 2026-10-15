@@ -140,10 +140,18 @@ try {
   );
   await demoPage.locator("#demo-toggle").click();
   const initialHeight = (await demo.boundingBox()).height;
+  // Ten narrative beats: claude-main (owner) -> claude-fallback (owner) -> codex-main
+  // (owner), with the deliberate zero-owner gap at step 4 (the handoff itself in flight).
   for (const [duration, expectedStep, owners] of [
-    [3800, "1", 1],
-    [3200, "2", 0],
-    [4000, "3", 1],
+    [2400, "1", 1],
+    [1800, "2", 1],
+    [2200, "3", 1],
+    [1800, "4", 0],
+    [1400, "5", 1],
+    [2400, "6", 1],
+    [2600, "7", 1],
+    [2200, "8", 1],
+    [1800, "9", 1],
   ]) {
     await demoPage.clock.runFor(duration);
     assert.equal(await demo.getAttribute("data-step"), expectedStep);
@@ -157,21 +165,27 @@ try {
       path: resolve(artifacts, `handoff-step-${expectedStep}.png`),
     });
   }
+  // Step 9 ("Continuing on claude-main") closes the loop back onto claude-main as owner,
+  // while claude-fallback and codex-main stay visibly exhausted rather than resetting too.
   assert.equal(
-    await demoPage.locator("#source-state").textContent(),
-    "Stopped",
-  );
-  assert.equal(
-    await demoPage.locator("#target-state").textContent(),
+    await demoPage.locator("#profile-a-state").textContent(),
     "Active owner",
   );
-  await demoPage.clock.runFor(5500);
+  assert.equal(
+    await demoPage.locator("#profile-b-state").textContent(),
+    "Exhausted",
+  );
+  assert.equal(
+    await demoPage.locator("#profile-c-state").textContent(),
+    "Exhausted",
+  );
+  await demoPage.clock.runFor(2500);
   assert.equal(await demo.getAttribute("data-complete"), "true");
   assert.equal(await demo.getAttribute("data-running"), "false");
   await demoPage.clock.runFor(20000);
   assert.equal(
     await demo.getAttribute("data-step"),
-    "3",
+    "9",
     "Completed demo does not loop",
   );
   await demoPage.locator("#demo-replay").click();
@@ -214,7 +228,7 @@ try {
   await reducedPage.goto(base + "index.html");
   await reducedPage.clock.pauseAt(new Date("2026-01-01T00:00:01Z"));
   const reducedDemo = reducedPage.locator("#handoff-demo");
-  assert.equal(await reducedDemo.getAttribute("data-step"), "3");
+  assert.equal(await reducedDemo.getAttribute("data-step"), "9");
   assert.equal(await reducedDemo.getAttribute("data-running"), "false");
   await reducedPage.locator("#demo-replay").click();
   await reducedPage.clock.runFor(20000);
@@ -224,7 +238,7 @@ try {
     "Reduced motion never autoplays",
   );
   const mobileHeight = (await reducedDemo.boundingBox()).height;
-  for (const expectedStep of ["1", "2", "3"]) {
+  for (const expectedStep of ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) {
     await reducedPage
       .getByRole("button", { name: "Show next handoff step" })
       .click();
@@ -373,9 +387,13 @@ try {
   assert(staticPage.url().endsWith("workflows.html"));
   assert(await staticPage.locator(".copy-button").first().isHidden());
   await staticPage.goto(base + "index.html");
-  assert.equal(await staticPage.locator(".demo-steps li").count(), 4);
-  for (const row of await staticPage.locator(".demo-steps li").all())
+  assert.equal(await staticPage.locator(".demo-profile").count(), 3);
+  for (const row of await staticPage.locator(".demo-profile").all())
     assert(await row.isVisible());
+  assert(await staticPage.locator("#demo-status").isVisible());
+  assert(
+    (await staticPage.locator("#demo-status").textContent()).length > 0,
+  );
   assert(await staticPage.locator(".demo-playback").isHidden());
   await noJs.close();
   console.log(
