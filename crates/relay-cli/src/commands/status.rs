@@ -318,6 +318,7 @@ pub(crate) fn run_status(
         live,
         &|phase| progress.set_label(phase),
     );
+    let mut display_targets = Vec::new();
     let (handoff_ready, handoff_message, handoff_next, handoff_then) = automatic_handoff_summary(
         &registered,
         &preferences,
@@ -328,6 +329,7 @@ pub(crate) fn run_status(
         &readiness,
         &progress,
         live,
+        &mut display_targets,
     );
     progress.finish();
 
@@ -383,7 +385,13 @@ pub(crate) fn run_status(
         .iter()
         .enumerate()
         .map(|(i, name)| {
-            let health = profile_health(name.as_str(), &readiness, live);
+            let health = fallback_health(
+                name.as_str(),
+                &registered,
+                &readiness,
+                &display_targets,
+                live,
+            );
             format!("  {}. {name}  {health}", i + 1)
         })
         .collect();
@@ -503,6 +511,39 @@ fn profile_health(name: &str, readiness: &readiness::Readiness, live: bool) -> S
     }
 }
 
+fn fallback_health(
+    name: &str,
+    registered: &[Profile],
+    readiness: &readiness::Readiness,
+    targets: &[target::SwitchTarget],
+    live: bool,
+) -> String {
+    if !live {
+        return "not checked".to_owned();
+    }
+    let Some(profile) = registered
+        .iter()
+        .find(|profile| profile.name.as_str() == name)
+    else {
+        return "✗ Not registered".to_owned();
+    };
+    if !profile.enabled {
+        return "! Disabled".to_owned();
+    }
+    let health = profile_health(name, readiness, true);
+    if let Some(reason) = targets
+        .iter()
+        .find(|row| row.name.as_str() == name)
+        .and_then(|row| row.unavailable.as_deref())
+    {
+        if reason == "exhausted" {
+            return "✗ Exhausted".to_owned();
+        }
+        return format!("✗ Unavailable — {}", presentation::bounded(reason, 120));
+    }
+    health
+}
+
 pub(crate) fn recovery_for(readiness: &readiness::Readiness) -> Vec<String> {
     let mut seen = std::collections::BTreeSet::new();
     let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
@@ -548,6 +589,7 @@ fn automatic_handoff_summary(
     readiness: &readiness::Readiness,
     progress: &progress::Progress,
     live: bool,
+    display_targets: &mut Vec<target::SwitchTarget>,
 ) -> (bool, String, Option<String>, Option<String>) {
     let Some(view) = focus else {
         let message = if readiness.ready() {
@@ -577,6 +619,8 @@ fn automatic_handoff_summary(
         project_dir,
         false,
     );
+    // Reuse existing observations only for human labels; selection below is unchanged.
+    *display_targets = targets.clone();
     let mut eligible = targets.iter().filter(|row| row.selectable());
     let next = eligible
         .next()
@@ -761,6 +805,55 @@ mod tests {
         assert_eq!(profile_health("main", &readiness, false), "not checked");
         assert_eq!(profile_health("main", &readiness, true), "! Needs login");
         assert_eq!(profile_health("cx", &readiness, true), "not checked");
+    }
+
+    #[test]
+    fn live_fallback_display_reuses_exhaustion_and_disabled_facts_only() {
+        let mut profile = fake_profile("backup", ProviderKind::Claude, "backup-id");
+        let readiness = readiness::Readiness {
+            checks: vec![readiness::Check {
+                label: "backup (Claude) authenticated".into(),
+                level: readiness::Level::Ok,
+                detail: None,
+                remedy: None,
+            }],
+        };
+        let target = target::SwitchTarget {
+            name: profile.name.clone(),
+            provider: profile.provider,
+            current: false,
+            priority: 1,
+            unavailable: Some("exhausted".into()),
+        };
+        assert_eq!(
+            fallback_health(
+                "backup",
+                std::slice::from_ref(&profile),
+                &readiness,
+                std::slice::from_ref(&target),
+                true
+            ),
+            "✗ Exhausted"
+        );
+        assert_eq!(
+            fallback_health(
+                "backup",
+                std::slice::from_ref(&profile),
+                &readiness,
+                &[target],
+                false
+            ),
+            "not checked"
+        );
+        profile.enabled = false;
+        assert_eq!(
+            fallback_health("backup", &[profile], &readiness, &[], true),
+            "! Disabled"
+        );
+        assert_eq!(
+            fallback_health("missing", &[], &readiness, &[], true),
+            "✗ Not registered"
+        );
     }
 
     fn fake_profile(name: &str, provider: ProviderKind, stable_id: &str) -> Profile {
