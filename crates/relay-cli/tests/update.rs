@@ -135,7 +135,7 @@ if [ "$1" = "$RELAY_TEST_BREW_FAIL" ]; then
 fi
 case "$1" in
     --prefix) printf '%s\n' "$RELAY_TEST_BREW_PREFIX" ;;
-    list) printf '%s 9.8.7\n' "$3" ;;
+    info) printf '{"formulae":[{"name":"%s","linked_keg":"9.8.7","installed":[{"version":"9.8.6"},{"version":"9.8.7"}]}]}\n' "$3" ;;
     update|upgrade) ;;
     *) exit 2 ;;
 esac
@@ -191,7 +191,7 @@ esac
                     format!("--prefix {formula}"),
                     "update".to_owned(),
                     format!("upgrade {formula}"),
-                    format!("list --versions {formula}"),
+                    format!("info --json=v2 {formula}"),
                 ]
             );
         }
@@ -199,7 +199,7 @@ esac
 
     #[test]
     fn failed_homebrew_steps_stop_the_sequence_and_report_failure() {
-        for (step, count) in [("update", 2), ("upgrade", 3), ("list", 4)] {
+        for (step, count) in [("update", 2), ("upgrade", 3), ("info", 4)] {
             let fixture = Fixture::new("relay", "agent-relay");
             let output = fixture
                 .command()

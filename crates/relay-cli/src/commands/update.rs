@@ -111,34 +111,52 @@ fn run_brew(args: &[&str]) -> Result<(), Error> {
     Err(brew_command_error(args, &output.stderr))
 }
 
-/// The resulting version Homebrew now has installed for `formula`, read back from `brew` itself
-/// (not re-derived from this already-running, now possibly-stale process's own compiled-in
-/// version) — so a real upgrade is reported honestly even though the current process cannot
-/// re-exec itself mid-command.
+/// Ask Homebrew for the linked keg, not every retained installed keg (#27). Ownership is
+/// still established before delegation; this read only reports the post-upgrade result.
 fn installed_version(formula: &str) -> Result<String, Error> {
+    let args = ["info", "--json=v2", formula];
     let output = Command::new("brew")
-        .args(["list", "--versions", formula])
+        .args(args)
         .output()
         .map_err(|source| Error::Io {
             path: PathBuf::from("brew"),
             source,
         })?;
     if !output.status.success() {
-        return Err(brew_command_error(
-            &["list", "--versions", formula],
-            &output.stderr,
-        ));
+        return Err(brew_command_error(&args, &output.stderr));
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    // `brew list --versions <formula>` prints exactly `"<formula> <version>"`; the version is
-    // everything after the formula name, trimmed, never guessed from a different format.
-    Ok(text
-        .trim()
-        .strip_prefix(formula)
-        .map(str::trim)
-        .filter(|version| !version.is_empty())
-        .unwrap_or("unknown")
-        .to_owned())
+    linked_version(&output.stdout, formula).ok_or_else(|| {
+        brew_command_error(
+            &args,
+            b"Homebrew did not report an unambiguous linked version",
+        )
+    })
+}
+
+fn linked_version(bytes: &[u8], formula: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let formulae = value.get("formulae")?.as_array()?;
+    let [entry] = formulae.as_slice() else {
+        return None;
+    };
+    if entry.get("name")?.as_str()? != formula {
+        return None;
+    }
+    let linked = entry.get("linked_keg")?.as_str()?;
+    if linked.is_empty()
+        || linked.len() > 120
+        || !linked
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".-+_".contains(&b))
+    {
+        return None;
+    }
+    entry
+        .get("installed")?
+        .as_array()?
+        .iter()
+        .any(|keg| keg.get("version").and_then(serde_json::Value::as_str) == Some(linked))
+        .then(|| linked.to_owned())
 }
 
 fn brew_command_error(args: &[&str], stderr: &[u8]) -> Error {
@@ -178,4 +196,34 @@ fn run_manual_instructions() -> Result<CommandOutput, Error> {
             "release_url": format!("https://github.com/{REPO}/releases/latest"),
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn linked_keg_is_authoritative_among_retained_versions() {
+        let value = json!({"formulae": [{"name": "agent-relay", "linked_keg": "0.5.1",
+            "installed": [{"version":"0.5.0"}, {"version":"0.5.2"}, {"version":"0.5.1"}]}]});
+        assert_eq!(
+            linked_version(value.to_string().as_bytes(), "agent-relay").as_deref(),
+            Some("0.5.1")
+        );
+    }
+
+    #[test]
+    fn unlinked_ambiguous_malformed_or_mismatched_info_is_not_guessed() {
+        for value in [
+            json!({}),
+            json!({"formulae":[]}),
+            json!({"formulae":[{"name":"other", "linked_keg":"0.5.1"}]}),
+            json!({"formulae":[{"name":"agent-relay", "linked_keg":null, "installed":[{"version":"0.5.1"}]}]}),
+            json!({"formulae":[{"name":"agent-relay", "linked_keg":"0.5.1 0.5.0", "installed":[]}]}),
+            json!({"formulae":[{"name":"agent-relay", "linked_keg":"0.5.1", "installed":[{"version":"0.5.0"}]}]}),
+        ] {
+            assert!(linked_version(value.to_string().as_bytes(), "agent-relay").is_none());
+        }
+        assert!(linked_version(b"not JSON", "agent-relay").is_none());
+    }
 }
