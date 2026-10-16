@@ -234,13 +234,19 @@ network call on the command's own critical path. Relay never auto-updates itself
 | `relay claude -- …` / `relay codex -- …` | Arguments after `--` go straight to that provider's CLI and stay provider-scoped (see below). |
 | `relay status [--live]` | Plain-language summary: the project's active and dormant Relay sessions (provider, profile, ids), primary/fallback order, automatic-handoff status, Herdr. Default reads only local Relay state (fast; provider auth/usage are reported as last-known, not fresh). `--live` also performs a current provider auth/usage/version check (slower — spawns the provider CLI). |
 | `relay doctor [--project PATH]` | Check authentication, verified Codex usage, integrations, and exact-project trust. Reports ready when a configured profile is eligible; other profiles' problems remain visible as warnings. Exits 1 when no profile is ready or another global blocker remains. |
-| `relay profiles` | List registered profiles and which is primary/fallback. |
+| `relay profiles` | List authentication states, priority roles, and profile-specific recovery commands. |
 | `relay login <name>` / `relay logout <name>` | Friendly wrappers around the provider's own official login/logout (Claude or Codex) for one isolated profile. |
+
+Human terminal reports use restrained color only on a compatible interactive terminal. Status
+words and symbols remain meaningful without color. `NO_COLOR`, `TERM=dumb`, redirected output,
+and `--json` disable styling. JSON fields remain the stable interface; human layout may evolve.
+`relay profiles` separates the authentication table from diagnostics and recovery commands.
+`relay status` labels configured fallback order separately from live health; use `--live` or
+`relay doctor` for current checks. `Authenticated` alone does not establish project readiness.
 
 ### Status-line badge
 
-Inside a Relay-managed Claude session the status line ends with a small badge (muted amber; plain
-text if `NO_COLOR` is set),
+Inside a Relay-managed Claude session the status line ends with a small plain-text badge,
 `[Relay · <profile>]`, showing who owns the conversation right now (and `[Relay · switching →
 <profile>]` for the moment a handoff is in progress). It is read from Relay's own project state on
 every refresh, so it changes owner after a handoff without a new terminal, and it never appears in an

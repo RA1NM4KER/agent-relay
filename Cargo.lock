@@ -387,7 +387,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "relay-cli"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "clap",
  "relay-core",
@@ -405,7 +405,7 @@ dependencies = [
 
 [[package]]
 name = "relay-core"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "fd-lock",
  "serde",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "relay-herdr"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -429,7 +429,7 @@ dependencies = [
 
 [[package]]
 name = "relay-provider-claude"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "relay-core",
  "serde",
@@ -440,7 +440,7 @@ dependencies = [
 
 [[package]]
 name = "relay-provider-codex"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "notify",
  "relay-core",
@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "relay-testkit"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "relay-core",
  "serde",

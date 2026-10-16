@@ -28,7 +28,9 @@ manually change the dev formula during a stable release.
    Dogfood publication owns `Formula/agent-relay-dev.rb`; preserve it.
 8. Run `brew update`, `brew upgrade agent-relay`, and verify the installed version. Check help,
    project status, doctor, and `relay update --check`. Authentication failures must remain clear,
-   safe diagnoses; never log into or out of a profile as part of release validation.
+   safe diagnoses; never log into or out of a profile as part of release validation. For CLI
+   presentation releases also check profiles, live status, and doctor through a real terminal,
+   a pipe, `NO_COLOR`, `TERM=dumb`, and JSON; retain old kegs when checking updater reporting.
 9. Verify the published assets, tap version, CI, and tracked working tree one last time. The
    `pages-stable-version` workflow updates the Pages stable-version badge after publication.
    Confirm that workflow rather than manually changing unrelated website content.

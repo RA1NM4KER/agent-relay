@@ -3,7 +3,7 @@
 Agent Relay supervises Claude Code and Codex conversations across isolated (or Claude's own
 native-default) profiles, and moves work to the next eligible profile — by hand (`relay switch`)
 or automatically on exhaustion — without losing the conversation. It is in daily dogfood use by
-its maintainer; `v0.5.1` is the latest tagged release, but `main` is kept green and may be ahead of
+its maintainer; `v0.5.2` is the latest tagged release, but `main` is kept green and may be ahead of
 it — see [docs/maintainer-dogfood.md](docs/maintainer-dogfood.md) for how the maintainer runs a
 bleeding-edge build day to day.
 
@@ -71,7 +71,7 @@ See `README.md` for the command reference and `CHANGELOG.md` for what changed re
 
 ### Maintenance-release triage
 
-No known safety blocker remains for v0.5.1. These issues stay open:
+No known safety blocker remains for v0.5.2. These issues stay open:
 
 - [#20](https://github.com/RA1NM4KER/agent-relay/issues/20): the stale-ancestor round-trip fix is
   already in v0.5.0 and covered by tests. Controlled live validation with disposable Claude

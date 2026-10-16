@@ -6,6 +6,19 @@ All notable changes to Agent Relay will be documented here.
 
 Nothing yet.
 
+## v0.5.2 — 2026-10-16
+
+This maintenance release focuses on CLI readability and diagnostics.
+
+- Clearer profile authentication tables with separate details and recovery commands.
+- Status distinguishes configured fallback order from live checks; doctor separates blockers,
+  warnings, passed checks, and recovery without changing readiness decisions.
+- Consistent headings, spacing, copyable actions, and concise help across the CLI. Compatible
+  interactive terminals use restrained styling; `NO_COLOR`, `TERM=dumb`, non-TTY output, JSON,
+  and internal control paths remain plain. Existing JSON fields are unchanged.
+- Fixed `relay update` reporting when Homebrew retains multiple kegs: report the verified linked
+  keg instead of combining every installed version into one string (#27).
+
 ## v0.5.1 — 2026-10-16
 
 ### Added

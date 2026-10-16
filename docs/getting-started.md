@@ -258,35 +258,62 @@ for this to work.
 relay status
 ```
 
-```
-Project: ~/repos/my-project
-Claude session: active
-Current profile: work
-Fallback: backup
-Primary profile auth: authenticated
-Automatic handoff: enabled
-Herdr: connected
+```text
+Agent Relay
+
+Current
+  work · Claude
+  Session 1234abcd
+
+Automatic handoff
+  ! Not checked live — run relay status --live
+  Last known: not exhausted — run `relay status --live` to verify current usage.
+
+Configured fallback chain
+  1. backup  not checked
+
+Active sessions
+  Claude  work  1234abcd  native 5678abcd  just now  ACTIVE
+
+Dormant sessions: none
+
+Integration: enabled · Herdr: not connected
 ```
 
-This default form reads only local Relay state, so it's fast even with many past sessions —
-provider auth/usage are reported as last-known, not freshly checked. Add `--live` when you want a
-current provider check instead (slower — it spawns the provider CLI):
+The default form reads only local Relay state. Configured fallback order does not mean those
+profiles are currently usable; their live status is explicitly **not checked**. Add `--live` for
+current configured-profile checks (slower; it spawns provider CLIs). Unassigned profiles are not
+part of that configured readiness assessment.
 
 ```sh
 relay status --live
-```
-
-```sh
 relay profiles
 ```
 
-```
-work         primary    authenticated
-backup       fallback   authenticated
+An illustrative profiles report with a logged-out fallback:
+
+```text
+Agent Relay Profiles
+
+PROFILE  PROVIDER  ROLE      STATUS
+work     Claude    primary   ✓ Authenticated
+backup   Claude    fallback  ! Needs login
+
+Authentication only; project trust and handoff readiness: relay doctor
+
+Recovery
+  backup
+    relay login backup
 ```
 
-Neither of these prints transaction ids, session UUIDs, or config paths unless you ask for the
-`--json` form (meant for scripts, not for reading).
+`Authenticated` describes profile authentication, not exact-project trust or handoff eligibility.
+Recovery commands and bounded diagnostics appear below the table. Very narrow terminals use a
+compact table with provider/role details below it. Session IDs remain visible in status; `--json`
+retains complete identifiers, session lists, and the stable machine-readable fields.
+
+Terminal reports use restrained color on a compatible interactive terminal. Symbols and words
+carry the same meaning without color. Set `NO_COLOR` to disable styling; pipes, files, `TERM=dumb`,
+JSON, and internal control output remain plain. Copyable commands are printed on separate lines.
 
 ## 6. Recovery basics
 
@@ -301,7 +328,10 @@ below) rather than guessing.
 If Claude logs you out of an account, `relay claude` refuses to launch and names the profile:
 
 ```
-profile 'work' is logged out. Run: relay login work
+error [authentication_required]: profile 'work' is logged out
+
+Recovery
+  relay login work
 ```
 
 Run `relay login work` explicitly to open the provider's official login flow, then retry your
