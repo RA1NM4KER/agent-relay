@@ -105,8 +105,8 @@ Either command:
 Relay does not ask for a first message: you type it inside Claude or Codex. (You may still give one
 on the command line — `relay claude "let's refactor the auth module"` — and it is passed to the
 provider as the opening prompt. `relay claude --no-attach`, the scripting form, does need a
-message because it starts a background session without a terminal.) Both commands support
-`--no-attach` and open the supervised terminal, so automatic handoff stays active. If the Codex profile you'd start on is already exhausted,
+message because it starts a background session without a terminal.) By default both commands open a supervised terminal. `--no-attach` creates a session without
+opening the terminal; use `relay resume` to attach and keep supervision active. If the Codex profile you'd start on is already exhausted,
 `relay codex` skips it and starts on the next eligible profile in your priority order.
 
 ### Bringing an existing conversation under Relay
@@ -241,8 +241,9 @@ independent transaction and may land on the same fallback):
    Relay state bundle (a continuation, not the same native conversation),
 4. and you keep working. For Claude, the moment Claude reports a rate limit the usage integration's
    hook starts one short-lived evaluation for that project. For Codex, Relay reads Codex's own
-   structured rate-limit state right before it enters a Codex terminal and then periodically while
-   that terminal is supervised — so an already-exhausted Codex profile is handled immediately. Relay
+   structured rate-limit state right before it enters a Codex terminal. A live-verified version
+   then watches the local rollout, with no periodic provider reads while observation is healthy;
+   an unverified version or lost coverage uses adaptive polling. Relay
    is not a background daemon, and an unknown reading never moves anything. If you're attached
    through `relay claude`, `relay codex` or `relay resume`, your terminal continues on the new owner
    on its own ("continuing on '<profile>'"); Herdr's status event and a manual

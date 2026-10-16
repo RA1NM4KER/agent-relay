@@ -3,7 +3,7 @@
 Agent Relay supervises Claude Code and Codex conversations across isolated (or Claude's own
 native-default) profiles, and moves work to the next eligible profile — by hand (`relay switch`)
 or automatically on exhaustion — without losing the conversation. It is in daily dogfood use by
-its maintainer; `v0.4.1` is the latest tagged release, but `main` is kept green and may be ahead of
+its maintainer; `v0.5.1` is the latest tagged release, but `main` is kept green and may be ahead of
 it — see [docs/maintainer-dogfood.md](docs/maintainer-dogfood.md) for how the maintainer runs a
 bleeding-edge build day to day.
 
@@ -67,6 +67,23 @@ See `README.md` for the command reference and `CHANGELOG.md` for what changed re
   that predates `/relay` install) has not been performed against a real Herdr workspace in this
   pass; the mechanism is the same one already live-validated for isolated profiles, and is covered
   by automated tests against a realistic fake-provider fixture.
+
+
+### Maintenance-release triage
+
+No known safety blocker remains for v0.5.1. These issues stay open:
+
+- [#20](https://github.com/RA1NM4KER/agent-relay/issues/20): the stale-ancestor round-trip fix is
+  already in v0.5.0 and covered by tests. Controlled live validation with disposable Claude
+  profiles remains; divergent, active, or ambiguous artifacts still fail closed.
+- [#24](https://github.com/RA1NM4KER/agent-relay/issues/24): a source supervisor was observed
+  remaining resident after a completed handoff. The native writer had exited, its lock was free,
+  and the target was verified; this is a documented non-blocking lifecycle bug.
+- [#22](https://github.com/RA1NM4KER/agent-relay/issues/22): interactive cold-start reroute choice
+  and its remaining candidate-isolation edge cases are future UX work. A cold start can reroute
+  by priority or refuse; uncertain evidence never makes a candidate eligible.
+- [#19](https://github.com/RA1NM4KER/agent-relay/issues/19): continuation-quality/context-policy
+  research; no new continuation architecture is included in this maintenance release.
 
 ## Repository structure
 

@@ -55,8 +55,8 @@ pub(crate) enum Command {
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
     },
-    /// Advanced: start a background Claude session as this project's Relay-managed writer
-    /// (scripting form of `relay claude`). Refuses if another live writer holds the project.
+    /// Advanced: start a separate Relay-managed background Claude conversation
+    /// (scripting form of `relay claude`). Other conversations in this project are independent.
     Launch {
         #[arg(long)]
         profile: ProfileName,
@@ -67,8 +67,7 @@ pub(crate) enum Command {
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
     },
-    /// Advanced: run one automatic-handoff evaluation by hand (Relay never runs a background
-    /// monitor).
+    /// Advanced: run one automatic-handoff evaluation by hand (no persistent Relay daemon).
     Watch(WatchArgs),
     /// Claude usage hooks, the Codex Relay skill, and the optional Herdr plugin.
     Integration(IntegrationArgs),
@@ -99,7 +98,7 @@ pub(crate) enum Command {
         #[arg(long = "project", value_name = "PATH")]
         project_dir: Option<PathBuf>,
         /// Perform live provider auth/usage/version checks instead of the fast local-only
-        /// snapshot. This is what `relay status` did unconditionally before this flag existed.
+        /// snapshot.
         #[arg(long)]
         live: bool,
     },
@@ -143,7 +142,8 @@ pub(crate) enum Command {
     SwitchRequest(SwitchRequestArgs),
     /// Continue a closed (dormant) Relay session of this project on the profile it last ran on
     /// (native resume of the same Claude session / Codex thread). With several you choose, or pass
-    /// `--session`; an active session is never started twice.
+    /// `--session`; an active session is never started twice. Unverified Codex usage is refused
+    /// with a diagnostic; authentication recovery requires an explicit login command.
     Resume(ResumeArgs),
     /// Bring an ALREADY-RUNNING Claude conversation under Relay from outside it — no in-session
     /// `/relay adopt` required. Exists because a Claude process started before Relay's `/relay`
@@ -154,10 +154,9 @@ pub(crate) enum Command {
     /// everything untouched) on any ambiguity; never restarts or stops the Claude process.
     Adopt(AdoptArgs),
     /// Is Agent Relay actually ready to save you when your current account runs out? Checks every
-    /// configured profile's authentication and project trust, the Claude usage integration, provider CLI version
-    /// support, and the automatic-handoff preference — the same facts `relay setup`'s completion
-    /// screen and `relay status`'s "Automatic handoff" line report, kept in one place so they can
-    /// never disagree.
+    /// configured profile's authentication, verified Codex usage, project trust, and Claude
+    /// integration, plus provider versions and the automatic-handoff preference. An eligible
+    /// configured profile is enough; other profiles' problems remain visible as warnings.
     Doctor(DoctorArgs),
     /// Explain, in plain language, what Relay's automatic-handoff decision currently is and why —
     /// from the same durable state (usage, ledger, target eligibility) automatic handoff itself
@@ -167,12 +166,12 @@ pub(crate) enum Command {
     /// Reads session records and handoff journals only; it never contacts a provider or changes
     /// Relay's ownership, recovery, or automation state.
     History(HistoryArgs),
-    /// Issue #5: the durable, provider-neutral, advisory working state Relay carries across
+    /// The durable, provider-neutral, advisory working state Relay carries across
     /// handoffs for a Relay Session (goal, current subtask, decisions, failed attempts, relevant
     /// files, next actions). Agents never edit its storage file directly — this command owns
     /// validation, bounds, locking, and persistence.
     State(StateArgs),
-    /// Issue #3: show or change the current Relay Session's execution mode (`interactive` —
+    /// Show or change the current Relay Session's execution mode (`interactive` —
     /// normal conversational confirmation — or `autonomous` — continue without asking merely to
     /// proceed, still stopping for a genuine blocker). Behavioral intent only: never a provider
     /// permission grant, and never mapped to one. `relay mode` alone shows the current mode;
@@ -190,7 +189,7 @@ pub(crate) enum Command {
     /// binary. For any other install, this prints where to get the latest release instead of
     /// guessing at a self-update. `--check` only reports whether a newer stable release exists
     /// (reusing the same cached check `relay status`/`doctor`/`setup` already show a hint from),
-    /// without changing anything.
+    /// without installing anything. Stale or missing release data is refreshed in the cache.
     Update(UpdateArgs),
 }
 

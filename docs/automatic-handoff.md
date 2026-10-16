@@ -3,8 +3,10 @@
 Relay moves work automatically when the current writer is exhausted, for both providers — with a
 different trigger for each. **Claude** reports a rate limit as an event, so this page's main flow is the
 Claude usage integration (a hook Relay installs into a Claude profile). **Codex** has no such event;
-Relay reads its structured rate-limit state directly, before entering a Codex terminal and
-periodically while it is supervised (see [Codex as the exhausted writer](#codex-as-the-exhausted-writer)).
+Relay reads its structured rate-limit state before entering a Codex terminal, then uses a local
+rollout watcher for live-verified versions. Periodic provider reads are suppressed while that
+observation is healthy; adaptive polling covers unverified versions or lost coverage (see
+[Codex as the exhausted writer](#codex-as-the-exhausted-writer)).
 
 For Claude, automatic handoff is **opt-in**: nothing runs unless you install the integration into a
 profile. Once installed, the profile's `StopFailure` hook is the trigger: when Claude reports a rate limit
@@ -13,7 +15,7 @@ for the session Relay manages for that project, the hook starts one short-lived,
 retrying only while it answers "no action needed" (the statusline snapshot that corroborates a
 limit can land just after the failure). It makes a short 300ms/1s/2s corroboration burst, then
 uses the normal 20-second cadence for a bounded roughly two-minute window. It logs each attempt to
-`<state>/projects/<project>/auto-handoff.log`. Relay is not a daemon and never polls; you can still
+`<state>/projects/<project>/auto-handoff.log`. Claude is not periodically polled and Relay is not a daemon; you can still
 invoke `relay watch run` by hand at any time. Only the exact conversation named by an active Relay
 Session's lease can trigger it, and every safety rule below (cooldown, per-window cap,
 known-exhausted ledger, the session's own lock) applies unchanged — **per Relay Session**: two

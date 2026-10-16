@@ -30,7 +30,7 @@ profile in one priority order. Claude → Claude continues the same native Claud
 involving Codex continues from a Relay state bundle in a new session — never the same native
 conversation across the two CLIs.
 
-Status: **v0.5.0, macOS-first.** The handoff, recovery, and usage-detection paths are validated
+Status: **v0.5.1, macOS-first.** The handoff, recovery, and usage-detection paths are validated
 live on macOS with Claude Code 2.1.276–2.1.278; Codex support is live-validated against Codex CLI
 0.156.0 (structured usage reads, thread verification, Codex → Claude handoff by hand, pre-launch
 fallback from an exhausted Codex profile). A **full live handoff away from a real Codex
@@ -170,10 +170,11 @@ anything.
 - **Claude** is event-driven: the usage integration `relay setup` installs runs a hook the instant
   Claude reports a rate limit, and for the session Relay manages it starts one short-lived
   evaluation for that project.
-- **Codex** has no such event, so Relay reads Codex's own structured rate-limit state
-  (`ordinaryUsageAllowed`) immediately before it enters a Codex terminal, and then periodically
-  while that terminal is supervised — an already-exhausted Codex profile is skipped or handed off at
-  once instead of after a failed launch.
+- **Codex** is checked through its structured rate-limit interface before entering the terminal.
+  For a live-verified version, Relay then watches the local rollout for an exhaustion event and
+  confirms it through that same interface. Periodic provider reads are suppressed while local
+  observation is healthy; adaptive polling is the fallback for an unverified version or lost
+  observation coverage.
 - If you are attached through `relay claude` / `relay codex` / `relay resume`, the terminal carries
   you onto the new owner by itself ("continuing this conversation on '<profile>'"). Herdr's status
   event is a second, best-effort trigger, and `relay watch run` runs an evaluation by hand.
@@ -189,7 +190,7 @@ Details: [docs/security.md](docs/security.md).
 ## Requires
 
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) 2.1.x for Claude profiles (2.1.276–2.1.278
-  validated; a newer 2.1.x patch works, `relay setup` explains if it isn't verified yet).
+  live-validated; newer 2.1.x patches are treated as unverified, with ambiguous signals refused).
 - The [Codex CLI](https://developers.openai.com/codex) for Codex profiles (0.155.0 and 0.156.0
   validated — 0.156.0 live-validated end to end against a real natural exhaustion; other versions
   are treated as unverified).
@@ -232,7 +233,7 @@ network call on the command's own critical path. Relay never auto-updates itself
 | `relay switch [profile] [--session ID]` | Explicitly hand a conversation to a different profile/provider (state continuation across providers). With several active sessions you choose which; refuses an exhausted or unverifiable Codex target rather than rerouting your choice. |
 | `relay claude -- …` / `relay codex -- …` | Arguments after `--` go straight to that provider's CLI and stay provider-scoped (see below). |
 | `relay status [--live]` | Plain-language summary: the project's active and dormant Relay sessions (provider, profile, ids), primary/fallback order, automatic-handoff status, Herdr. Default reads only local Relay state (fast; provider auth/usage are reported as last-known, not fresh). `--live` also performs a current provider auth/usage/version check (slower — spawns the provider CLI). |
-| `relay doctor [--project PATH]` | Check automatic-handoff readiness, including each configured profile's recorded trust for the project. Missing or unverifiable trust is blocking (exit 1). |
+| `relay doctor [--project PATH]` | Check authentication, verified Codex usage, integrations, and exact-project trust. Reports ready when a configured profile is eligible; other profiles' problems remain visible as warnings. Exits 1 when no profile is ready or another global blocker remains. |
 | `relay profiles` | List registered profiles and which is primary/fallback. |
 | `relay login <name>` / `relay logout <name>` | Friendly wrappers around the provider's own official login/logout (Claude or Codex) for one isolated profile. |
 
@@ -274,8 +275,9 @@ receive its session context.
 ### Project trust before unattended use
 
 Run `relay doctor` in the project before relying on unattended handoffs. Doctor, setup's completion
-screen, and status share the same readiness checks: a configured Claude or Codex profile without
-verified project trust makes the verdict **not ready**, even when login and usage hooks are healthy.
+screen, and status share the same readiness checks. At least one configured profile must pass
+its own authentication/usage, integration, and exact-project trust checks. Problems in other
+profiles remain visible as warnings; if none is eligible, the verdict is **not ready**.
 Doctor reads Claude's `hasTrustDialogAccepted` or Codex's `projects.<path>.trust_level` for the exact
 canonical project directory. It conservatively requires an explicit record for that directory;
 it does not infer inherited trust. Missing, unreadable, or malformed state cannot pass.
@@ -336,8 +338,9 @@ request**.
 
 **Codex needs no installed integration.** Relay asks Codex's own app-server for structured rate-limit
 state, read-only, under the profile's isolated `CODEX_HOME`, immediately before it enters a Codex
-terminal and periodically while that terminal is supervised — no hooks, no config edits, no daemon.
-In both cases an unknown or ambiguous state never moves anything. See
+terminal. A verified version uses the local rollout watcher during supervision, suppressing
+periodic provider reads while coverage is healthy; otherwise adaptive polling provides the
+fallback. There is no Relay daemon. In both cases an unknown or ambiguous state never moves anything. See
 [docs/automatic-handoff.md](docs/automatic-handoff.md) for exactly what it installs, the detection
 policy, reset windows, and uninstall.
 

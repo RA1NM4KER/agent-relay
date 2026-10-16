@@ -6,7 +6,7 @@ it raced with, and could silently overwrite, a real tagged release the moment an
 `main` again (a real incident — see the v0.4.0 changelog and `.github/workflows/dogfood.yml`'s
 OWNERSHIP note). `Formula/agent-relay.rb` in `RA1NM4KER/homebrew-tap` is now written only by a
 maintainer deliberately cutting a tagged release (`.github/workflows/release.yml`'s artifacts,
-published by hand today — see the release runbook). `scripts/check-no-dogfood-tap-write.sh` runs in
+published by hand today — see the [release runbook](releasing.md)). `scripts/check-no-dogfood-tap-write.sh` runs in
 CI and fails the build if the dogfood workflow ever references the stable formula.
 
 ## Getting a bleeding-edge (post-tag, pre-release) build

@@ -4,25 +4,38 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
-### Fixed
+Nothing yet.
 
-- Authentication recovery (#26): recognize Claude's supported logged-out exit-1 response and
-  name the affected profile and login command. Ordinary launch no longer opens login automatically.
-  Codex usage refusals distinguish revoked authentication, timeout, unsupported responses, and
-  other failures without exposing provider error bodies. Doctor verifies Codex usage rather than
-  treating locally configured credentials as proof of readiness; broken candidates remain isolated.
-  Unknown Codex usage is refused on resume as well as new launch and switch.
+## v0.5.1 — 2026-10-16
 
 ### Added
 
-- `relay update` (agent-relay#6): delegates to Homebrew (`brew update && brew upgrade`) for a
-  Homebrew install and reports the resulting version; for any other install, prints where to get
-  the latest release instead of trying to replace its own binary. `relay update --check` reports
-  whether a newer stable release exists (reusing the same cached check `relay
-  status`/`doctor`/`setup` already show a hint from) without installing anything. No custom
-  binary downloader, no silent auto-update — Homebrew remains the sole package-manager owner.
-  Ownership is verified against Homebrew's installed binary path for both stable and dev formulas;
-  failed or contended refreshes never report stale release data as a successful check.
+- `relay update` delegates supported Homebrew installs to Homebrew and reports the installed
+  version. Other installs receive manual release instructions; `--check` checks for a newer
+  stable release without installing it (#6).
+
+### Improved
+
+- `relay status` shows all active sessions and the three most recent dormant sessions, with a
+  count for older sessions. JSON output and the resume picker retain the full list (#11).
+- Session displays preserve Claude's native conversation titles and Codex's native thread names
+  when available (#11, #25).
+- An eligible configured profile is enough for readiness; irrelevant broken or untrusted
+  lower-priority profiles produce warnings rather than globally blocking it (#23).
+
+### Fixed
+
+- Logged-out Claude profiles are recognized from their supported exit-1 status and show the
+  affected profile's login command. Normal launch no longer opens login automatically (#26).
+- Codex refusals distinguish revoked/invalid authentication, timeout, unsupported responses, and
+  other failures with sanitized diagnostics. Recognized auth rejection shows the isolated
+  profile's logout/login commands; other UNKNOWN failures do not prescribe login. Profiles and
+  readiness verify structured usage, and UNKNOWN is refused on resume as well as launch/switch
+  (#26).
+- Homebrew updates verify ownership of the running stable/dev executable. Failed or contended
+  release checks do not report stale data as a successful check.
+- Human session rows bound provider titles and suppress terminal and bidirectional control
+  characters; stored titles and session identities remain unchanged.
 
 ## v0.5.0 — 2026-10-15
 
