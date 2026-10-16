@@ -12,6 +12,8 @@ All notable changes to Agent Relay will be documented here.
   whether a newer stable release exists (reusing the same cached check `relay
   status`/`doctor`/`setup` already show a hint from) without installing anything. No custom
   binary downloader, no silent auto-update — Homebrew remains the sole package-manager owner.
+  Ownership is verified against Homebrew's installed binary path for both stable and dev formulas;
+  failed or contended refreshes never report stale release data as a successful check.
 
 ## v0.5.0 — 2026-10-15
 

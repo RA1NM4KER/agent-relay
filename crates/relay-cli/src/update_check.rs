@@ -10,7 +10,8 @@
 //! run and spawns a short-lived, detached `relay` process (see [`INTERNAL_REFRESH_ARG`]) to
 //! refresh the cache in the background for next time; that child is never awaited.
 //!
-//! The fetch itself (real network path, only ever reached from the detached refresh process) has
+//! An explicit `relay update --check` also uses this cache, refreshing it in the foreground when
+//! stale or missing. The fetch itself has
 //! a short bounded timeout and fails completely silently — a network hiccup, a GitHub outage, or
 //! a malformed response all just mean "no cache update this time", never an error surfaced to a
 //! user who is not even running the refresh command interactively.
@@ -165,8 +166,8 @@ fn write_cache(path: &Path, cache: &Cache) {
     }
 }
 
-/// Real network path — only ever run from the detached, hidden refresh process (see
-/// [`INTERNAL_REFRESH_ARG`]), never from a foreground command. Always exits quietly: whether the
+/// Background network entry point, run from the detached, hidden refresh process (see
+/// [`INTERNAL_REFRESH_ARG`]). Always exits quietly: whether the
 /// fetch succeeds or fails, there is no output and no non-zero exit that a human would ever see,
 /// since nothing prints or reads this process's result.
 ///
@@ -216,21 +217,31 @@ fn looks_homebrew_installed() -> bool {
     })
 }
 
-/// Which Homebrew formula this running binary came from, if any — `relay update` uses this to
-/// know what to hand to `brew upgrade`. `None` covers both "not a Homebrew install" and "a
-/// Homebrew-style path under a binary name this project does not recognize" (never guessed): the
-/// stable and dev formulas install under different, documented binary names (see
-/// `packaging/homebrew/README.md`) that this matches exactly, rather than inferring a formula name
-/// from the path.
+/// Ask Homebrew which installation it owns and compare its canonical binary path with this
+/// process. The cheap path hint above is insufficient authority for an actual upgrade: source
+/// checkouts can contain those substrings, and Homebrew supports non-default prefixes too.
 pub(crate) fn homebrew_formula_name() -> Option<&'static str> {
-    if !looks_homebrew_installed() {
+    let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+    let binary = exe.file_name()?.to_str()?;
+    let formula = match binary {
+        "relay" => "agent-relay",
+        "relay-dev" => "agent-relay-dev",
+        _ => return None,
+    };
+    let output = Command::new("brew")
+        .args(["--prefix", formula])
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
         return None;
     }
-    match std::env::current_exe().ok()?.file_name()?.to_str()? {
-        "relay" => Some("agent-relay"),
-        "relay-dev" => Some("agent-relay-dev"),
-        _ => None,
+    let prefix = Path::new(std::str::from_utf8(&output.stdout).ok()?.trim());
+    if !prefix.is_absolute() {
+        return None;
     }
+    let installed = prefix.join("bin").join(binary).canonicalize().ok()?;
+    (installed == exe).then_some(formula)
 }
 
 /// The outcome of an explicit, foreground "is there a newer version" check (`relay update
@@ -271,21 +282,25 @@ fn check_now_with(
         Some(cache) => Some(cache.latest_version),
         None => {
             refresh_cache_locked_with(paths, fetcher, timeout);
-            read_cache(&cache_path).map(|cache| cache.latest_version)
+            read_cache(&cache_path)
+                .filter(|cache| cache_is_fresh(cache, crate::util::current_unix_ms()))
+                .map(|cache| cache.latest_version)
         }
     };
     match latest_version {
         // `hint_from` only ever returns `None` here because `latest` is not numerically newer:
-        // both sides are always parseable (`current_version` is a build-time constant; `latest`
-        // was only ever written after `parse_release_body` validated its numeric core).
-        Some(latest) => match hint_from(&current_version, &latest) {
-            Some(latest_version) => CheckOutcome::Available {
-                current_version,
-                latest_version,
-            },
-            None => CheckOutcome::UpToDate { current_version },
-        },
-        None => CheckOutcome::Unknown { current_version },
+        // both sides are parseable (`current_version` is a build-time constant; the guard also
+        // validates cached data, which may have been edited or damaged outside this process).
+        Some(latest) if numeric_core(&latest).is_some() => {
+            match hint_from(&current_version, &latest) {
+                Some(latest_version) => CheckOutcome::Available {
+                    current_version,
+                    latest_version,
+                },
+                None => CheckOutcome::UpToDate { current_version },
+            }
+        }
+        Some(_) | None => CheckOutcome::Unknown { current_version },
     }
 }
 
@@ -717,6 +732,51 @@ mod tests {
             },
             "a failed check must never be reported as up to date, which would be an invented claim"
         );
+    }
+
+    #[test]
+    fn check_now_does_not_trust_stale_data_after_a_failed_or_contended_refresh() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths =
+            RelayPaths::new(dir.path().join("config"), dir.path().join("state")).expect("paths");
+        for latest in ["0.0.1", "99.0.0"] {
+            write_cache(&paths.update_check_cache_file(), &cache(0, latest));
+            let expected = CheckOutcome::Unknown {
+                current_version: env!("RELAY_VERSION").to_owned(),
+            };
+            assert_eq!(
+                check_now_with(&paths, &FakeFetcher(None), Duration::from_secs(1)),
+                expected
+            );
+            OrchestrationLock::at_path(paths.update_check_refresh_lock_file())
+                .try_with(|| {
+                    assert_eq!(
+                        check_now_with(
+                            &paths,
+                            &FakeFetcher(Some("99.0.0")),
+                            Duration::from_secs(1)
+                        ),
+                        expected
+                    );
+                    Ok(())
+                })
+                .expect("hold refresh lock");
+        }
+    }
+
+    #[test]
+    fn check_now_does_not_report_an_invalid_cached_version_as_up_to_date() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths =
+            RelayPaths::new(dir.path().join("config"), dir.path().join("state")).expect("paths");
+        write_cache(
+            &paths.update_check_cache_file(),
+            &cache(crate::util::current_unix_ms(), "invalid"),
+        );
+        assert!(matches!(
+            check_now_with(&paths, &FakeFetcher(None), Duration::from_secs(1)),
+            CheckOutcome::Unknown { .. }
+        ));
     }
 
     #[test]

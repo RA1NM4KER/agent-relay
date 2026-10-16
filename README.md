@@ -213,7 +213,9 @@ brew update && brew upgrade agent-relay
 
 For any other install, `relay update` prints where to get the latest release instead of trying to
 replace its own binary. `relay update --check` only reports whether a newer stable release exists,
-without installing anything.
+without installing anything. It refreshes stale or missing release data, and reports an unknown
+result if fresh data cannot be obtained. Homebrew ownership is checked against the running
+executable; `relay-dev update` upgrades the separate `agent-relay-dev` formula.
 
 `relay status`/`relay doctor`/`relay setup` may also show a small "Update available" hint when a
 newer stable release exists — based on a cached, at-most-daily check of GitHub's releases, never a

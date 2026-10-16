@@ -17,9 +17,7 @@ use crate::{
 };
 
 const REPO: &str = "RA1NM4KER/agent-relay";
-/// Bounded the same way `git_checkpoint_error` bounds git's stderr: one line, no raw command
-/// dumps, no credential-bearing environment output could ever appear here either way since `brew`
-/// never receives any.
+/// Keep Homebrew's error detail to one bounded line.
 const MAX_DETAIL_LEN: usize = 300;
 
 pub(crate) fn run(
@@ -40,7 +38,7 @@ fn run_check(paths: &RelayPaths) -> Result<CommandOutput, Error> {
     let heading = header("Relay update check");
     let (human, data) = match update_check::check_now(paths) {
         CheckOutcome::UpToDate { current_version } => (
-            format!("{heading}Running v{current_version}. Already the latest stable release."),
+            format!("{heading}Running v{current_version}. No newer stable release is available."),
             json!({
                 "current_version": current_version,
                 "latest_version": null,
@@ -63,8 +61,8 @@ fn run_check(paths: &RelayPaths) -> Result<CommandOutput, Error> {
         ),
         CheckOutcome::Unknown { current_version } => (
             format!(
-                "{heading}Running v{current_version}. Could not reach GitHub to check for a \
-                 newer release right now."
+                "{heading}Running v{current_version}. Could not verify the latest stable \
+                 release right now. Try again later."
             ),
             json!({
                 "current_version": current_version,
@@ -78,8 +76,8 @@ fn run_check(paths: &RelayPaths) -> Result<CommandOutput, Error> {
 
 /// Homebrew's own documented upgrade sequence (see README.md's install instructions): `brew
 /// update` first, so `upgrade` sees a current formula definition, then `upgrade <formula>`. Both
-/// are real Homebrew subcommands that only ever touch this one formula's install — Relay performs
-/// no file replacement of its own.
+/// are real Homebrew subcommands; only this formula is requested for upgrade. Relay performs no
+/// file replacement of its own.
 fn run_homebrew_upgrade(formula: &str, json_mode: bool) -> Result<CommandOutput, Error> {
     let progress = Progress::start(
         &format!("Running: brew update && brew upgrade {formula}…"),
