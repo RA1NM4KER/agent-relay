@@ -258,6 +258,11 @@ pub enum Error {
     ContinuationBundleNotRecoverable(String),
     #[error("required environment path is unavailable: {0}")]
     MissingEnvironment(&'static str),
+    /// `relay update`'s own delegation to the owning package manager (currently only Homebrew)
+    /// failed — distinct from [`Self::ProviderCommandFailed`], which is reserved for Claude/Codex
+    /// provider CLIs, not Relay's own package-manager delegation.
+    #[error("`{command}` failed: {detail}")]
+    UpdateCommandFailed { command: String, detail: String },
     #[error("I/O operation failed for {path}")]
     Io {
         path: PathBuf,
@@ -355,6 +360,7 @@ impl Error {
             Self::AlreadyCurrentWriter(_) => "already_current_writer",
             Self::ContinuationBundleNotRecoverable(_) => "continuation_bundle_not_recoverable",
             Self::MissingEnvironment(_) => "missing_environment",
+            Self::UpdateCommandFailed { .. } => "update_command_failed",
             Self::Io { .. } => "io_error",
         }
     }

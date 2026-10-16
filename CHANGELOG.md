@@ -4,7 +4,14 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
-Nothing yet.
+### Added
+
+- `relay update` (agent-relay#6): delegates to Homebrew (`brew update && brew upgrade`) for a
+  Homebrew install and reports the resulting version; for any other install, prints where to get
+  the latest release instead of trying to replace its own binary. `relay update --check` reports
+  whether a newer stable release exists (reusing the same cached check `relay
+  status`/`doctor`/`setup` already show a hint from) without installing anything. No custom
+  binary downloader, no silent auto-update — Homebrew remains the sole package-manager owner.
 
 ## v0.5.0 — 2026-10-15
 

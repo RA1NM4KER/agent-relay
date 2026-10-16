@@ -216,6 +216,79 @@ fn looks_homebrew_installed() -> bool {
     })
 }
 
+/// Which Homebrew formula this running binary came from, if any — `relay update` uses this to
+/// know what to hand to `brew upgrade`. `None` covers both "not a Homebrew install" and "a
+/// Homebrew-style path under a binary name this project does not recognize" (never guessed): the
+/// stable and dev formulas install under different, documented binary names (see
+/// `packaging/homebrew/README.md`) that this matches exactly, rather than inferring a formula name
+/// from the path.
+pub(crate) fn homebrew_formula_name() -> Option<&'static str> {
+    if !looks_homebrew_installed() {
+        return None;
+    }
+    match std::env::current_exe().ok()?.file_name()?.to_str()? {
+        "relay" => Some("agent-relay"),
+        "relay-dev" => Some("agent-relay-dev"),
+        _ => None,
+    }
+}
+
+/// The outcome of an explicit, foreground "is there a newer version" check (`relay update
+/// --check`) — unlike [`maybe_show_hint`], this always resolves to a definite answer rather than
+/// silently showing nothing: a stale or missing cache is refreshed synchronously (bounded by the
+/// same [`NETWORK_TIMEOUT`] the background refresh uses) before deciding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CheckOutcome {
+    UpToDate {
+        current_version: String,
+    },
+    Available {
+        current_version: String,
+        latest_version: String,
+    },
+    /// The cache was stale or missing and the synchronous refresh also could not reach a usable
+    /// answer (no network, GitHub outage, a refresh already in flight elsewhere, ...) — never
+    /// reported as [`Self::UpToDate`], which would be an invented, unverified claim.
+    Unknown {
+        current_version: String,
+    },
+}
+
+pub(crate) fn check_now(paths: &RelayPaths) -> CheckOutcome {
+    check_now_with(paths, &CurlReleaseFetcher, NETWORK_TIMEOUT)
+}
+
+fn check_now_with(
+    paths: &RelayPaths,
+    fetcher: &dyn ReleaseFetcher,
+    timeout: Duration,
+) -> CheckOutcome {
+    let current_version = env!("RELAY_VERSION").to_owned();
+    let cache_path = paths.update_check_cache_file();
+    let now = crate::util::current_unix_ms();
+    let fresh = read_cache(&cache_path).filter(|cache| cache_is_fresh(cache, now));
+    let latest_version = match fresh {
+        Some(cache) => Some(cache.latest_version),
+        None => {
+            refresh_cache_locked_with(paths, fetcher, timeout);
+            read_cache(&cache_path).map(|cache| cache.latest_version)
+        }
+    };
+    match latest_version {
+        // `hint_from` only ever returns `None` here because `latest` is not numerically newer:
+        // both sides are always parseable (`current_version` is a build-time constant; `latest`
+        // was only ever written after `parse_release_body` validated its numeric core).
+        Some(latest) => match hint_from(&current_version, &latest) {
+            Some(latest_version) => CheckOutcome::Available {
+                current_version,
+                latest_version,
+            },
+            None => CheckOutcome::UpToDate { current_version },
+        },
+        None => CheckOutcome::Unknown { current_version },
+    }
+}
+
 fn print_hint(latest_version: &str) {
     eprintln!();
     eprintln!("Update available: v{latest_version}");
@@ -568,5 +641,106 @@ mod tests {
             RelayPaths::new(dir.path().join("config"), dir.path().join("state")).expect("paths");
         maybe_show_hint(&paths, false);
         assert!(!paths.update_check_cache_file().exists());
+    }
+
+    #[test]
+    fn check_now_uses_a_fresh_cache_without_fetching_again() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths =
+            RelayPaths::new(dir.path().join("config"), dir.path().join("state")).expect("paths");
+        write_cache(
+            &paths.update_check_cache_file(),
+            &cache(crate::util::current_unix_ms(), "99.0.0"),
+        );
+        // A fetcher that would, if ever actually called, make the outcome disagree with the
+        // fresh cache's own "99.0.0" — the only way this test can tell the two apart.
+        let outcome = check_now_with(&paths, &FakeFetcher(Some("1.0.0")), Duration::from_secs(1));
+        assert_eq!(
+            outcome,
+            CheckOutcome::Available {
+                current_version: env!("RELAY_VERSION").to_owned(),
+                latest_version: "99.0.0".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn check_now_refreshes_synchronously_when_the_cache_is_missing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths =
+            RelayPaths::new(dir.path().join("config"), dir.path().join("state")).expect("paths");
+        let outcome = check_now_with(&paths, &FakeFetcher(Some("99.0.0")), Duration::from_secs(1));
+        assert_eq!(
+            outcome,
+            CheckOutcome::Available {
+                current_version: env!("RELAY_VERSION").to_owned(),
+                latest_version: "99.0.0".to_owned(),
+            }
+        );
+        assert_eq!(
+            read_cache(&paths.update_check_cache_file())
+                .expect("refresh must have written the cache")
+                .latest_version,
+            "99.0.0",
+            "an explicit check's own synchronous refresh must populate the cache for next time, \
+             exactly like the background refresh does"
+        );
+    }
+
+    #[test]
+    fn check_now_refreshes_synchronously_when_the_cache_is_stale() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths =
+            RelayPaths::new(dir.path().join("config"), dir.path().join("state")).expect("paths");
+        write_cache(&paths.update_check_cache_file(), &cache(0, "1.0.0"));
+        let outcome = check_now_with(&paths, &FakeFetcher(Some("99.0.0")), Duration::from_secs(1));
+        assert_eq!(
+            outcome,
+            CheckOutcome::Available {
+                current_version: env!("RELAY_VERSION").to_owned(),
+                latest_version: "99.0.0".to_owned(),
+            },
+            "a stale cache's old value must never be reported without first trying to refresh it"
+        );
+    }
+
+    #[test]
+    fn check_now_reports_unknown_when_the_cache_is_missing_and_the_refresh_fails() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths =
+            RelayPaths::new(dir.path().join("config"), dir.path().join("state")).expect("paths");
+        let outcome = check_now_with(&paths, &FakeFetcher(None), Duration::from_secs(1));
+        assert_eq!(
+            outcome,
+            CheckOutcome::Unknown {
+                current_version: env!("RELAY_VERSION").to_owned(),
+            },
+            "a failed check must never be reported as up to date, which would be an invented claim"
+        );
+    }
+
+    #[test]
+    fn check_now_reports_up_to_date_when_the_cached_latest_is_not_numerically_newer() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths =
+            RelayPaths::new(dir.path().join("config"), dir.path().join("state")).expect("paths");
+        write_cache(
+            &paths.update_check_cache_file(),
+            &cache(crate::util::current_unix_ms(), "0.0.1"),
+        );
+        let outcome = check_now_with(&paths, &FakeFetcher(Some("1.0.0")), Duration::from_secs(1));
+        assert_eq!(
+            outcome,
+            CheckOutcome::UpToDate {
+                current_version: env!("RELAY_VERSION").to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn homebrew_formula_name_is_none_in_a_normal_test_or_dev_build() {
+        // This test binary's own `current_exe()` is never a Homebrew Cellar path, so this must
+        // never guess a formula name from anything weaker than that path.
+        assert_eq!(homebrew_formula_name(), None);
     }
 }

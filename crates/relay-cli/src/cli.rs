@@ -185,6 +185,20 @@ pub(crate) enum Command {
     /// directly by a user, never prints anything, never fails visibly.
     #[command(name = "__internal-update-check-refresh", hide = true)]
     InternalUpdateCheckRefresh,
+    /// Update Relay itself. For a Homebrew install, this delegates straight to Homebrew (`brew
+    /// update && brew upgrade`) and reports the resulting version; Relay never replaces its own
+    /// binary. For any other install, this prints where to get the latest release instead of
+    /// guessing at a self-update. `--check` only reports whether a newer stable release exists
+    /// (reusing the same cached check `relay status`/`doctor`/`setup` already show a hint from),
+    /// without changing anything.
+    Update(UpdateArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct UpdateArgs {
+    /// Report whether a newer stable release exists, without installing anything.
+    #[arg(long)]
+    pub(crate) check: bool,
 }
 
 #[derive(Debug, Args)]

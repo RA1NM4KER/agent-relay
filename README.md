@@ -201,11 +201,22 @@ Details: [docs/security.md](docs/security.md).
 ## Updating
 
 ```sh
+relay update
+```
+
+For a Homebrew install, this delegates straight to Homebrew (`brew update && brew upgrade`) and
+reports the resulting version — the same as running:
+
+```sh
 brew update && brew upgrade agent-relay
 ```
 
-`relay status`/`relay doctor`/`relay setup` may show a small "Update available" hint when a newer
-stable release exists — based on a cached, at-most-daily check of GitHub's releases, never a
+For any other install, `relay update` prints where to get the latest release instead of trying to
+replace its own binary. `relay update --check` only reports whether a newer stable release exists,
+without installing anything.
+
+`relay status`/`relay doctor`/`relay setup` may also show a small "Update available" hint when a
+newer stable release exists — based on a cached, at-most-daily check of GitHub's releases, never a
 network call on the command's own critical path. Relay never auto-updates itself.
 
 ## Everyday commands
