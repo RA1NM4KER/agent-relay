@@ -243,7 +243,15 @@ case "$1" in
     ;;
   resume)
     [ -f "$CODEX_HOME/resume_sleep" ] && sleep 30
-    [ -f "$CODEX_HOME/resume_exit_soon" ] && sleep 0.5
+    if [ -f "$CODEX_HOME/resume_exit_when_released" ]; then
+      touch "$CODEX_HOME/resume_started"
+      attempts=0
+      while [ ! -f "$CODEX_HOME/resume_release" ]; do
+        attempts=$((attempts + 1))
+        [ "$attempts" -ge 200 ] && exit 1
+        sleep 0.05
+      done
+    fi
     if [ -f "$CODEX_HOME/resume_request_switch" ]; then
       target=$(cat "$CODEX_HOME/resume_request_switch")
       sleep 2
@@ -1390,7 +1398,7 @@ fn a_codex_session_that_exits_exhausted_between_polls_still_hands_off() {
     // before anything ever runs. The fake `codex resume` then quits on its own shortly after,
     // exactly like the real CLI exiting the moment it hits the rate limit mid-turn.
     set_codex_limits(&world, "true", 5, 4_000_000_000);
-    std::fs::write(codex_home(&world).join("resume_exit_soon"), "").expect("marker");
+    std::fs::write(codex_home(&world).join("resume_exit_when_released"), "").expect("marker");
     let mut command = Command::new(env!("CARGO_BIN_EXE_relay"));
     command
         .arg("--config-root")
@@ -1410,9 +1418,13 @@ fn a_codex_session_that_exits_exhausted_between_polls_still_hands_off() {
         .stderr(Stdio::piped());
     scrub(&mut command);
     let child = command.spawn().expect("relay resume");
-    // Land well inside the fake process's own brief lifetime, after it has actually started.
-    std::thread::sleep(Duration::from_millis(150));
+    // Wait for the interactive child, not a guessed startup delay. Otherwise a slow preflight
+    // can see exhaustion first and reroute without ever exercising the process-exit path.
+    wait_for("Codex resume started", Duration::from_secs(10), || {
+        codex_home(&world).join("resume_started").exists()
+    });
     set_codex_limits(&world, "false", 100, 4_000_000_000);
+    std::fs::write(codex_home(&world).join("resume_release"), "").expect("release resume");
     let output = child.wait_with_output().expect("relay resume finishes");
     assert!(
         output.status.success(),
