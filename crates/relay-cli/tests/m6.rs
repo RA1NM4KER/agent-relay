@@ -2129,6 +2129,83 @@ fn refresh_reconciles_owned_assets_across_profiles_without_changing_user_configu
     assert_eq!(std::fs::read(&profiles).unwrap(), profiles_before);
 }
 
+/// GitHub #23: a healthy, trusted primary is enough for automatic handoff to be reported ready —
+/// a lower-priority fallback that is merely untrusted for this exact project must surface as a
+/// warning, never as a global blocker.
+#[test]
+fn doctor_reports_ready_with_a_warning_when_only_a_lower_priority_fallback_is_untrusted() {
+    let root = tempdir().unwrap();
+    let project = tempdir().unwrap();
+    let primary = FakeCodex::new(root.path(), "codex-main", "thread-primary");
+    let fallback = FakeCodex::new(root.path(), "codex-backup", "thread-fallback");
+    login_codex(root.path(), "codex-main", &primary);
+    login_codex(root.path(), "codex-backup", &fallback);
+    let setup = relay(
+        root.path(),
+        &[
+            "setup",
+            "--non-interactive",
+            "--primary",
+            "codex-main",
+            "--fallback",
+            "codex-backup",
+            "--usage-integration",
+            "true",
+            "--codex-executable",
+            &primary.path_text(),
+        ],
+    );
+    assert!(
+        setup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&setup.stderr)
+    );
+
+    // Only codex-main accepts trust for this exact project; codex-backup never does.
+    let canonical = std::fs::canonicalize(project.path()).unwrap();
+    std::fs::write(
+        root.path()
+            .join("config/profiles/codex-main/codex/config.toml"),
+        toml::to_string(&serde_json::json!({"projects": {
+            canonical.to_str().unwrap(): {"trust_level": "trusted"}}}))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let output = relay(
+        root.path(),
+        &[
+            "doctor",
+            "--project",
+            project.path().to_str().unwrap(),
+            "--codex-executable",
+            &primary.path_text(),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "a healthy trusted primary alone must make this ready: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let data = &json_stdout(&output)["data"];
+    assert_eq!(data["ready"], true);
+    assert_eq!(data["overall"], "warning");
+    let checks = data["checks"].as_array().expect("checks");
+    let fallback_trust = checks
+        .iter()
+        .find(|check| check["label"] == "codex-backup (Codex) project trust accepted")
+        .expect("codex-backup's own trust check is present");
+    assert_eq!(
+        fallback_trust["level"], "warning",
+        "an untrusted lower-priority fallback must never be a global blocker: {checks:?}"
+    );
+    let primary_trust = checks
+        .iter()
+        .find(|check| check["label"] == "codex-main (Codex) project trust accepted")
+        .expect("codex-main's own trust check is present");
+    assert_eq!(primary_trust["level"], "ok");
+}
+
 #[test]
 fn codex_doctor_blocks_untrusted_projects_and_passes_after_explicit_trust() {
     let root = tempdir().unwrap();

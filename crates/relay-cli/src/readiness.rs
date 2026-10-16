@@ -103,6 +103,26 @@ fn configured_profiles<'a>(
     ordered
 }
 
+/// GitHub #23: automatic handoff only ever needs ONE eligible destination in the configured
+/// chain — a profile is eligible exactly when none of its own checks (auth, usage integration,
+/// project trust) are blocking. If at least one configured profile is eligible, every OTHER
+/// profile's own blocking problems are demoted to warnings here (they remain fully visible, just
+/// no longer equivalent to "Relay cannot save you right now"); if none is, every check keeps its
+/// original severity and the overall result stays blocking, exactly as before this fix.
+fn merge_per_profile_checks(readiness: &mut Readiness, per_profile: Vec<Readiness>) {
+    let any_eligible = per_profile.iter().any(Readiness::ready);
+    for scratch in per_profile {
+        for check in scratch.checks {
+            let level = if any_eligible && check.level == Level::Blocking {
+                Level::Warning
+            } else {
+                check.level
+            };
+            readiness.checks.push(Check { level, ..check });
+        }
+    }
+}
+
 fn role_label(profile: &Profile) -> String {
     let provider = match profile.provider {
         ProviderKind::Codex => "Codex",
@@ -189,17 +209,27 @@ pub fn assess_for_project_reporting(
         return readiness;
     }
 
+    // GitHub #23: per-profile checks are computed into their own scratch `Readiness` first, so
+    // whether *any* configured profile is itself fully eligible (none of its own checks blocking)
+    // can be known before deciding whether each profile's own problems are reported as blocking
+    // or merely a warning. Automatic handoff only ever needs ONE eligible destination — a broken
+    // profile elsewhere in the configured chain is worth surfacing, never worth treating as
+    // equivalent to "Relay cannot save you right now" when another one is already proven to work.
+    let mut per_profile: Vec<Readiness> = Vec::new();
     for profile in &profiles {
         on_phase(&format!("Checking {}…", profile.name));
         let label = role_label(profile);
+        let mut scratch = Readiness::default();
         if live {
-            auth_check(&mut readiness, service, profile, &label, executables);
+            auth_check(&mut scratch, service, profile, &label, executables);
         }
         if profile.provider == ProviderKind::Claude {
-            integration_check(&mut readiness, profile, &label);
+            integration_check(&mut scratch, profile, &label);
         }
-        trust_check(&mut readiness, profile, &label, project);
+        trust_check(&mut scratch, profile, &label, project);
+        per_profile.push(scratch);
     }
+    merge_per_profile_checks(&mut readiness, per_profile);
 
     if live {
         on_phase("Checking provider versions…");
@@ -461,5 +491,114 @@ fn herdr_check(readiness: &mut Readiness) {
     let in_herdr = std::env::var_os("HERDR_ENV").as_deref() == Some(std::ffi::OsStr::new("1"));
     if in_herdr {
         readiness.push("Herdr connected", Level::Ok, None, None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn readiness_of(checks: &[(&str, Level)]) -> Readiness {
+        let mut readiness = Readiness::default();
+        for (label, level) in checks {
+            readiness.push(
+                (*label).to_owned(),
+                *level,
+                (*level != Level::Ok).then(|| format!("{label} problem")),
+                None,
+            );
+        }
+        readiness
+    }
+
+    fn levels_of(readiness: &Readiness) -> Vec<Level> {
+        readiness.checks.iter().map(|check| check.level).collect()
+    }
+
+    /// GitHub #23's own first scenario: the first configured profile is fully eligible; a
+    /// *lower*-priority one has a broken (blocking) check. The lower one's problem must be
+    /// visible but demoted to a warning, and overall readiness must say "ready."
+    #[test]
+    fn first_fallback_ready_lower_fallback_broken_demotes_to_warning_and_stays_ready() {
+        let mut readiness = Readiness::default();
+        let claude_main = readiness_of(&[
+            ("claude-main authenticated", Level::Ok),
+            ("claude-main project trust accepted", Level::Ok),
+        ]);
+        let claude_backup = readiness_of(&[("claude-backup authenticated", Level::Blocking)]);
+        merge_per_profile_checks(&mut readiness, vec![claude_main, claude_backup]);
+
+        assert!(readiness.ready(), "an eligible profile exists");
+        assert_eq!(readiness.overall(), Level::Warning);
+        assert_eq!(
+            levels_of(&readiness),
+            [Level::Ok, Level::Ok, Level::Warning]
+        );
+    }
+
+    /// Same shape, but the lower-priority profile's own problem is specifically an untrusted
+    /// project rather than an authentication failure — the issue's own second listed scenario.
+    #[test]
+    fn first_fallback_ready_lower_fallback_untrusted_demotes_to_warning_and_stays_ready() {
+        let mut readiness = Readiness::default();
+        let claude_main = readiness_of(&[("claude-main authenticated", Level::Ok)]);
+        let codex_main = readiness_of(&[("codex-main project trust accepted", Level::Blocking)]);
+        merge_per_profile_checks(&mut readiness, vec![claude_main, codex_main]);
+
+        assert!(readiness.ready());
+        assert_eq!(readiness.overall(), Level::Warning);
+    }
+
+    /// The issue's third listed scenario: the first profile is entirely unavailable, but a
+    /// *second* fallback is the one proven eligible; a *third* configured profile is untrusted.
+    /// Both the first profile's own failure and the third's must be demoted, since the second one
+    /// alone already makes automatic handoff possible.
+    #[test]
+    fn first_fallback_unavailable_second_fallback_ready_third_untrusted_still_ready() {
+        let mut readiness = Readiness::default();
+        let primary = readiness_of(&[("primary authenticated", Level::Blocking)]);
+        let second = readiness_of(&[("second authenticated", Level::Ok)]);
+        let third = readiness_of(&[("third project trust accepted", Level::Blocking)]);
+        merge_per_profile_checks(&mut readiness, vec![primary, second, third]);
+
+        assert!(readiness.ready());
+        assert_eq!(
+            levels_of(&readiness),
+            [Level::Warning, Level::Ok, Level::Warning],
+            "both the unavailable primary and the untrusted third are demoted, never just one"
+        );
+    }
+
+    /// The issue's fourth listed scenario: no configured profile is eligible at all — every
+    /// blocking check must keep its full severity, and overall readiness must stay blocking,
+    /// exactly as before this fix.
+    #[test]
+    fn no_eligible_fallback_anywhere_leaves_every_blocking_check_blocking() {
+        let mut readiness = Readiness::default();
+        let primary = readiness_of(&[("primary authenticated", Level::Blocking)]);
+        let fallback = readiness_of(&[("fallback project trust accepted", Level::Blocking)]);
+        merge_per_profile_checks(&mut readiness, vec![primary, fallback]);
+
+        assert!(!readiness.ready(), "nothing anywhere is actually usable");
+        assert_eq!(readiness.overall(), Level::Blocking);
+        assert_eq!(
+            levels_of(&readiness),
+            [Level::Blocking, Level::Blocking],
+            "never silently demoted when there is truly nothing to fall back to"
+        );
+    }
+
+    /// A pre-existing warning (e.g. an unverified-but-not-unsupported CLI version) on an eligible
+    /// profile is never itself touched — only genuinely blocking checks are ever demoted.
+    #[test]
+    fn an_existing_warning_on_an_eligible_profile_is_left_exactly_as_is() {
+        let mut readiness = Readiness::default();
+        let eligible = readiness_of(&[
+            ("claude-main authenticated", Level::Ok),
+            ("claude-main version supported", Level::Warning),
+        ]);
+        merge_per_profile_checks(&mut readiness, vec![eligible]);
+
+        assert_eq!(levels_of(&readiness), [Level::Ok, Level::Warning]);
     }
 }

@@ -379,16 +379,24 @@ fn doctor_missing_usage_integration_for_a_fallback_is_blocking() {
         root.path(),
         &["doctor", "--claude-executable", &alice.path_text()],
     );
-    assert!(!output.status.success());
+    // GitHub #23: alice (the primary) is fully healthy and is already an eligible automatic-
+    // handoff destination on her own — bob's missing integration no longer makes this globally
+    // blocking, only a warning naming exactly what's still missing on bob specifically.
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
     let data = json_stdout(&output)["data"].clone();
-    assert_eq!(data["ready"], false);
+    assert_eq!(data["ready"], true);
+    assert_eq!(data["overall"], "warning");
     let bob_integration = data["checks"]
         .as_array()
         .expect("checks")
         .iter()
         .find(|check| check["label"] == "bob (Claude) usage integration installed")
         .expect("bob's integration check is present");
-    assert_eq!(bob_integration["level"], "blocking");
+    assert_eq!(bob_integration["level"], "warning");
     assert_eq!(
         bob_integration["remedy"],
         "relay integration claude install --profile bob"
@@ -1690,8 +1698,13 @@ fn status_uses_its_explicit_project_for_trust_not_the_shell_cwd() {
     );
 }
 
+/// GitHub #23: alice (the primary) has trust accepted and is otherwise fully healthy — she alone
+/// is already an eligible automatic-handoff destination, so bob's missing trust for this exact
+/// project is a warning, never a global blocker, and `relay status`'s own
+/// `automatic_handoff_ready` must agree (the two must never diverge — this module's whole
+/// reason to exist).
 #[test]
-fn a_missing_fallback_trust_blocks_doctor_and_status_even_before_a_session_starts() {
+fn a_missing_fallback_trust_is_a_warning_not_a_blocker_once_the_primary_is_ready() {
     let root = tempdir().unwrap();
     let project = tempdir().unwrap();
     let alice = FakeClaude::new(root.path(), "alice", "2.1.276", "aaaa1111", "s1");
@@ -1730,15 +1743,21 @@ fn a_missing_fallback_trust_blocks_doctor_and_status_even_before_a_session_start
         )
     };
     let output = doctor();
-    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
     let data = json_stdout(&output);
+    assert_eq!(data["data"]["ready"], true);
+    assert_eq!(data["data"]["overall"], "warning");
     let checks = data["data"]["checks"].as_array().unwrap();
     assert!(checks.iter().any(
         |check| check["label"] == "alice (Claude) project trust accepted" && check["level"] == "ok"
     ));
     assert!(checks.iter().any(
         |check| check["label"] == "bob (Claude) project trust accepted"
-            && check["level"] == "blocking"
+            && check["level"] == "warning"
     ));
     let status = relay(
         root.path(),
@@ -1747,10 +1766,13 @@ fn a_missing_fallback_trust_blocks_doctor_and_status_even_before_a_session_start
     assert!(status.status.success());
     assert_eq!(
         json_stdout(&status)["data"]["automatic_handoff_ready"],
-        false
+        true,
+        "status and doctor must never disagree about readiness"
     );
     accept_project_trust(root.path(), "bob", project.path());
-    assert!(doctor().status.success());
+    let output = doctor();
+    assert!(output.status.success());
+    assert_eq!(json_stdout(&output)["data"]["overall"], "ok");
 }
 
 // =================================================================================================
