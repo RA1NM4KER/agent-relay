@@ -424,6 +424,8 @@ pub fn describe(view: &RelaySessionView, registered: &[Profile], now_unix_ms: u6
         view.record
             .title
             .as_deref()
+            .map(display_title)
+            .filter(|title| !title.is_empty())
             .map(|title| format!("{title} · "))
             .unwrap_or_default(),
         if provider == "codex" {
@@ -436,6 +438,20 @@ pub fn describe(view: &RelaySessionView, registered: &[Profile], now_unix_ms: u6
         view.native_session_id().map_or("-", short),
         ago(view.record.last_activity_unix_ms, now_unix_ms),
     )
+}
+
+/// Titles are provider/user content, not terminal commands. Keep human rows bounded and
+/// single-line, with no terminal or bidirectional control characters. Stored/JSON titles and
+/// every ownership/native identity field remain unchanged.
+fn display_title(title: &str) -> String {
+    title.chars()
+        .filter(|c| !c.is_control()
+            && !matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
+        .take(120)
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn rows_for(views: &[&RelaySessionView], registered: &[Profile], want: Want) -> Vec<SessionRow> {
@@ -573,5 +589,44 @@ pub fn choose_session(
         Ok(Some(index)) => Ok(shown[index].clone()),
         Ok(None) => Err(Error::SwitchCancelled),
         Err(_) => Err(Error::SessionAmbiguous(format!("{}", candidates.len()))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_titles_cannot_inject_terminal_controls_or_unbounded_session_rows() {
+        let mut record = RelaySessionRecord::new(
+            RelaySessionId::parse("11111111-1111-4111-8111-111111111111").unwrap(),
+            ProjectId::for_canonical_path(&std::env::current_dir().unwrap()).unwrap(),
+            ProfileName::new("codex-main").unwrap(),
+            Some("codex".to_owned()),
+            Some("thread-1".to_owned()),
+            false,
+            0,
+        );
+        let raw = format!(
+            "title\x1b]52;c;clipboard\x07\n\r\u{202e}{}",
+            "界".repeat(500)
+        );
+        record.title = Some(raw.clone());
+        let view = RelaySessionView {
+            record,
+            lease: None,
+        };
+        let line = describe(&view, &[], 0);
+        assert!(!line.chars().any(char::is_control));
+        assert!(!line.contains('\u{202e}'));
+        assert!(line.chars().count() < 220);
+        assert!(line.contains("codex-main"));
+        assert!(line.contains("11111111"));
+        assert!(line.contains("native thread-1"));
+        assert_eq!(
+            view.record.title.as_deref(),
+            Some(raw.as_str()),
+            "display normalization must not change stored metadata or identity"
+        );
     }
 }
