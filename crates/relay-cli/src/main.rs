@@ -32,6 +32,7 @@ mod launch;
 mod live;
 mod output;
 mod preferences;
+mod presentation;
 mod progress;
 mod project_trust;
 mod provider_args;
@@ -46,12 +47,28 @@ mod util;
 
 use std::{io::IsTerminal as _, process::ExitCode};
 
-use clap::Parser as _;
-
 use crate::cli::{Cli, Command};
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    use clap::CommandFactory as _;
+    let color = if presentation::Terminal::stdout().color
+        && presentation::Terminal::stderr().color
+        && !std::env::args_os().any(|arg| {
+            arg == "--json"
+                || arg == "hook"
+                || arg == "switch-request"
+                || arg == "__internal-update-check-refresh"
+        }) {
+        clap::ColorChoice::Auto
+    } else {
+        clap::ColorChoice::Never
+    };
+    let matches = Cli::command()
+        .color(color)
+        .term_width(presentation::Terminal::stdout().width)
+        .get_matches();
+    let cli = <Cli as clap::FromArgMatches>::from_arg_matches(&matches)
+        .unwrap_or_else(|error| error.exit());
     if let Command::Hook(hook) = &cli.command {
         return hook::run_hook(hook, &cli);
     }
@@ -63,6 +80,9 @@ fn main() -> ExitCode {
             update_check::run_internal_refresh(&paths);
         }
         return ExitCode::SUCCESS;
+    }
+    if matches!(cli.command, Command::SwitchRequest(_)) {
+        return output::print_control_result(commands::dispatch(&cli), cli.json);
     }
     let is_doctor = matches!(cli.command, Command::Doctor(_));
     // Only these normal, human-facing completion points ever show an update hint — commands run

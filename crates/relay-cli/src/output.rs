@@ -61,14 +61,39 @@ pub(crate) fn print_result_with_exit(
     json_mode: bool,
     exit_for_ok: impl FnOnce(&CommandOutput) -> ExitCode,
 ) -> ExitCode {
+    emit(result, json_mode, exit_for_ok, true)
+}
+
+/// Control protocols retain their original plain output even if invoked from a terminal.
+pub(crate) fn print_control_result(
+    result: Result<CommandOutput, Error>,
+    json_mode: bool,
+) -> ExitCode {
+    emit(result, json_mode, |_| ExitCode::SUCCESS, false)
+}
+
+fn emit(
+    result: Result<CommandOutput, Error>,
+    json_mode: bool,
+    exit_for_ok: impl FnOnce(&CommandOutput) -> ExitCode,
+    present: bool,
+) -> ExitCode {
     match result {
         Ok(output) => {
             if json_mode {
                 let serialized = serde_json::to_string_pretty(&output.json)
                     .expect("serializing known Relay output must succeed");
                 println!("{serialized}");
-            } else {
+            } else if !present {
                 println!("{}", output.human);
+            } else {
+                println!(
+                    "{}",
+                    crate::presentation::render(
+                        &output.human,
+                        crate::presentation::Terminal::stdout()
+                    )
+                );
             }
             exit_for_ok(&output)
         }
@@ -87,10 +112,45 @@ pub(crate) fn print_result_with_exit(
                     serde_json::to_string_pretty(&output)
                         .expect("serializing known Relay error must succeed")
                 );
-            } else {
+            } else if !present {
                 eprintln!("error [{}]: {error}", error.code());
+            } else {
+                eprintln!(
+                    "{}",
+                    crate::presentation::render(
+                        &crate::presentation::error(&error),
+                        crate::presentation::Terminal::stderr()
+                    )
+                );
             }
             ExitCode::from(1)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn styled_human_report_cannot_change_the_json_envelope() {
+        let data = json!({"profile":"main", "title":"\u{1b}[31mraw title", "authenticated":false});
+        let output = success("profiles", "✓ Ready".to_owned(), &data).unwrap();
+        let _styled = crate::presentation::render(
+            &output.human,
+            crate::presentation::Terminal {
+                color: true,
+                width: 80,
+            },
+        );
+        assert_eq!(
+            output.json,
+            json!({"schema_version":1,"ok":true,"command":"profiles","data":data})
+        );
+        assert!(
+            !serde_json::to_string(&output.json)
+                .unwrap()
+                .contains('\u{1b}')
+        );
     }
 }

@@ -2710,7 +2710,7 @@ fn statusline(world: &World, config_dir: &Path, session: &str, chain: Option<&st
     statusline_env(world, config_dir, session, chain, true)
 }
 
-/// `plain` sets `NO_COLOR`; otherwise the variable is removed so the coloured form is produced.
+/// Exercise both NO_COLOR states; Relay-owned hook output must be plain in either case.
 fn statusline_env(
     world: &World,
     config_dir: &Path,
@@ -3074,16 +3074,16 @@ fn ordinary_and_future_claude_flags_still_pass_through() {
 }
 
 #[test]
-fn the_badge_is_muted_amber_and_reset_unless_no_color_is_set() {
+fn the_hook_badge_adds_no_ansi_with_or_without_no_color() {
     let world = world(false);
-    let coloured = statusline_env(
+    let without_no_color = statusline_env(
         &world,
         &world.alice_dir,
         SESSION_ID,
         Some("printf 'mine'"),
         false,
     );
-    assert_eq!(coloured, "mine \u{1b}[38;5;172m[Relay · alice]\u{1b}[0m\n");
+    assert_eq!(without_no_color, "mine [Relay · alice]\n");
     let plain = statusline_env(
         &world,
         &world.alice_dir,
@@ -3101,7 +3101,7 @@ fn the_badge_is_muted_amber_and_reset_unless_no_color_is_set() {
         false,
     );
     assert_eq!(unmanaged, "mine");
-    // the colour is only in what is printed, never in Relay's state
+    // No presentation escapes are persisted in Relay state.
     let lease =
         std::fs::read_to_string(project_state_dir(world.root.path()).join("lease.json")).unwrap();
     assert!(!lease.contains('\u{1b}'));
@@ -4010,7 +4010,7 @@ mod timeline {
             wrapped.env(key, value);
         }
         scrub(&mut wrapped);
-        wrapped.env("TERM", "xterm-256color");
+        wrapped.env("TERM", "xterm-256color").env_remove("NO_COLOR");
         let start = Instant::now();
         let mut child = wrapped
             .stdin(Stdio::null())

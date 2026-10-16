@@ -93,9 +93,9 @@ pub(crate) fn run(
                     .iter()
                     .map(|profile| {
                         format!(
-                            "{}\t{}\t{}",
+                            "{} · {}\n  Directory: {}",
                             profile.name,
-                            profile.provider,
+                            crate::presentation::provider(profile.provider),
                             profile.config_dir.display()
                         )
                     })
@@ -124,7 +124,7 @@ pub(crate) fn run(
             let human = format!(
                 "Profile: {}\nProvider: {}\nAuthentication: {:?}\nAvailability: {:?}\nIdentity matches: {}",
                 status.profile.name,
-                status.profile.provider,
+                crate::presentation::provider(status.profile.provider),
                 status.authentication,
                 status.availability.state,
                 status.identity_matches
@@ -134,7 +134,7 @@ pub(crate) fn run(
         ProfileCommand::Remove { name } => {
             let profile = service.remove(name)?;
             let human = format!(
-                "Removed profile '{}'. Provider directory retained at {}",
+                "Removed profile: {}\n  Provider directory retained: {}",
                 profile.name,
                 profile.config_dir.display()
             );
@@ -175,8 +175,8 @@ pub(crate) fn run(
             )];
             lines.extend(report.checks.iter().map(|check| {
                 format!(
-                    "[{}] {}: {}",
-                    if check.passed { "ok" } else { "failed" },
+                    "  {} {}: {}",
+                    if check.passed { "✓" } else { "✗" },
                     check.name,
                     check.message
                 )
@@ -441,7 +441,7 @@ pub(crate) fn run_login(
         }
         return success(
             "login",
-            format!("\u{2713} {name} authenticated"),
+            format!("✓ Logged in: {name}"),
             json!({ "profile": name.as_str(), "authenticated": true }),
         );
     }
@@ -465,7 +465,7 @@ pub(crate) fn run_login(
     };
     success(
         "login",
-        format!("\u{2713} {name} authenticated"),
+        format!("✓ Logged in: {name}"),
         json!({
             "profile": profile.name.as_str(),
             "provider": profile.provider.to_string(),
@@ -500,9 +500,7 @@ pub(crate) fn run_logout(
     }
     success(
         "logout",
-        format!(
-            "Logged out '{name}' (registration kept; run `relay login {name}` to sign back in)"
-        ),
+        format!("Logged out: {name} (registration kept)\n\nSign back in\n  relay login {name}"),
         json!({ "profile": name.as_str() }),
     )
 }

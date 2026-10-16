@@ -33,7 +33,7 @@ pub(crate) fn run(
         ExecutionIntent::Interactive,
     )?;
     let human = format!(
-        "Launched '{}' for {} as Relay session {}\nSession: {}\nPid: {}\nBackground job: {}",
+        "Session started\n\n  Profile: {}\n  Project: {}\n  Relay session: {}\n  Native session: {}\n  PID: {}\n  Background job: {}",
         profile,
         project_dir.display(),
         session.id.short(),

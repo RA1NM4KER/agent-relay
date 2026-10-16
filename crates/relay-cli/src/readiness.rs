@@ -26,7 +26,7 @@ impl Level {
     pub const fn symbol(self) -> &'static str {
         match self {
             Self::Ok => "\u{2713}",       // ✓
-            Self::Warning => "\u{26a0}",  // ⚠
+            Self::Warning => "!",         // attention
             Self::Blocking => "\u{2717}", // ✗
         }
     }

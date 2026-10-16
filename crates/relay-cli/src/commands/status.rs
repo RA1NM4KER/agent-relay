@@ -13,7 +13,7 @@ use crate::{
     auth::friendly_auth_state,
     auto_handoff,
     output::{CommandOutput, success},
-    preferences, progress, providers, readiness, sessions, target,
+    preferences, presentation, progress, providers, readiness, sessions, target,
     util::current_unix_ms,
 };
 
@@ -31,7 +31,7 @@ pub(crate) fn run_profiles(
 ) -> Result<CommandOutput, Error> {
     let registered = service.list()?;
     let preferences = preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
-    let mut lines = Vec::new();
+
     let mut rows = Vec::new();
     for profile in &registered {
         let role = if preferences.primary_profile.as_ref() == Some(&profile.name) {
@@ -43,13 +43,6 @@ pub(crate) fn run_profiles(
         };
         let (auth_state, detail) =
             friendly_auth_state(profile, &providers::ExecutableOverrides::default());
-        lines.push(format!(
-            "{:<12} {:<8} {:<10} {}",
-            profile.name, profile.provider, role, auth_state
-        ));
-        if let Some(detail) = &detail {
-            lines.push(format!("  {detail}"));
-        }
         let recovery = (auth_state == "needs login").then(|| {
             if profile.provider == relay_core::ProviderKind::Codex {
                 format!(
@@ -60,11 +53,6 @@ pub(crate) fn run_profiles(
                 format!("relay login {}", profile.name)
             }
         });
-        if detail.is_none()
-            && let Some(command) = &recovery
-        {
-            lines.push(format!("  Run: {command}"));
-        }
         rows.push(json!({
             "name": profile.name.as_str(),
             "provider": profile.provider.to_string(),
@@ -74,18 +62,105 @@ pub(crate) fn run_profiles(
             "recovery_command": recovery,
         }));
     }
-    if lines.is_empty() {
-        lines.push("No profiles registered yet. Run `relay setup` to get started.".to_owned());
-    } else {
-        lines.insert(
-            0,
-            format!(
-                "{:<12} {:<8} {:<10} {}",
-                "PROFILE", "PROVIDER", "ROLE", "AUTH"
-            ),
-        );
+    let ordered = target::priority_order(&registered, &preferences);
+    let human_rows: Vec<_> = ordered
+        .iter()
+        .filter_map(|profile| rows.iter().find(|row| row["name"] == profile.name.as_str()))
+        .collect();
+    success(
+        "profiles",
+        profiles_human(&human_rows),
+        json!({ "profiles": rows }),
+    )
+}
+
+fn profiles_human(rows: &[&serde_json::Value]) -> String {
+    profiles_human_at_width(rows, presentation::Terminal::stdout().width)
+}
+
+fn profiles_human_at_width(rows: &[&serde_json::Value], width: usize) -> String {
+    let mut human = crate::output::header("Agent Relay Profiles");
+    if rows.is_empty() {
+        human.push_str("No profiles registered.\n\nGet started\n  relay setup");
+        return human;
     }
-    success("profiles", lines.join("\n"), json!({ "profiles": rows }))
+    let name_cap = width
+        .saturating_sub(if width < 60 { 27 } else { 49 })
+        .clamp(8, 24);
+    let mut recovery = Vec::new();
+    let mut details = Vec::new();
+    let table: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            let name = row["name"].as_str().unwrap_or("");
+            let detail = row["detail"].as_str();
+            if let Some(detail) = detail {
+                details.push(presentation::section(
+                    name,
+                    &presentation::diagnostic(detail),
+                ));
+            } else if name.len() > name_cap {
+                details.push(presentation::section(
+                    name,
+                    "Full profile name (abbreviated in table).",
+                ));
+            }
+            if let Some(commands) = row["recovery_command"].as_str() {
+                recovery.push(presentation::recovery(name, commands));
+            }
+            vec![
+                name.to_owned(),
+                match row["provider"].as_str() {
+                    Some("claude") => "Claude",
+                    Some("codex") => "Codex",
+                    _ => "Fake",
+                }
+                .to_owned(),
+                row["role"].as_str().unwrap_or("").to_owned(),
+                presentation::auth_label(row["authentication"].as_str().unwrap_or(""), detail)
+                    .to_owned(),
+            ]
+        })
+        .collect();
+    if width < 60 {
+        let compact: Vec<_> = table
+            .iter()
+            .map(|row| vec![row[0].clone(), row[3].clone()])
+            .collect();
+        human.push_str(&presentation::table(
+            &["PROFILE", "STATUS"],
+            &compact,
+            &[name_cap, 25],
+        ));
+        for row in &table {
+            details.push(format!("{}\n  {} · {}", row[0], row[1], row[2]));
+        }
+    } else {
+        human.push_str(&presentation::table(
+            &["PROFILE", "PROVIDER", "ROLE", "STATUS"],
+            &table,
+            &[name_cap, 8, 10, 25],
+        ));
+    }
+    human.push_str("\n\nAuthentication only; project trust and handoff readiness: relay doctor");
+    if !details.is_empty() {
+        human.push_str(&format!(
+            "\n\nDetails\n{}",
+            details
+                .iter()
+                .map(|d| d
+                    .lines()
+                    .map(|line| format!("  {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        ));
+    }
+    if !recovery.is_empty() {
+        human.push_str(&format!("\n\nRecovery\n{}", recovery.join("\n\n")));
+    }
+    human
 }
 
 pub(crate) fn run_status(
@@ -213,11 +288,6 @@ pub(crate) fn run_status(
             .into_iter()
             .map(ToString::to_string)
             .collect();
-    let fallback_display = if fallback_order.is_empty() {
-        "none".to_owned()
-    } else {
-        fallback_order.join(", ")
-    };
     let listing = |title: &str, lines: &[String]| {
         if lines.is_empty() {
             format!("{title}: none")
@@ -270,69 +340,102 @@ pub(crate) fn run_status(
                 "Current\n  {owner} · {provider}\n  Session {}",
                 view.record.relay_session_id.short()
             );
+            if live {
+                section.push_str(&format!(
+                    "\n  {}",
+                    profile_health(owner.as_str(), &readiness, true)
+                ));
+            }
             // Not noisy for the common case: only shown when it deviates from the default
             // (Interactive), same as everything else in this local-only summary — see
             // `readiness.rs`'s post-perf-fix "only claim what's known" convention.
             if view.record.execution_intent == relay_core::handoff::ExecutionIntent::Autonomous {
                 section.push_str("\n  Execution: autonomous");
             }
-            section.push_str("\n\nIf this profile runs out");
-            match (&handoff_next, &handoff_then) {
-                (Some(next), Some(then)) => {
-                    section.push_str(&format!("\n  Next: {next}\n  Then: {then}"));
-                }
-                (Some(next), None) => section.push_str(&format!("\n  Next: {next}")),
-                (None, _) => section.push_str("\n  Next: none configured or eligible"),
-            }
+
             section
         },
     );
-    let other_active: Vec<String> = views
+    let handoff_display = if live {
+        format!(
+            "{} {}",
+            if handoff_ready { "✓" } else { "✗" },
+            if handoff_message == "Waiting — current usage is not exhausted." {
+                "Configuration checks passed; no verified handoff trigger."
+            } else {
+                &handoff_message
+            }
+        )
+    } else {
+        "! Not checked live — run relay status --live".to_owned()
+    };
+    let mut human = format!(
+        "{}{decision_section}\n\n{}",
+        crate::output::header("Agent Relay"),
+        presentation::section("Automatic handoff", &handoff_display)
+    );
+    if !live {
+        human.push_str(&format!("\n  {handoff_message}"));
+    }
+    let owner = focus.map(|view| view.profile()).unwrap_or(&primary);
+    let configured = auto_handoff::hierarchy_without(&preferences, owner, |_| true);
+    let chain: Vec<_> = configured
         .iter()
-        .filter(|view| {
-            view.state() == relay_core::handoff::SessionState::Active
-                && focus.is_none_or(|current| {
-                    current.record.relay_session_id != view.record.relay_session_id
-                })
+        .enumerate()
+        .map(|(i, name)| {
+            let health = profile_health(name.as_str(), &readiness, live);
+            format!("  {}. {name}  {health}", i + 1)
         })
-        .map(|view| {
+        .collect();
+    human.push_str(&format!(
+        "\n\nConfigured fallback chain\n{}",
+        if chain.is_empty() {
+            "  None configured".to_owned()
+        } else {
+            chain.join("\n")
+        }
+    ));
+    let other: Vec<_> = registered
+        .iter()
+        .filter(|profile| {
+            profile.name != primary && !preferences.fallback_profiles.contains(&profile.name)
+        })
+        .map(|profile| {
             format!(
-                "  {} · {} · {}",
-                view.profile(),
-                provider_of(view).map(provider_label).unwrap_or("unknown"),
-                view.record.relay_session_id.short()
+                "  {} · {} · unassigned; not checked",
+                profile.name,
+                presentation::provider(profile.provider)
             )
         })
         .collect();
-
-    let mut human = format!(
-        "{}{decision_section}\n\nAutomatic handoff\n  {handoff_message}",
-        crate::output::header("Agent Relay")
-    );
-    if !other_active.is_empty() {
-        human.push_str(&format!(
-            "\n\nOther active sessions\n{}",
-            other_active.join("\n")
-        ));
+    if !other.is_empty() {
+        human.push_str(&format!("\n\nOther profiles\n{}", other.join("\n")));
     }
     human.push_str(&format!(
-        "\n\n{}\n\n{}\n\nPrimary profile: {} ({})\nFallback: {}\nAutomatic handoff installed: {}\nHerdr: {}",
+        "\n\n{}\n\n{}",
         listing("Active sessions", &lines_active),
-        dormant_section,
-        primary,
-        primary_auth,
-        fallback_display,
+        dormant_section
+    ));
+    if live {
+        let actions = recovery_for(&readiness);
+        if !actions.is_empty() {
+            human.push_str(&format!("\n\nRecovery\n{}", actions.join("\n\n")));
+        }
+    }
+    human.push_str(&format!(
+        "\n\nIntegration: {} · Herdr: {}",
         if preferences.usage_integration_enabled == Some(true) {
             "enabled"
         } else {
-            "not enabled"
+            "disabled"
         },
         if herdr_connected {
             "connected"
         } else {
             "not connected"
-        },
+        }
     ));
+
     success(
         "status",
         human,
@@ -361,6 +464,66 @@ pub(crate) fn run_status(
             "readiness_overall": readiness.overall(),
         }),
     )
+}
+
+/// Describe only evidence already collected by readiness. Never turn local configuration into
+/// live eligibility, and never let this display helper decide candidate selection.
+fn profile_health(name: &str, readiness: &readiness::Readiness, live: bool) -> String {
+    if !live {
+        return "not checked".to_owned();
+    }
+    let prefix = format!("{name} (");
+    let checks: Vec<_> = readiness
+        .checks
+        .iter()
+        .filter(|c| c.label.starts_with(&prefix))
+        .collect();
+    if checks.is_empty() {
+        return "not checked".to_owned();
+    }
+    for check in &checks {
+        if let Some(detail) = &check.detail {
+            if detail.starts_with("authentication_revoked:") {
+                return "✗ Credentials revoked".to_owned();
+            }
+            if detail.starts_with("authentication_invalid:") {
+                return "✗ Credentials invalid".to_owned();
+            }
+            if detail.contains("is logged out") {
+                return "! Needs login".to_owned();
+            }
+        }
+    }
+    if checks.iter().any(|c| c.level == readiness::Level::Blocking) {
+        "✗ Unavailable — see relay doctor".to_owned()
+    } else if checks.iter().any(|c| c.level == readiness::Level::Warning) {
+        "! Warning — see relay doctor".to_owned()
+    } else {
+        "✓ Checks passed".to_owned()
+    }
+}
+
+pub(crate) fn recovery_for(readiness: &readiness::Readiness) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for check in &readiness.checks {
+        let Some(remedy) = check.remedy.as_deref() else {
+            continue;
+        };
+        if !seen.insert(remedy) {
+            continue;
+        }
+        let label = check.label.split(" (").next().unwrap_or(&check.label);
+        if let Some((_, commands)) = groups.iter_mut().find(|(name, _)| *name == label) {
+            commands.push(remedy);
+        } else {
+            groups.push((label, vec![remedy]));
+        }
+    }
+    groups
+        .iter()
+        .map(|(label, commands)| presentation::recovery(label, &commands.join("\n")))
+        .collect()
 }
 
 fn provider_label(provider: relay_core::ProviderKind) -> &'static str {
@@ -546,6 +709,59 @@ mod tests {
         automation::{ProviderIdentityExhaustionLedger, ProviderIdentityExhaustionRecord},
         usage::UsageEvidence,
     };
+
+    #[test]
+    fn profile_table_and_recovery_are_separate_and_keep_machine_states() {
+        let rows = [
+            json!({"name":"main","provider":"claude","role":"primary","authentication":"needs login","detail":null,"recovery_command":"relay login main"}),
+            json!({"name":"codex-main","provider":"codex","role":"fallback","authentication":"needs login","detail":"authentication_revoked: HTTP 401; token_revoked\nRun:\nrelay logout codex-main\nrelay login codex-main","recovery_command":"relay logout codex-main\nrelay login codex-main"}),
+            json!({"name":"cx","provider":"codex","role":"unassigned","authentication":"authenticated","detail":null,"recovery_command":null}),
+        ];
+        let refs: Vec<_> = rows.iter().collect();
+        let human = profiles_human_at_width(&refs, 80);
+        let table = human.split("\n\nAuthentication only").next().unwrap();
+        assert_eq!(
+            table
+                .lines()
+                .filter(|l| l.starts_with("main ")
+                    || l.starts_with("codex-main ")
+                    || l.starts_with("cx "))
+                .count(),
+            3
+        );
+        assert!(!table.contains("relay login") && !table.contains("HTTP 401"));
+        assert!(
+            table.contains("Credentials revoked")
+                && table.contains("unassigned")
+                && table.contains("Authenticated")
+        );
+        assert!(human.contains("Recovery\n  main\n    relay login main"));
+        assert!(
+            human.contains("  codex-main\n    relay logout codex-main\n    relay login codex-main")
+        );
+        assert_eq!(rows[2]["authentication"], "authenticated");
+        assert!(profiles_human_at_width(&[], 80).contains("relay setup"));
+        for width in [40, 60, 80] {
+            let text = profiles_human_at_width(&refs, width);
+            let table = text.split("\n\nAuthentication only").next().unwrap();
+            assert!(table.lines().all(|l| l.chars().count() <= width));
+        }
+    }
+
+    #[test]
+    fn profile_health_never_promotes_unchecked_or_warning_evidence() {
+        let readiness = readiness::Readiness {
+            checks: vec![readiness::Check {
+                label: "main (Claude) authenticated".to_owned(),
+                level: readiness::Level::Warning,
+                detail: Some("main is logged out".to_owned()),
+                remedy: Some("relay login main".to_owned()),
+            }],
+        };
+        assert_eq!(profile_health("main", &readiness, false), "not checked");
+        assert_eq!(profile_health("main", &readiness, true), "! Needs login");
+        assert_eq!(profile_health("cx", &readiness, true), "not checked");
+    }
 
     fn fake_profile(name: &str, provider: ProviderKind, stable_id: &str) -> Profile {
         Profile {

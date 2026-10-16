@@ -42,7 +42,7 @@ pub(crate) fn run(paths: &RelayPaths, lock: &LockArgs) -> Result<CommandOutput, 
                 }));
             }
             let human = format!(
-                "Project: {}\n{}",
+                "Relay session locks\n\nProject: {}\n\n{}",
                 canonical.display(),
                 if views.is_empty() {
                     "No Relay sessions.".to_owned()
@@ -52,11 +52,15 @@ pub(crate) fn run(paths: &RelayPaths, lock: &LockArgs) -> Result<CommandOutput, 
                         .zip(&rows)
                         .map(|(view, row)| {
                             format!(
-                                "  {} {:?} owner/last: {} lock held: {}",
+                                "  {} · {:?} · {} · lock: {}",
                                 view.record.relay_session_id.short(),
                                 view.state(),
                                 view.profile(),
-                                row["locked"]
+                                if row["locked"] == true {
+                                    "held"
+                                } else {
+                                    "free"
+                                }
                             )
                         })
                         .collect::<Vec<_>>()

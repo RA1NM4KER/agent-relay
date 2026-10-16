@@ -79,7 +79,7 @@ pub(crate) fn run(
                 },
             })?;
             let human = format!(
-                "Handoff {} ({} -> {}): {:?}\nSession: {}\nTransaction: {}",
+                "Handoff {} ({} -> {}): {:?}\n\n  Native session: {}\n  Transaction: {}",
                 journal.transaction_id,
                 source_profile,
                 target_profile,
@@ -106,7 +106,7 @@ pub(crate) fn run(
             );
             let journal = journal_store.load()?;
             let human = format!(
-                "Transaction {}: {:?}\nRevision: {}",
+                "Transaction {}: {:?}\n  Revision: {}",
                 journal.transaction_id, journal.state, journal.revision
             );
             success("handoff.status", human, journal)

@@ -51,10 +51,19 @@ pub(crate) fn run(service: &ProfileService) -> Result<CommandOutput, Error> {
         .iter()
         .map(|entry| {
             format!(
-                "{} ({}) {}",
+                "{} · {} · {}{}",
                 entry["profile"].as_str().unwrap_or("?"),
-                entry["provider"].as_str().unwrap_or("?"),
-                entry["status"].as_str().unwrap_or("?")
+                match entry["provider"].as_str() {
+                    Some("claude") => "Claude",
+                    Some("codex") => "Codex",
+                    Some("fake") => "Fake",
+                    _ => "?",
+                },
+                entry["status"].as_str().unwrap_or("?"),
+                entry["reason"]
+                    .as_str()
+                    .map(|reason| format!("\n  {reason}"))
+                    .unwrap_or_default()
             )
         })
         .collect::<Vec<_>>()

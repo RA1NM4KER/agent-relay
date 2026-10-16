@@ -164,7 +164,7 @@ fn render_human(state: Option<&WorkingState>) -> String {
     if state.decisions.is_empty() {
         lines.push("Decisions: (none)".to_owned());
     } else {
-        lines.push("Decisions:".to_owned());
+        lines.push("\nDecisions:".to_owned());
         for decision in &state.decisions {
             let status = match decision.status {
                 relay_core::handoff::EntryStatus::Active => "active",
@@ -183,7 +183,7 @@ fn render_human(state: Option<&WorkingState>) -> String {
     if state.failed_attempts.is_empty() {
         lines.push("Failed attempts: (none)".to_owned());
     } else {
-        lines.push("Failed attempts:".to_owned());
+        lines.push("\nFailed attempts:".to_owned());
         for attempt in &state.failed_attempts {
             lines.push(format!("  - {} — {}", attempt.approach, attempt.reason));
         }
@@ -191,7 +191,7 @@ fn render_human(state: Option<&WorkingState>) -> String {
     if state.relevant_files.is_empty() {
         lines.push("Relevant files: (none)".to_owned());
     } else {
-        lines.push("Relevant files:".to_owned());
+        lines.push("\nRelevant files:".to_owned());
         for file in &state.relevant_files {
             match &file.role {
                 Some(role) => lines.push(format!("  - {}: {role}", file.path)),
@@ -202,12 +202,15 @@ fn render_human(state: Option<&WorkingState>) -> String {
     if state.next_actions.is_empty() {
         lines.push("Next actions: (none)".to_owned());
     } else {
-        lines.push("Next actions:".to_owned());
+        lines.push("\nNext actions:".to_owned());
         for action in &state.next_actions {
             lines.push(format!("  - {action}"));
         }
     }
-    lines.push(format!("Last updated: {} (unix ms)", state.updated_unix_ms));
+    lines.push(format!(
+        "\nLast updated: {} (unix ms)",
+        state.updated_unix_ms
+    ));
     lines.join("\n")
 }
 

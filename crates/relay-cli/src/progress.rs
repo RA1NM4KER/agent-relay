@@ -65,7 +65,10 @@ impl Progress {
     pub fn start(label: &str, json_mode: bool) -> Self {
         let mut progress = Self::start_if(
             label,
-            !json_mode && std::io::stderr().is_terminal(),
+            !json_mode
+                && std::io::stderr().is_terminal()
+                && std::io::stdout().is_terminal()
+                && crate::presentation::Terminal::stderr().color,
             Arc::new(write_stderr),
             START_DELAY,
         );

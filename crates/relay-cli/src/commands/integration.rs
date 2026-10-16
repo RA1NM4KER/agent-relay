@@ -347,7 +347,14 @@ fn for_each_target(
     let combined_human = humans
         .iter()
         .map(|(label, human)| match label {
-            Some(label) => format!("== {label} ==\n{human}"),
+            Some(label) => format!(
+                "{label}\n{}",
+                human
+                    .lines()
+                    .map(|line| format!("  {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
             None => human.clone(),
         })
         .collect::<Vec<_>>()
@@ -416,11 +423,15 @@ fn run_herdr_integration(
             let report = herdr_install::status(&client).map_err(refused)?;
             status_progress.finish();
             let human = format!(
-                "Herdr: client {}, server running={} version={} compatible={}\nPlugin: {}",
+                "Herdr integration\n\n  Client version: {}\n  Server: {}\n  Server version: {}\n  Compatible: {}\n  Plugin: {}",
                 report.herdr_client_version,
-                report.herdr_server_running,
+                if report.herdr_server_running {
+                    "running"
+                } else {
+                    "not running"
+                },
                 report.herdr_server_version,
-                report.herdr_compatible,
+                if report.herdr_compatible { "yes" } else { "no" },
                 report.plugin.as_ref().map_or_else(
                     || "not registered".to_owned(),
                     |p| format!("{} v{} (enabled={})", p.plugin_id, p.version, p.enabled)
@@ -454,8 +465,8 @@ fn run_herdr_integration(
             )];
             lines.extend(report.checks.iter().map(|check| {
                 format!(
-                    "[{}] {}: {}",
-                    if check.passed { "ok" } else { "failed" },
+                    "  {} {}: {}",
+                    if check.passed { "✓" } else { "✗" },
                     check.name,
                     check.message
                 )

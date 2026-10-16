@@ -214,7 +214,7 @@ pub(crate) fn run(
         .map(|verification| verification.target_session_id.clone())
         .unwrap_or_default();
     let human = format!(
-        "Switch {} ('{}' -> '{}'): {:?}\nContinuity: {:?}\nNew session: {}",
+        "Switch {} ('{}' -> '{}'): {:?}\n\n  Continuity: {:?}\n  Native session: {}",
         journal.transaction_id,
         source.name,
         target.name,

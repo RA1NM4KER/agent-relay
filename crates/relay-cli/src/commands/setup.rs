@@ -94,14 +94,18 @@ pub(crate) fn run(
     if !registered.is_empty() {
         println!("\nExisting profiles found:");
         for profile in &registered {
-            let (auth, _) = friendly_auth_state(
+            let (auth, detail) = friendly_auth_state(
                 profile,
                 &providers::ExecutableOverrides {
                     claude: claude_executable.map(Path::to_path_buf),
                     codex: codex_executable.map(Path::to_path_buf),
                 },
             );
-            println!("  \u{2713} {} ({auth})", profile.name);
+            println!(
+                "  {} · {}",
+                profile.name,
+                crate::presentation::auth_label(auth, detail.as_deref())
+            );
         }
         prompt_yes_no("\nUse these?", true)?;
     }

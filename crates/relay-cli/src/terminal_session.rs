@@ -691,8 +691,8 @@ fn run_managed_terminal_inner(
             ]);
             if !context.json_mode {
                 eprintln!(
-                    "{} Codex · session {}",
-                    crate::badge::styled(&format!("[Relay · {}]", owner.0)),
+                    "[Relay · {}] Codex · session {}",
+                    owner.0,
                     context.session().id.short()
                 );
                 match skill {

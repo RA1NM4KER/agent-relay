@@ -12,7 +12,7 @@ use relay_core::{ProfileName, ProviderKind, usage::UsageState};
 #[command(
     name = "relay",
     version = env!("RELAY_VERSION"),
-    about = "Supervise coding-agent sessions across isolated Claude and Codex profiles, and move work to the next eligible profile when one is exhausted"
+    about = "Keep coding conversations moving across isolated Claude and Codex profiles"
 )]
 pub(crate) struct Cli {
     /// Emit a stable machine-readable JSON envelope.
@@ -33,15 +33,30 @@ pub(crate) struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    /// Manage profile registration and inspect provider directories.
+    ///
     /// Manage explicit provider profiles.
+    #[command(display_order = 17)]
     Profile(ProfileArgs),
+    /// Advanced: stage transcripts or resolve transfer conflicts.
+    ///
     /// Advanced: stage a Claude session transcript from one profile into another by hand.
+    #[command(display_order = 18)]
     Session(SessionArgs),
+    /// Advanced: inspect session writer leases and locks.
+    ///
     /// Advanced: inspect a project's writer lease and orchestration lock.
+    #[command(display_order = 19)]
     Lock(LockArgs),
+    /// Advanced: run or inspect a handoff transaction.
+    ///
     /// Advanced: run or inspect a crash-safe handoff between two Claude profiles by hand.
+    #[command(display_order = 20)]
     Handoff(HandoffArgs),
+    /// Advanced: reconcile an interrupted handoff.
+    ///
     /// Advanced: decide the safe next action for an interrupted handoff.
+    #[command(display_order = 21)]
     Recover {
         transaction_id: String,
         #[arg(long, value_name = "PATH")]
@@ -55,8 +70,11 @@ pub(crate) enum Command {
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
     },
+    /// Advanced: start a background Claude conversation.
+    ///
     /// Advanced: start a separate Relay-managed background Claude conversation
     /// (scripting form of `relay claude`). Other conversations in this project are independent.
+    #[command(display_order = 22)]
     Launch {
         #[arg(long)]
         profile: ProfileName,
@@ -67,33 +85,57 @@ pub(crate) enum Command {
         #[arg(long, value_name = "PATH")]
         claude_executable: Option<PathBuf>,
     },
+    /// Advanced: evaluate automatic handoff by hand.
+    ///
     /// Advanced: run one automatic-handoff evaluation by hand (no persistent Relay daemon).
+    #[command(display_order = 23)]
     Watch(WatchArgs),
+    /// Manage Claude hooks, the Codex skill, and Herdr integration.
+    ///
     /// Claude usage hooks, the Codex Relay skill, and the optional Herdr plugin.
+    #[command(display_order = 16)]
     Integration(IntegrationArgs),
     /// Internal: commands Claude Code runs on behalf of an installed integration. Never fails the
     /// calling Claude session.
     #[command(hide = true)]
     Hook(HookArgs),
+    /// Set up profiles, priority order, and integrations.
+    ///
     /// First-run wizard: set up Claude and/or Codex profiles (whichever CLIs you have installed),
     /// choose one priority order, and optionally enable integrations. Safe to re-run any time;
     /// it reuses what already exists.
+    #[command(display_order = 0)]
     Setup(SetupArgs),
+    /// Refresh installed Relay-owned integration assets.
+    ///
     /// Reconcile only Relay-owned integration assets to this running Relay binary. This never
     /// performs onboarding or changes profiles, authentication, or fallback preferences.
+    #[command(display_order = 15)]
     Refresh,
+    /// Inspect or claim explicitly Relay-labelled GitHub work.
+    ///
     /// Inspect or claim explicitly Relay-labelled GitHub work. This never asks a provider to
     /// decide queue state.
+    #[command(display_order = 24)]
     Task(TaskArgs),
+    /// Start a Claude conversation under Relay.
+    ///
     /// Start a new Relay-managed Claude conversation in this project and open Claude directly
     /// (type your first message inside Claude). Options after `--` go straight to `claude`.
+    #[command(display_order = 1)]
     Claude(ClaudeArgs),
+    /// Start a Codex conversation under Relay.
+    ///
     /// Start a new Relay-managed Codex conversation in this project and open Codex directly.
     /// Options after `--` go straight to `codex`.
+    #[command(display_order = 2)]
     Codex(CodexArgs),
+    /// Show sessions and configured fallback order; use --live for health checks.
+    ///
     /// Show this project's current writer, fallback order and integrations at a glance. Reads
     /// only local Relay state by default (fast); pass `--live` to also perform current provider
     /// auth/usage checks (slower, spawns provider CLIs).
+    #[command(display_order = 4)]
     Status {
         #[arg(long = "project", value_name = "PATH")]
         project_dir: Option<PathBuf>,
@@ -102,11 +144,17 @@ pub(crate) enum Command {
         #[arg(long)]
         live: bool,
     },
+    /// List profile authentication and recovery commands.
+    ///
     /// List registered profiles with their provider, priority role and login state.
+    #[command(display_order = 5)]
     Profiles,
+    /// Log in to an isolated profile through its provider.
+    ///
     /// Log a profile in through its provider's own official login (Claude or Codex), in an
     /// isolated config home. An existing profile uses its registered provider; `--provider`
     /// chooses one for a brand-new profile name.
+    #[command(display_order = 8)]
     Login {
         name: ProfileName,
         /// The provider for a brand-new profile. Omit it when only one of Claude Code / Codex is
@@ -119,8 +167,11 @@ pub(crate) enum Command {
         #[arg(long, value_name = "PATH")]
         codex_executable: Option<PathBuf>,
     },
+    /// Log out of a profile; keep its registration.
+    ///
     /// Log a profile out through its provider's own official logout. Relay never touches
     /// credential files itself.
+    #[command(display_order = 9)]
     Logout {
         name: ProfileName,
         #[arg(long, value_name = "PATH")]
@@ -128,10 +179,13 @@ pub(crate) enum Command {
         #[arg(long, value_name = "PATH")]
         codex_executable: Option<PathBuf>,
     },
+    /// Move a conversation to another isolated profile.
+    ///
     /// Explicitly move a Relay session (conversation) to another profile, of the same provider or
     /// not. With no profile you choose from a list; with several active sessions you choose which
     /// one (or pass `--session`). Claude → Claude continues the same session; anything involving
     /// Codex continues from a Relay state bundle in a new session.
+    #[command(display_order = 6)]
     Switch(SwitchArgs),
     /// Internal: the `$relay switch` Codex skill's own side-channel to the Relay process already
     /// supervising this session (see `crate::control`) — never invoked directly by a user, and
@@ -140,11 +194,16 @@ pub(crate) enum Command {
     /// when it does not.
     #[command(hide = true)]
     SwitchRequest(SwitchRequestArgs),
+    /// Resume a dormant conversation on its last profile.
+    ///
     /// Continue a closed (dormant) Relay session of this project on the profile it last ran on
     /// (native resume of the same Claude session / Codex thread). With several you choose, or pass
     /// `--session`; an active session is never started twice. Unverified Codex usage is refused
     /// with a diagnostic; authentication recovery requires an explicit login command.
+    #[command(display_order = 3)]
     Resume(ResumeArgs),
+    /// Adopt an already-running Claude conversation without restarting it.
+    ///
     /// Bring an ALREADY-RUNNING Claude conversation under Relay from outside it — no in-session
     /// `/relay adopt` required. Exists because a Claude process started before Relay's `/relay`
     /// command was installed never sees it (Claude only loads custom commands at session start),
@@ -152,25 +211,40 @@ pub(crate) enum Command {
     /// fact comes from Claude's own structural session registry and transcript layout, exactly as
     /// the in-session adoption hook requires — never a guess from a profile name. Refuses (leaves
     /// everything untouched) on any ambiguity; never restarts or stops the Claude process.
+    #[command(display_order = 7)]
     Adopt(AdoptArgs),
+    /// Check automatic-handoff readiness and explain recovery.
+    ///
     /// Is Agent Relay actually ready to save you when your current account runs out? Checks every
     /// configured profile's authentication, verified Codex usage, project trust, and Claude
     /// integration, plus provider versions and the automatic-handoff preference. An eligible
     /// configured profile is enough; other profiles' problems remain visible as warnings.
+    #[command(display_order = 7)]
     Doctor(DoctorArgs),
+    /// Explain the current automatic-handoff decision.
+    ///
     /// Explain, in plain language, what Relay's automatic-handoff decision currently is and why —
     /// from the same durable state (usage, ledger, target eligibility) automatic handoff itself
     /// reads. Never guesses beyond what that state actually shows.
+    #[command(display_order = 10)]
     Why(WhyArgs),
+    /// Show local operational events for a Relay session.
+    ///
     /// Inspect durable, local operational history for a Relay Session (not conversation history).
     /// Reads session records and handoff journals only; it never contacts a provider or changes
     /// Relay's ownership, recovery, or automation state.
+    #[command(display_order = 11)]
     History(HistoryArgs),
+    /// Show or update advisory working state for a session.
+    ///
     /// The durable, provider-neutral, advisory working state Relay carries across
     /// handoffs for a Relay Session (goal, current subtask, decisions, failed attempts, relevant
     /// files, next actions). Agents never edit its storage file directly — this command owns
     /// validation, bounds, locking, and persistence.
+    #[command(display_order = 12)]
     State(StateArgs),
+    /// Show or change a session’s execution intent.
+    ///
     /// Show or change the current Relay Session's execution mode (`interactive` —
     /// normal conversational confirmation — or `autonomous` — continue without asking merely to
     /// proceed, still stopping for a genuine blocker). Behavioral intent only: never a provider
@@ -178,18 +252,22 @@ pub(crate) enum Command {
     /// `relay mode autonomous`/`relay mode interactive` sets it. The same underlying change is
     /// also reachable live, mid-conversation, via the Claude `/relay:mode` command and the Codex
     /// `$relay mode` skill — all three converge on the exact same persisted field.
+    #[command(display_order = 13)]
     Mode(ModeArgs),
     /// Internal: the detached, best-effort background process a human-facing command spawns to
     /// refresh the cached update-available check (see `crate::update_check`) — never invoked
     /// directly by a user, never prints anything, never fails visibly.
     #[command(name = "__internal-update-check-refresh", hide = true)]
     InternalUpdateCheckRefresh,
+    /// Update through Homebrew, or check for a newer stable release.
+    ///
     /// Update Relay itself. For a Homebrew install, this delegates straight to Homebrew (`brew
     /// update && brew upgrade`) and reports the resulting version; Relay never replaces its own
     /// binary. For any other install, this prints where to get the latest release instead of
     /// guessing at a self-update. `--check` only reports whether a newer stable release exists
     /// (reusing the same cached check `relay status`/`doctor`/`setup` already show a hint from),
     /// without installing anything. Stale or missing release data is refreshed in the cache.
+    #[command(display_order = 14)]
     Update(UpdateArgs),
 }
 
@@ -1290,5 +1368,59 @@ mod tests {
         };
         assert_eq!(issue, 21);
         assert!(Cli::try_parse_from(["relay", "task", "apply-result", "21"]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+    use clap::CommandFactory as _;
+
+    #[test]
+    fn every_visible_help_path_is_plain_and_hidden_protocols_stay_hidden() {
+        fn visit(mut command: clap::Command, path: String, paths: &mut Vec<String>) {
+            command = command.color(clap::ColorChoice::Never).term_width(80);
+            let help = command.render_long_help().to_string();
+            assert!(!help.contains('\x1b'), "{path}");
+            assert!(help.contains("Usage:"), "{path}");
+            paths.push(path.clone());
+            for child in command.get_subcommands().filter(|c| !c.is_hide_set()) {
+                visit(child.clone(), format!("{path} {}", child.get_name()), paths);
+            }
+        }
+        let mut root = Cli::command()
+            .color(clap::ColorChoice::Never)
+            .term_width(80);
+        let help = root.render_long_help().to_string();
+        for hidden in ["switch-request", "__internal-update-check-refresh", "hook"] {
+            assert!(
+                !help
+                    .lines()
+                    .any(|line| line.trim_start().starts_with(hidden))
+            );
+        }
+        let mut paths = Vec::new();
+        visit(root, "relay".into(), &mut paths);
+        assert!(
+            paths.len() > 50,
+            "all visible nested help paths must be audited: {paths:?}"
+        );
+        for name in [
+            "profiles",
+            "status",
+            "doctor",
+            "update",
+            "switch",
+            "resume",
+            "login",
+            "logout",
+            "history",
+            "state",
+            "profile",
+            "integration",
+            "task",
+        ] {
+            assert!(paths.contains(&format!("relay {name}")));
+        }
     }
 }

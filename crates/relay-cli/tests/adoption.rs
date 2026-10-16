@@ -2493,7 +2493,14 @@ fn an_optional_title_is_shown_when_present_and_falls_back_cleanly_when_absent() 
     // Absent (the real, untouched record): falls back to the existing id-based display.
     let without_title = status_human(&world);
     assert!(without_title.contains(&id_prefix), "{without_title}");
-    assert!(!without_title.contains(" · "), "{without_title}");
+    let session_row = without_title
+        .lines()
+        .find(|line| line.contains(&id_prefix))
+        .expect("session row");
+    assert!(
+        !session_row.contains(" · "),
+        "untitled session row: {session_row}"
+    );
 
     // Present: shown ahead of the existing identity-based line, which still names the session.
     set_record_field(&dir, "title", serde_json::json!("my-auth-refactor"));

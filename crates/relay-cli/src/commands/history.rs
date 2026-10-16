@@ -187,7 +187,11 @@ fn render(view: &RelaySessionView, events: &[Event], project: &std::path::Path) 
             clock(view.record.created_unix_ms)
         ),
         String::new(),
+        "Events".to_owned(),
     ];
+    if events.is_empty() {
+        lines.push("  No operational events recorded.".to_owned());
+    }
     let mut handoff = None;
     for event in events {
         if event.handoff_id.as_deref() != handoff {

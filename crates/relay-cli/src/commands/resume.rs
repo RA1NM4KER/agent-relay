@@ -226,7 +226,13 @@ fn resume_session(
                     args.claude_executable.as_deref(),
                 )?;
                 if !json_mode {
-                    println!("{}\n", outcome.human);
+                    println!(
+                        "{}\n",
+                        crate::presentation::render(
+                            &outcome.human,
+                            crate::presentation::Terminal::stdout()
+                        )
+                    );
                 }
                 if let Some(reloaded) = session
                     .lease_store()

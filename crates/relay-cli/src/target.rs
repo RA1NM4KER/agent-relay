@@ -282,7 +282,7 @@ impl PickRow for SwitchTarget {
         Self::selectable(self)
     }
     fn label(&self) -> String {
-        format!("{} {DIM}{}{RESET}", self.name, self.provider_label())
+        format!("{} · {}", self.name, self.provider_label())
     }
     fn note(&self) -> Option<String> {
         if self.current {
@@ -362,27 +362,21 @@ pub fn decode_key(bytes: &[u8]) -> Key {
     }
 }
 
-const RESET: &str = "\x1b[0m";
-const DIM: &str = "\x1b[2m";
-const BOLD: &str = "\x1b[1m";
-
 fn render<R: PickRow>(targets: &[R], cursor: usize, title: &str) -> String {
-    let mut out = String::new();
-    out.push_str(&format!("{BOLD}{title}{RESET}\r\n\r\n"));
+    let mut out = format!("{title}\n\n");
     for (index, target) in targets.iter().enumerate() {
-        let marker = if index == cursor { "❯" } else { " " };
-        let line = format!("{marker} {}. {}", index + 1, target.label());
-        if let Some(note) = target.note() {
-            out.push_str(&format!("{DIM}{line} — {note}{RESET}\r\n"));
-        } else if index == cursor {
-            out.push_str(&format!("{BOLD}{line}{RESET}\r\n"));
-        } else {
-            out.push_str(&format!("{line}\r\n"));
-        }
+        let marker = if index == cursor { ">" } else { " " };
+        let note = target
+            .note()
+            .map(|note| format!(" — {note}"))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "{marker} {}. {}{note}\n",
+            index + 1,
+            target.label()
+        ));
     }
-    out.push_str(&format!(
-        "\r\n{DIM}↑/↓ move · Enter choose · Esc cancel{RESET}\r\n"
-    ));
+    out.push_str("\n↑/↓ move · Enter choose · Esc cancel\n");
     out
 }
 
@@ -443,7 +437,7 @@ pub fn interactive() -> bool {
 pub fn pick(targets: &[SwitchTarget], from: &ProfileName) -> std::io::Result<Option<usize>> {
     pick_rows(
         targets,
-        &format!("Switch this conversation {DIM}(from '{from}'){RESET}"),
+        &format!("Switch this conversation (from '{from}')"),
     )
 }
 
@@ -456,12 +450,18 @@ pub fn pick_rows<R: PickRow>(targets: &[R], title: &str) -> std::io::Result<Opti
     };
     let mut stderr = std::io::stderr();
     let mut picker = Picker::new(targets);
-    let lines = targets.len() + 4;
-    write!(
-        stderr,
-        "\x1b[?25l{}",
-        render(targets, picker.cursor(), title)
-    )?;
+    let terminal = crate::presentation::Terminal::stderr();
+    // Cursor movement is presentation too: plain terminals redraw below the previous menu,
+    // preserving exactly the same keys and selectable rows without emitting any ANSI.
+    let screen = |cursor| {
+        crate::presentation::render(&render(targets, cursor, title), terminal).replace('\n', "\r\n")
+            + "\r\n"
+    };
+    let mut previous = screen(picker.cursor());
+    if terminal.color {
+        write!(stderr, "\x1b[?25l")?;
+    }
+    write!(stderr, "{previous}")?;
     stderr.flush()?;
     let mut stdin = std::io::stdin();
     let result = loop {
@@ -477,18 +477,22 @@ pub fn pick_rows<R: PickRow>(targets: &[R], title: &str) -> std::io::Result<Opti
         let key = decode_key(&buffer[..read]);
         match picker.handle(key) {
             PickerOutcome::Continue => {
-                write!(
-                    stderr,
-                    "\x1b[{lines}A\x1b[J{}",
-                    render(targets, picker.cursor(), title)
-                )?;
+                if terminal.color {
+                    let lines = previous.lines().count();
+                    write!(stderr, "\x1b[{lines}A\x1b[J")?;
+                }
+                previous = screen(picker.cursor());
+                write!(stderr, "{previous}")?;
                 stderr.flush()?;
             }
             PickerOutcome::Chosen(index) => break Some(index),
             PickerOutcome::Cancelled => break None,
         }
     };
-    write!(stderr, "\x1b[{lines}A\x1b[J\x1b[?25h")?;
+    if terminal.color {
+        let lines = previous.lines().count();
+        write!(stderr, "\x1b[{lines}A\x1b[J\x1b[?25h")?;
+    }
     stderr.flush()?;
     Ok(result)
 }
@@ -505,6 +509,29 @@ mod tests {
             priority: 0,
             unavailable: unavailable.map(str::to_owned),
         }
+    }
+
+    #[test]
+    fn picker_labels_and_plain_render_never_embed_styling() {
+        let rows = [
+            target("main", true, None),
+            target("backup", false, Some("exhausted")),
+            target("cx", false, None),
+        ];
+        let menu = render(&rows, 2, "Switch this conversation");
+        assert!(!menu.contains('\x1b'));
+        assert!(menu.contains("> 3. cx · Claude"));
+        assert!(menu.contains("unavailable: exhausted") && menu.contains("current"));
+        assert!(
+            !crate::presentation::render(
+                &menu,
+                crate::presentation::Terminal {
+                    color: false,
+                    width: 60
+                }
+            )
+            .contains('\x1b')
+        );
     }
 
     #[test]

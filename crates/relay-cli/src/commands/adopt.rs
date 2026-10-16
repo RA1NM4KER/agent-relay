@@ -130,8 +130,7 @@ pub(crate) fn run(
     };
     let human = format!(
         "Session {} {verb} under profile '{}' as Relay session {}.\nProject: {}\nAutomatic \
-         handoff: {}\n\n`relay status` now shows it ACTIVE; `relay switch --session {} <target>` \
-         moves it.",
+         handoff: {}\n\nInspect\n  relay status\n\nSwitch profile\n  relay switch --session {} <target>",
         args.session,
         profile.name,
         relay_session_id.short(),

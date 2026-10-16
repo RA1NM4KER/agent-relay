@@ -556,7 +556,7 @@ fn doctor_human_output_matches_the_documented_shape() {
     let output = command.output().expect("run relay doctor");
     assert!(output.status.success());
     let human = String::from_utf8_lossy(&output.stdout);
-    assert!(human.starts_with("Agent Relay health"));
+    assert!(human.starts_with("Agent Relay Doctor"));
     assert!(human.contains("\u{2713} alice (Claude) authenticated"));
     assert!(human.contains("Ready for automatic handoff."));
 }
@@ -813,6 +813,15 @@ fn status_reports_current_owner_and_automatic_handoff_readiness() {
     assert!(human.contains("Current"));
     assert!(human.contains("alice"));
     assert!(human.contains("Automatic handoff"));
+    assert!(human.contains("Configured fallback chain"));
+    assert!(human.contains("Not checked live"));
+    assert!(!human.contains("Next:") && !human.contains("Then:"));
+    let live_output = command.arg("--live").output().expect("live status");
+    assert!(live_output.status.success());
+    let live_human = String::from_utf8_lossy(&live_output.stdout);
+    assert!(!live_human.contains("Not checked live"));
+    assert!(live_human.contains("✓ Checks passed"));
+    assert!(!live_human.contains("Next:") && !live_human.contains("Then:"));
 }
 
 /// GitHub Issue #3: `--autonomous` is set once at session creation and `relay status` (a purely

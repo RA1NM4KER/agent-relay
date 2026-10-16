@@ -54,7 +54,7 @@ pub(crate) fn run(
                 source.effective_claude_config_mode(),
             )?;
             let human = format!(
-                "Staged session {} from '{}' to '{}'\nProject key: {}\nArtifacts: {}",
+                "Staged session {} from '{}' to '{}'\nProject key: {}\n\nArtifacts\n  {}",
                 report.session_id,
                 source_profile,
                 target_profile,
@@ -74,7 +74,7 @@ pub(crate) fn run(
                         }
                     ))
                     .collect::<Vec<_>>()
-                    .join("; ")
+                    .join("\n  ")
             );
             success("session.stage_transfer", human, report)
         }

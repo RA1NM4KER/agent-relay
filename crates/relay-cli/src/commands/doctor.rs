@@ -8,7 +8,7 @@ use relay_core::{Error, ProfileService, RelayPaths};
 use crate::{
     cli::DoctorArgs,
     output::{CommandOutput, success},
-    preferences, progress, providers,
+    preferences, presentation, progress, providers,
     readiness::{self, Level},
 };
 
@@ -36,7 +36,16 @@ pub(crate) fn run(
         &|phase| progress.set_label(phase),
     );
     progress.finish();
-    success("doctor", render_human(&readiness), render_json(&readiness))
+    let project = args.project_dir.as_deref().or(cwd.as_deref());
+    let mut human = render_human(&readiness);
+    if let Some(project) = project {
+        let title_end = human.find("\n\n").unwrap_or(human.len());
+        human.insert_str(
+            title_end + 2,
+            &format!("Current project\n  {}\n\n", project.display()),
+        );
+    }
+    success("doctor", human, render_json(&readiness))
 }
 
 /// Plain-text rendering for a real terminal (`relay doctor`), which does not interpret Markdown.
@@ -53,36 +62,70 @@ pub(crate) fn render_human_markdown(readiness: &readiness::Readiness) -> String 
 }
 
 fn render(readiness: &readiness::Readiness, emphasize: impl Fn(&str) -> String) -> String {
-    let title = emphasize("Agent Relay health");
-    let mut lines = Vec::new();
-    for check in &readiness.checks {
-        let label = format!("{} {}", check.level.symbol(), check.label);
-        lines.push(if check.level == Level::Blocking {
-            emphasize(&label)
-        } else {
-            label
-        });
-        if check.level != Level::Ok
-            && let Some(detail) = &check.detail
-        {
-            lines.push(format!("  {detail}"));
-        }
-        if let Some(remedy) = &check.remedy {
-            if remedy.contains('\n') {
-                lines.push("  Run:".to_owned());
-                lines.extend(remedy.lines().map(|command| format!("    {command}")));
+    let title = emphasize("Agent Relay Doctor");
+    let verdict = match readiness.overall() {
+        Level::Ok => "✓ Ready for automatic handoff.",
+        Level::Warning => "! Ready for automatic handoff (with warnings).",
+        Level::Blocking => "✗ Not ready for automatic handoff — see below.",
+    };
+    let mut sections = vec![format!("Automatic handoff\n  {}", emphasize(verdict))];
+    for (level, heading) in [
+        (Level::Blocking, "Blockers"),
+        (Level::Warning, "Warnings"),
+        (Level::Ok, "Passed checks"),
+    ] {
+        let mut checks = Vec::new();
+        for check in readiness.checks.iter().filter(|c| c.level == level) {
+            let symbol = check.level.symbol();
+            let label = format!("  {symbol} {}", check_label(check));
+            checks.push(if level == Level::Blocking {
+                format!("  {}", emphasize(label.trim_start()))
             } else {
-                lines.push(format!("  Run: {remedy}"));
+                label
+            });
+            if level != Level::Ok
+                && let Some(detail) = &check.detail
+            {
+                checks.push(format!("    {}", presentation::diagnostic(detail)));
             }
         }
+        if !checks.is_empty() {
+            sections.push(format!("{heading}\n{}", checks.join("\n")));
+        }
     }
-    lines.push(String::new());
-    lines.push(emphasize(match readiness.overall() {
-        Level::Ok => "Ready for automatic handoff.",
-        Level::Warning => "Ready for automatic handoff (with warnings above).",
-        Level::Blocking => "Not ready for automatic handoff — see above.",
-    }));
-    format!("{}{}", crate::output::header(&title), lines.join("\n"))
+    let recovery = super::status::recovery_for(readiness);
+    if !recovery.is_empty() {
+        sections.push(format!("Recovery\n{}", recovery.join("\n\n")));
+    }
+    format!("{}{}", crate::output::header(&title), sections.join("\n\n"))
+}
+
+fn check_label(check: &readiness::Check) -> String {
+    if let Some(detail) = &check.detail {
+        let auth = if detail.contains("is logged out") {
+            Some("Needs login")
+        } else if detail.starts_with("authentication_revoked:") {
+            Some("Credentials revoked")
+        } else if detail.starts_with("authentication_invalid:") {
+            Some("Credentials invalid")
+        } else {
+            None
+        };
+        if let Some(auth) = auth {
+            let subject = check
+                .label
+                .strip_suffix(" authenticated")
+                .or_else(|| check.label.strip_suffix(" ordinary usage verified"))
+                .unwrap_or(&check.label);
+            return format!("{subject} · {auth}");
+        }
+    }
+    if check.level == Level::Warning
+        && let Some(subject) = check.label.strip_suffix(" supported")
+    {
+        return format!("{subject} · Version unverified");
+    }
+    check.label.clone()
 }
 
 fn render_json(readiness: &readiness::Readiness) -> serde_json::Value {
@@ -91,4 +134,55 @@ fn render_json(readiness: &readiness::Readiness) -> serde_json::Value {
         "overall": readiness.overall(),
         "checks": readiness.checks,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blockers_warnings_and_recovery_keep_separate_sections_and_levels() {
+        let readiness = readiness::Readiness {
+            checks: vec![
+                readiness::Check {
+                    label: "main authenticated".into(),
+                    level: Level::Blocking,
+                    detail: Some("logged out".into()),
+                    remedy: Some("relay login main".into()),
+                },
+                readiness::Check {
+                    label: "backup authenticated".into(),
+                    level: Level::Warning,
+                    detail: Some("logged out".into()),
+                    remedy: Some("relay login backup".into()),
+                },
+                readiness::Check {
+                    label: "Git available".into(),
+                    level: Level::Ok,
+                    detail: None,
+                    remedy: None,
+                },
+            ],
+        };
+        let human = render_human(&readiness);
+        assert!(human.contains("Blockers\n  ✗ main"));
+        assert!(human.contains("Warnings\n  ! backup"));
+        assert!(human.contains("Passed checks\n  ✓ Git"));
+        assert!(human.contains("Recovery\n  main authenticated\n    relay login main"));
+        let styled = presentation::render(
+            &human,
+            presentation::Terminal {
+                color: true,
+                width: 80,
+            },
+        );
+        assert!(styled.contains("\x1b[31m  ✗") && styled.contains("\x1b[33m  !"));
+        assert_eq!(readiness.overall(), Level::Blocking);
+        let warning_only = readiness::Readiness {
+            checks: readiness.checks[1..].to_vec(),
+        };
+        assert!(warning_only.ready());
+        assert!(render_human(&warning_only).contains("Ready for automatic handoff"));
+        assert!(!render_human_markdown(&readiness).contains('\x1b'));
+    }
 }
