@@ -291,6 +291,17 @@ Forbidden by default:
 
 `StopFailure.last_assistant_message` is specifically discarded before persistence.
 
+Authentication recovery preserves negative evidence without making uncertain profiles eligible.
+Claude's exit-1 status is accepted only as a strictly validated logged-out first-party result,
+with empty stderr and no conflicting identity fields; other failed or unsupported responses
+remain failures. Normal launch/resume never invokes login or logout automatically.
+
+For Codex usage RPC errors, only a bounded, recognized HTTP-401 backend JSON envelope with an
+allowlisted authentication error code produces an auth-recovery diagnosis. This affects diagnostic
+text only; the usage state remains `UNKNOWN`, never exhaustion or availability. Raw provider error
+messages/bodies are discarded in favour of fixed secret-free categories. Other UNKNOWN failures
+do not imply a login remedy. `ordinaryUsageAllowed == false` remains the sole exhaustion verdict.
+
 ## Permissions and platform posture
 
 - macOS arm64 and Linux x86_64 are v0.1 release gates.

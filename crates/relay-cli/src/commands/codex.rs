@@ -12,7 +12,7 @@ use relay_core::{
 use serde_json::{Value, json};
 
 use crate::{
-    auth::{apply_provider_exhaustion, doctor_is_healthy, friendly_auth_state, select_profile},
+    auth::{apply_provider_exhaustion, doctor_is_healthy, select_profile},
     auto_handoff,
     cli::{ClaudeArgs, CodexArgs},
     launch::record_writer_process,
@@ -317,7 +317,7 @@ fn run_codex_inner(
         paths,
         profile,
         &executables,
-        preflight_reading.observation,
+        preflight_reading.observation.clone(),
         current_unix_ms(),
     )?;
     if usage.state.is_blocking() {
@@ -337,13 +337,7 @@ fn run_codex_inner(
         );
     }
     if usage.state == UsageState::Unknown {
-        progress.set_label("Checking Codex login…");
-        let (auth, _) = friendly_auth_state(profile, &executables);
-        return Err(if auth == "authenticated" {
-            Error::CodexUsageUnverified(profile.name.to_string())
-        } else {
-            Error::AuthenticationRequired
-        });
+        return Err(preflight_reading.refusal(profile.name.as_str()));
     }
 
     // Deliberately one-shot, unlike Claude's live `[Relay · <profile>]` badge (`crate::badge`):

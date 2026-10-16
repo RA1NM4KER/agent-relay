@@ -41,17 +41,37 @@ pub(crate) fn run_profiles(
         } else {
             "unassigned"
         };
-        let (auth_state, _detail) =
+        let (auth_state, detail) =
             friendly_auth_state(profile, &providers::ExecutableOverrides::default());
         lines.push(format!(
             "{:<12} {:<8} {:<10} {}",
             profile.name, profile.provider, role, auth_state
         ));
+        if let Some(detail) = &detail {
+            lines.push(format!("  {detail}"));
+        }
+        let recovery = (auth_state == "needs login").then(|| {
+            if profile.provider == relay_core::ProviderKind::Codex {
+                format!(
+                    "relay logout {}\nrelay login {}",
+                    profile.name, profile.name
+                )
+            } else {
+                format!("relay login {}", profile.name)
+            }
+        });
+        if detail.is_none()
+            && let Some(command) = &recovery
+        {
+            lines.push(format!("  Run: {command}"));
+        }
         rows.push(json!({
             "name": profile.name.as_str(),
             "provider": profile.provider.to_string(),
             "role": role,
             "authentication": auth_state,
+            "detail": detail,
+            "recovery_command": recovery,
         }));
     }
     if lines.is_empty() {

@@ -19,7 +19,7 @@ pub use handoff_adapters::{
 pub use inspection::{
     CodexAuthStatus, CodexInspector, VERIFIED_VERSIONS, VersionStatus, assess_version,
 };
-pub use usage::{CodexUsageReading, CodexUsageSignal};
+pub use usage::{CodexUsageDiagnostic, CodexUsageReading, CodexUsageSignal};
 
 use std::{
     collections::BTreeMap,

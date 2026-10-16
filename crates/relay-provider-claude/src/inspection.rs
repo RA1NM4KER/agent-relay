@@ -129,6 +129,7 @@ pub struct ProcessSpec {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessResult {
     pub success: bool,
+    pub exit_code: Option<i32>,
     pub stdout: Vec<u8>,
     /// Captured for diagnostics only (see [`sanitize_diagnostic`]) — never returned to a caller
     /// raw, and never used as a data source for anything safety-relevant.
@@ -187,6 +188,7 @@ impl CommandRunner for SystemCommandRunner {
             .unwrap_or_default();
         Ok(ProcessResult {
             success: status.success(),
+            exit_code: status.code(),
             stdout,
             stderr,
         })
@@ -368,11 +370,30 @@ impl<R: CommandRunner> ClaudeInspector<R> {
             timeout: COMMAND_TIMEOUT,
             output_limit: AUTH_OUTPUT_LIMIT,
         })?;
-        if !result.success {
-            return Err(diagnostic("claude auth status --json", &result.stderr));
-        }
-        parse_auth_status(&result.stdout, config_dir)
+        parse_auth_result(&result, config_dir)
     }
+}
+
+fn parse_auth_result(result: &ProcessResult, config_dir: &Path) -> Result<AuthStatus> {
+    if result.success {
+        return parse_auth_status(&result.stdout, config_dir);
+    }
+    // Claude uses exit 1 for an ordinary logged-out report. Accept only that exact, strictly
+    // validated negative result with empty stderr. Never accept positive, conflicting or
+    // unsupported data from a failed command, or treat another failure as a request to log in.
+    if result.exit_code == Some(1) && result.stderr.is_empty() {
+        let auth = parse_auth_status(&result.stdout, config_dir)?;
+        if !auth.logged_in
+            && auth.auth_method == "none"
+            && auth.api_provider == "firstParty"
+            && auth.account_id.is_none()
+            && auth.email.is_none()
+            && auth.organization_id.is_none()
+        {
+            return Ok(auth);
+        }
+    }
+    Err(diagnostic("claude auth status --json", &result.stderr))
 }
 
 /// Turns a failed provider command into an actionable [`Error::ProviderDiagnostic`]: which

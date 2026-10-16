@@ -95,17 +95,10 @@ pub(crate) fn run(
         return Err(Error::AlreadyCurrentWriter(target.name.to_string()));
     }
     provider_args::validate(target.provider, &args.provider_args)?;
+    // Keep the directory preflight ahead of every provider read, including the early Codex
+    // diagnostic read. Moving diagnostics earlier must not move this safety check later.
+    service.validate_profile_directory(target)?;
 
-    let target_backend = providers::provider_backend(target.provider, &executables)?;
-    let target_status = service.status(&target.name, target_backend.as_ref())?;
-    if target_status.authentication != AuthenticationState::Authenticated {
-        return Err(Error::AuthenticationRequired);
-    }
-    // Known before anything is stopped: the account behind the target must still be the one
-    // registered for it.
-    if !target_status.identity_matches {
-        return Err(Error::IdentityMismatch);
-    }
     // An explicit switch to Codex is preflighted before anything is committed: an exhausted (or
     // unverifiable) target is refused outright — manual intent is never silently rerouted.
     // GitHub #13's adaptive-polling seed for the target terminal this switch may attach below.
@@ -113,13 +106,31 @@ pub(crate) fn run(
     if target.provider == ProviderKind::Codex {
         let reading = codex_preflight(target, &executables, &canonical_project, json_mode);
         codex_poll_seed = reading.max_used_percent;
-        let usage = reading.observation;
+        let usage = &reading.observation;
         if usage.state.is_blocking() {
             return Err(Error::TargetProfileExhausted(target.name.to_string()));
         }
         if usage.state == UsageState::Unknown {
-            return Err(Error::CodexUsageUnverified(target.name.to_string()));
+            return Err(reading.refusal(target.name.as_str()));
         }
+    }
+
+    let target_backend = providers::provider_backend(target.provider, &executables)?;
+    let target_status = service
+        .status(&target.name, target_backend.as_ref())
+        .map_err(|error| Error::ProfileAuthenticationInspectionFailed {
+            profile: target.name.to_string(),
+            detail: error.to_string(),
+        })?;
+    if target_status.authentication != AuthenticationState::Authenticated {
+        return Err(Error::ProfileAuthenticationRequired(
+            target.name.to_string(),
+        ));
+    }
+    // Known before anything is stopped: the account behind the target must still be the one
+    // registered for it.
+    if !target_status.identity_matches {
+        return Err(Error::IdentityMismatch);
     }
 
     let continuity_type =

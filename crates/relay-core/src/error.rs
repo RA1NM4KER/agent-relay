@@ -17,6 +17,10 @@ pub enum Error {
     ProviderMismatch { expected: String, observed: String },
     #[error("profile authentication is required")]
     AuthenticationRequired,
+    #[error("profile '{0}' is logged out. Run: relay login {0}")]
+    ProfileAuthenticationRequired(String),
+    #[error("could not inspect authentication for profile '{profile}': {detail}")]
+    ProfileAuthenticationInspectionFailed { profile: String, detail: String },
     #[error("provider authentication inspection failed")]
     AuthenticationInspectionFailed,
     #[error("profile identity does not match the pinned identity")]
@@ -206,10 +210,10 @@ pub enum Error {
     )]
     TargetProfileExhausted(String),
     #[error(
-        "Relay could not verify Codex usage for profile '{0}' (the structured usage interface was \
-         unavailable or ambiguous), so it did not start or switch to it"
+        "Relay could not verify Codex usage for profile '{profile}', so it did not start or switch \
+         to it.\n{detail}"
     )]
-    CodexUsageUnverified(String),
+    CodexUsageUnverified { profile: String, detail: String },
     #[error(
         "Codex profile '{0}' is exhausted and no other configured profile is eligible right now"
     )]
@@ -281,8 +285,13 @@ impl Error {
             Self::ProfileNotFound(_) => "profile_not_found",
             Self::ProfileHasActiveSession(_) => "profile_has_active_session",
             Self::ProviderMismatch { .. } => "provider_mismatch",
-            Self::AuthenticationRequired => "authentication_required",
-            Self::AuthenticationInspectionFailed => "authentication_inspection_failed",
+            Self::AuthenticationRequired | Self::ProfileAuthenticationRequired(_) => {
+                "authentication_required"
+            }
+            Self::AuthenticationInspectionFailed
+            | Self::ProfileAuthenticationInspectionFailed { .. } => {
+                "authentication_inspection_failed"
+            }
             Self::IdentityMismatch => "identity_mismatch",
             Self::AdoptionIdentityRequired => "adoption_identity_required",
             Self::PathNotAbsolute(_) => "path_not_absolute",
@@ -344,7 +353,7 @@ impl Error {
             Self::ProviderArgumentRejected(..) => "provider_argument_rejected",
             Self::NoProfileForProvider(_) => "no_profile_for_provider",
             Self::TargetProfileExhausted(_) => "target_profile_exhausted",
-            Self::CodexUsageUnverified(_) => "codex_usage_unverified",
+            Self::CodexUsageUnverified { .. } => "codex_usage_unverified",
             Self::NoEligibleProfile(_) => "no_eligible_profile",
             Self::ProfileProviderMismatch { .. } => "profile_provider_mismatch",
             Self::PendingRecoveryRequired(_) => "pending_recovery_required",

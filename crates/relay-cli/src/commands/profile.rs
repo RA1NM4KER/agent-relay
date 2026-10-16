@@ -109,6 +109,7 @@ pub(crate) fn run(
             claude_executable,
             codex_executable,
         } => {
+            require_verifiable_codex(service, name, codex_executable.as_deref())?;
             let progress = progress::Progress::start(&format!("Checking {name}…"), json_mode);
             let provider = provider_for_profile(
                 service,
@@ -151,6 +152,7 @@ pub(crate) fn run(
             claude_executable,
             codex_executable,
         } => {
+            require_verifiable_codex(service, name, codex_executable.as_deref())?;
             let progress = progress::Progress::start(&format!("Checking {name}…"), json_mode);
             let provider = provider_for_profile(
                 service,
@@ -360,6 +362,32 @@ pub(crate) fn run(
             success("profile.adopt.dry_run", human, dry_run)
         }
     }
+}
+
+fn require_verifiable_codex(
+    service: &ProfileService,
+    name: &ProfileName,
+    executable: Option<&Path>,
+) -> Result<(), Error> {
+    let registered = service.list()?;
+    let profile = registered
+        .iter()
+        .find(|p| &p.name == name)
+        .ok_or_else(|| Error::ProfileNotFound(name.to_string()))?;
+    if profile.provider == ProviderKind::Codex {
+        service.validate_profile_directory(profile)?;
+        let reading = crate::auth::codex_profile_reading(
+            profile,
+            &providers::ExecutableOverrides {
+                codex: executable.map(Path::to_path_buf),
+                claude: None,
+            },
+        )?;
+        if reading.observation.state == relay_core::usage::UsageState::Unknown {
+            return Err(reading.refusal(name.as_str()));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn run_login(

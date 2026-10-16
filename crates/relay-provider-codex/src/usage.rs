@@ -22,7 +22,7 @@
 use std::path::{Path, PathBuf};
 
 use relay_core::{
-    Result,
+    Error, Result,
     usage::{UsageEvidence, UsageObservation, UsageSignal, UsageState},
 };
 
@@ -32,6 +32,61 @@ use crate::{
 };
 
 const NEAR_LIMIT_PERCENT: u32 = 90;
+
+/// Bounded, secret-free failure categories. These are diagnostics, never usage authority.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CodexUsageDiagnostic {
+    AuthenticationRevoked,
+    AuthenticationInvalid,
+    Timeout,
+    UnsupportedSchema,
+    UnsupportedInterface,
+    ExecutableUnavailable,
+    Transport,
+    ProviderFailure,
+    HomeMismatch,
+}
+
+impl CodexUsageDiagnostic {
+    #[must_use]
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::AuthenticationRevoked => {
+                "authentication_revoked: Codex rejected this profile's revoked credentials (HTTP 401; token_revoked)"
+            }
+            Self::AuthenticationInvalid => {
+                "authentication_invalid: Codex rejected this profile's invalid or expired credentials (HTTP 401)"
+            }
+            Self::Timeout => {
+                "timeout: Codex app-server did not answer within the bounded session timeout"
+            }
+            Self::UnsupportedSchema => {
+                "unsupported_schema: Codex returned an unsupported or malformed structured usage response"
+            }
+            Self::UnsupportedInterface => {
+                "unsupported_interface: this Codex app-server does not support the structured method Relay needs"
+            }
+            Self::ExecutableUnavailable => {
+                "executable_unavailable: Codex could not be found, safely resolved, or started"
+            }
+            Self::Transport => "transport_failure: Codex app-server closed its connection",
+            Self::ProviderFailure => {
+                "provider_failure: Codex rejected the structured usage request"
+            }
+            Self::HomeMismatch => {
+                "profile_mismatch: Codex app-server resolved a different CODEX_HOME"
+            }
+        }
+    }
+
+    #[must_use]
+    pub const fn authentication_rejected(self) -> bool {
+        matches!(
+            self,
+            Self::AuthenticationRevoked | Self::AuthenticationInvalid
+        )
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct CodexUsageSignal {
@@ -45,12 +100,36 @@ pub struct CodexUsageSignal {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexUsageReading {
     pub observation: UsageObservation,
+    pub diagnostic: Option<CodexUsageDiagnostic>,
     /// The highest window `usedPercent` seen in this read. Trustworthy for adaptive polling
     /// cadence ONLY — `Some` exactly when [`Self::observation`] is a validated
     /// `ordinaryUsageAllowed == true` reading (`Available`/`NearLimit`); `None` for `Exhausted`
     /// (scheduling is moot — a handoff evaluation follows) and for `Unknown` (never inferred from
     /// a percentage). Never used, and must never be used, to decide exhaustion itself.
     pub max_used_percent: Option<u32>,
+}
+
+impl CodexUsageReading {
+    #[must_use]
+    pub fn recovery_command(&self, profile: &str) -> Option<String> {
+        self.diagnostic
+            .filter(|d| d.authentication_rejected())
+            .map(|_| format!("relay logout {profile}\nrelay login {profile}"))
+    }
+
+    #[must_use]
+    pub fn refusal(&self, profile: &str) -> Error {
+        let mut detail = self.observation.detected_via.clone();
+        if let Some(command) = self.recovery_command(profile) {
+            detail.push_str(&format!(
+                "\nThis isolated profile needs its own login. Run:\n{command}"
+            ));
+        }
+        Error::CodexUsageUnverified {
+            profile: profile.to_owned(),
+            detail,
+        }
+    }
 }
 
 impl CodexUsageSignal {
@@ -67,15 +146,45 @@ impl CodexUsageSignal {
     pub fn read(&self, config_dir: &Path) -> CodexUsageReading {
         let now = now_unix_ms();
         let outcome = CodexInspector::discover(self.executable.as_deref())
-            .map_err(|_| "codex executable not found".to_owned())
+            .map_err(|_| CodexUsageDiagnostic::ExecutableUnavailable)
             .and_then(|inspector| {
-                app_server::read_rate_limits(inspector.executable(), config_dir)
-                    .map_err(|error| error.to_string())
+                app_server::read_rate_limits(inspector.executable(), config_dir).map_err(|error| {
+                    match error {
+                        app_server::AppServerError::AuthenticationRejected { revoked: true } => {
+                            CodexUsageDiagnostic::AuthenticationRevoked
+                        }
+                        app_server::AppServerError::AuthenticationRejected { revoked: false } => {
+                            CodexUsageDiagnostic::AuthenticationInvalid
+                        }
+                        app_server::AppServerError::Spawn => {
+                            CodexUsageDiagnostic::ExecutableUnavailable
+                        }
+                        app_server::AppServerError::Timeout => CodexUsageDiagnostic::Timeout,
+                        app_server::AppServerError::HomeMismatch => {
+                            CodexUsageDiagnostic::HomeMismatch
+                        }
+                        app_server::AppServerError::Rpc { code: -32601, .. } => {
+                            CodexUsageDiagnostic::UnsupportedInterface
+                        }
+                        app_server::AppServerError::Rpc { .. } => {
+                            CodexUsageDiagnostic::ProviderFailure
+                        }
+                        app_server::AppServerError::Protocol(ref detail)
+                            if detail.starts_with("server closed") =>
+                        {
+                            CodexUsageDiagnostic::Transport
+                        }
+                        app_server::AppServerError::Protocol(_) => {
+                            CodexUsageDiagnostic::UnsupportedSchema
+                        }
+                    }
+                })
             });
         match outcome {
             Ok(report) => interpret(&report, now),
             Err(reason) => CodexUsageReading {
-                observation: unknown(now, &format!("codex usage unavailable: {reason}")),
+                observation: unknown(now, reason.description()),
+                diagnostic: Some(reason),
                 max_used_percent: None,
             },
         }
@@ -103,6 +212,7 @@ pub fn interpret(report: &RateLimitsReport, now_unix_ms: u64) -> CodexUsageReadi
                 now_unix_ms,
                 "codex account is not a plan-based ChatGPT account; no usage windows to read",
             ),
+            diagnostic: None,
             max_used_percent: None,
         };
     }
@@ -112,6 +222,7 @@ pub fn interpret(report: &RateLimitsReport, now_unix_ms: u64) -> CodexUsageReadi
                 now_unix_ms,
                 "codex usage snapshot did not identify its account",
             ),
+            diagnostic: None,
             max_used_percent: None,
         };
     }
@@ -141,6 +252,7 @@ pub fn interpret(report: &RateLimitsReport, now_unix_ms: u64) -> CodexUsageReadi
                     reset_unix_ms: reset,
                 },
                 // Exhausted routes straight to a handoff evaluation; cadence is moot.
+                diagnostic: None,
                 max_used_percent: None,
             }
         }
@@ -149,6 +261,7 @@ pub fn interpret(report: &RateLimitsReport, now_unix_ms: u64) -> CodexUsageReadi
                 now_unix_ms,
                 "codex usage snapshot contradicts itself (usage allowed but a limit is reported reached)",
             ),
+            diagnostic: None,
             max_used_percent: None,
         },
         Some(true) => CodexUsageReading {
@@ -163,6 +276,7 @@ pub fn interpret(report: &RateLimitsReport, now_unix_ms: u64) -> CodexUsageReadi
                 observed_unix_ms: now_unix_ms,
                 reset_unix_ms: None,
             },
+            diagnostic: None,
             max_used_percent: Some(max_used),
         },
         None => CodexUsageReading {
@@ -170,6 +284,7 @@ pub fn interpret(report: &RateLimitsReport, now_unix_ms: u64) -> CodexUsageReadi
                 now_unix_ms,
                 "codex reported no ordinaryUsageAllowed verdict; not inferring from percentages",
             ),
+            diagnostic: None,
             max_used_percent: None,
         },
     }
@@ -345,6 +460,69 @@ mod tests {
             .detect(dir.path(), Path::new("/p"), "t")
             .expect("detect");
         assert_eq!(o.state, UsageState::Unknown);
+    }
+
+    #[test]
+    fn rejected_auth_is_unknown_with_a_sanitized_category_and_profile_specific_recovery() {
+        for auth_code in [
+            "token_revoked",
+            "invalid_token",
+            "token_expired",
+            "invalid_api_key",
+        ] {
+            let dir = fixture("{}");
+            let body = serde_json::json!({"error":{"code":auth_code,"message":"SECRET_CANARY"},"status":401});
+            let error = serde_json::json!({"code":-32603,"message":format!(
+                "failed to fetch codex rate limits: GET https://chatgpt.com/backend-api/wham/usage failed: 401 Unauthorized; content-type=text/plain; body={body}"
+            )});
+            std::fs::write(dir.path().join("limits_error.json"), error.to_string()).unwrap();
+            let reading = read(&dir);
+            assert_eq!(reading.observation.state, UsageState::Unknown);
+            assert_eq!(reading.max_used_percent, None);
+            assert!(reading.diagnostic.unwrap().authentication_rejected());
+            assert_eq!(
+                reading.recovery_command("codex-main").as_deref(),
+                Some("relay logout codex-main\nrelay login codex-main")
+            );
+            let display = format!("{:?} {}", reading, reading.refusal("codex-main"));
+            assert!(!display.contains("SECRET_CANARY"));
+            assert!(!display.contains("body="));
+            assert!(!display.contains("https://"));
+        }
+    }
+
+    #[test]
+    fn timeout_schema_and_generic_errors_remain_unknown_without_login_advice() {
+        for mode in ["hang", "schema", "unsupported", "provider"] {
+            let dir = fixture("{}");
+            let expected = match mode {
+                "hang" => {
+                    std::fs::write(dir.path().join("mode"), "hang").unwrap();
+                    CodexUsageDiagnostic::Timeout
+                }
+                "unsupported" | "provider" => {
+                    let code = if mode == "unsupported" {
+                        -32601
+                    } else {
+                        -32603
+                    };
+                    std::fs::write(dir.path().join("limits_error.json"), serde_json::json!({"code":code,"message":"SECRET_CANARY token_revoked 401 please login"}).to_string()).unwrap();
+                    if mode == "unsupported" {
+                        CodexUsageDiagnostic::UnsupportedInterface
+                    } else {
+                        CodexUsageDiagnostic::ProviderFailure
+                    }
+                }
+                _ => CodexUsageDiagnostic::UnsupportedSchema,
+            };
+            let reading = read(&dir);
+            assert_eq!(reading.observation.state, UsageState::Unknown);
+            assert_eq!(reading.diagnostic, Some(expected));
+            assert!(reading.recovery_command("codex-main").is_none());
+            let message = reading.refusal("codex-main").to_string();
+            assert!(!message.contains("relay login"));
+            assert!(!message.contains("SECRET_CANARY"));
+        }
     }
 
     /// GitHub #13: `read()` is the one authoritative call adaptive polling seeds itself from — it

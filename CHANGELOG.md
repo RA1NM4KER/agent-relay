@@ -4,6 +4,15 @@ All notable changes to Agent Relay will be documented here.
 
 ## Unreleased
 
+### Fixed
+
+- Authentication recovery (#26): recognize Claude's supported logged-out exit-1 response and
+  name the affected profile and login command. Ordinary launch no longer opens login automatically.
+  Codex usage refusals distinguish revoked authentication, timeout, unsupported responses, and
+  other failures without exposing provider error bodies. Doctor verifies Codex usage rather than
+  treating locally configured credentials as proof of readiness; broken candidates remain isolated.
+  Unknown Codex usage is refused on resume as well as new launch and switch.
+
 ### Added
 
 - `relay update` (agent-relay#6): delegates to Homebrew (`brew update && brew upgrade`) for a

@@ -151,6 +151,10 @@ case "$1" in
     case "$2" in
       status)
         [ -f "$CLAUDE_CONFIG_DIR/auth_status_fail" ] && exit 1
+        if [ -f "$CLAUDE_CONFIG_DIR/logged_out" ]; then
+          printf '{{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty"}}\n'
+          exit 1
+        fi
         printf '{{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","accountUuid":"account-%s","email":"%s@example.com","orgId":"org-1"}}\n' "$NAME" "$NAME" ;;
       login|logout) exit 0 ;;
       *) exit 2 ;;
@@ -282,7 +286,9 @@ case "$1" in
           fi ;;
         *'"method":"account/read"'*) printf '{{"id":%s,"result":{{"account":{{"type":"chatgpt","email":null,"planType":"plus"}},"requiresOpenaiAuth":true}}}}\n' "$id" ;;
         *'"method":"account/rateLimits/read"'*)
-          if [ -f "$CODEX_HOME/limits.json" ]; then
+          if [ -f "$CODEX_HOME/limits_error.json" ]; then
+            printf '{{"id":%s,"error":%s}}\n' "$id" "$(cat "$CODEX_HOME/limits_error.json")"
+          elif [ -f "$CODEX_HOME/limits.json" ]; then
             printf '{{"id":%s,"result":%s}}\n' "$id" "$(cat "$CODEX_HOME/limits.json")"
           else
             printf '{{"id":%s,"result":{{"ordinaryUsageAllowed":true,"accountId":"a","rateLimits":{{"primary":{{"usedPercent":1}}}}}}}}\n' "$id"
@@ -3365,8 +3371,14 @@ fn resuming_a_healthy_codex_thread_resumes_it_and_an_unverifiable_one_never_hand
 
     set_limits_for(&world, "codex-main", "false", 100);
     break_app_server(&world, "codex-main");
-    let unknown = relay_resume(&world, &[]);
-    let _ = unknown;
+    let unknown = relay_resume(&world, &["--json"]);
+    assert!(!unknown.status.success());
+    assert_eq!(error_code(&unknown), "codex_usage_unverified");
+    assert_eq!(
+        argv_starting(root, "codex", "resume").len(),
+        1,
+        "UNKNOWN must not start a second interactive resume"
+    );
     assert_eq!(
         lease_owner(root),
         "codex-main",
@@ -4128,4 +4140,148 @@ fn the_docs_describe_the_direct_interactive_launch_not_relay_collecting_a_first_
             assert!(!text.contains(stale), "{name} still says: {stale}");
         }
     }
+}
+
+#[test]
+fn logged_out_claude_launch_switch_profiles_and_doctor_offer_explicit_recovery() {
+    let world = world(false);
+    let root = world.root.path();
+    let bob = profile_dir(root, "bob", "claude");
+    std::fs::write(bob.join("logged_out"), "").unwrap();
+    let project = world.project.path().to_string_lossy().into_owned();
+    let claude = claude_exe(&world);
+    for args in [
+        vec![
+            "claude",
+            "--profile",
+            "bob",
+            "--project-dir",
+            &project,
+            "--no-attach",
+            "--claude-executable",
+            &claude,
+        ],
+        vec![
+            "switch",
+            "bob",
+            "--project-dir",
+            &project,
+            "--no-attach",
+            "--claude-executable",
+            &claude,
+        ],
+    ] {
+        let output = relay(root, &args);
+        assert!(!output.status.success());
+        assert_eq!(error_code(&output), "authentication_required");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("relay login bob"));
+    }
+    let profiles = attach_env(root).arg("profiles").output().unwrap();
+    assert!(profiles.status.success());
+    let rows = json_stdout(&profiles)["data"]["profiles"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(rows.iter().any(|r| r["name"] == "bob"
+        && r["authentication"] == "needs login"
+        && r["recovery_command"] == "relay login bob"));
+    assert!(
+        rows.iter()
+            .any(|r| r["name"] == "alice" && r["authentication"] == "authenticated")
+    );
+    let doctor = attach_env(root)
+        .args(["doctor", "--project", &project])
+        .output()
+        .unwrap();
+    let body = json_stdout(&doctor);
+    assert!(
+        body["data"]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["remedy"] == "relay login bob")
+    );
+    // Registration explicitly logs in; ordinary recovery paths above must add no login/logout.
+    let calls = claude_log(root);
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|(args, dir)| args == "auth login" && dir.ends_with("bob/claude"))
+            .count(),
+        1
+    );
+    assert!(calls.iter().all(|(args, _)| args != "auth logout"));
+    assert_eq!(lease_owner(root), "alice");
+}
+
+#[test]
+fn revoked_codex_launch_switch_and_doctor_keep_unknown_and_show_sanitized_recovery() {
+    let world = world(true);
+    let root = world.root.path();
+    let home = profile_dir(root, "codex-main", "codex");
+    let body = serde_json::json!({"status":401,"error":{"code":"token_revoked","message":"SECRET_CANARY"}});
+    let error = serde_json::json!({"code":-32603,"message":format!("failed to fetch codex rate limits: GET https://chatgpt.com/backend-api/wham/usage failed: 401 Unauthorized; content-type=text/plain; body={body}")});
+    std::fs::write(home.join("limits_error.json"), error.to_string()).unwrap();
+    let launch = relay_codex_no_attach(&world, &[]);
+    let project = world.project.path().to_string_lossy().into_owned();
+    let switch = relay(
+        root,
+        &[
+            "switch",
+            "codex-main",
+            "--project-dir",
+            &project,
+            "--no-attach",
+            "--claude-executable",
+            &claude_exe(&world),
+            "--codex-executable",
+            &codex_exe(&world),
+        ],
+    );
+    for output in [launch, switch] {
+        assert!(!output.status.success());
+        assert_eq!(error_code(&output), "codex_usage_unverified");
+        let text = String::from_utf8_lossy(&output.stderr);
+        assert!(text.contains("authentication_revoked"), "{text}");
+        assert!(text.contains("relay logout codex-main"));
+        assert!(text.contains("relay login codex-main"));
+        assert!(!text.contains("SECRET_CANARY"));
+        assert!(!text.contains("body="));
+    }
+    for command in ["status", "doctor"] {
+        let output = relay(
+            root,
+            &[
+                "profile",
+                command,
+                "codex-main",
+                "--codex-executable",
+                &codex_exe(&world),
+            ],
+        );
+        assert!(!output.status.success());
+        assert_eq!(error_code(&output), "codex_usage_unverified");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("authentication_revoked"));
+    }
+    let doctor = attach_env(root)
+        .args(["doctor", "--project", &project])
+        .output()
+        .unwrap();
+    let checks = json_stdout(&doctor)["data"]["checks"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(checks.iter().any(|c| {
+        c["detail"]
+            .as_str()
+            .is_some_and(|s| s.contains("authentication_revoked"))
+    }));
+    assert_eq!(lease_owner(root), "alice");
+    assert!(argv_starting(root, "codex", "exec").is_empty());
+    assert!(argv_starting(root, "codex", "logout").is_empty());
+    assert_eq!(
+        argv_starting(root, "codex", "login").len(),
+        1,
+        "only initial registration logs in"
+    );
 }

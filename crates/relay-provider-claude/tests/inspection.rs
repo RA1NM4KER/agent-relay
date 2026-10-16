@@ -45,6 +45,7 @@ impl CommandRunner for FakeRunner {
 fn output(contents: &str) -> relay_core::Result<ProcessResult> {
     Ok(ProcessResult {
         success: true,
+        exit_code: Some(0),
         stdout: contents.as_bytes().to_vec(),
         stderr: Vec::new(),
     })
@@ -498,6 +499,7 @@ fn provider_command_failure_is_closed() {
     fs::create_dir(&config_dir).expect("profile directory");
     let runner = FakeRunner::new(vec![Ok(ProcessResult {
         success: false,
+        exit_code: Some(1),
         stdout: b"raw secret output".to_vec(),
         stderr: b"error: some-long-token-abcdefghijklmnopqrstuvwxyz1234567890 is invalid".to_vec(),
     })]);
@@ -525,6 +527,67 @@ fn provider_command_failure_is_closed() {
         !text.contains("abcdefghijklmnopqrstuvwxyz1234567890"),
         "{text}"
     );
+}
+
+#[test]
+fn exit_one_only_accepts_a_strict_unambiguous_logged_out_report_with_empty_stderr() {
+    let logged_out = r#"{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty"}"#;
+    for (code, stdout, stderr, accepted) in [
+        (1, logged_out, "", true),
+        (2, logged_out, "", false),
+        (1, logged_out, "unrelated provider error", false),
+        (1, "not json", "", false),
+        (1, r#"{"loggedIn":false}"#, "", false),
+        (
+            1,
+            r#"{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty","secret":"CANARY"}"#,
+            "",
+            false,
+        ),
+        (
+            1,
+            r#"{"loggedIn":true,"authMethod":"oauth","apiProvider":"firstParty","email":"x@example.com"}"#,
+            "",
+            false,
+        ),
+        (
+            1,
+            r#"{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty","email":"x@example.com"}"#,
+            "",
+            false,
+        ),
+        (
+            1,
+            r#"{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty","configDirectory":"/wrong"}"#,
+            "",
+            false,
+        ),
+    ] {
+        let root = tempdir().expect("root");
+        let config = root.path().join("profile");
+        fs::create_dir(&config).unwrap();
+        let runner = FakeRunner::new(vec![
+            output("2.1.301 (Claude Code)"),
+            Ok(ProcessResult {
+                success: false,
+                exit_code: Some(code),
+                stdout: stdout.as_bytes().to_vec(),
+                stderr: stderr.as_bytes().to_vec(),
+            }),
+        ]);
+        let inspector = ClaudeInspector::with_runner(executable(root.path()), runner).unwrap();
+        let result = inspector.inspect(
+            &config,
+            relay_core::ClaudeConfigMode::Explicit,
+            inspect_environment_with(&config, |_| None),
+        );
+        assert_eq!(result.is_ok(), accepted, "code={code}, stderr={stderr:?}");
+        if let Ok(report) = result {
+            assert!(!report.authenticated);
+            assert!(!report.safe_to_adopt);
+            assert!(report.identity_pin.is_none());
+        }
+    }
 }
 
 #[test]

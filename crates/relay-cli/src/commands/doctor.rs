@@ -68,7 +68,12 @@ fn render(readiness: &readiness::Readiness, emphasize: impl Fn(&str) -> String) 
             lines.push(format!("  {detail}"));
         }
         if let Some(remedy) = &check.remedy {
-            lines.push(format!("  Run: {remedy}"));
+            if remedy.contains('\n') {
+                lines.push("  Run:".to_owned());
+                lines.extend(remedy.lines().map(|command| format!("    {command}")));
+            } else {
+                lines.push(format!("  Run: {remedy}"));
+            }
         }
     }
     lines.push(String::new());

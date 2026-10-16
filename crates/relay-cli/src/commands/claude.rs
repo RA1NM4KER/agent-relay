@@ -14,8 +14,7 @@ use serde_json::json;
 
 use crate::{
     auth::{
-        friendly_auth_state, inherited_provider_exhaustion, run_claude_auth_subcommand,
-        select_profile, verify_authenticated,
+        friendly_auth_state, inherited_provider_exhaustion, require_profile_auth, select_profile,
     },
     auto_handoff,
     cli::{ClaudeArgs, CodexArgs},
@@ -124,35 +123,8 @@ pub(crate) fn run(
         json_mode,
     ));
 
-    // M4.7: safe reauthentication for the primary; fallback unauthenticated is a warning only.
-    let (primary_auth, _) = friendly_auth_state(primary_profile, &executables);
-    if primary_auth != "authenticated" {
-        // The login flow is interactive: the indicator must not be drawing over it.
-        drop(progress.take());
-        if !json_mode {
-            println!(
-                "Profile \"{primary}\" needs Claude authentication.\n\nOpening Claude login..."
-            );
-        }
-        run_claude_auth_subcommand(
-            args.claude_executable.as_deref(),
-            &primary_profile.config_dir,
-            primary_profile.effective_claude_config_mode(),
-            "login",
-        )?;
-        let report = verify_authenticated(
-            &primary_profile.config_dir,
-            primary_profile.effective_claude_config_mode(),
-            args.claude_executable.as_deref(),
-        )?;
-        if !report.authenticated {
-            return Err(Error::AuthenticationRequired);
-        }
-        progress = Some(progress::Progress::start(
-            "Preparing Claude profile…",
-            json_mode,
-        ));
-    }
+    // Authentication changes require an explicit login command, never a launch side effect.
+    require_profile_auth(primary_profile, &executables)?;
     for fallback_name in &fallback {
         // Only Claude fallbacks are checked here: a Codex profile's login inspection
         // (`codex doctor`) takes ~13s, which would sit in front of the terminal handover for a
@@ -518,10 +490,7 @@ fn run_claude_resume(
             ));
         }
     }
-    let (auth, _) = friendly_auth_state(profile, &executables);
-    if auth != "authenticated" {
-        return Err(Error::AuthenticationRequired);
-    }
+    require_profile_auth(profile, &executables)?;
     progress.finish();
 
     let inspector = ClaudeInspector::discover(args.claude_executable.as_deref())?;

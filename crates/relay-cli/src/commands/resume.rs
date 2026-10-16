@@ -191,7 +191,7 @@ fn resume_session(
         };
         let reading = codex_preflight(profile, &executables, &canonical_project, json_mode);
         codex_poll_seed = reading.max_used_percent;
-        let usage = reading.observation;
+        let usage = &reading.observation;
         if usage.state.is_blocking() {
             let preferences =
                 preferences::Preferences::load(paths.config_root())?.unwrap_or_default();
@@ -241,12 +241,19 @@ fn resume_session(
                         .ok_or_else(|| Error::ProfileNotFound(resolved_profile.to_string()))?;
                 }
             }
-        } else if usage.state == UsageState::Unknown && !json_mode {
-            eprintln!(
-                "Agent Relay: could not verify Codex usage for '{}'; resuming without an automatic handoff decision.",
-                profile.name
-            );
+        } else if usage.state == UsageState::Unknown {
+            return Err(reading.refusal(profile.name.as_str()));
         }
+    }
+
+    if profile.provider == ProviderKind::Claude {
+        crate::auth::require_profile_auth(
+            profile,
+            &providers::ExecutableOverrides {
+                claude: args.claude_executable.clone(),
+                codex: args.codex_executable.clone(),
+            },
+        )?;
     }
 
     // Explicit arguments replace the owner provider's stored ones for this Relay session (the

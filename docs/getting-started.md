@@ -297,20 +297,23 @@ below) rather than guessing.
 
 ## 7. Reauthenticating
 
-If Claude logs you out of an account (it happens), `relay claude` notices automatically (a logged-out
-Codex profile is reported by `relay profiles`; log in again with `relay login <name>`):
+If Claude logs you out of an account, `relay claude` refuses to launch and names the profile:
 
 ```
-Profile "work" needs Claude authentication.
-
-Opening Claude login...
+profile 'work' is logged out. Run: relay login work
 ```
 
-It opens the same official login flow `relay setup` used, waits, and continues once you're signed
-in again. If a *fallback* account is the one that's logged out, Relay just warns you — your
-primary keeps working — since you might not have gotten around to setting that one up yet.
+Run `relay login work` explicitly to open the provider's official login flow, then retry your
+original command. Relay does not change authentication as a side effect of launch or resume.
+Only log into the account intended for that profile. A logged-out fallback is reported separately
+and does not prevent another eligible profile from working.
 
-You can also do this directly: `relay login work` / `relay logout work`.
+For Codex, local “credentials configured” is not proof that the provider still accepts them.
+Relay verifies structured usage and refuses UNKNOWN on launch, resume, or switch. Recognized
+revoked/invalid credentials show `relay logout <name>` then `relay login <name>`; timeout,
+unsupported-response, and transport failures are reported separately without guessing that login
+will fix them. Each isolated Relay profile needs its own login; standalone Codex login does not
+authenticate that profile. Inspect all profiles with `relay profiles` or `relay doctor`.
 
 ## 8. The advanced/manual path
 

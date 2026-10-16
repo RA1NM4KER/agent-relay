@@ -402,6 +402,17 @@ relay handoff run --from claude-primary --to claude-backup --project ~/repos/foo
 
 ## Recovery and conflicts
 
+For authentication problems, run `relay profiles` or `relay doctor --project "$PWD"`. A logged-out
+Claude profile names its recovery command: `relay login <profile>`. Launching or resuming work
+does not open login automatically; authenticate only the account intended for that profile.
+
+Codex can report locally configured credentials even after the provider has revoked them. Relay
+checks structured usage before starting, resuming, or switching to Codex. A recognized revoked or
+invalid login stays `UNKNOWN` and is refused, with `relay logout <profile>` followed by
+`relay login <profile>` as the explicit recovery. Standalone Codex login does not authenticate a
+separate Relay profile. Timeouts, unsupported responses, and other failures have distinct
+diagnostics and do not automatically prescribe login.
+
 - `relay lock status --project-dir DIR` shows the writer lease and whether a transaction is running.
 - `relay handoff status` and the journal under Relay's state directory record every attempt.
 - `relay watch run` recovers an interrupted transaction automatically before doing anything else.

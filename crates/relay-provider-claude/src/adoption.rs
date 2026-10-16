@@ -161,6 +161,7 @@ mod tests {
                 .expect("scripted response");
             Ok(ProcessResult {
                 success: true,
+                exit_code: Some(0),
                 stdout: next.as_bytes().to_vec(),
                 stderr: Vec::new(),
             })

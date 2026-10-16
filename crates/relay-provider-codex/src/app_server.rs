@@ -51,6 +51,9 @@ pub enum AppServerError {
     Protocol(String),
     /// The server answered with a JSON-RPC error (`code`, `message`).
     Rpc { code: i64, message: String },
+    /// Diagnostic only: a bounded provider error envelope specifically rejected authentication.
+    /// Never an exhaustion verdict and never a reason to log in automatically.
+    AuthenticationRejected { revoked: bool },
     /// The server resolved a different `CODEX_HOME` than the profile directory Relay asked for.
     HomeMismatch,
 }
@@ -62,6 +65,15 @@ impl std::fmt::Display for AppServerError {
             Self::Timeout => write!(f, "codex app-server did not answer in time"),
             Self::Protocol(detail) => write!(f, "unexpected app-server response: {detail}"),
             Self::Rpc { code, message } => write!(f, "app-server error {code}: {message}"),
+            Self::AuthenticationRejected { revoked } => write!(
+                f,
+                "Codex authentication rejected (HTTP 401; {})",
+                if *revoked {
+                    "token_revoked"
+                } else {
+                    "invalid authentication"
+                }
+            ),
             Self::HomeMismatch => write!(
                 f,
                 "codex app-server resolved a different CODEX_HOME than the profile's"
@@ -166,25 +178,13 @@ impl Session {
                 }
             };
             let Ok(message) = serde_json::from_str::<Value>(line.trim()) else {
-                continue;
+                return Err(AppServerError::Protocol("invalid JSON response".to_owned()));
             };
             if message.get("method").is_some() || message.get("id") != Some(&json!(id)) {
                 continue;
             }
             if let Some(error) = message.get("error") {
-                return Err(AppServerError::Rpc {
-                    code: error
-                        .get("code")
-                        .and_then(Value::as_i64)
-                        .unwrap_or_default(),
-                    message: error
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .chars()
-                        .take(200)
-                        .collect(),
-                });
+                return Err(rpc_error(method, error));
             }
             return message
                 .get("result")
@@ -213,6 +213,48 @@ impl Session {
         } else {
             Err(AppServerError::HomeMismatch)
         }
+    }
+}
+
+/// The live provider embeds its backend's JSON error envelope in the RPC message. Recognize
+/// only the bounded, HTTP-401 usage-response shape and allowlisted machine error codes. This
+/// changes diagnostic/recovery text only: every such error still produces UNKNOWN. Never retain
+/// message prose, body fields, URLs, or credentials in an error or durable observation.
+fn rpc_error(method: &str, error: &Value) -> AppServerError {
+    let code = error
+        .get("code")
+        .and_then(Value::as_i64)
+        .unwrap_or_default();
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if method == "account/rateLimits/read"
+        && code == -32603
+        && message.len() <= 8192
+        && let Some((prefix, body)) = message.split_once("; body=")
+        && prefix.starts_with("failed to fetch codex rate limits: GET ")
+        && prefix.contains(" failed: 401 Unauthorized;")
+        && let Ok(body) = serde_json::from_str::<Value>(body)
+        && body.get("status").and_then(Value::as_u64) == Some(401)
+        && let Some(auth_code) = body.pointer("/error/code").and_then(Value::as_str)
+        && matches!(
+            auth_code,
+            "token_revoked" | "invalid_token" | "token_expired" | "invalid_api_key"
+        )
+    {
+        return AppServerError::AuthenticationRejected {
+            revoked: auth_code == "token_revoked",
+        };
+    }
+    AppServerError::Rpc {
+        code,
+        message: if code == -32601 {
+            "structured method is unsupported"
+        } else {
+            "provider rejected the structured request"
+        }
+        .to_owned(),
     }
 }
 
@@ -464,7 +506,11 @@ while IFS= read -r line; do
     *'"method":"account/read"'*)
       printf '{"id":%s,"result":%s}\n' "$id" "$(cat "$CODEX_HOME/account.json")";;
     *'"method":"account/rateLimits/read"'*)
-      printf '{"id":%s,"result":%s}\n' "$id" "$(cat "$CODEX_HOME/limits.json")";;
+      if [ -f "$CODEX_HOME/limits_error.json" ]; then
+        printf '{"id":%s,"error":%s}\n' "$id" "$(cat "$CODEX_HOME/limits_error.json")"
+      else
+        printf '{"id":%s,"result":%s}\n' "$id" "$(cat "$CODEX_HOME/limits.json")"
+      fi;;
     *'"method":"thread/read"'*)
       if [ -f "$CODEX_HOME/thread_error" ]; then
         printf '{"id":%s,"error":{"code":-32600,"message":"thread not loaded"}}\n' "$id"
@@ -492,6 +538,34 @@ done
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auth_diagnosis_requires_the_supported_complete_envelope_not_bare_prose() {
+        for message in [
+            "401 token_revoked",
+            "failed to fetch codex rate limits: GET /usage failed: 401 Unauthorized; body=not json",
+            "failed to fetch codex rate limits: GET /usage failed: 401 Unauthorized; body={\"status\":401,\"error\":{\"code\":\"unknown\"}}",
+            "failed to fetch codex rate limits: GET /usage failed: 401 Unauthorized; body={\"status\":500,\"error\":{\"code\":\"token_revoked\"}}",
+        ] {
+            let error = json!({"code":-32603,"message":message});
+            assert!(matches!(
+                rpc_error("account/rateLimits/read", &error),
+                AppServerError::Rpc { .. }
+            ));
+        }
+        let valid = "failed to fetch codex rate limits: GET /usage failed: 401 Unauthorized; body={\"status\":401,\"error\":{\"code\":\"token_revoked\"}}";
+        assert!(matches!(
+            rpc_error("thread/read", &json!({"code":-32603,"message":valid})),
+            AppServerError::Rpc { .. }
+        ));
+        assert!(matches!(
+            rpc_error(
+                "account/rateLimits/read",
+                &json!({"code":-32603,"message":format!("{valid}{}", " ".repeat(8192))})
+            ),
+            AppServerError::Rpc { .. }
+        ));
+    }
 
     fn home() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");

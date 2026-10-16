@@ -298,6 +298,33 @@ fn auth_check(
     label: &str,
     executables: &providers::ExecutableOverrides,
 ) {
+    if profile.provider == ProviderKind::Codex {
+        match service
+            .validate_profile_directory(profile)
+            .and_then(|()| crate::auth::codex_profile_reading(profile, executables))
+        {
+            Ok(reading) => {
+                let allowed = matches!(
+                    reading.observation.state,
+                    relay_core::usage::UsageState::Available
+                        | relay_core::usage::UsageState::NearLimit
+                );
+                readiness.push(
+                    format!("{label} ordinary usage verified"),
+                    if allowed { Level::Ok } else { Level::Blocking },
+                    (!allowed).then(|| reading.observation.detected_via.clone()),
+                    reading.recovery_command(profile.name.as_str()),
+                );
+            }
+            Err(error) => readiness.push(
+                format!("{label} ordinary usage verified"),
+                Level::Blocking,
+                Some(error.to_string()),
+                None,
+            ),
+        }
+        return;
+    }
     let Ok(backend) = providers::provider_backend(profile.provider, executables) else {
         readiness.push(
             format!("{label} authenticated"),
@@ -321,7 +348,7 @@ fn auth_check(
             format!("{label} authenticated"),
             Level::Blocking,
             Some(error.to_string()),
-            Some(format!("relay login {}", profile.name)),
+            None,
         ),
     }
 }

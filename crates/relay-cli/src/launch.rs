@@ -72,6 +72,13 @@ pub(crate) fn perform_launch(
         .iter()
         .find(|candidate| &candidate.name == profile)
         .ok_or_else(|| Error::ProfileNotFound(profile.to_string()))?;
+    crate::auth::require_profile_auth(
+        target,
+        &providers::ExecutableOverrides {
+            claude: claude_executable.map(Path::to_path_buf),
+            codex: None,
+        },
+    )?;
     let canonical_project = std::fs::canonicalize(project_dir).map_err(|source| Error::Io {
         path: project_dir.to_path_buf(),
         source,

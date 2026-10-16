@@ -230,6 +230,14 @@ pub(crate) fn doctor_is_healthy(
     profile: &Profile,
     executables: &providers::ExecutableOverrides,
 ) -> Result<bool, Error> {
+    if profile.provider == ProviderKind::Codex {
+        service.validate_profile_directory(profile)?;
+        let reading = codex_profile_reading(profile, executables)?;
+        return Ok(matches!(
+            reading.observation.state,
+            UsageState::Available | UsageState::NearLimit
+        ));
+    }
     let provider = provider_for_profile(service, &profile.name, executables)?;
     Ok(service.doctor(&profile.name, provider.as_ref())?.healthy)
 }
@@ -257,6 +265,10 @@ pub(crate) fn fallback_is_healthy(
 
 fn codex_usage_proves_current_auth(usage: &UsageObservation) -> bool {
     usage.evidence == UsageEvidence::ProviderRateLimitApi
+        && matches!(
+            usage.state,
+            UsageState::Available | UsageState::NearLimit | UsageState::Exhausted
+        )
 }
 
 /// Resolves the identity now exposed by the provider, then requires it to equal Relay's registered
@@ -358,6 +370,23 @@ pub(crate) fn friendly_auth_state(
     profile: &Profile,
     executables: &providers::ExecutableOverrides,
 ) -> (&'static str, Option<String>) {
+    if profile.provider == ProviderKind::Codex {
+        return match codex_profile_reading(profile, executables) {
+            Ok(reading) if reading.observation.state != UsageState::Unknown => {
+                ("authenticated", None)
+            }
+            Ok(reading) => {
+                let mut detail = reading.observation.detected_via.clone();
+                if let Some(command) = reading.recovery_command(profile.name.as_str()) {
+                    detail.push_str(&format!("\nRun:\n{command}"));
+                    ("needs login", Some(detail))
+                } else {
+                    ("usage unverified", Some(detail))
+                }
+            }
+            Err(error) => ("unreachable", Some(error.to_string())),
+        };
+    }
     if profile.provider == ProviderKind::Claude {
         // Kept on the strict Claude-specific inspector (identity pin required, not just
         // "authenticated") rather than the generic Provider::inspect_profile dispatch: this is
@@ -374,7 +403,11 @@ pub(crate) fn friendly_auth_state(
             Ok(report) if report.authenticated && report.identity_pin.is_some() => {
                 ("authenticated", None)
             }
-            Ok(_) => ("needs login", None),
+            Ok(report) if !report.authenticated => ("needs login", None),
+            Ok(_) => (
+                "unreachable",
+                Some("Claude did not report a verifiable account identity".to_owned()),
+            ),
             Err(error) => ("unreachable", Some(error.to_string())),
         };
     }
@@ -387,6 +420,42 @@ pub(crate) fn friendly_auth_state(
         }
         Ok(_) => ("needs login", None),
         Err(error) => ("unreachable", Some(error.to_string())),
+    }
+}
+
+/// The usage handshake proves the isolated home and backend account directly. Keep Codex's
+/// existing home-derived pin check as well; a slow/local-only doctor is not auth authority.
+pub(crate) fn codex_profile_reading(
+    profile: &Profile,
+    executables: &providers::ExecutableOverrides,
+) -> Result<relay_provider_codex::CodexUsageReading, Error> {
+    ProfileDirectory::new(profile.config_dir.clone())?.validate_existing(&profile.config_dir)?;
+    if profile.expected_identity.stable_id
+        != relay_provider_codex::config_dir_stable_id(&profile.config_dir)
+    {
+        return Err(Error::IdentityMismatch);
+    }
+    Ok(providers::codex_usage_reading(
+        executables,
+        &profile.config_dir,
+    ))
+}
+
+/// Refuse ordinary launch/adoption with a named remedy, without changing authentication.
+pub(crate) fn require_profile_auth(
+    profile: &Profile,
+    executables: &providers::ExecutableOverrides,
+) -> Result<(), Error> {
+    let (state, detail) = friendly_auth_state(profile, executables);
+    match state {
+        "authenticated" => Ok(()),
+        "needs login" => Err(Error::ProfileAuthenticationRequired(
+            profile.name.to_string(),
+        )),
+        _ => Err(Error::ProfileAuthenticationInspectionFailed {
+            profile: profile.name.to_string(),
+            detail: detail.unwrap_or_else(|| "provider CLI could not be discovered".to_owned()),
+        }),
     }
 }
 
@@ -705,6 +774,38 @@ mod tests {
         assert!(!codex_usage_proves_current_auth(&observation(
             UsageEvidence::Simulated
         )));
+        for state in [UsageState::Unknown, UsageState::ResetPending] {
+            let mut unknown = observation(UsageEvidence::ProviderRateLimitApi);
+            unknown.state = state;
+            assert!(!codex_usage_proves_current_auth(&unknown));
+        }
+    }
+
+    #[test]
+    fn codex_reporting_keeps_the_registered_home_identity_pin_check() {
+        let root = tempdir().unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let mut profile = fake_profile(
+            "codex-main",
+            "wrong-pin",
+            root.path().canonicalize().unwrap(),
+        );
+        profile.provider = ProviderKind::Codex;
+        let reading = super::codex_profile_reading(
+            &profile,
+            &providers::ExecutableOverrides {
+                codex: Some(root.path().join("must-not-be-executed")),
+                claude: None,
+            },
+        );
+        assert!(
+            matches!(reading, Err(Error::IdentityMismatch)),
+            "{reading:?}"
+        );
     }
 
     #[test]
