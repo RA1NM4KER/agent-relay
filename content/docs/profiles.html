@@ -1,4 +1,5 @@
 <p>A profile is a named provider account with its own configuration. A Relay session is a conversation. One profile can own several different sessions.</p>
+<div class="callout"><p><strong>Profiles and sessions have different roles.</strong>A profile identifies an isolated provider account. A Relay session identifies a managed conversation and records its current owner. Renaming an account does not create more quota.</p></div>
 <h2 id="add">Add an account</h2>
 <p>The simplest route is to rerun the setup wizard:</p>
 <pre><code>relay setup</code></pre>
@@ -14,7 +15,7 @@ relay login codex-work --provider codex</code></pre>
 <h2 id="inspect">Inspect your profiles</h2>
 <pre><code>relay profiles
 relay profile doctor claude-work</code></pre>
-<p>The friendly list shows registered profiles, providers, roles, and login state. Profile doctor offers more detailed checks for one account. For project-specific handoff readiness, run <code>relay doctor</code> in the project.</p>
+<p>The profile report separates authentication state, diagnostic details, and recovery commands. Codex checks also verify structured usage; a locally configured login alone does not establish availability. Profile doctor offers more detailed checks for one account. For project-specific handoff readiness, run <code>relay doctor</code> in the project.</p>
 <h2 id="login">Sign in again</h2>
 <pre><code>relay login claude-work</code></pre>
 <p>An existing profile already knows its provider. Use the same name to reauthenticate, then rerun <code>relay doctor</code>.</p>
@@ -23,6 +24,7 @@ relay profile doctor claude-work</code></pre>
 <h2 id="isolation">How isolation works</h2>
 <p>Claude profiles use separate <code>CLAUDE_CONFIG_DIR</code> directories; Codex profiles use separate <code>CODEX_HOME</code> directories. Provider authentication remains provider-owned. Relay stores profile references and non-secret identity information, never an authentication token or password.</p>
 <p>Different names do not make the same account two distinct fallbacks. Relay checks account identity, and duplicate provider identities are rejected.</p>
+<p>Only one Relay-managed interactive Codex session can use a given <code>CODEX_HOME</code> at a time. Relay acquires a profile lock before creating or driving a Codex thread. This does not serialize file edits across sessions or prevent a manually launched process outside Relay.</p>
 <h2 id="existing-profile">Reuse an existing Claude login</h2>
 <p>Setup can reuse an isolated Claude configuration. Advanced users can preview profile registration by reference:</p>
 <pre><code>relay profile adopt claude-work --provider claude --config-dir /absolute/path/to/claude-config --dry-run</code></pre>

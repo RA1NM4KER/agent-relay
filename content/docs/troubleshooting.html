@@ -1,8 +1,9 @@
 <p>Start in the affected project directory. These commands help separate configuration problems from the decision for a particular conversation.</p>
-<pre><code>relay status
+<pre><code>relay status --live
 relay doctor
 relay why
 relay history</code></pre>
+<nav class="guide-path" aria-label="Find a diagnosis"><a href="#not-switching">No handoff</a><a href="#trust">Project trust</a><a href="#auth">Authentication</a><a href="#recovery">Recovery</a></nav>
 <h2 id="not-switching">“Why didn’t Relay switch?”</h2>
 <p>Run <code>relay why</code>. Relay needs verified exhaustion of the current owner and an eligible target. A transient rate limit, stale snapshot, or unknown usage reading does not qualify.</p>
 <ol><li>Check that the conversation is managed with <code>relay status</code>.</li><li>Run <code>relay doctor</code> and resolve each reported blocker.</li><li>For Claude, inspect the integration with <code>relay integration claude status --profile &lt;name&gt;</code>.</li><li>Use <code>relay profiles</code> to confirm the expected fallback is registered, then review your order with <code>relay setup</code>.</li></ol>
@@ -18,7 +19,9 @@ relay history</code></pre>
 <h2 id="auth">“My profile is logged out”</h2>
 <pre><code>relay login &lt;profile-name&gt;
 relay doctor</code></pre>
-<p>Sign in through the provider flow. If Relay reports an unexpected account identity, verify which account you selected rather than renaming profiles or copying credentials between directories.</p>
+<p>Sign in through the provider flow. Normal launch and resume do not open login automatically. For a recognized revoked or invalid Codex login, follow the reported <code>relay logout &lt;profile&gt;</code> then <code>relay login &lt;profile&gt;</code> recovery. Unknown usage remains unavailable; timeouts or unsupported responses do not by themselves mean login is needed. If Relay reports an unexpected account identity, verify which account you selected rather than renaming profiles or copying credentials between directories.</p>
+<h2 id="codex-busy">“This Codex profile is already in use”</h2>
+<p>Relay permits one live interactive Codex session per isolated profile. Return to the existing terminal or choose another eligible Codex profile. Do not remove its lock file. Separate Relay sessions still need separate worktrees if they require file isolation.</p>
 <h2 id="resume">“Resume opens the wrong thing—or nothing”</h2>
 <p>Use <code>relay status</code> to inspect sessions, then select the exact Relay session:</p>
 <pre><code>relay resume --session &lt;relay-session-id&gt;</code></pre>
@@ -27,7 +30,7 @@ relay doctor</code></pre>
 <pre><code>relay --version
 relay --help
 relay status --help</code></pre>
-<p>Check which release you have installed. Stable v0.4.1 does not include <code>status --live</code>, <code>refresh</code>, <code>mode</code>, <code>state</code>, or <code>task</code>. Those appear in later development work.</p>
+<p>This handbook targets v0.5.2, which includes <code>status --live</code>, <code>refresh</code>, <code>mode</code>, <code>state</code>, and <code>task</code>. If your installation is older, review the release notes and <a href="getting-started.html#update">upgrade instructions</a>. Verify the executable on your PATH when stable and development builds coexist.</p>
 <p>Inside Codex, use <code>$relay</code>; inside Claude, use <code>/relay</code>. In a shell, use plain <code>relay</code>. If a provider option is rejected, verify whether it belongs after <code>--</code> and whether it would override something Relay must manage.</p>
 <h2 id="missing-integration">“The in-agent command is missing”</h2>
 <p>Check the integration for the exact profile:</p>

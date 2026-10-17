@@ -1,4 +1,4 @@
-<div class="callout"><p><strong>Start with the stable release.</strong>These examples are verified against v0.4.1. Check <code>relay --version</code> for your installed version. Development builds may have additional commands.</p></div>
+<nav class="guide-path" aria-label="Setup steps"><a href="#install"><span>01</span> Install</a><a href="#setup"><span>02</span> Configure</a><a href="#start"><span>03</span> Start</a><a href="#readiness"><span>04</span> Verify</a></nav>
 <h2 id="requirements">What you need</h2>
 <ul><li><strong>macOS</strong>, the platform validated in live use. Linux builds and passes CI tests, but is not yet live-supported. Windows is not currently supported.</li><li><strong>Claude Code or the Codex CLI</strong>, installed separately. Either provider is enough; you do not need both.</li><li><strong>Git</strong> and a project to work in. Relay captures repository and git facts for handoffs.</li><li><strong>One or more provider accounts.</strong> Add another eligible profile to make fallback possible.</li></ul>
 <p>Herdr is optional. Relay works in a regular terminal.</p>
@@ -16,19 +16,19 @@ relay --version</code></pre>
 relay claude</code></pre>
 <p>Or start with Codex:</p>
 <pre><code>relay codex</code></pre>
-<p>Relay opens your provider’s interactive terminal. Type your first message there. Each command starts a <strong>new managed conversation</strong> using the highest-priority configured profile of that provider.</p>
+<p>Relay opens your provider’s interactive terminal. Type your first message there. Each command starts a <strong>new managed conversation</strong>, normally using the highest-priority configured profile of that provider. If the selected Codex account is already verified exhausted, Relay can start the new conversation on the next eligible profile instead; no Codex conversation exists yet to hand off. Unknown usage is refused.</p>
 <p>Complete the provider’s project trust prompt when it appears. To choose an account explicitly, use <code>relay claude --profile claude-work</code> or <code>relay codex --profile codex-work</code>.</p>
 <h2 id="readiness">4. Check that fallback is ready</h2>
 <p>In another terminal, open the same project and run:</p>
 <pre><code>relay doctor</code></pre>
-<p>Doctor checks profile authentication, provider compatibility, project trust, integrations, and the automatic-handoff preference. If it reports a blocker, follow the command it prints for that profile, then rerun the check.</p>
+<p>Doctor checks authentication, verified Codex usage, provider compatibility, project trust, integrations, and preferences. At least one configured profile must be eligible; problems with other profiles remain visible as warnings. Follow the recovery commands for any blockers, then rerun the check. A ready verdict does not guarantee that a particular session has an eligible fallback.</p>
 <div class="callout"><p><strong>Trust is per profile and project.</strong>A fallback may be logged in but still need you to review the provider’s trust prompt for this project. Relay never accepts trust on your behalf.</p></div>
 <h2 id="next-time">Next time you sit down</h2>
 <p>Start a new conversation with <code>relay claude</code> or <code>relay codex</code>. To reopen a closed conversation that Relay already manages:</p>
 <pre><code>relay resume</code></pre>
-<p>With several closed sessions, Relay offers a picker. Use <code>relay status</code> to see the project’s sessions and current profiles.</p>
+<p>With several closed sessions, Relay offers a picker. Use <code>relay status</code> for local session and ownership information. Use <code>relay status --live</code> when you need fresh provider checks.</p>
 <div class="table-wrap"><table><thead><tr><th>I want to…</th><th>Use</th></tr></thead><tbody><tr><td>Start fresh with Claude</td><td><code>relay claude</code></td></tr><tr><td>Start fresh with Codex</td><td><code>relay codex</code></td></tr><tr><td>Reopen a closed managed conversation</td><td><code>relay resume</code></td></tr><tr><td>Move the current conversation</td><td><code>relay switch</code></td></tr><tr><td>See what is happening</td><td><code>relay status</code></td></tr><tr><td>Check unattended readiness</td><td><code>relay doctor</code></td></tr></tbody></table></div>
 <h2 id="update">Keep Relay up to date</h2>
 <pre><code>brew update
 brew upgrade agent-relay</code></pre>
-<p>Relay may display a cached update notice, but it never updates itself. Read the <a href="https://github.com/RA1NM4KER/agent-relay/releases">release notes</a> when upgrading. The installed CLI’s <code>--help</code> is the reference for the flags your version supports.</p>
+<p>Relay may display a cached update notice. Use <code>relay update --check</code> to check for a newer stable release, or <code>relay update</code> to delegate a supported Homebrew installation’s upgrade to Homebrew. Other installations receive manual update instructions. Read the <a href="https://github.com/RA1NM4KER/agent-relay/releases">release notes</a> when upgrading. After upgrading, run <code>relay refresh</code> to reconcile installed Relay-owned integrations, then reopen managed sessions to load the updated assets. The installed CLI’s <code>--help</code> describes the flags your version supports.</p>

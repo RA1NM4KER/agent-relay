@@ -10,6 +10,7 @@ import re
 ROOT = Path(__file__).resolve().parent.parent
 REPO = 'https://github.com/RA1NM4KER/agent-relay'
 BASE = 'https://ra1nm4ker.github.io/agent-relay/'
+HANDBOOK_VERSION = 'v0.5.2'
 PAGES = [
  ('getting-started', 'Get started', 'Install Relay, set up profiles, and start your first managed conversation.'),
  ('workflows', 'Everyday workflows', 'Start, resume, switch, and adopt coding-agent conversations.'),
@@ -60,13 +61,13 @@ def build():
     version = version[1] if version else 'v0.4.1'
     outputs = {}
     content = (ROOT / 'content/index.html').read_text().replace('{{VERSION}}', version)
-    outputs['index.html'] = shell('Keep your coding work moving', 'Continue coding across Claude and Codex profiles. Local supervision, automatic handoff, and practical documentation.', '', header('', True) + code_blocks(content) + footer(''), '')
+    outputs['index.html'] = shell('Local supervision for coding agents', 'A local supervisor for Claude Code and Codex. Verified usage exhaustion, isolated profiles, and one active owner per Relay session.', '', header('', True) + code_blocks(content) + footer(''), '')
     search = []
     for n, (slug, title, desc) in enumerate(PAGES):
         content = code_blocks((ROOT / f'content/docs/{slug}.html').read_text())
         headings = re.findall(r'<h2 id="([^"]+)">(.*?)</h2>', content)
         nav = ''.join(f'<a {"aria-current=\"page\"" if s == slug else ""} href="{s}.html">{t}</a>' for s, t, _ in PAGES)
-        sidenav = f'<span class="nav-label">Documentation</span>{nav}<div class="sidebar-meta">Examples verified against<br><a href="{REPO}/tree/v0.4.1">stable v0.4.1 ↗</a></div>'
+        sidenav = f'<span class="nav-label">Documentation</span>{nav}<div class="sidebar-meta">Examples verified against<br><a href="{REPO}/tree/{HANDBOOK_VERSION}">stable {HANDBOOK_VERSION} ↗</a></div>'
         toc = ''.join(f'<a href="#{i}">{plain(t)}</a>' for i,t in headings)
         adjacent = '<nav class="page-pagination" aria-label="Documentation pages">'
         for index, label in [(n-1, 'Previous'), (n+1, 'Next')]:
@@ -74,7 +75,7 @@ def build():
                 s,t,_ = PAGES[index]; adjacent += f'<a href="{s}.html"><span>{label}</span>{t} {"→" if label == "Next" else ""}</a>'
         adjacent += '</nav>'
         search_ui = '<div class="search-area"><label for="docs-search">Search the docs</label><div class="search-input-wrap"><span aria-hidden="true">⌕</span><input id="docs-search" type="search" placeholder="Commands, questions, workflows…" autocomplete="off" aria-controls="search-results"><kbd>/</kbd></div><p id="search-status" role="status"></p><div id="search-results" hidden></div><noscript><p>Browse the navigation or use your browser’s Find command.</p></noscript></div>'
-        body = header('../') + f'<div class="docs-layout"><aside class="docs-sidebar" aria-label="Documentation navigation"><nav>{sidenav}</nav></aside><main class="doc-main" id="main"><details class="mobile-doc-nav"><summary>Browse documentation</summary><nav>{sidenav}</nav></details>{search_ui}<div class="doc-eyebrow">The Relay handbook</div><h1>{title}</h1><p class="doc-lead">{desc}</p><div class="doc-content">{content}</div>{adjacent}</main><aside class="page-toc"><span class="nav-label">On this page</span><nav aria-label="On this page">{toc}</nav><a class="source-link" href="{REPO}/blob/v0.4.1/crates/relay-cli/src/cli.rs">CLI source ↗</a></aside></div>' + footer('../')
+        body = header('../') + f'<div class="docs-layout"><aside class="docs-sidebar" aria-label="Documentation navigation"><nav>{sidenav}</nav></aside><main class="doc-main" id="main" tabindex="-1"><details class="mobile-doc-nav"><summary>Browse documentation</summary><nav>{sidenav}</nav></details>{search_ui}<div class="doc-eyebrow">The Relay handbook <a href="{REPO}/tree/{HANDBOOK_VERSION}" aria-label="Handbook verified against {HANDBOOK_VERSION}">{HANDBOOK_VERSION}</a></div><h1>{title}</h1><p class="doc-lead">{desc}</p><details class="mobile-page-toc"><summary>On this page</summary><nav aria-label="Page sections">{toc}</nav></details><div class="doc-content">{content}</div>{adjacent}</main><aside class="page-toc"><span class="nav-label">On this page</span><nav aria-label="On this page">{toc}</nav><a class="source-link" href="{REPO}/blob/{HANDBOOK_VERSION}/crates/relay-cli/src/cli.rs">CLI source ↗</a></aside></div>' + footer('../')
         outputs[f'docs/{slug}.html'] = shell(title, desc, f'docs/{slug}.html', body, '../')
         sections = re.split(r'(?=<h2 id=")', content)
         search.append({'title':title, 'url':f'{slug}.html', 'text':desc})

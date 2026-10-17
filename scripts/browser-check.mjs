@@ -65,7 +65,7 @@ try {
     if (response.status() >= 400)
       errors.push(`${response.status()} ${response.url()}`);
   });
-  for (const width of [1440, 768, 390, 320]) {
+  for (const width of [1440, 1024, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     for (const path of pages) {
       await page.goto(base + path);
@@ -73,6 +73,10 @@ try {
         (await page.locator("h1").count()) === 1,
         `${path}: expected one h1`,
       );
+      if (path !== "index.html") {
+        assert.equal(await page.locator(".doc-eyebrow a").textContent(), "v0.5.2");
+        assert((await page.locator(".source-link").getAttribute("href")).includes("/v0.5.2/"));
+      }
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth > innerWidth,
       );
@@ -116,154 +120,28 @@ try {
       `All pages: ${width}px layout${width === 1440 || width === 390 ? ", dark/light WCAG checks" : ""} passed.`,
     );
   }
-  // Use the browser clock to test the complete one-shot demo without wall-clock sleeps.
-  const demoPage = await context.newPage();
-  demoPage.on("pageerror", (error) => errors.push(error.message));
-  await demoPage.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
-  await demoPage.goto(base + "index.html");
-  await demoPage.clock.pauseAt(new Date("2026-01-01T00:00:01Z"));
-  const demo = demoPage.locator("#handoff-demo");
-  await demoPage.locator("#demo-replay").click();
-  await demoPage.waitForFunction(
-    () => document.getElementById("handoff-demo").dataset.running === "true",
-    null,
-    { polling: 50 },
-  );
-  await demoPage.locator("#demo-toggle").click();
-  const pausedProgress = await demoPage.locator(".demo-progress").innerHTML();
-  await demoPage.clock.runFor(8000);
-  assert.equal(await demo.getAttribute("data-step"), "0");
-  assert.equal(
-    await demoPage.locator(".demo-progress").innerHTML(),
-    pausedProgress,
-    "Pause freezes the progress clock",
-  );
-  await demoPage.locator("#demo-toggle").click();
-  const initialHeight = (await demo.boundingBox()).height;
-  // Ten narrative beats: claude-main (owner) -> claude-fallback (owner) -> codex-main
-  // (owner), with the deliberate zero-owner gap at step 4 (the handoff itself in flight).
-  for (const [duration, expectedStep, owners] of [
-    [2400, "1", 1],
-    [1800, "2", 1],
-    [2200, "3", 1],
-    [1800, "4", 0],
-    [1400, "5", 1],
-    [2400, "6", 1],
-    [2600, "7", 1],
-    [2200, "8", 1],
-    [1800, "9", 1],
-  ]) {
-    await demoPage.clock.runFor(duration);
-    assert.equal(await demo.getAttribute("data-step"), expectedStep);
-    assert.equal(await demoPage.locator('[data-owner="true"]').count(), owners);
-    assert.equal(
-      (await demo.boundingBox()).height,
-      initialHeight,
-      "No layout shift between stages",
-    );
-    await demoPage.screenshot({
-      path: resolve(artifacts, `handoff-step-${expectedStep}.png`),
-    });
+  // Section navigation must work where the desktop contents rail is hidden.
+  for (const width of [1024, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(base + "docs/commands.html");
+    await page.locator(".mobile-page-toc summary").click();
+    await page.locator(".mobile-page-toc").getByRole("link", { name: "relay status", exact: true }).click();
+    assert(page.url().endsWith("commands.html#status"));
+    const target = await page.locator("#status").boundingBox();
+    const header = await page.locator(".site-header").boundingBox();
+    assert(target.y >= header.height && target.y < 900, "Section target is visible below the sticky header");
   }
-  // Step 9 ("Continuing on claude-main") closes the loop back onto claude-main as owner,
-  // while claude-fallback and codex-main stay visibly exhausted rather than resetting too.
-  assert.equal(
-    await demoPage.locator("#profile-a-state").textContent(),
-    "Active owner",
-  );
-  assert.equal(
-    await demoPage.locator("#profile-b-state").textContent(),
-    "Exhausted",
-  );
-  assert.equal(
-    await demoPage.locator("#profile-c-state").textContent(),
-    "Exhausted",
-  );
-  await demoPage.clock.runFor(2500);
-  assert.equal(await demo.getAttribute("data-complete"), "true");
-  assert.equal(await demo.getAttribute("data-running"), "false");
-  await demoPage.clock.runFor(20000);
-  assert.equal(
-    await demo.getAttribute("data-step"),
-    "9",
-    "Completed demo does not loop",
-  );
-  await demoPage.locator("#demo-replay").click();
-  assert.equal(await demo.getAttribute("data-step"), "0");
-  await demoPage.locator(".site-footer").scrollIntoViewIfNeeded();
-  await demoPage.waitForFunction(
-    () => document.getElementById("handoff-demo").dataset.running === "false",
-    null,
-    { polling: 50 },
-  );
-  const offscreenProgress = await demoPage
-    .locator(".demo-progress")
-    .innerHTML();
-  await demoPage.clock.runFor(10000);
-  assert.equal(
-    await demoPage.locator(".demo-progress").innerHTML(),
-    offscreenProgress,
-  );
-  await demo.scrollIntoViewIfNeeded();
-  await demoPage.waitForFunction(
-    () => document.getElementById("handoff-demo").dataset.running === "true",
-    null,
-    { polling: 50 },
-  );
-  // A preference change immediately stops playback and exposes the completed result.
-  await demoPage.emulateMedia({ reducedMotion: "reduce" });
-  await demoPage.waitForFunction(
-    () => document.getElementById("handoff-demo").dataset.complete === "true",
-    null,
-    { polling: 50 },
-  );
-  assert.equal(await demo.getAttribute("data-running"), "false");
-  await demoPage.close();
-  const reducedContext = await browser.newContext({
-    reducedMotion: "reduce",
-    viewport: { width: 320, height: 900 },
-  });
-  const reducedPage = await reducedContext.newPage();
-  await reducedPage.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
-  await reducedPage.goto(base + "index.html");
-  await reducedPage.clock.pauseAt(new Date("2026-01-01T00:00:01Z"));
-  const reducedDemo = reducedPage.locator("#handoff-demo");
-  assert.equal(await reducedDemo.getAttribute("data-step"), "9");
-  assert.equal(await reducedDemo.getAttribute("data-running"), "false");
-  await reducedPage.locator("#demo-replay").click();
-  await reducedPage.clock.runFor(20000);
-  assert.equal(
-    await reducedDemo.getAttribute("data-step"),
-    "0",
-    "Reduced motion never autoplays",
-  );
-  const mobileHeight = (await reducedDemo.boundingBox()).height;
-  for (const expectedStep of ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) {
-    await reducedPage
-      .getByRole("button", { name: "Show next handoff step" })
-      .click();
-    assert.equal(await reducedDemo.getAttribute("data-step"), expectedStep);
-    assert.equal(
-      (await reducedDemo.boundingBox()).height,
-      mobileHeight,
-      "Stable mobile demo height",
-    );
-    assert((await reducedPage.locator('[data-owner="true"]').count()) <= 1);
-    assert.equal(
-      await reducedPage.evaluate(
-        () => document.documentElement.scrollWidth > innerWidth,
-      ),
-      false,
-    );
-  }
-  await reducedPage.screenshot({
-    path: resolve(artifacts, "handoff-reduced-motion-mobile.png"),
-    fullPage: true,
-  });
-  await reducedContext.close();
-  console.log(
-    "Handoff: stage sequence, single owner, pause/play, replay, offscreen suspension, one-shot completion, reduced motion, manual stepping, and stable layout passed.",
-  );
+  // Static CLI evidence remains readable with reduced motion and without JS.
+  await page.goto(base + "index.html");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert(await page.locator(".cli-output").isVisible());
+  assert((await page.locator(".cli-output").textContent()).includes("relay status --live"));
+  assert.equal(await page.locator(".demo-playback").count(), 0);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.keyboard.press("Tab");
+  assert.equal(await page.evaluate(() => document.activeElement.className), "skip-link");
+  await page.keyboard.press("Enter");
+  assert.equal(await page.evaluate(() => document.activeElement.id), "main");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(base + "index.html");
   await page.locator(".copy-button").click();
@@ -359,6 +237,12 @@ try {
     path: resolve(artifacts, "home-desktop.png"),
     fullPage: true,
   });
+  for (const width of [1440, 1024, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.screenshot({ path: resolve(artifacts, `home-${width}.png`), fullPage: true });
+    await page.screenshot({ path: resolve(artifacts, `home-${width}-viewport.png`) });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole("button", { name: "Switch to light theme" }).click();
   await page.screenshot({
     path: resolve(artifacts, "home-light.png"),
@@ -367,6 +251,18 @@ try {
   await page.getByRole("button", { name: "Switch to dark theme" }).click();
   await page.goto(base + "docs/commands.html");
   await page.screenshot({ path: resolve(artifacts, "docs-desktop.png") });
+  for (const slug of ["getting-started", "workflows", "commands", "profiles", "handoffs", "integrations", "troubleshooting", "advanced"]) {
+    for (const width of [1440, 1024, 768, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(base + `docs/${slug}.html`);
+      await page.screenshot({ path: resolve(artifacts, `docs-${slug}-${width}.png`), fullPage: true });
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(base + "docs/getting-started.html");
+  await page.getByRole("button", { name: "Switch to light theme" }).click();
+  await page.screenshot({ path: resolve(artifacts, "docs-getting-started-light.png"), fullPage: true });
+  await page.getByRole("button", { name: "Switch to dark theme" }).click();
   assert.deepEqual(
     errors,
     [],
@@ -385,16 +281,17 @@ try {
     .getByRole("link", { name: "Everyday workflows", exact: true })
     .click();
   assert(staticPage.url().endsWith("workflows.html"));
+  await staticPage.locator(".mobile-page-toc summary").click();
+  await staticPage.locator(".mobile-page-toc").getByRole("link", { name: "Switch accounts or providers", exact: true }).click();
+  assert(staticPage.url().endsWith("workflows.html#switch"));
   assert(await staticPage.locator(".copy-button").first().isHidden());
   await staticPage.goto(base + "index.html");
-  assert.equal(await staticPage.locator(".demo-profile").count(), 3);
-  for (const row of await staticPage.locator(".demo-profile").all())
-    assert(await row.isVisible());
-  assert(await staticPage.locator("#demo-status").isVisible());
-  assert(
-    (await staticPage.locator("#demo-status").textContent()).length > 0,
-  );
-  assert(await staticPage.locator(".demo-playback").isHidden());
+  assert(await staticPage.locator(".cli-output").isVisible());
+  assert((await staticPage.locator(".cli-output").textContent()).includes("Configured fallback chain"));
+  await staticPage.getByRole("link", { name: "Install with Homebrew" }).click();
+  assert(staticPage.url().endsWith("#install"));
+  assert(await staticPage.locator("#install").isVisible());
+  assert(await staticPage.locator(".copy-button").isHidden());
   await noJs.close();
   console.log(
     "Copy, denied clipboard, search, failed-search retry, theme persistence, keyboard, mobile navigation, no-JS content, and screenshots passed.",

@@ -1,4 +1,5 @@
 <p>Run shell commands from your project directory. If you are typing inside Claude or Codex, use the <a href="integrations.html">in-agent commands</a> instead.</p>
+<nav class="guide-path" aria-label="Choose a workflow"><a href="#new">Start fresh</a><a href="#resume">Resume</a><a href="#switch">Switch profiles</a><a href="#existing">Adopt Claude</a></nav>
 <h2 id="new">Start a new conversation</h2>
 <pre><code>relay claude
 # Or choose Codex:
@@ -7,7 +8,7 @@ relay codex</code></pre>
 <pre><code>relay claude "Find the cause of the failing tests"</code></pre>
 <h2 id="resume">Continue yesterday’s work</h2>
 <pre><code>relay resume</code></pre>
-<p>This reopens a closed, dormant Relay session on its last profile. One available session opens directly; with several, you choose. A session that is already active is never started a second time.</p>
+<p>This reopens a closed, dormant Relay session on its last profile. One available session opens directly; with several, you choose. Codex usage is checked before attach: verified exhaustion can trigger state continuation to an eligible fallback; unknown usage is refused. A session that is already active is never started a second time.</p>
 <pre><code>relay status
 relay resume --session &lt;relay-session-id&gt;</code></pre>
 <p>Replace the placeholder with the Relay session ID or an unambiguous prefix from status. You can also filter the picker by last profile:</p>
@@ -41,7 +42,14 @@ relay switch codex-work</code></pre>
 relay codex --profile codex-work -- --sandbox workspace-write</code></pre>
 <p>Provider options are remembered and reused for that provider. They are never translated across Claude and Codex. Options that would take over Relay’s session identity, working directory, output mode, or required hooks are refused.</p>
 <p>Use Relay’s own <code>--resume</code> option when adopting Claude; do not pass <code>--resume</code> through after the separator.</p>
+<h2 id="mode">Set execution intent</h2>
+<pre><code>relay claude --autonomous
+# Or change an existing session:
+relay mode autonomous
+# Return to normal conversational confirmation:
+relay mode interactive</code></pre>
+<p>Autonomous mode asks the agent to continue the current task until a real blocker. It does not grant permissions or change provider approval or sandbox settings. The mode stays with the Relay session across handoffs. <code>relay resume</code> preserves it unless you pass <code>--autonomous</code> or <code>--interactive</code>.</p>
 <h2 id="multiple">Work with multiple conversations</h2>
-<p>A project can have several Relay sessions, even on the same profile. Each live session has one owner. Closing its provider normally makes it dormant; switching one session does not move the others.</p>
+<p>A project can have several Relay sessions. Claude sessions can share a profile. Relay permits only one live interactive Codex session per isolated Codex profile; use separate Codex profiles for concurrent Codex work. Each live session has one owner. Closing its provider normally makes it dormant; switching one session does not move the others.</p>
 <p>Relay does not coordinate edits between agents in the same working tree. Use separate worktrees when your tasks need file isolation.</p>
 <p>Use <code>--session</code> when a command needs to identify one conversation. For scripts without a terminal picker, provide it explicitly.</p>

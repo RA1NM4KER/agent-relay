@@ -43,7 +43,7 @@ npm run test:browser
 ```
 
 The browser check starts its own temporary server under `/agent-relay/`, matching the
-GitHub Pages project-path layout. It checks all nine pages at 1440, 768, 390, and 320
+GitHub Pages project-path layout. It checks all nine pages at 1440, 1024, 768, 390, and 320
 pixels, dark/light WCAG A/AA rules with axe, search and failure recovery, copy and denied
 clipboard behaviour, keyboard navigation, theme persistence, and no-JavaScript navigation.
 Screenshots are written to ignored `artifacts/`. Automated accessibility checks complement,
@@ -56,11 +56,12 @@ The `Site checks` workflow runs on pull requests and pushes targeting `gh-pages`
 
 ## Version policy
 
-The handbook is explicitly verified against **v0.4.1**, using that tag's CLI declarations
+The handbook is explicitly verified against **v0.5.2**, using that tag's CLI declarations
 and implementation, README, and behaviour documentation. Links to technical details are
 pinned to that tag. Development-only features are marked separately; do not silently mix
-`main` behaviour into stable examples. In particular, `status --live`, `refresh`, `mode`,
-`state`, and `task` are not stable v0.4.1 commands.
+`main` behaviour into stable examples. Status defaults to local state; `--live` requests fresh
+provider checks. The stable reference includes `refresh`, `mode`, `state`, and the
+repository-specific `task` family, with its remote effects described explicitly.
 
 The existing release workflow on `main` updates exactly two markers in `index.html`:
 
@@ -81,11 +82,11 @@ commit to `gh-pages` triggers the repository's existing Pages deployment. No cha
 Rust source branch or to Pages settings are required. Never force-push over a concurrent
 release badge update; rebase onto the latest `origin/gh-pages` and preserve its badge.
 
-The previous public `#top`, `#how-it-works`, `#security`, and `#handoff-demo` links are
-preserved. The portfolio video was intentionally omitted: its embedded gradient conflicts
-with the solid-colour visual direction. The homepage handoff demonstration is labelled as illustrative, not live provider output.
-It plays one four-stage Claude-to-Claude handoff and holds the result. Pause/play and replay
-controls preserve a readable sequence; offscreen or hidden tabs suspend its clock. With
-reduced motion, it shows the completed result and offers manual stepping after Replay.
-Without JavaScript the full sequence remains readable. The dynamic demonstration never
-shows two active owners and does not imply native continuity for Codex handoffs.
+The public `#top`, `#how-it-works`, `#security`, and `#handoff-demo` anchors remain
+available. The homepage now uses a static, labelled v0.5.2 CLI excerpt in place of the
+animated routing illustration. Example profile names and session IDs are fictional;
+labels and output structure follow the tagged status renderer linked beside the excerpt.
+The handbook is checked against the same v0.5.2 tag, including command declarations,
+readiness behavior, profile isolation, and recorded live-validation coverage.
+The browser checks cover static CLI content with reduced motion and without JavaScript,
+and write homepage screenshots at all five review widths to ignored `artifacts/`.

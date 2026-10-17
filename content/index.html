@@ -1,62 +1,81 @@
-<main id="main">
+<main id="main" class="home" tabindex="-1">
 <div class="container">
 <section id="top" class="hero" aria-labelledby="hero-title">
   <div class="hero-grid">
-    <div>
-      <p class="eyebrow">A little continuity for your CLI</p>
-      <h1 id="hero-title">Your agent<br>hits a limit.<br><span>Your work<br>moves on.</span></h1>
-      <p class="hero-description">Keep coding across Claude and Codex accounts. Relay supervises your session and continues the work on an eligible fallback when usage runs out.</p>
-      <div class="hero-actions"><a class="button" href="docs/getting-started.html">Get started <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="docs/commands.html">Explore the commands <span aria-hidden="true">→</span></a></div>
-      <div class="hero-meta"><a class="badge" href="https://github.com/RA1NM4KER/agent-relay/releases/tag/{{VERSION}}">{{VERSION}}</a><div class="meta-row"><span>{{VERSION}}</span><span>macOS-first</span><span>Open source</span><span>Runs locally</span></div></div>
+    <div class="hero-copy">
+      <div class="hero-meta"><a class="badge" href="https://github.com/RA1NM4KER/agent-relay/releases/tag/{{VERSION}}">{{VERSION}}</a><div class="meta-row"><span>{{VERSION}}</span><span>Open source</span><span>macOS-first</span></div></div>
+      <p class="eyebrow">Local supervision for Claude Code + Codex</p>
+      <h1 id="hero-title">An account limit.<br>A controlled handoff.</h1>
+      <p class="hero-description">Agent Relay supervises coding-agent conversations on your machine. When usage exhaustion is verified, it can move a Relay session to the next eligible profile while preserving one active owner.</p>
+      <div class="hero-actions"><a class="button" href="#install">Install with Homebrew <span aria-hidden="true">↓</span></a><a class="text-link" href="#how-it-works">How handoff works <span aria-hidden="true">→</span></a></div>
+      <p class="hero-footnote">Your provider tools. Isolated profiles. Explicit session ownership.</p>
     </div>
-    <div class="hero-terminal">
-      <div class="terminal handoff-demo" id="handoff-demo" role="group" aria-label="Illustrative automatic handoff routing across Claude and Codex profiles" data-step="9">
-        <div class="terminal-top"><div class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></div><span>AUTOMATIC HANDOFF</span><span class="demo-label">Demo</span></div>
-        <div class="handoff-body">
-          <h2 class="sr-only">Automatic handoff routing example across three profiles</h2>
-          <div class="demo-profiles" role="group" aria-label="Example profiles">
-            <div class="demo-profile" data-profile="a" data-owner="true"><span class="profile-caption">PRIMARY</span><strong>claude-main</strong><span class="profile-state" data-tone="accent" id="profile-a-state">Active owner</span></div>
-            <span class="profile-arrow" aria-hidden="true">→</span>
-            <div class="demo-profile" data-profile="b"><span class="profile-caption">FALLBACK</span><strong>claude-fallback</strong><span class="profile-state" data-tone="muted" id="profile-b-state">Exhausted</span></div>
-            <span class="profile-arrow" aria-hidden="true">→</span>
-            <div class="demo-profile" data-profile="c"><span class="profile-caption">CODEX FALLBACK</span><strong>codex-main</strong><span class="profile-state" data-tone="muted" id="profile-c-state">Exhausted</span></div>
-          </div>
-          <p class="demo-status" id="demo-status">Continuing on claude-main</p>
-          <div class="demo-progress" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-          <div class="demo-playback" hidden><span id="demo-position">Handoff complete</span><div class="demo-controls"><button id="demo-toggle" type="button" aria-controls="handoff-demo">Pause</button><button id="demo-replay" type="button" aria-controls="handoff-demo">Replay <span aria-hidden="true">↻</span></button></div></div>
-          <span class="sr-only" id="demo-announcement" role="status" aria-live="polite"></span>
-        </div>
-        <div class="terminal-bottom"><span>ONE OWNER PER SESSION</span><span>OWNERSHIP IS STICKY</span></div>
+<ul class="product-facts" aria-label="Product guarantees">
+  <li><span aria-hidden="true">✓</span> Runs locally</li>
+  <li><span aria-hidden="true">✓</span> Claude Code + Codex</li>
+  <li><span aria-hidden="true">✓</span> Isolated provider profiles</li>
+  <li><span aria-hidden="true">✓</span> Fail-closed verification</li>
+  <li><span aria-hidden="true">✓</span> One owner per session</li>
+</ul>
+    <figure class="hero-terminal" id="handoff-demo">
+      <div class="terminal" aria-label="Representative relay status output">
+        <div class="terminal-top"><span>AGENT RELAY / CLI</span><span>OUTPUT EXCERPT</span></div>
+        <pre class="cli-output" tabindex="0"><code><span class="cli-command"><span aria-hidden="true">$ </span>relay status --live</span>
+
+<span class="cli-heading">Agent Relay</span>
+
+<span class="cli-heading">Current</span>
+  claude-main · Claude
+  Session 9cc4d728
+  ✓ Checks passed
+
+<span class="cli-heading">Automatic handoff</span>
+  <span class="cli-success">✓ Ready.</span>
+
+<span class="cli-heading">Configured fallback chain</span>
+  1. claude-backup  ✓ Checks passed
+  2. codex-main     ✓ Checks passed</code></pre>
       </div>
-      <p class="terminal-caption">Illustrative sequence, not live terminal output. Any handoff involving Codex starts a new session with transferred context.</p>
-    </div>
+      <figcaption class="terminal-caption">Representative v0.5.2 excerpt; example profiles and session ID. Readiness depends on local configuration and provider checks. <a href="https://github.com/RA1NM4KER/agent-relay/blob/v0.5.2/crates/relay-cli/src/commands/status.rs">Inspect the renderer ↗</a></figcaption>
+    </figure>
   </div>
 </section>
-<div class="install-strip" id="install"><p><strong>One install. Your existing tools.</strong>Have Claude Code or Codex installed? Start here.</p><pre><code>brew install RA1NM4KER/tap/agent-relay</code></pre></div>
+
 <section class="section" id="how-it-works" aria-labelledby="workflow-title">
-  <div class="section-heading"><div><p class="eyebrow">Fits the way you work</p><h2 id="workflow-title">Your terminal.<br>A little more resilient.</h2></div><p>Use the coding agents you already know. Relay handles the profiles, supervision, and handoff around them.</p></div>
-  <div class="features">
-    <div class="feature"><span class="feature-number">01 / SET YOUR ORDER</span><h3>Your accounts, organised.</h3><p>Give each profile a name. Choose a primary and an ordered list of fallbacks. Mix Claude and Codex in the order that works for you.</p><a class="text-link" href="docs/profiles.html">Set up profiles →</a></div>
-    <div class="feature"><span class="feature-number">02 / KEEP WORK MOVING</span><h3>A limit is a handoff point.</h3><p>On verified usage exhaustion, Relay checks for an eligible fallback, safely stops the current session, and continues the work there.</p><a class="text-link" href="docs/handoffs.html">Understand handoffs →</a></div>
-    <div class="feature"><span class="feature-number">03 / STAY IN CONTROL</span><h3>Know what’s happening.</h3><p>Check readiness, see who owns the session, understand a handoff decision, or choose when to switch yourself.</p><a class="text-link" href="docs/commands.html">Find your command →</a></div>
+  <div class="section-heading"><div><p class="eyebrow">01 / The handoff path</p><h2 id="workflow-title">Continue the work.<br>Keep ownership explicit.</h2></div><p>A Relay session tracks a conversation and its active profile. Choose your fallback order; Relay verifies when a handoff is allowed.</p></div>
+  <ol class="workflow-steps">
+    <li><span class="step-number">01</span><h3>Start a managed conversation</h3><p>Set up isolated profiles, choose their order, then launch Claude Code or Codex through Relay.</p><code>relay claude</code><span class="command-or">or</span><code>relay codex</code></li>
+    <li><span class="step-number">02</span><h3>Supervise the active profile</h3><p>Relay tracks the session owner and provider usage signals. Unknown or unverified usage does not trigger an automatic handoff.</p><a class="text-link" href="docs/handoffs.html">Read the eligibility rules →</a></li>
+    <li><span class="step-number">03</span><h3>Hand off when verified</h3><p>On verified exhaustion, Relay checks the next eligible profile, confirms the source has stopped, and verifies the target.</p><a class="text-link" href="docs/workflows.html#switch">Or switch manually →</a></li>
+  </ol>
+  <div class="continuation-note" aria-labelledby="continuation-title">
+    <h3 id="continuation-title">What continues?</h3>
+    <div><strong>Claude → Claude</strong><p>Native continuation resumes the same Claude conversation under another profile.</p></div>
+    <div><strong>Any handoff involving Codex</strong><p>A new native session receives repository facts, git state, and bounded recent conversation context. Provider prompt caches are not transferred.</p></div>
   </div>
 </section>
-<section class="section" aria-labelledby="continuity-title">
-  <div class="section-heading"><div><p class="eyebrow">Continuity, clearly defined</p><h2 id="continuity-title">What comes with you?</h2></div><p>The answer depends on the providers. Relay keeps the distinction explicit, so you know exactly how the next agent continues.</p></div>
-  <div class="handoff-panel"><div><div class="handoff-route">Claude <span aria-hidden="true">→</span> Claude</div><h3>The same conversation.</h3><p>Resume the same native Claude session under another account, with its conversation history.</p></div><div><div class="handoff-route">Claude <span aria-hidden="true">↔</span> Codex</div><h3>A new session, with context.</h3><p>Any handoff involving Codex starts a new native session seeded with repository facts, git state, and bounded recent conversation context.</p></div></div>
-  <p class="small-note">State continuation also applies to Codex → Codex handoffs. Provider prompt caches are not transferred. An eligible fallback is required; Relay never bypasses account limits. <a class="text-link" href="docs/handoffs.html#limits">Read the limits →</a></p>
+<section class="section safety-section" id="security" aria-labelledby="safety-title">
+  <div class="safety-intro"><p class="eyebrow">02 / Safety before availability</p><h2 id="safety-title">A handoff needs evidence.</h2><p>Relay fails closed when usage, process identity, or target verification is uncertain. It does not infer exhaustion from vague percentages or bypass provider limits.</p><div class="safety-links"><a class="text-link" href="https://github.com/RA1NM4KER/agent-relay/blob/v0.5.2/docs/architecture.md">Architecture ↗</a><a class="text-link" href="https://github.com/RA1NM4KER/agent-relay/blob/v0.5.2/docs/security.md">Security model ↗</a></div></div>
+  <dl class="safety-list">
+    <div><dt>One active owner per Relay session</dt><dd>Ownership and process checks guard each transfer. Multiple sessions can share a project; Relay does not serialize file edits across them.</dd></div>
+    <div><dt>Provider-owned authentication</dt><dd>Claude and Codex use isolated profile directories. Relay never reads, copies, or routes your credentials.</dd></div>
+    <div><dt>Journaled, recoverable transfers</dt><dd>Handoffs record their state. Diagnostics and explicit recovery use that evidence to determine a safe next step.</dd></div>
+    <div><dt>Local supervision</dt><dd>No Relay-operated server. Provider communication stays with your installed Claude Code and Codex tools.</dd></div>
+  </dl>
 </section>
-<section class="section" id="security" aria-labelledby="local-title">
-  <div class="section-heading"><div><p class="eyebrow">Local by design</p><h2 id="local-title">Your credentials stay<br>with your provider.</h2></div><p>Relay opens the official provider login for each isolated profile. It never reads, copies, or stores your passwords or authentication tokens.</p></div>
-  <div class="features"><div class="feature"><h3>Runs on your machine.</h3><p>No Relay-operated server. Provider traffic still goes through the Claude and Codex CLIs you use.</p></div><div class="feature"><h3>One owner per session.</h3><p>Transfers verify that the source has stopped and the target is valid. Uncertainty stops the handoff.</p></div><div class="feature"><h3>Recoverable handoffs.</h3><p>Each transfer is journaled. If a handoff is interrupted, Relay uses recorded evidence to decide the safe next step.</p></div></div>
-  <a class="text-link" href="https://github.com/RA1NM4KER/agent-relay/blob/v0.4.1/docs/security.md">Read the security model ↗</a>
+<section class="section cli-section" aria-labelledby="cli-title">
+  <div><p class="eyebrow">03 / Inspect and control</p><h2 id="cli-title">Know what Relay is doing.</h2><p>Named profiles, visible ownership, and commands for the next decision. Inspect readiness before relying on automatic handoff.</p><a class="text-link" href="docs/commands.html">Browse the command reference →</a><p class="handbook-note">Handbook and CLI examples checked against stable v0.5.2.</p></div>
+  <div class="command-list" aria-label="Everyday Relay commands">
+    <a href="docs/commands.html#setup"><code>relay setup</code><span>Configure profiles and fallback order</span><span aria-hidden="true">↗</span></a>
+    <a href="docs/commands.html#profiles"><code>relay profiles</code><span>Inspect registered profiles and login state</span><span aria-hidden="true">↗</span></a>
+    <a href="docs/commands.html#doctor"><code>relay doctor</code><span>Check readiness and diagnose blockers</span><span aria-hidden="true">↗</span></a>
+    <a href="docs/commands.html#switch"><code>relay switch</code><span>Choose a handoff yourself</span><span aria-hidden="true">↗</span></a>
+    <a href="docs/commands.html#resume"><code>relay resume</code><span>Reopen a managed conversation</span><span aria-hidden="true">↗</span></a>
+  </div>
 </section>
-<section class="section" aria-labelledby="docs-title">
-  <div class="section-heading"><div><p class="eyebrow">Built to be used</p><h2 id="docs-title">A guide for the next<br>thing you need to do.</h2></div><p>From your first session to a stubborn handoff. Short explanations, real commands, and practical next steps.</p></div>
-  <div class="docs-links"><a class="docs-link" href="docs/getting-started.html"><div><h3>Run your first session</h3><p>Install, set up your accounts, and start coding.</p></div><span aria-hidden="true">↗</span></a><a class="docs-link" href="docs/commands.html"><div><h3>Look up a command</h3><p>Find the syntax, useful flags, and examples.</p></div><span aria-hidden="true">↗</span></a><a class="docs-link" href="docs/workflows.html"><div><h3>Pick up where you left off</h3><p>Resume, switch, or adopt an existing conversation.</p></div><span aria-hidden="true">↗</span></a><a class="docs-link" href="docs/troubleshooting.html"><div><h3>Work out what’s wrong</h3><p>Check readiness and understand a blocked handoff.</p></div><span aria-hidden="true">↗</span></a></div>
+<section class="install-section" id="install" aria-labelledby="start-title">
+  <div><p class="eyebrow">Start locally</p><h2 id="start-title">Install Relay. Set up your profiles.</h2><p>Have Claude Code or Codex installed? Add Relay with Homebrew, then run <code>relay setup</code> to configure your accounts.</p><a class="text-link" href="docs/getting-started.html">Follow the setup guide →</a></div>
+  <div class="install-command"><span class="install-label">HOMEBREW / macOS</span><pre><code>brew install RA1NM4KER/tap/agent-relay</code></pre><p><a href="docs/advanced.html#source">Build from source</a><span aria-hidden="true"> · </span><a href="https://github.com/RA1NM4KER/agent-relay/releases">Release notes ↗</a></p></div>
 </section>
-<section class="end-cta" aria-labelledby="start-title"><div><h2 id="start-title">Make room for uninterrupted thinking.</h2><p>Set up Relay. Open your project. Get back to the work.</p></div><a class="button" href="docs/getting-started.html">Set up Agent Relay <span aria-hidden="true">↗</span></a></section>
 </div>
 </main>
-
-<script src="assets/handoff.js" defer></script>
