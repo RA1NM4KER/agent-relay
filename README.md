@@ -564,7 +564,8 @@ command name directly (`relay switch` → `commands/switch.rs`, `relay watch run
 [Herdr integration](docs/herdr-integration.md) · [architecture](docs/architecture.md) ·
 [threat model](docs/security.md) · [research](docs/research.md) · [status](STATUS.md) ·
 [changelog](CHANGELOG.md) · [maintainer dogfooding](docs/maintainer-dogfood.md) ·
-[past milestone reports](docs/history/)
+[past milestone reports](docs/history/) · [contributing](CONTRIBUTING.md) ·
+[code of conduct](CODE_OF_CONDUCT.md)
 
 ## License
 
