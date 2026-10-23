@@ -1,11 +1,15 @@
-# Agent Relay
+<h1 align="center">Agent Relay</h1>
 
-**Hit a usage limit mid-task? Keep going on your next account.**
+<p align="center">
+  <strong>Hit a usage limit mid-task? Keep going on your next account.</strong>
+</p>
 
-[![CI](https://github.com/RA1NM4KER/agent-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/RA1NM4KER/agent-relay/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/RA1NM4KER/agent-relay)](https://github.com/RA1NM4KER/agent-relay/releases/latest)
-[![License](https://img.shields.io/github/license/RA1NM4KER/agent-relay)](LICENSE)
-[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/RA1NM4KER/badge.svg)](https://hub.xerj.org/contributors/RA1NM4KER)
+<p align="center">
+  <a href="https://github.com/RA1NM4KER/agent-relay/actions/workflows/ci.yml"><img src="https://github.com/RA1NM4KER/agent-relay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/RA1NM4KER/agent-relay/releases/latest"><img src="https://img.shields.io/github/v/release/RA1NM4KER/agent-relay" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/RA1NM4KER/agent-relay" alt="License"></a>
+  <a href="https://hub.xerj.org/contributors/RA1NM4KER"><img src="https://hub.xerj.org/contributors/RA1NM4KER/badge.svg" alt="XERJ Corpus Hub contributor"></a>
+</p>
 
 Agent Relay is a local command-line supervisor for [Claude Code](https://claude.com/claude-code)
 and the Codex CLI. When one account runs out of quota, it safely hands your conversation to the
