@@ -5,6 +5,7 @@
 [![CI](https://github.com/RA1NM4KER/agent-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/RA1NM4KER/agent-relay/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/RA1NM4KER/agent-relay)](https://github.com/RA1NM4KER/agent-relay/releases/latest)
 [![License](https://img.shields.io/github/license/RA1NM4KER/agent-relay)](LICENSE)
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/RA1NM4KER/badge.svg)](https://hub.xerj.org/contributors/RA1NM4KER)
 
 Agent Relay is a local command-line supervisor for [Claude Code](https://claude.com/claude-code)
 and the Codex CLI. When one account runs out of quota, it safely hands your conversation to the
