@@ -7,6 +7,7 @@
   --muted: #a7ada2;
   --line: #32382f;
   --accent: #e8b66f;
+  --success: #96bd98;
   --ink: #171914;
   --soft: #25271f;
   --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -21,6 +22,7 @@
   --muted: #596052;
   --line: #d3d7c9;
   --accent: #81511d;
+  --success: #38663e;
   --ink: #fff;
   --soft: #efeadb;
 }
@@ -1352,7 +1354,8 @@ tr:last-child td {
 .home .cli-output code { font-size: inherit; }
 .home .cli-command, .home .cli-heading { color: var(--text); }
 .home .cli-command { font-weight: 600; }
-.home .cli-command > span, .home .cli-success { color: var(--accent); }
+.home .cli-command > span { color: var(--accent); }
+.home .cli-success { color: var(--success); }
 .home .terminal-caption { font-size: 11px; line-height: 1.65; margin-top: 12px; }
 .home .terminal-caption a { text-decoration: underline; text-underline-offset: 3px; }
 .home .product-facts { grid-column: 1 / -1; order: 3; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; list-style: none; padding: 21px 0; margin: 0; border-block: 1px solid var(--line); font-size: 12px; }
@@ -1557,3 +1560,15 @@ tr:last-child td {
   .mobile-doc-nav nav, .mobile-page-toc nav { grid-template-columns: 1fr; }
   .doc-main h1 { font-size: 30px; }
 }
+
+/* Reserve the original excerpt's space throughout typing and shorter outputs. */
+.home .terminal { position: relative; }
+.home .terminal-transcript { clip-path: inset(50%); }
+.home .terminal-screen { position: absolute; inset: 39px 0 0; overflow: hidden; pointer-events: none; }
+.home .terminal-playback { border: 0; padding: 3px 0 3px 10px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.home .terminal-playback:hover { color: var(--text); }
+.home .cli-command .terminal-typed { color: var(--text); }
+.home .terminal-cursor { color: var(--accent); animation: terminal-blink 1s step-end infinite; }
+.home .terminal-paused .terminal-cursor { animation-play-state: paused; }
+@keyframes terminal-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .home .terminal-cursor { animation: none; } }

@@ -134,9 +134,10 @@ try {
   // Static CLI evidence remains readable with reduced motion and without JS.
   await page.goto(base + "index.html");
   await page.emulateMedia({ reducedMotion: "reduce" });
-  assert(await page.locator(".cli-output").isVisible());
-  assert((await page.locator(".cli-output").textContent()).includes("relay status --live"));
-  assert.equal(await page.locator(".demo-playback").count(), 0);
+  assert(await page.locator(".cli-output").first().isVisible());
+  assert((await page.locator(".cli-output").first().textContent()).includes("relay status --live"));
+  await page.locator(".terminal-screen").waitFor({ state: "hidden" });
+  assert(await page.locator(".terminal-playback").isHidden());
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.keyboard.press("Tab");
   assert.equal(await page.evaluate(() => document.activeElement.className), "skip-link");

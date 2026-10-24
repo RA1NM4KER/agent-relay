@@ -147,3 +147,100 @@ if (search) {
     if (!event.target.closest(".search-area")) closeSearch();
   });
 }
+
+
+// Keep the complete status excerpt as the accessible, no-JS fallback.
+const terminal = document.querySelector(".hero-terminal .terminal");
+if (terminal) {
+  const original = terminal.querySelector(".cli-output");
+  const playback = terminal.querySelector(".terminal-playback");
+  const label = terminal.querySelector(".terminal-demo-label");
+  const motion = matchMedia("(prefers-reduced-motion: reduce)");
+  const frames = [
+    { command: "relay status --live", output: original.querySelector("code").innerHTML.split("</span>\n").slice(1).join("</span>\n").replace(/^\n/, "") },
+    { command: "relay doctor", output: `<span class="cli-heading">Agent Relay Doctor</span>
+
+<span class="cli-heading">Current project</span>
+  /repos/my-project
+
+<span class="cli-heading">Automatic handoff</span>
+  <span class="cli-success">✓ Ready for automatic handoff.</span>
+
+<span class="cli-heading">Passed checks</span>
+  <span class="cli-success">✓ claude-main authenticated</span>
+  <span class="cli-success">✓ claude-backup authenticated</span>
+  <span class="cli-success">✓ codex-main authenticated</span>` },
+    { command: "relay profile list", output: `<span class="cli-heading">claude-main · Claude</span>
+  Directory: /profiles/claude-main
+
+<span class="cli-heading">claude-backup · Claude</span>
+  Directory: /profiles/claude-backup
+
+<span class="cli-heading">codex-main · Codex</span>
+  Directory: /profiles/codex-main` },
+  ];
+  const screen = original.cloneNode(false);
+  screen.classList.add("terminal-screen");
+  screen.removeAttribute("tabindex");
+  screen.setAttribute("aria-hidden", "true");
+  screen.hidden = true;
+  original.after(screen);
+  let paused = false;
+  let visible = true;
+  let timer;
+  let frame = 0;
+  let character = 0;
+  let line = 0;
+  let phase = "start";
+  let typed;
+  let output;
+  function running() {
+    return !paused && !motion.matches && visible && !document.hidden;
+  }
+  function schedule(delay) {
+    clearTimeout(timer);
+    if (running()) timer = setTimeout(tick, delay);
+  }
+  function tick() {
+    const current = frames[frame];
+    if (phase === "start") {
+      screen.innerHTML = '<code><span class="cli-command"><span>$ </span><span class="terminal-typed"></span><span class="terminal-cursor">▍</span></span><span class="terminal-result"></span></code>';
+      typed = screen.querySelector(".terminal-typed");
+      output = screen.querySelector(".terminal-result");
+      character = 0;
+      line = 0;
+      phase = "type";
+      schedule(600);
+    } else if (phase === "type") {
+      typed.textContent = current.command.slice(0, ++character);
+      if (character === current.command.length) phase = "output";
+      schedule(phase === "output" ? 550 : 45 + (character % 4) * 18);
+    } else if (phase === "output") {
+      screen.querySelector(".terminal-cursor").hidden = true;
+      const lines = current.output.split("\n");
+      output.innerHTML = "\n\n" + lines.slice(0, ++line).join("\n");
+      if (line === lines.length) phase = "hold";
+      schedule(phase === "hold" ? 6000 : 85);
+    } else {
+      frame = (frame + 1) % frames.length;
+      phase = "start";
+      tick();
+    }
+  }
+  function sync() {
+    clearTimeout(timer);
+    const animate = !motion.matches;
+    original.classList.toggle("terminal-transcript", animate);
+    screen.hidden = !animate;
+    playback.hidden = !animate;
+    label.hidden = animate;
+    playback.textContent = paused ? "Play demo" : "Pause demo";
+    terminal.classList.toggle("terminal-paused", !running());
+    schedule(250);
+  }
+  playback.addEventListener("click", () => { paused = !paused; sync(); });
+  motion.addEventListener("change", sync);
+  document.addEventListener("visibilitychange", sync);
+  new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; sync(); }).observe(terminal);
+  sync();
+}

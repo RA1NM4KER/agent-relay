@@ -18,8 +18,8 @@
   <li><span aria-hidden="true">✓</span> One owner per session</li>
 </ul>
     <figure class="hero-terminal" id="handoff-demo">
-      <div class="terminal" aria-label="Representative relay status output">
-        <div class="terminal-top"><span>AGENT RELAY / CLI</span><span>OUTPUT EXCERPT</span></div>
+      <div class="terminal" aria-label="Representative Relay command output">
+        <div class="terminal-top"><span>AGENT RELAY / CLI</span><span class="terminal-demo-label">OUTPUT EXCERPT</span><button class="terminal-playback" type="button" hidden>Pause demo</button></div>
         <pre class="cli-output" tabindex="0"><code><span class="cli-command"><span aria-hidden="true">$ </span>relay status --live</span>
 
 <span class="cli-heading">Agent Relay</span>
@@ -27,16 +27,16 @@
 <span class="cli-heading">Current</span>
   claude-main · Claude
   Session 9cc4d728
-  ✓ Checks passed
+  <span class="cli-success">✓ Checks passed</span>
 
 <span class="cli-heading">Automatic handoff</span>
   <span class="cli-success">✓ Ready.</span>
 
 <span class="cli-heading">Configured fallback chain</span>
-  1. claude-backup  ✓ Checks passed
-  2. codex-main     ✓ Checks passed</code></pre>
+  1. claude-backup  <span class="cli-success">✓ Checks passed</span>
+  2. codex-main     <span class="cli-success">✓ Checks passed</span></code></pre>
       </div>
-      <figcaption class="terminal-caption">Representative v0.5.2 excerpt; example profiles and session ID. Readiness depends on local configuration and provider checks. <a href="https://github.com/RA1NM4KER/agent-relay/blob/v0.5.2/crates/relay-cli/src/commands/status.rs">Inspect the renderer ↗</a></figcaption>
+      <figcaption class="terminal-caption">Representative v0.5.2 excerpt; example profiles, paths, and session ID. Readiness depends on local configuration and provider checks. <a href="https://github.com/RA1NM4KER/agent-relay/blob/v0.5.2/crates/relay-cli/src/commands/status.rs">Inspect status renderer ↗</a></figcaption>
     </figure>
   </div>
 </section>

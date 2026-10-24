@@ -83,10 +83,9 @@ Rust source branch or to Pages settings are required. Never force-push over a co
 release badge update; rebase onto the latest `origin/gh-pages` and preserve its badge.
 
 The public `#top`, `#how-it-works`, `#security`, and `#handoff-demo` anchors remain
-available. The homepage now uses a static, labelled v0.5.2 CLI excerpt in place of the
-animated routing illustration. Example profile names and session IDs are fictional;
-labels and output structure follow the tagged status renderer linked beside the excerpt.
-The handbook is checked against the same v0.5.2 tag, including command declarations,
-readiness behavior, profile isolation, and recorded live-validation coverage.
-The browser checks cover static CLI content with reduced motion and without JavaScript,
-and write homepage screenshots at all five review widths to ignored `artifacts/`.
+available. The homepage terminal types three representative v0.5.2 commands, then reveals
+bounded output line by line: `relay status --live`, `relay doctor`, and `relay profile list`.
+Example profiles, paths, and session IDs are fictional. The complete status excerpt remains
+available to assistive technology and without JavaScript. Reduced motion shows the static
+excerpt; a pause button stops playback, and animation pauses offscreen or in a hidden tab.
+The terminal reserves its original dimensions so shorter examples do not shift the layout.
