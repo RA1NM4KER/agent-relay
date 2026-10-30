@@ -116,3 +116,23 @@ correction is a production change or proof of host-wide admission.
 - Complete rebuilt TUI/shared-daemon, successful inference/subagents, authenticated quota,
   Claude/Codex handoffs, Linux containment and real Herdr remain blocked/unverified. Runnable
   bounded lab procedures are in FEASIBILITY.md; these outcomes must not be marked passed.
+
+## Controlled engineering increment
+
+Full commands, source findings and interpretation: ENGINEERING.md.
+
+| Experiment | Retained evidence | Result |
+| --- | --- | --- |
+| Preserve original packet before changes | Dedicated branch commit afabe33; verified bundle + original SHA-256 inventory in workspace checkpoints/ | 77 research files durably committed; original main and AGENTS.md untouched |
+| Full pinned source fetch | engineering/evidence/environment.json | FAILED/BLOCKED: DNS, exit 128; full TUI not built/run |
+| Listener preflight | Same environment record | TCP and Unix bind EPERM; mock/shared-daemon lab remains blocked |
+| Integrated service/native contract | engineering/run_integrated.py; integrated-initial.json and integrated-transitions.json | Initial 20 and final 22 narrow checks; eight logical clients, actual native commands/navigation, replay/epochs/reopen; full_parity false |
+| Bypass and detached work | Final integrated record | Both counterexamples reproduced; native host/executor integration remains required |
+| Contract interleavings | engineering/test_host_contract.py | 2 tests pass; concurrent replay forwards once; close holds service lock until admitted work finishes |
+| Containment self-migration adversary | engineering/containment_escape.py; containment-escape-blocked.json | BLOCKED, direct command exit 2 on macOS; no measured Linux escape or containment claim |
+| Existing deterministic/regression evidence | controller tests, codex_poll, both retained-evidence validators | 8 controller + 42 scheduler tests pass; 21 phase-1 checks and phase-2 validator pass |
+
+Pre-commit result-loss injection in the new service is not a native process kill.
+The committed-reply retry result is not proof of atomic native creation tokens.
+No successful model/subagent, quota handoff, eight native TUIs or Herdr result was
+added. D1/D2 remain separate open defects; neither was quietly fixed.

@@ -1,5 +1,11 @@
 # Experimental feasibility validation
 
+Controlled engineering continuation: [ENGINEERING.md](ENGINEERING.md) adds an
+integrated real-backend operation-token/recovery prototype, retained evidence,
+native admission seams and an adversarial containment probe. It does not certify
+native host enforcement or full parity. See [CONTINUATION.md](CONTINUATION.md)
+for the durable branch/bundle and next executable steps.
+
 Phase 2, 2026-10-30. This supplements, rather than replaces, the historical research packet.
 Production Relay, its locks, installed Codex/Relay, active profiles, and user worktrees are
 unchanged. All native experiments use fresh homes and an unreachable loopback custom provider;

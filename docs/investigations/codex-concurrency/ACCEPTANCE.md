@@ -178,3 +178,23 @@ deliberately unsafe research mutant makes the native race test fail as expected.
 the frontend fence, and detached native descendants can still mutate after turn completion.
 These are positive native counterexamples, not merely absent tests. The recommended production
 boundary must fix both while retaining native TUI/permissions; neither prototype is shippable.
+
+## Controlled engineering update
+
+See ENGINEERING.md and engineering/evidence/integrated-transitions.json. Status
+remains **NOT DEMONSTRATED**; no earlier release obligation is removed.
+
+| IDs | Additional observed evidence | Still blocked/unverified |
+| --- | --- | --- |
+| C01–C03, C05, C12–C15 | Eight service clients execute real commands and concurrent fork/new/resume flows, with exact returned roots and 24 retained reservations | Native TUI patch build/run; shared-daemon connections; Herdr |
+| C06–C08, S02 | Opaque service peers and token substitution refuse; one laboratory service lock retained through admitted-call close | Host-wide native enforcement, secure IPC, independent native processes and domain discovery |
+| H02, R02–R08 | Committed lost reply replays without duplicate native execution; UNKNOWN never retries; reopen preserves statuses and rejects old generations | Native creation/token atomicity, real host crash recovery, complete executor fence and successful handoff |
+| R04–R05 | Detached native child still writes; forged quiescence refuses; new Linux self-migration adversary supplied | Linux probe BLOCKED on macOS; no full native executor adapter or remote/MCP receipt |
+| Q01–Q08 | 42 existing scheduler regressions pass; integrated service issues no account polling | New event-driven automatic quota/handoff path still unverified |
+| U01–U05, P01–P03, V01–V03 | Production unchanged; pinned host admission seam inspected | Native permission/UX parity, whole-runtime costs, provider-upgrade/migration and mixed-client compatibility |
+
+Additional required adversary: executors cannot migrate out of containment or
+retain management authority/descriptors. An empty cgroup is insufficient if
+work previously escaped it. Direct native requests must refuse after a fence;
+the new service experiment still positively demonstrates that this is not true
+for the unmodified provider dispatcher.

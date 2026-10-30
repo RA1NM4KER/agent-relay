@@ -1,0 +1,26 @@
+{
+  "tcp": {
+    "status": "BLOCKED",
+    "errno": 1,
+    "error": "[Errno 1] Operation not permitted"
+  },
+  "unix": {
+    "status": "BLOCKED",
+    "errno": 1,
+    "error": "[Errno 1] Operation not permitted"
+  },
+  "dns": {
+    "status": "BLOCKED",
+    "error": "[Errno 8] nodename nor servname provided, or not known"
+  },
+  "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "upstream_clone": {
+    "command": "git clone --depth 1 --branch rust-v0.166.0 https://github.com/openai/codex.git /private/tmp/relay-native-validation-upstream",
+    "exit_code": 128,
+    "stderr": "Could not resolve host: github.com"
+  },
+  "full_native_tui_build": {
+    "status": "BLOCKED",
+    "reason": "Pinned complete source workspace/dependency closure unavailable; no build attempted against incomplete fixture."
+  }
+}

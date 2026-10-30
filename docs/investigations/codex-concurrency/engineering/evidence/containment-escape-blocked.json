@@ -1,0 +1,6 @@
+{
+  "scope": "CGROUP_ESCAPE_ADVERSARY_NOT_NATIVE_EXECUTOR",
+  "full_parity": false,
+  "status": "BLOCKED",
+  "reason": "Linux and explicit research cgroup delegation required"
+}

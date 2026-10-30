@@ -1,0 +1,191 @@
+{
+  "root": "/private/tmp/relay-host-contract-8mrien97",
+  "scope": "CONTRACT_SERVICE_WITH_REAL_NATIVE_BACKEND_NOT_NATIVE_HOST",
+  "checks": [
+    "eight exact native IDs across two projects",
+    "lost committed reply replays exact binding without duplicate creation",
+    "token substitution rejected before native",
+    "unknown peer capability rejected before native",
+    "second service owner refused",
+    "eight commands progress simultaneously",
+    "A turn stops while seven neighbors progress",
+    "detached A still writes after turn drain",
+    "retired epoch cannot forward fresh work through service",
+    "caller forged quiescence cannot release reservation",
+    "native dispatcher still bypasses service fence: integration REQUIRED",
+    "pre-commit uncertainty durably recorded",
+    "uncertain creation never blindly retried",
+    "neighbor admission survives another client uncertainty",
+    "events scoped to eight exact roots",
+    "no account polling",
+    "reopen recovers committed exact result without native replay",
+    "reopen retains uncertain status",
+    "old generation cannot mutate after host restart",
+    "restart changes host generation"
+  ],
+  "full_parity": false,
+  "native_host_enforcement": false,
+  "bindings": [
+    {
+      "thread": "01a18dbc-3f3c-7193-aec6-86c372f3a2e0",
+      "epoch": "b7ba8e3c30834ef391dbb1a2072776c3",
+      "sequence": 1,
+      "intent": "cbdd2dfccb304f79b97fe6899935a703"
+    },
+    {
+      "thread": "01a18dbc-3fff-70d0-8cd5-1f82d793e17c",
+      "epoch": "d38da90d881a4e92a3f7147217b3fd25",
+      "sequence": 1,
+      "intent": "bc1dcb9552d246b089a5cea844619792"
+    },
+    {
+      "thread": "01a18dbc-3fd4-7321-bdab-88c31d7a0d46",
+      "epoch": "087e3d823ea14fb0a1604ea8dd7f74ff",
+      "sequence": 1,
+      "intent": "c13b2c93de85499ab31bb3c411b05e22"
+    },
+    {
+      "thread": "01a18dbc-3fcf-7f91-bc6c-03c9b33aa6fb",
+      "epoch": "273cdf9d21dd44cbb8c5db334ebadd82",
+      "sequence": 1,
+      "intent": "98c8079cd6d4477497affe1940df8102"
+    },
+    {
+      "thread": "01a18dbc-3ff1-7b21-ab88-221b7b9523d1",
+      "epoch": "86d7761f6d0448b0816ee31476628c9a",
+      "sequence": 1,
+      "intent": "bcd9a219cd9448f1b63e2633499d76f5"
+    },
+    {
+      "thread": "01a18dbc-3fe7-7731-9bf6-1eb198a4e24d",
+      "epoch": "ec53fd845a0e49079bad888e11bec165",
+      "sequence": 1,
+      "intent": "1aa93d91f4eb4612bc60ad23deca09be"
+    },
+    {
+      "thread": "01a18dbc-3fde-7c31-964c-8eb75fd925df",
+      "epoch": "10dfaf8d85d74f549562e7dc8395f85c",
+      "sequence": 1,
+      "intent": "03cfa77c7d8242ec95f83a65cca04f60"
+    },
+    {
+      "thread": "01a18dbc-3ff8-7fa2-8c26-77eed0934fcf",
+      "epoch": "b233a92c93e14f458ef45145bcc481fa",
+      "sequence": 1,
+      "intent": "67430e0149544774b8e7731302696894"
+    }
+  ],
+  "receipt": {
+    "kind": "TURN_DRAIN_ONLY",
+    "thread": "01a18dbc-3f3c-7193-aec6-86c372f3a2e0",
+    "turns": [
+      "01a18dbc-4027-7b42-9306-6af02cffb87b"
+    ],
+    "execution_quiescent": false,
+    "host_generation": "e90604c8c2fc4221ad58fa30719ad2a0",
+    "epoch": "b7ba8e3c30834ef391dbb1a2072776c3"
+  },
+  "native_calls": [
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 2
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 3
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 4
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 5
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 6
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 7
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 8
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 9
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-3fff-70d0-8cd5-1f82d793e17c",
+      "id": 10
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-3fd4-7321-bdab-88c31d7a0d46",
+      "id": 11
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-3fcf-7f91-bc6c-03c9b33aa6fb",
+      "id": 12
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-3fde-7c31-964c-8eb75fd925df",
+      "id": 13
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-3fe7-7731-9bf6-1eb198a4e24d",
+      "id": 14
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-3ff8-7fa2-8c26-77eed0934fcf",
+      "id": 15
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-3f3c-7193-aec6-86c372f3a2e0",
+      "id": 16
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-3ff1-7b21-ab88-221b7b9523d1",
+      "id": 17
+    },
+    {
+      "method": "turn/interrupt",
+      "thread": "01a18dbc-3f3c-7193-aec6-86c372f3a2e0",
+      "id": 18
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-3f3c-7193-aec6-86c372f3a2e0",
+      "id": 19
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 20
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-3fff-70d0-8cd5-1f82d793e17c",
+      "id": 21
+    }
+  ],
+  "elapsed_before_cleanup_s": 0.9460504579910776
+}

@@ -1,0 +1,313 @@
+{
+  "root": "/private/tmp/relay-host-contract-ut3h0by4",
+  "scope": "CONTRACT_SERVICE_WITH_REAL_NATIVE_BACKEND_NOT_NATIVE_HOST",
+  "checks": [
+    "eight exact native IDs across two projects",
+    "lost committed reply replays exact binding without duplicate creation",
+    "token substitution rejected before native",
+    "unknown peer capability rejected before native",
+    "second service owner refused",
+    "eight commands progress simultaneously",
+    "eight concurrent fork/new/resume flows retain exact original IDs",
+    "24 foreground and background roots remain reserved",
+    "A turn stops while seven neighbors progress",
+    "detached A still writes after turn drain",
+    "retired epoch cannot forward fresh work through service",
+    "caller forged quiescence cannot release reservation",
+    "native dispatcher still bypasses service fence: integration REQUIRED",
+    "pre-commit uncertainty durably recorded",
+    "uncertain creation never blindly retried",
+    "neighbor admission survives another client uncertainty",
+    "events scoped to eight exact roots",
+    "no account polling",
+    "reopen recovers committed exact result without native replay",
+    "reopen retains uncertain status",
+    "old generation cannot mutate after host restart",
+    "restart changes host generation"
+  ],
+  "full_parity": false,
+  "native_host_enforcement": false,
+  "bindings": [
+    {
+      "thread": "01a18dbc-f1f4-7cc1-aa42-17d4fd9b7b8e",
+      "epoch": "68f89774be4f43e18a0f1bb9c9f07eea",
+      "sequence": 1,
+      "intent": "90e1945ea136422d937ae7b59c03aa00"
+    },
+    {
+      "thread": "01a18dbc-f224-70c3-8a61-b626fae7a5b2",
+      "epoch": "429e38f0677f48f68c89b26ddd184787",
+      "sequence": 1,
+      "intent": "8b8f3f648ed94df08d17a0d15be56506"
+    },
+    {
+      "thread": "01a18dbc-f23a-7970-998c-cfc7fcb5f082",
+      "epoch": "56fa7cbd881e45279cfd993798237ba5",
+      "sequence": 1,
+      "intent": "e2775497e4b247e2bf6c013348abbda8"
+    },
+    {
+      "thread": "01a18dbc-f212-7283-a370-29c29918a816",
+      "epoch": "cf5c235303d142b7a565f18c58fd14c3",
+      "sequence": 1,
+      "intent": "66b3a6567b9342e7a1c97fda7149e494"
+    },
+    {
+      "thread": "01a18dbc-f21b-7302-9b8f-3964e41dc809",
+      "epoch": "bb862bb8b61341e5b7fa914dc3300085",
+      "sequence": 1,
+      "intent": "5d571621d9ac4709947b62f8c70f7e5e"
+    },
+    {
+      "thread": "01a18dbc-f201-7280-af54-308649aedf99",
+      "epoch": "065534f731e64848a2e0fcb9cb14e53e",
+      "sequence": 1,
+      "intent": "1c6b835fcf9844918c93fe84cc20e1ea"
+    },
+    {
+      "thread": "01a18dbc-f22d-79f3-90be-6dc91d1e3992",
+      "epoch": "7fe260bccdac4d59a25eae3a7d6c9d79",
+      "sequence": 1,
+      "intent": "aaa17f8d7b614704ab05c9fb2836d6a8"
+    },
+    {
+      "thread": "01a18dbc-f208-76b0-bd9d-a39ee598364a",
+      "epoch": "a32367cffc734976a488b27ca189d13d",
+      "sequence": 1,
+      "intent": "5fb20f35432246c8b25c78a950b65628"
+    }
+  ],
+  "receipt": {
+    "kind": "TURN_DRAIN_ONLY",
+    "thread": "01a18dbc-f1f4-7cc1-aa42-17d4fd9b7b8e",
+    "turns": [
+      "01a18dbc-f24b-7db2-9f3a-848e0af8fa56"
+    ],
+    "execution_quiescent": false,
+    "host_generation": "7febaf50e2904dd086996127a50b9621",
+    "epoch": "68f89774be4f43e18a0f1bb9c9f07eea"
+  },
+  "native_calls": [
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 2
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 3
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 4
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 5
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 6
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 7
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 8
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 9
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-f1f4-7cc1-aa42-17d4fd9b7b8e",
+      "id": 10
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-f212-7283-a370-29c29918a816",
+      "id": 11
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-f21b-7302-9b8f-3964e41dc809",
+      "id": 12
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-f224-70c3-8a61-b626fae7a5b2",
+      "id": 13
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-f22d-79f3-90be-6dc91d1e3992",
+      "id": 14
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-f201-7280-af54-308649aedf99",
+      "id": 15
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-f23a-7970-998c-cfc7fcb5f082",
+      "id": 16
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-f208-76b0-bd9d-a39ee598364a",
+      "id": 17
+    },
+    {
+      "method": "thread/fork",
+      "thread": "01a18dbc-f1f4-7cc1-aa42-17d4fd9b7b8e",
+      "id": 18
+    },
+    {
+      "method": "thread/fork",
+      "thread": "01a18dbc-f23a-7970-998c-cfc7fcb5f082",
+      "id": 19
+    },
+    {
+      "method": "thread/fork",
+      "thread": "01a18dbc-f208-76b0-bd9d-a39ee598364a",
+      "id": 20
+    },
+    {
+      "method": "thread/fork",
+      "thread": "01a18dbc-f22d-79f3-90be-6dc91d1e3992",
+      "id": 21
+    },
+    {
+      "method": "thread/fork",
+      "thread": "01a18dbc-f21b-7302-9b8f-3964e41dc809",
+      "id": 22
+    },
+    {
+      "method": "thread/fork",
+      "thread": "01a18dbc-f224-70c3-8a61-b626fae7a5b2",
+      "id": 23
+    },
+    {
+      "method": "thread/fork",
+      "thread": "01a18dbc-f201-7280-af54-308649aedf99",
+      "id": 24
+    },
+    {
+      "method": "thread/fork",
+      "thread": "01a18dbc-f212-7283-a370-29c29918a816",
+      "id": 25
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 26
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 27
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 28
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 29
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 30
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 31
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 32
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 33
+    },
+    {
+      "method": "thread/resume",
+      "thread": "01a18dbc-f1f4-7cc1-aa42-17d4fd9b7b8e",
+      "id": 34
+    },
+    {
+      "method": "thread/resume",
+      "thread": "01a18dbc-f23a-7970-998c-cfc7fcb5f082",
+      "id": 35
+    },
+    {
+      "method": "thread/resume",
+      "thread": "01a18dbc-f208-76b0-bd9d-a39ee598364a",
+      "id": 36
+    },
+    {
+      "method": "thread/resume",
+      "thread": "01a18dbc-f22d-79f3-90be-6dc91d1e3992",
+      "id": 37
+    },
+    {
+      "method": "thread/resume",
+      "thread": "01a18dbc-f21b-7302-9b8f-3964e41dc809",
+      "id": 38
+    },
+    {
+      "method": "thread/resume",
+      "thread": "01a18dbc-f224-70c3-8a61-b626fae7a5b2",
+      "id": 39
+    },
+    {
+      "method": "thread/resume",
+      "thread": "01a18dbc-f201-7280-af54-308649aedf99",
+      "id": 40
+    },
+    {
+      "method": "thread/resume",
+      "thread": "01a18dbc-f212-7283-a370-29c29918a816",
+      "id": 41
+    },
+    {
+      "method": "turn/interrupt",
+      "thread": "01a18dbc-f1f4-7cc1-aa42-17d4fd9b7b8e",
+      "id": 42
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-f1f4-7cc1-aa42-17d4fd9b7b8e",
+      "id": 43
+    },
+    {
+      "method": "thread/start",
+      "thread": null,
+      "id": 44
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a18dbc-f224-70c3-8a61-b626fae7a5b2",
+      "id": 45
+    }
+  ],
+  "elapsed_before_cleanup_s": 0.9011643330013612
+}

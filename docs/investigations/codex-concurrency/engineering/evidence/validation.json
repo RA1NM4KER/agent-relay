@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-30",
+  "production_source_changed": false,
+  "commands": [
+    {
+      "command": "python3 -m unittest discover -s docs/investigations/codex-concurrency/engineering -p test_host_contract.py -v",
+      "exit_code": 0,
+      "passed": 2
+    },
+    {
+      "command": "python3 -m unittest discover -s docs/investigations/codex-concurrency/feasibility -p test_controller.py -v",
+      "exit_code": 0,
+      "passed": 8
+    },
+    {
+      "command": "cargo test --offline -p relay-cli codex_poll -- --nocapture",
+      "exit_code": 0,
+      "passed": 42,
+      "note": "Production scheduler subset only; other test binaries filtered."
+    },
+    {
+      "command": "python3 -m compileall -q docs/investigations/codex-concurrency/engineering",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 docs/investigations/codex-concurrency/feasibility/verify_results.py",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 docs/investigations/codex-concurrency/experiments/verify_evidence.py",
+      "exit_code": 0,
+      "narrow_checks": 21
+    },
+    {
+      "command": "python3 docs/investigations/codex-concurrency/engineering/run_integrated.py",
+      "exit_code": 0,
+      "narrow_checks": 22,
+      "evidence": "integrated-transitions.json"
+    },
+    {
+      "command": "python3 docs/investigations/codex-concurrency/engineering/containment_escape.py --output docs/investigations/codex-concurrency/engineering/evidence/containment-escape-blocked.json",
+      "exit_code": 2,
+      "status": "BLOCKED"
+    }
+  ],
+  "full_workspace_rerun": false,
+  "native_tui_build": "BLOCKED",
+  "full_parity_demonstrated": false
+}
