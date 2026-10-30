@@ -1,0 +1,23 @@
+{
+  "scope": "intermediate summary only; raw aggregate overwritten by early measurement harness",
+  "modes": {
+    "direct": {
+      "median_start_ms": 25.04,
+      "max_start_ms": 115.39,
+      "median_8start_wall_s": 0.063,
+      "median_cpu_s": 0.429
+    },
+    "controller": {
+      "median_start_ms": 31.85,
+      "max_start_ms": 58.99,
+      "median_8start_wall_s": 0.059,
+      "median_cpu_s": 0.422
+    },
+    "bridge": {
+      "median_start_ms": 295.12,
+      "max_start_ms": 577.31,
+      "median_8start_wall_s": 0.316,
+      "median_cpu_s": 1.025
+    }
+  }
+}

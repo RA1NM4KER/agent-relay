@@ -1,0 +1,236 @@
+{
+  "root": "/private/tmp/relay-bridge-feasibility-qfh4msyw",
+  "scope": "COMPILED_INSERTION_CORE_WITH_REAL_BACKEND_NOT_REBUILT_TUI",
+  "checks": [
+    "eight callbacks reserve exact real native threads before granting frontend continuation",
+    "cross-client conflict is denied before native resume",
+    "unclassified native mutation refuses rather than bypasses gate",
+    "display state is separate from write ownership",
+    "crashed frontend leaves durable unresolved creation",
+    "neighbor existing conversation still accepts a native command after A crash",
+    "unresolved creation blocks new adoption instead of guessing orphan identity",
+    "no provider polling"
+  ],
+  "full_parity": false,
+  "operations": [
+    {
+      "owner": "pane-0",
+      "method": "thread/start",
+      "thread": "01a18d62-ca87-7522-95d9-2cc0191506c5",
+      "latency_ms": 1119.1247080132598
+    },
+    {
+      "owner": "pane-3",
+      "method": "thread/start",
+      "thread": "01a18d62-caa4-7ce1-afc0-662bfcf6c099",
+      "latency_ms": 1124.6522910078056
+    },
+    {
+      "owner": "pane-6",
+      "method": "thread/start",
+      "thread": "01a18d62-caac-7783-a052-c64f17e5d8e4",
+      "latency_ms": 1135.1703749969602
+    },
+    {
+      "owner": "pane-5",
+      "method": "thread/start",
+      "thread": "01a18d62-cab8-7fb3-b143-0c756acb4a2e",
+      "latency_ms": 1147.9859999963082
+    },
+    {
+      "owner": "pane-4",
+      "method": "thread/start",
+      "thread": "01a18d62-cac5-76e3-ae1a-1f67f4f2c585",
+      "latency_ms": 1162.3573750111973
+    },
+    {
+      "owner": "pane-7",
+      "method": "thread/start",
+      "thread": "01a18d62-cad3-7783-b797-361f629ec1f1",
+      "latency_ms": 1173.9114169904497
+    },
+    {
+      "owner": "pane-2",
+      "method": "thread/start",
+      "thread": "01a18d62-cadf-71f0-af78-e0ee296597ba",
+      "latency_ms": 1192.7650420111604
+    },
+    {
+      "owner": "pane-1",
+      "method": "thread/start",
+      "thread": "01a18d62-caf1-7aa0-9605-134b10fc9775",
+      "latency_ms": 1212.1220420085592
+    },
+    {
+      "owner": "pane-0",
+      "method": "thread/shellCommand",
+      "thread": "01a18d62-ca87-7522-95d9-2cc0191506c5",
+      "latency_ms": 78.7274169997545
+    },
+    {
+      "owner": "pane-3",
+      "method": "thread/shellCommand",
+      "thread": "01a18d62-caa4-7ce1-afc0-662bfcf6c099",
+      "latency_ms": 83.25633298954926
+    },
+    {
+      "owner": "pane-6",
+      "method": "thread/shellCommand",
+      "thread": "01a18d62-caac-7783-a052-c64f17e5d8e4",
+      "latency_ms": 76.86483299767133
+    },
+    {
+      "owner": "pane-4",
+      "method": "thread/shellCommand",
+      "thread": "01a18d62-cac5-76e3-ae1a-1f67f4f2c585",
+      "latency_ms": 63.232125001377426
+    },
+    {
+      "owner": "pane-5",
+      "method": "thread/shellCommand",
+      "thread": "01a18d62-cab8-7fb3-b143-0c756acb4a2e",
+      "latency_ms": 61.82850000914186
+    },
+    {
+      "owner": "pane-7",
+      "method": "thread/shellCommand",
+      "thread": "01a18d62-cad3-7783-b797-361f629ec1f1",
+      "latency_ms": 68.2002499961527
+    },
+    {
+      "owner": "pane-1",
+      "method": "thread/shellCommand",
+      "thread": "01a18d62-caf1-7aa0-9605-134b10fc9775",
+      "latency_ms": 68.64891700388398
+    },
+    {
+      "owner": "pane-2",
+      "method": "thread/shellCommand",
+      "thread": "01a18d62-cadf-71f0-af78-e0ee296597ba",
+      "latency_ms": 65.97841599432286
+    },
+    {
+      "owner": "pane-1",
+      "method": "thread/shellCommand",
+      "thread": "01a18d62-caf1-7aa0-9605-134b10fc9775",
+      "latency_ms": 43.10799999802839
+    }
+  ],
+  "registry": {
+    "owners": [
+      [
+        "01a18d62-ca87-7522-95d9-2cc0191506c5",
+        "pane-0",
+        "b43267cabe61448286d5697cffd51f95",
+        "UNKNOWN"
+      ],
+      [
+        "01a18d62-caa4-7ce1-afc0-662bfcf6c099",
+        "pane-3",
+        "846816c9da6d465383d055dbe1941346",
+        "ACTIVE"
+      ],
+      [
+        "01a18d62-caac-7783-a052-c64f17e5d8e4",
+        "pane-6",
+        "7db45f6f0bcb4761b0e5979f75dcd281",
+        "ACTIVE"
+      ],
+      [
+        "01a18d62-cab8-7fb3-b143-0c756acb4a2e",
+        "pane-5",
+        "c2208f650aab4502991ec0709f227ae7",
+        "ACTIVE"
+      ],
+      [
+        "01a18d62-cac5-76e3-ae1a-1f67f4f2c585",
+        "pane-4",
+        "57dda3bf15df46d29285fb2876de03bb",
+        "ACTIVE"
+      ],
+      [
+        "01a18d62-cad3-7783-b797-361f629ec1f1",
+        "pane-7",
+        "e5e7ef82212446d1934ea184241c16d8",
+        "ACTIVE"
+      ],
+      [
+        "01a18d62-cadf-71f0-af78-e0ee296597ba",
+        "pane-2",
+        "9a6bc8c7d76c4220968d849f370e91ea",
+        "UNKNOWN"
+      ],
+      [
+        "01a18d62-caf1-7aa0-9605-134b10fc9775",
+        "pane-1",
+        "7b9da8e6668e428cac095418afb1f55c",
+        "ACTIVE"
+      ]
+    ],
+    "intents": [
+      [
+        "e1ee9017a42342b8b2b201b7edb128f9",
+        "pane-0",
+        "thread/start",
+        "BOUND",
+        "01a18d62-ca87-7522-95d9-2cc0191506c5"
+      ],
+      [
+        "ccd54a2e552f4cde821b68f2cff8641b",
+        "pane-3",
+        "thread/start",
+        "BOUND",
+        "01a18d62-caa4-7ce1-afc0-662bfcf6c099"
+      ],
+      [
+        "266cca781dcc46f5aaa9e820d12427a4",
+        "pane-6",
+        "thread/start",
+        "BOUND",
+        "01a18d62-caac-7783-a052-c64f17e5d8e4"
+      ],
+      [
+        "6d69e4a614b7440d8595f46ef99d9ffd",
+        "pane-5",
+        "thread/start",
+        "BOUND",
+        "01a18d62-cab8-7fb3-b143-0c756acb4a2e"
+      ],
+      [
+        "566008acacdb4da380995de637812512",
+        "pane-4",
+        "thread/start",
+        "BOUND",
+        "01a18d62-cac5-76e3-ae1a-1f67f4f2c585"
+      ],
+      [
+        "e63375329d4e42d682df73eb32229c6e",
+        "pane-7",
+        "thread/start",
+        "BOUND",
+        "01a18d62-cad3-7783-b797-361f629ec1f1"
+      ],
+      [
+        "f7d0d60446044f9f87f0c352c9f48bca",
+        "pane-2",
+        "thread/start",
+        "BOUND",
+        "01a18d62-cadf-71f0-af78-e0ee296597ba"
+      ],
+      [
+        "598d7095a4594dacb1113b66befb9732",
+        "pane-1",
+        "thread/start",
+        "BOUND",
+        "01a18d62-caf1-7aa0-9605-134b10fc9775"
+      ],
+      [
+        "97eba649e3b14ba293fdc8d759374ec9",
+        "pane-0",
+        "thread/start",
+        "UNKNOWN",
+        null
+      ]
+    ]
+  }
+}

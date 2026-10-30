@@ -1,0 +1,6 @@
+{
+  "scope": "OS_CONTAINMENT_ONLY_NOT_CODEX_INTEGRATION",
+  "passed": false,
+  "status": "BLOCKED",
+  "reason": "requires Linux and an explicitly delegated research cgroup parent"
+}

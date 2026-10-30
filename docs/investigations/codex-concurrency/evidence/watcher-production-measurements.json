@@ -1,0 +1,530 @@
+[
+  {
+    "watchers": 1,
+    "history": 0,
+    "attach_ms": 3.1041670000000003,
+    "observation_ms": 3004.3304160000002,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 0,
+    "wall_s": 3.672048000007635,
+    "cpu_s": 0.016883
+  },
+  {
+    "watchers": 1,
+    "history": 0,
+    "attach_ms": 5.211042,
+    "observation_ms": 3004.393292,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 1,
+    "wall_s": 3.6767477499961387,
+    "cpu_s": 0.024832
+  },
+  {
+    "watchers": 1,
+    "history": 0,
+    "attach_ms": 5.679583,
+    "observation_ms": 3002.645208,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 2,
+    "wall_s": 3.6846903340046993,
+    "cpu_s": 0.029148
+  },
+  {
+    "watchers": 2,
+    "history": 0,
+    "attach_ms": 6.099165999999999,
+    "observation_ms": 3005.057292,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 0,
+    "wall_s": 3.974996999997529,
+    "cpu_s": 0.038566
+  },
+  {
+    "watchers": 2,
+    "history": 0,
+    "attach_ms": 8.793125,
+    "observation_ms": 3000.894917,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 1,
+    "wall_s": 3.979090875000111,
+    "cpu_s": 0.04147400000000001
+  },
+  {
+    "watchers": 2,
+    "history": 0,
+    "attach_ms": 7.386416,
+    "observation_ms": 3000.557959,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 2,
+    "wall_s": 3.9873192079976434,
+    "cpu_s": 0.04035599999999999
+  },
+  {
+    "watchers": 8,
+    "history": 0,
+    "attach_ms": 13.069667,
+    "observation_ms": 3005.064334,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 2,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 3,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 4,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 5,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 6,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 7,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 0,
+    "wall_s": 4.905050250003114,
+    "cpu_s": 0.12318700000000002
+  },
+  {
+    "watchers": 8,
+    "history": 0,
+    "attach_ms": 12.135625000000001,
+    "observation_ms": 3004.426583,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 2,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 3,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 4,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 5,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 6,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 7,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 1,
+    "wall_s": 4.9079654999950435,
+    "cpu_s": 0.13654199999999997
+  },
+  {
+    "watchers": 8,
+    "history": 0,
+    "attach_ms": 14.037416,
+    "observation_ms": 3005.128458,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 2,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 3,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 4,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 5,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 6,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 7,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 2,
+    "wall_s": 4.617445416995906,
+    "cpu_s": 0.13111300000000004
+  },
+  {
+    "watchers": 1,
+    "history": 1000,
+    "attach_ms": 14.013791,
+    "observation_ms": 3001.4341249999998,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 0,
+    "wall_s": 3.9220667089975905,
+    "cpu_s": 0.5524910000000001
+  },
+  {
+    "watchers": 1,
+    "history": 1000,
+    "attach_ms": 13.806208999999999,
+    "observation_ms": 3005.091583,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 1,
+    "wall_s": 3.8758151670044754,
+    "cpu_s": 0.5149570000000001
+  },
+  {
+    "watchers": 1,
+    "history": 1000,
+    "attach_ms": 14.066208999999999,
+    "observation_ms": 3005.214875,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 2,
+    "wall_s": 3.8504219580063364,
+    "cpu_s": 0.47802999999999973
+  },
+  {
+    "watchers": 2,
+    "history": 1000,
+    "attach_ms": 25.157959,
+    "observation_ms": 3005.0691669999997,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 0,
+    "wall_s": 4.216812333004782,
+    "cpu_s": 0.8898669999999997
+  },
+  {
+    "watchers": 2,
+    "history": 1000,
+    "attach_ms": 26.740707999999998,
+    "observation_ms": 3003.277375,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 1,
+    "wall_s": 4.187671583000338,
+    "cpu_s": 0.8697889999999999
+  },
+  {
+    "watchers": 2,
+    "history": 1000,
+    "attach_ms": 28.230916,
+    "observation_ms": 3003.636458,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 2,
+    "wall_s": 4.321512499998789,
+    "cpu_s": 0.9006540000000003
+  },
+  {
+    "watchers": 8,
+    "history": 1000,
+    "attach_ms": 101.376333,
+    "observation_ms": 3002.8291249999997,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 2,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 3,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 4,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 5,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 6,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 7,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 0,
+    "wall_s": 5.42938408300688,
+    "cpu_s": 3.034905
+  },
+  {
+    "watchers": 8,
+    "history": 1000,
+    "attach_ms": 92.678459,
+    "observation_ms": 3006.2288750000002,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 2,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 3,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 4,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 5,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 6,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 7,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 1,
+    "wall_s": 5.381933707991266,
+    "cpu_s": 3.4020649999999995
+  },
+  {
+    "watchers": 8,
+    "history": 1000,
+    "attach_ms": 92.659875,
+    "observation_ms": 3005.0283750000003,
+    "outcomes": [
+      {
+        "watcher": 0,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 1,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 2,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 3,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 4,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 5,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 6,
+        "healthy": true,
+        "events": []
+      },
+      {
+        "watcher": 7,
+        "healthy": true,
+        "events": []
+      }
+    ],
+    "repetition": 2,
+    "wall_s": 5.612905999994837,
+    "cpu_s": 3.0487519999999986
+  }
+]

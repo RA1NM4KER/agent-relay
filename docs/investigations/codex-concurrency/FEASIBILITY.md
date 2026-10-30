@@ -1,0 +1,294 @@
+# Experimental feasibility validation
+
+Phase 2, 2026-10-30. This supplements, rather than replaces, the historical research packet.
+Production Relay, its locks, installed Codex/Relay, active profiles, and user worktrees are
+unchanged. All native experiments use fresh homes and an unreachable loopback custom provider;
+no real account, successful inference, or provider quota is used.
+
+## Result
+
+Two working competing prototypes now operate on the **real 0.166.0 Codex backend**:
+
+1. A Relay-controlled stdio client with eight logical frontend controllers, exact request/response
+   identity, durable global conversation reservations, scoped native events, and per-thread
+   admission. It executes eight native commands concurrently and exercises fork/new/resume
+   equivalents concurrently. This is not eight native TUIs and does not preserve their UX by itself.
+2. A compiled native-insertion bridge core plus a version-checked patch to the existing native
+   client/TUI path. The core exchanges two-phase admission grants around actual native requests.
+   Source applicability and the core are tested. **The full patched Codex TUI is not built or run
+   here.** Its source patch is not evidence that all native frontend paths work.
+
+Neither achieves full parity. Adversarial native experiments show why:
+
+- A detached `setsid` child continued writing after its native parent turn completed interruption.
+- An unmediated native request still executed after the frontend admission fence was set.
+- Backend SIGKILL left native command work running.
+
+Both prototypes refuse to promote a turn-drain receipt into a full handoff. This refusal preserves
+safety but is **not** an acceptable reduced-functionality concurrency product. No successful
+general execution-quiescent ownership transfer, automatic quota handoff, or eight-pane Herdr
+deployment has been demonstrated.
+
+The strongest design remains **host-enforced native ownership/admission and executor-tree
+quiescence, with a thin native TUI binding integration**. The experiments now establish that moving
+all enforcement only into a frontend bridge is insufficient, not just inconvenient. The direct
+stdio controller is a useful backend test/control harness, but replacing the native interface
+would violate the target. The per-request subprocess bridge is a feasibility device, not the
+recommended production transport.
+
+## What is working
+
+All code is under `feasibility/`; no production module imports it.
+
+| Component | Implementation and actual evidence | Limit |
+| --- | --- | --- |
+| `controller.py::Registry` | SQLite FULL-synchronous transactions, persistent intents/epochs, canonical home device/inode identity, stable per-thread advisory admission locks | One supplied canonical registry domain; not an authenticated public service or host-wide native owner |
+| `NativeRPC` | One actual controlling stdio connection, correlated native responses and scoped event delivery; no observer resume | Not the shared daemon's multiconnection transport; all events retained only within a bounded research buffer |
+| `Client` | Exact IDs from responses, pre-resume reservation, foreground sequence validation, retained prior-root ownership, scoped fence/turn drain | Only explicitly classified mutations admitted; native scheduling and unmediated clients remain outside enforcement |
+| `native_bridge.rs` | Compiled two-phase pipe bridge, bounded callbacks, unknown-RPC refusal, authentication frames not sent to callback | Synchronous subprocess/thread per operation; incomplete classification and peer/authentication/replay contract |
+| `native_callback.py` | Holds a reservation/admission lock while the actual native request runs; commits or quarantines its durable intent | Cannot terminate or fence backend autonomous execution |
+| `patch_native.py` / `native-insertion.patch` | SHA-verified insertion in native `AppServerClient::request`, request handle, TUI startup, selection activation, reconnect | Applicable to pinned source; full workspace compilation/execution unverified |
+| `linux_containment.py` | Runnable bounded setsid-child cgroup-v2 experiment with explicit owned delegation | BLOCKED on this macOS host; OS test, not a Codex executor integration |
+
+An OS PID is never used as a conversation identity. No newest-file, cwd, fork-ancestry, hook timing,
+or screen-text inference supplies a binding. Effect files are used to observe mutations, not to
+attribute conversations. Source callbacks keep display selection separate from ownership; a
+display event alone never reserves the foreign conversation.
+
+## Native experiments and attempts to falsify them
+
+### Eight controlled conversations
+
+`run_native.py` creates one disposable native backend and eight logical controllers split across
+two projects. Eight different native thread IDs are returned and reserved. Eight heartbeat
+commands execute simultaneously. All eight perform fork/new/resume requests concurrently and
+return to their exact original IDs. Twenty-four roots remain reserved: navigation does not erase
+the ownership of still-existing background roots.
+
+A foreign controller's resume is rejected before any native request. An old frontend selection
+cannot forward a mutation. A fenced owner cannot forward a new mutation. Native events remain
+associated with their concrete roots. No account/quota request appears in the issued method list.
+
+A's parent heartbeat stops after a scoped native interruption while seven neighbors continue.
+The deliberately detached A child still writes after that turn's completion. An explicit bypass
+native call can also write despite the frontend fence. Full transfer is refused, the native
+backend is then killed, surviving bounded commands are observed, and durable reservations remain
+unstealable after reopening the registry. All heartbeat processes self-expire; no profile/PID scan
+or unrelated process termination is used.
+
+See `feasibility/evidence/native-eight-clients.json` (15 checks). The result explicitly says
+`full_parity: false`. These are **real native command executions**, not successful model turns.
+
+### Native insertion core
+
+`run_bridge.py` runs the release-compiled Rust module used by the proposed source insertion.
+Eight separate callback handshakes surround real thread creation and shell-command requests.
+Reservations are committed before frontend continuation. Source-selection notifications do not
+depend on prompt hooks. A conflict is refused before resume, an unclassified mutation never
+reaches native execution, and reporting a foreign displayed thread does not confer write ownership.
+
+Killing a frontend bridge after preparation leaves a durable unresolved creation. Neighbor B's
+existing conversation still runs a command; new creation/adoption blocks rather than guesses
+which unknown native thread belongs to the crashed operation. This is **safe partial failure with
+an availability defect**, not completed orphan recovery. A host operation-status/creation-token
+contract is required to recover without that profile-domain blockage.
+
+See `native-bridge-core.json` (8 checks). Calling this a tested rebuilt native TUI would be wrong.
+
+### Admission race, crash windows, and a rejected mutant
+
+`faults_native.py` pauses an admitted write before native forwarding. A same-conversation fence
+must wait; an unrelated B command must not. It then simulates loss of a real native creation
+reply before binding publication: the controller is quarantined and the unknown target is not
+adopted from recency or broadcasts. B continues on its existing reservation.
+
+The deliberately unsafe `--unsafe-research-mutant` removes per-thread admission locking. The
+test then fails: the fence overtakes a previously authorized but not forwarded request. This
+falsifies a naive check-in-SQLite-then-send design and demonstrates why the reservation lookup
+alone is insufficient. See `unsafe-admission-mutant.json`; its failure is expected evidence,
+not a passing product test.
+
+Review also found that an immediate shell RPC acknowledgement can precede `turn/started`.
+The prototype now accounts for acknowledged starts and refuses an empty drain while one is
+unobserved. Deterministic tests cover the missing-start/disconnect boundary. This improvement
+was review-driven; no fabricated claim of an observed native failure is made.
+
+### Multiprocess reservation stress
+
+Eight rounds of eight independent processes contended for one conversation per round: exactly
+one owner and seven refusals in every round. Home aliases share identity; stale epochs are
+refused; a process dying immediately after intent persistence leaves an unresolved reservation
+barrier. This proves registry mechanics, not native host controller exclusivity or malicious-peer
+authentication. See `registry-stress.json` and eight deterministic obligation tests.
+
+## Performance comparison
+
+Three matched repetitions per mode, each creating eight roots on one warmed real native stdio
+backend. All modes use identical thread/start parameters, no inference, and no quota polling.
+The bridge subprocess handshake is included. Backend initialization/cleanup contributes to CPU
+totals but lies outside per-start timers. Twenty-four per-start samples per mode are pooled.
+
+| Mode | Median per-start ms | Maximum per-start ms | Median wall s for eight starts | Median worker + children CPU s | Worker peak RSS MB | Native backend RSS MB across runs |
+| --- | --- | --- | --- | --- | --- | --- |
+| Direct native control, no admission | 33.66 | 63.75 | 0.064 | 0.468 | 28.67 | 99.06–100.19 |
+| Durable in-process controller | 36.54 | 70.91 | 0.060 | 0.440 | 28.95 | 92.64–93.22 |
+| Compiled subprocess bridge core | 302.80 | 399.58 | 0.334 | 0.985 | 28.95 | 85.36–93.21 |
+
+Do not infer that admission improves native speed from the noisy three-run wall/CPU medians.
+RSS is measured separately: worker peak from rusage, backend point-in-time from native
+`server/diagnostics`. It is **not** whole-tree peak RSS; transient callbacks are not included in
+the worker peak. Raw data and issued native methods are in `matched-costs.json`.
+The table uses the final run after callback environment hardening and native version/home
+validation. Initial samples remain in `matched-costs-initial.json`; they were not substituted
+for the final samples because they happened to be faster. An intermediate run's summary is
+retained separately; its raw aggregate was overwritten by the early harness, which now archives
+each run and worker result to avoid repeating that evidence-retention mistake.
+
+The in-process controller cost is promising; the subprocess-per-request bridge is expensive.
+A production native bridge should use existing host/client machinery or persistent bounded
+async IPC rather than spawning Python/Rust helpers for each mutation. That optimized transport
+has not been measured. These measurements do not certify inference, native-TUI, Herdr, quiescence,
+quota-event latency or p95/p99 overhead of the complete architecture.
+
+## Precise architectural blockers and minimum upstream work
+
+The prototypes distinguish three independent boundaries:
+
+1. **Identity before frontend writes:** a native request wrapper plus selected-thread callback
+   can provide this for cooperating frontends without changing permission parameters. Exact
+   request identity is demonstrated; the rebuilt TUI and every navigation/reconnect path remain
+   untested. Public owner names/epochs in the research callback are not a secure peer contract.
+2. **Host-wide admission:** the existing native host accepts a bypass request after the frontend
+   fence. New host execution must validate a controller epoch, including other connected clients,
+   queues, approvals, goal continuations, scheduling and subagent starts. A post-hoc observer
+   cannot enforce this. Read-only snapshot viewers must remain distinct from controllers.
+3. **Execution-tree quiescence:** native turn completion and persistence writer release do not
+   revoke detached workspace-mutating children. A tree-aware cancellation/drain receipt must
+   cover all managed executors, or a durable containment boundary must prove them empty. An
+   arbitrary independently daemonized process cannot be certified stopped just from the TUI
+   or backend dying. macOS and Linux containment differ; Linux cgroups alone do not solve the
+   primary macOS target or integrate the native executor.
+
+The minimum useful native contract must therefore implement more than an event:
+
+- Prepare an exact root binding under an authenticated client instance and controller epoch.
+- Durably associate each root creation with an operation token before publishing/allowing work.
+- Commit/refuse ownership before the frontend or host can submit mutations; retain provider's
+  own native persistence lock and native local permission resolution.
+- Deliver sequence/generation-bound selection and scoped execution events on the same client
+  relationship, with replay or an authoritative recovery query. Background and display roots
+  are explicitly different identities.
+- Fence an owned execution tree and acknowledge all accepted/queued input, scheduled activity,
+  subagents, approvals, tools and persistence. Return separate drain milestones, never a boolean
+  that ambiguously means frontend exit, turn end, writer close or workspace quiescence.
+- Recover/query uncertain native operations by token and idempotently finish or roll back a
+  handoff. Connection loss must not remove an accepted fence or release uncertain work.
+
+Native internals such as `suspend_turn_and_shutdown` are useful but explicitly do not await all
+descendant cleanup. They cannot simply be exposed and advertised as the required receipt.
+The exact proposed method names are open; the necessary enforcement boundary is now backed
+by native counterexamples. Full arbitrary detached-process revocation also needs an explicit
+platform/security boundary rather than a stronger claim than current Relay itself can prove.
+
+## Implementation blueprint
+
+1. Build/run the native insertion in the lab below. Inventory **every** native mutation and
+   approval-resolution path; classify unsupported methods explicitly. Confirm primary/display/
+   child/read-only roles and reconnect generations. Keep this frontend part separate from host
+   admission proof. Do not ship the synchronous callback prototype.
+2. Implement native controller epochs and creation tokens in the host's thread-store/runtime
+   admission path, composing with existing writer locks. Add an independent read-only observer
+   role that never resumes as a writer. Enforce epochs on queued/autonomous work as well as RPCs.
+3. Implement scoped executor-tree ownership and shutdown. Test escaped descendants, goals,
+   scheduled starts, remote tools and crash/reparenting. Select a supported containment contract
+   for each OS. Do not transfer if any executor's scope or receipt is unknown.
+4. Add a durable native fence/snapshot boundary and operation-status query. Only after that can
+   Relay's source reservation, context capture, target verification and journal commit be wired
+   to a real execution-quiescence receipt. Preserve Codex STATE_CONTINUATION and native resume
+   distinctions. Retain the legacy profile lock until migration is proven.
+5. Replace project-only binding/offset state and profile-wide process scans with the global
+   native-conversation mapping, source epoch and exact runtime port. Preserve long-header,
+   partial-line, file-generation, UNKNOWN usage and ledger locking behavior.
+6. Validate simultaneous real exhaustion, Claude/Codex transitions, eight actual Herdr panes,
+   unsupported provider versions, old/new Relay coexistence and downgrade recovery. Only then
+   make concurrency the supported default. Safe refusal of full handoff in this prototype is
+   a proof boundary, not a feature-complete interim release.
+
+## Safe reproduction here
+
+```sh
+cargo build --offline --release --manifest-path docs/investigations/codex-concurrency/feasibility/bridge-probe/Cargo.toml --target-dir /private/tmp/relay-codex-feasibility/target
+python3 -m unittest discover -s docs/investigations/codex-concurrency/feasibility -p test_controller.py -v
+python3 docs/investigations/codex-concurrency/feasibility/run_native.py
+python3 docs/investigations/codex-concurrency/feasibility/run_bridge.py
+python3 docs/investigations/codex-concurrency/feasibility/faults_native.py
+# Expected failure: the admission-race detector must reject this mutant.
+python3 docs/investigations/codex-concurrency/feasibility/faults_native.py --unsafe-research-mutant
+python3 docs/investigations/codex-concurrency/feasibility/stress_registry.py
+python3 docs/investigations/codex-concurrency/feasibility/defects.py
+python3 docs/investigations/codex-concurrency/feasibility/measure.py
+```
+
+Unexpected experiment exceptions produce a nonzero exit and a retained result file. Full parity
+is always reported separately from a command succeeding. The unsafe mutant is confined to its
+own new home and harmless bounded native commands; never apply it to production.
+
+## Exact remaining lab procedures
+
+This sandbox still denies TCP/Unix listeners. The full upstream workspace/dependency closure is
+not available offline; only selected pinned sources are cached. No complete rebuilt Codex native
+TUI, mock inference listener, shared daemon, authenticated provider or Herdr UI is claimed tested.
+
+On a suitable disposable development host, fetch source without installing or changing accounts:
+
+```sh
+LAB=$(mktemp -d)
+git clone --depth 1 --branch rust-v0.166.0 https://github.com/openai/codex.git "$LAB/codex"
+# Run from the Relay repository. This rejects changed sources and the Relay workspace.
+python3 docs/investigations/codex-concurrency/feasibility/patch_native.py "$LAB/codex" --apply --diff "$LAB/native.patch"
+cargo check --manifest-path "$LAB/codex/codex-rs/Cargo.toml" -p codex-app-server-client -p codex-tui
+cargo build --manifest-path "$LAB/codex/codex-rs/Cargo.toml" -p codex-cli --target-dir "$LAB/target"
+python3 docs/investigations/codex-concurrency/feasibility/native_tui_lab.py --codex "$LAB/target/debug/codex" --mode embedded
+python3 docs/investigations/codex-concurrency/feasibility/native_tui_lab.py --codex "$LAB/target/debug/codex" --mode shared
+```
+
+`native_tui_lab.py` creates another new HOME/CODEX_HOME, uses no real credentials, drives eight
+PTYs across two dedicated projects, checks selections before prompts, exercises native picker
+resume, crashes A, and stops only its own isolated daemon. It does not use `--remote`, does not
+strip permission arguments, and does not touch existing sockets/panes. Unknown native methods,
+build errors, daemon provisioning failures and callback errors are **failed/blocked outcomes**,
+not permission to weaken the gate or silently substitute another mode. The source insertion is
+intentionally incomplete; the lab may expose additional coverage failures.
+
+On a disposable Linux host with cgroup-v2 delegation explicitly supplied by its administrator:
+
+```sh
+python3 docs/investigations/codex-concurrency/feasibility/linux_containment.py --delegated-parent /explicitly/delegated/research/cgroup
+```
+
+This creates only new UUID child cgroups, admits each owned process through a pipe after group
+assignment, includes `setsid` descendants, kills A's new group, proves it empty and B still active,
+then cleans up its own groups. It does not use sudo, move existing processes, or validate a native
+Codex executor adapter. Here the script records BLOCKED on macOS.
+
+For successful model/subagent/quota tests, the next lab must additionally host a deterministic
+loopback Responses mock matching the pinned native protocol and record actual tool/event behavior.
+A custom mock model alone does not establish authenticated ChatGPT `ordinaryUsageAllowed`
+authority; it cannot certify the real automatic-handoff path. That requires separate normal
+provider-owned login into disposable test accounts and a naturally observed quota exhaustion.
+No real account should be substituted to get around a blocked mock test. Those stages remain
+required release gates, not results of this phase.
+
+## Verification
+
+Native factual assertions, source applicability, measurements, stress results, the rejected
+mutant and environment blockers are retained under `feasibility/evidence/`. Workspace formatting
+and Clippy pass. Existing scheduler regressions pass 42/42; selected existing native fork and
+offset regressions pass 3/3. Full workspace tests still fail the same four process-identity/
+supervisor tests under denied `ps` access (215 other binary tests pass). Later workspace targets
+are not represented as passing after that failure. See validation.json for exact commands.
+
+The outcome is a working feasibility substrate and stronger falsification evidence, **not a
+successful full-parity concurrency implementation**. Native host enforcement and complete
+execution quiescence are the remaining technical blockers; rebuilt-TUI/shared-daemon and real
+quota/Herdr results are additionally blocked or unverified in this environment.

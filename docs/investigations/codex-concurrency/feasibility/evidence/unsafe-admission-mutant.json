@@ -1,0 +1,7 @@
+{
+  "root": "/private/tmp/relay-native-faults-1wtu1kbj",
+  "scope": "REAL_NATIVE_REQUESTS_WITH_CONTROLLED_FAILURE_INJECTION",
+  "checks": [],
+  "unsafe_mutant": true,
+  "exception": "AssertionError('concurrent fence cannot pass an admitted but not forwarded mutation')"
+}

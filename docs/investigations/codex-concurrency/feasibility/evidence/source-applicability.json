@@ -1,0 +1,12 @@
+{
+  "source_applicable": true,
+  "full_native_build_tested": false,
+  "applied_to_disposable_checkout": true,
+  "files": [
+    "codex-rs/app-server-client/src/lib.rs",
+    "codex-rs/tui/src/lib.rs",
+    "codex-rs/tui/src/app/thread_routing.rs",
+    "codex-rs/tui/src/app/reconnect.rs",
+    "codex-rs/app-server-client/src/relay_research.rs"
+  ]
+}

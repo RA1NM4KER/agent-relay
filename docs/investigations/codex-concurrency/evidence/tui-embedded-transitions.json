@@ -1,0 +1,999 @@
+{
+  "root": "/private/tmp/relay-tui-vjs967qd",
+  "actions": [
+    "A /new",
+    "A /fork",
+    "A /resume picker searched original A UUID"
+  ],
+  "hooks": [
+    {
+      "event": {
+        "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+        "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+        "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+        "hook_event_name": "SessionStart",
+        "model": "research-model",
+        "permission_mode": "default",
+        "source": "startup"
+      },
+      "marker": "A",
+      "pid": 1093,
+      "ppid": 891,
+      "time_ns": 88033664915458
+    },
+    {
+      "event": {
+        "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+        "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+        "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+        "hook_event_name": "SessionStart",
+        "model": "research-model",
+        "permission_mode": "default",
+        "source": "startup"
+      },
+      "marker": "B",
+      "pid": 1092,
+      "ppid": 892,
+      "time_ns": 88033664915708
+    },
+    {
+      "event": {
+        "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+        "turn_id": "01a18d1b-8aa4-7a83-a1d5-075af3885e46",
+        "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+        "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+        "hook_event_name": "UserPromptSubmit",
+        "model": "research-model",
+        "permission_mode": "default",
+        "prompt": "Offline research prompt."
+      },
+      "marker": "B",
+      "pid": 1094,
+      "ppid": 892,
+      "time_ns": 88033690637375
+    },
+    {
+      "event": {
+        "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+        "turn_id": "01a18d1b-8aa4-7512-b696-e0abc31f44ce",
+        "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+        "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+        "hook_event_name": "UserPromptSubmit",
+        "model": "research-model",
+        "permission_mode": "default",
+        "prompt": "Offline research prompt."
+      },
+      "marker": "A",
+      "pid": 1095,
+      "ppid": 891,
+      "time_ns": 88033690636791
+    },
+    {
+      "event": {
+        "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+        "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-19-01a18d1b-9c61-7cd0-879b-a6f1086e2091.jsonl",
+        "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+        "hook_event_name": "SessionStart",
+        "model": "research-model",
+        "permission_mode": "default",
+        "source": "startup"
+      },
+      "marker": "A",
+      "pid": 1317,
+      "ppid": 891,
+      "time_ns": 88040726567833
+    },
+    {
+      "event": {
+        "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+        "turn_id": "01a18d1b-a636-7242-9d67-b91c9c82e76d",
+        "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-19-01a18d1b-9c61-7cd0-879b-a6f1086e2091.jsonl",
+        "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+        "hook_event_name": "UserPromptSubmit",
+        "model": "research-model",
+        "permission_mode": "default",
+        "prompt": "Second offline research prompt."
+      },
+      "marker": "A",
+      "pid": 1318,
+      "ppid": 891,
+      "time_ns": 88040757422250
+    },
+    {
+      "event": {
+        "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+        "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-26-01a18d1b-b80c-7b30-a3f6-eb1939c12302.jsonl",
+        "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+        "hook_event_name": "SessionStart",
+        "model": "research-model",
+        "permission_mode": "default",
+        "source": "fork"
+      },
+      "marker": "A",
+      "pid": 1557,
+      "ppid": 891,
+      "time_ns": 88048787754083
+    },
+    {
+      "event": {
+        "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+        "turn_id": "01a18d1b-c5c4-7341-bf94-f7c298cf82ae",
+        "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-26-01a18d1b-b80c-7b30-a3f6-eb1939c12302.jsonl",
+        "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+        "hook_event_name": "UserPromptSubmit",
+        "model": "research-model",
+        "permission_mode": "default",
+        "prompt": "After fork offline prompt."
+      },
+      "marker": "A",
+      "pid": 1558,
+      "ppid": 891,
+      "time_ns": 88048816800041
+    },
+    {
+      "event": {
+        "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+        "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+        "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+        "hook_event_name": "SessionEnd",
+        "reason": "other"
+      },
+      "marker": "A",
+      "pid": 1745,
+      "ppid": 891,
+      "time_ns": 88055854803125
+    },
+    {
+      "event": {
+        "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+        "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+        "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+        "hook_event_name": "SessionStart",
+        "model": "research-model",
+        "permission_mode": "default",
+        "source": "resume"
+      },
+      "marker": "A",
+      "pid": 1874,
+      "ppid": 891,
+      "time_ns": 88059415788833
+    },
+    {
+      "event": {
+        "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+        "turn_id": "01a18d1b-ef41-7703-a178-8cae68f2cda1",
+        "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+        "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+        "hook_event_name": "UserPromptSubmit",
+        "model": "research-model",
+        "permission_mode": "default",
+        "prompt": "After resume offline prompt."
+      },
+      "marker": "A",
+      "pid": 1888,
+      "ppid": 891,
+      "time_ns": 88059445150833
+    }
+  ],
+  "snapshots": [
+    {
+      "label": "startup_before_any_prompt",
+      "time_ns": 88033064846750,
+      "hooks": [],
+      "headers": []
+    },
+    {
+      "label": "after_new_before_prompt",
+      "time_ns": 88040127170250,
+      "hooks": [
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "A",
+          "pid": 1093,
+          "ppid": 891,
+          "time_ns": 88033664915458
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "B",
+          "pid": 1092,
+          "ppid": 892,
+          "time_ns": 88033664915708
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "turn_id": "01a18d1b-8aa4-7a83-a1d5-075af3885e46",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Offline research prompt."
+          },
+          "marker": "B",
+          "pid": 1094,
+          "ppid": 892,
+          "time_ns": 88033690637375
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "turn_id": "01a18d1b-8aa4-7512-b696-e0abc31f44ce",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Offline research prompt."
+          },
+          "marker": "A",
+          "pid": 1095,
+          "ppid": 891,
+          "time_ns": 88033690636791
+        }
+      ],
+      "headers": [
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        }
+      ]
+    },
+    {
+      "label": "after_fork_before_prompt",
+      "time_ns": 88048204609500,
+      "hooks": [
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "A",
+          "pid": 1093,
+          "ppid": 891,
+          "time_ns": 88033664915458
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "B",
+          "pid": 1092,
+          "ppid": 892,
+          "time_ns": 88033664915708
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "turn_id": "01a18d1b-8aa4-7a83-a1d5-075af3885e46",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Offline research prompt."
+          },
+          "marker": "B",
+          "pid": 1094,
+          "ppid": 892,
+          "time_ns": 88033690637375
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "turn_id": "01a18d1b-8aa4-7512-b696-e0abc31f44ce",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Offline research prompt."
+          },
+          "marker": "A",
+          "pid": 1095,
+          "ppid": 891,
+          "time_ns": 88033690636791
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-19-01a18d1b-9c61-7cd0-879b-a6f1086e2091.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "A",
+          "pid": 1317,
+          "ppid": 891,
+          "time_ns": 88040726567833
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "turn_id": "01a18d1b-a636-7242-9d67-b91c9c82e76d",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-19-01a18d1b-9c61-7cd0-879b-a6f1086e2091.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Second offline research prompt."
+          },
+          "marker": "A",
+          "pid": 1318,
+          "ppid": 891,
+          "time_ns": 88040757422250
+        }
+      ],
+      "headers": [
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "forked_from_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        }
+      ]
+    },
+    {
+      "label": "after_fork_prompt",
+      "time_ns": 88051724694833,
+      "hooks": [
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "A",
+          "pid": 1093,
+          "ppid": 891,
+          "time_ns": 88033664915458
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "B",
+          "pid": 1092,
+          "ppid": 892,
+          "time_ns": 88033664915708
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "turn_id": "01a18d1b-8aa4-7a83-a1d5-075af3885e46",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Offline research prompt."
+          },
+          "marker": "B",
+          "pid": 1094,
+          "ppid": 892,
+          "time_ns": 88033690637375
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "turn_id": "01a18d1b-8aa4-7512-b696-e0abc31f44ce",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Offline research prompt."
+          },
+          "marker": "A",
+          "pid": 1095,
+          "ppid": 891,
+          "time_ns": 88033690636791
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-19-01a18d1b-9c61-7cd0-879b-a6f1086e2091.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "A",
+          "pid": 1317,
+          "ppid": 891,
+          "time_ns": 88040726567833
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "turn_id": "01a18d1b-a636-7242-9d67-b91c9c82e76d",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-19-01a18d1b-9c61-7cd0-879b-a6f1086e2091.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Second offline research prompt."
+          },
+          "marker": "A",
+          "pid": 1318,
+          "ppid": 891,
+          "time_ns": 88040757422250
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-26-01a18d1b-b80c-7b30-a3f6-eb1939c12302.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "fork"
+          },
+          "marker": "A",
+          "pid": 1557,
+          "ppid": 891,
+          "time_ns": 88048787754083
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "turn_id": "01a18d1b-c5c4-7341-bf94-f7c298cf82ae",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-26-01a18d1b-b80c-7b30-a3f6-eb1939c12302.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "After fork offline prompt."
+          },
+          "marker": "A",
+          "pid": 1558,
+          "ppid": 891,
+          "time_ns": 88048816800041
+        }
+      ],
+      "headers": [
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "forked_from_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        }
+      ]
+    },
+    {
+      "label": "after_resume_before_prompt",
+      "time_ns": 88058824347958,
+      "hooks": [
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "A",
+          "pid": 1093,
+          "ppid": 891,
+          "time_ns": 88033664915458
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "B",
+          "pid": 1092,
+          "ppid": 892,
+          "time_ns": 88033664915708
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "turn_id": "01a18d1b-8aa4-7a83-a1d5-075af3885e46",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Offline research prompt."
+          },
+          "marker": "B",
+          "pid": 1094,
+          "ppid": 892,
+          "time_ns": 88033690637375
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "turn_id": "01a18d1b-8aa4-7512-b696-e0abc31f44ce",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Offline research prompt."
+          },
+          "marker": "A",
+          "pid": 1095,
+          "ppid": 891,
+          "time_ns": 88033690636791
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-19-01a18d1b-9c61-7cd0-879b-a6f1086e2091.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "A",
+          "pid": 1317,
+          "ppid": 891,
+          "time_ns": 88040726567833
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "turn_id": "01a18d1b-a636-7242-9d67-b91c9c82e76d",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-19-01a18d1b-9c61-7cd0-879b-a6f1086e2091.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Second offline research prompt."
+          },
+          "marker": "A",
+          "pid": 1318,
+          "ppid": 891,
+          "time_ns": 88040757422250
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-26-01a18d1b-b80c-7b30-a3f6-eb1939c12302.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "fork"
+          },
+          "marker": "A",
+          "pid": 1557,
+          "ppid": 891,
+          "time_ns": 88048787754083
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "turn_id": "01a18d1b-c5c4-7341-bf94-f7c298cf82ae",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-26-01a18d1b-b80c-7b30-a3f6-eb1939c12302.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "After fork offline prompt."
+          },
+          "marker": "A",
+          "pid": 1558,
+          "ppid": 891,
+          "time_ns": 88048816800041
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionEnd",
+            "reason": "other"
+          },
+          "marker": "A",
+          "pid": 1745,
+          "ppid": 891,
+          "time_ns": 88055854803125
+        }
+      ],
+      "headers": [
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "forked_from_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        }
+      ]
+    },
+    {
+      "label": "after_resume_prompt",
+      "time_ns": 88062354554541,
+      "hooks": [
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "A",
+          "pid": 1093,
+          "ppid": 891,
+          "time_ns": 88033664915458
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "B",
+          "pid": 1092,
+          "ppid": 892,
+          "time_ns": 88033664915708
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "turn_id": "01a18d1b-8aa4-7a83-a1d5-075af3885e46",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-72a3-b275-7ca343177116.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Offline research prompt."
+          },
+          "marker": "B",
+          "pid": 1094,
+          "ppid": 892,
+          "time_ns": 88033690637375
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "turn_id": "01a18d1b-8aa4-7512-b696-e0abc31f44ce",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Offline research prompt."
+          },
+          "marker": "A",
+          "pid": 1095,
+          "ppid": 891,
+          "time_ns": 88033690636791
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-19-01a18d1b-9c61-7cd0-879b-a6f1086e2091.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "startup"
+          },
+          "marker": "A",
+          "pid": 1317,
+          "ppid": 891,
+          "time_ns": 88040726567833
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "turn_id": "01a18d1b-a636-7242-9d67-b91c9c82e76d",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-19-01a18d1b-9c61-7cd0-879b-a6f1086e2091.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "Second offline research prompt."
+          },
+          "marker": "A",
+          "pid": 1318,
+          "ppid": 891,
+          "time_ns": 88040757422250
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-26-01a18d1b-b80c-7b30-a3f6-eb1939c12302.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "fork"
+          },
+          "marker": "A",
+          "pid": 1557,
+          "ppid": 891,
+          "time_ns": 88048787754083
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "turn_id": "01a18d1b-c5c4-7341-bf94-f7c298cf82ae",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-26-01a18d1b-b80c-7b30-a3f6-eb1939c12302.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "After fork offline prompt."
+          },
+          "marker": "A",
+          "pid": 1558,
+          "ppid": 891,
+          "time_ns": 88048816800041
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionEnd",
+            "reason": "other"
+          },
+          "marker": "A",
+          "pid": 1745,
+          "ppid": 891,
+          "time_ns": 88055854803125
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "SessionStart",
+            "model": "research-model",
+            "permission_mode": "default",
+            "source": "resume"
+          },
+          "marker": "A",
+          "pid": 1874,
+          "ppid": 891,
+          "time_ns": 88059415788833
+        },
+        {
+          "event": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "turn_id": "01a18d1b-ef41-7703-a178-8cae68f2cda1",
+            "transcript_path": "/private/tmp/relay-tui-vjs967qd/codex/sessions/2026/10/30/rollout-2026-10-30T15-59-09-01a18d1b-7649-7bb1-b3c3-2fe052878347.jsonl",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "research-model",
+            "permission_mode": "default",
+            "prompt": "After resume offline prompt."
+          },
+          "marker": "A",
+          "pid": 1888,
+          "ppid": 891,
+          "time_ns": 88059445150833
+        }
+      ],
+      "headers": [
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "id": "01a18d1b-7649-7bb1-b3c3-2fe052878347",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "id": "01a18d1b-b80c-7b30-a3f6-eb1939c12302",
+            "forked_from_id": "01a18d1b-9c61-7cd0-879b-a6f1086e2091",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        },
+        {
+          "type": "session_meta",
+          "payload": {
+            "session_id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "id": "01a18d1b-7649-72a3-b275-7ca343177116",
+            "cwd": "/private/tmp/relay-tui-vjs967qd/project",
+            "source": "cli",
+            "history_mode": "paginated"
+          }
+        }
+      ]
+    }
+  ],
+  "exits": {
+    "A": -15,
+    "B": -15
+  },
+  "exception": null
+}

@@ -1,0 +1,49 @@
+{
+  "repository": "openai/codex",
+  "ref": "rust-v0.166.0",
+  "base_manifest": "../../evidence/source-manifest.json",
+  "files": [
+    {
+      "key": "p2_state_runtime",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/state/src/runtime.rs",
+      "git_blob_sha": "2ecd9592c69aa2c7aade3f083a5bb95b5dfd8233",
+      "characters": 27765
+    },
+    {
+      "key": "p2_routing_full",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app/thread_routing.rs",
+      "git_blob_sha": "e4ecae0ec92756ab19ad65dcb11779acb64794d6",
+      "characters": 90427
+    },
+    {
+      "key": "p2_reconnect.rs",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app/reconnect.rs",
+      "git_blob_sha": "91dde41810f519d67c706762cd94dac0e4ed97e4",
+      "characters": 28570
+    },
+    {
+      "key": "p2_app",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app.rs",
+      "git_blob_sha": "fbc109028f90d89d03a0467e11f6fafa9fc27c77",
+      "characters": 55847
+    },
+    {
+      "key": "p2_ownership",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app/app_server_thread_ownership.rs",
+      "git_blob_sha": "a5259e619f8b5a0fbf0e544735a4ee9901716377",
+      "characters": 3150
+    },
+    {
+      "key": "p2_buffer",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app/thread_event_buffer.rs",
+      "git_blob_sha": "0e01361aae2ae0a2b5e1bb191d7eec289d1779d2",
+      "characters": 3353
+    },
+    {
+      "key": "p2_backend_sessions",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app/backend_sessions.rs",
+      "git_blob_sha": "bc5ba758e0fe6ab47fa06f9e8f2ef288ead6c92f",
+      "characters": 4842
+    }
+  ]
+}

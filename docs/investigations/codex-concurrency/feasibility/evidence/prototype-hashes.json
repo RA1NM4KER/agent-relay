@@ -1,0 +1,20 @@
+{
+  "measure.py": "8635c86ceeb79eb3b60965eec91ab0a23b3e955dd3c4bcb51b5d98f1216769fc",
+  "verify_results.py": "91c90062522b269743b40cf1eb93ba45a4632b9e014aedd26db079f618f573be",
+  "native-insertion.patch": "48184de3a16a04921801a3ec7e768f5f0869b42276b5d32e327c05645552a828",
+  "controller.py": "77dd2e850c3dfdfa48f2277fe4b97d4ba2c058afdfb439fd23d8fff2b5c23ef2",
+  "native_bridge.rs": "ae7bf691d01c8c02c4505ffe44bf993f64870ab41c97090d5ec690e40823fbe7",
+  "patch_native.py": "a3db32d45597aada4bc1dbd4a796eb712eff3c06ea244e3968405197d1ce156f",
+  "defects.py": "218f92cb1ca73ff7a3189a732a6786606749574ea5ca33dac2814c0b91b10b95",
+  "native_callback.py": "44cadb401fc336bfe9bc5e4131067b8aef15f34b414451d4c7e791bdbf8b75bb",
+  "native_tui_lab.py": "f13064f1c7e1e0ea40051af0e32267f719847c0783853c064d14c2c4d97a4ceb",
+  "run_native.py": "f4e6cd18918cef5d603b663afeda76b7d1ad7fcae95b802f03a9ba9c65ba73e3",
+  "run_bridge.py": "3f12b8e22af7e769df8cd5b1ce6921d702e0caf12a24eb96964092d378170c52",
+  "linux_containment.py": "2db0263958aab08c46255fac3b39455705accbcf411f7ae4363e716627f38b91",
+  "faults_native.py": "1936feb38a9b51f74571eb01bb871513d5638b90c9aaa0701d879d296b821182",
+  "stress_registry.py": "a0569ea61af4222613ef460950934d3ee4c7699327f5889b9aa0f1a5477a870b",
+  "test_controller.py": "b55d34f4d3f5fbd4618eb000058c1e7eb0588e3bf88c45069b2cbe59a83bbf07",
+  "bridge-probe/Cargo.toml": "67ebbe52f925e68d734d3017a9c88a178b7bb55a59585a678a31376f9779025d",
+  "bridge-probe/Cargo.lock": "9219e62310aaa9de57da4d910a54731a6890deb4a6a2bd9afd156019d44b13cb",
+  "bridge-probe/src/main.rs": "76baf30e3e858e75aaae1a34768344695f87d6e0ce54712109125c47b59cdbd7"
+}

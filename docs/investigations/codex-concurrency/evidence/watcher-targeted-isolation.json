@@ -1,0 +1,1 @@
+{"mode":"targeted-cost-prototype","watchers":2,"history":0,"attach_ms":5.18925,"observation_ms":1005.629625,"outcomes":[{"watcher":0,"healthy":true,"events":["UsageLimitExceeded"]},{"watcher":1,"healthy":true,"events":[]}]}

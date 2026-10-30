@@ -1,0 +1,357 @@
+{
+  "root": "/private/tmp/relay-concurrency-sdij0vuy",
+  "version": "codex-cli 0.166.0",
+  "cases": [
+    {
+      "name": "A_start",
+      "response": {
+        "id": 2,
+        "result": {
+          "thread": {
+            "id": "01a18d1e-0c63-76d2-bfb2-f3eed16e52ae",
+            "sessionId": "01a18d1e-0c63-76d2-bfb2-f3eed16e52ae",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "historyMode": "paginated",
+            "modelProvider": "research",
+            "status": {
+              "type": "idle"
+            },
+            "path": "/private/tmp/relay-concurrency-sdij0vuy/codex/sessions/2026/10/30/rollout-2026-10-30T16-01-59-01a18d1e-0c63-76d2-bfb2-f3eed16e52ae.jsonl",
+            "cwd": "/private/tmp/relay-concurrency-sdij0vuy/project",
+            "cliVersion": "0.166.0",
+            "originator": "relay-concurrency-research",
+            "source": "vscode"
+          },
+          "model": "research-model",
+          "modelProvider": "research",
+          "serviceTier": null,
+          "disabledPluginIds": [],
+          "cwd": "/private/tmp/relay-concurrency-sdij0vuy/project",
+          "runtimeWorkspaceRoots": [
+            "/private/tmp/relay-concurrency-sdij0vuy/project"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": null,
+          "multiAgentMode": "explicitRequestOnly"
+        }
+      }
+    },
+    {
+      "name": "B_start",
+      "response": {
+        "id": 2,
+        "result": {
+          "thread": {
+            "id": "01a18d1e-0c6d-7762-a0c0-565d5bc0ecf1",
+            "sessionId": "01a18d1e-0c6d-7762-a0c0-565d5bc0ecf1",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "historyMode": "paginated",
+            "modelProvider": "research",
+            "status": {
+              "type": "idle"
+            },
+            "path": "/private/tmp/relay-concurrency-sdij0vuy/codex/sessions/2026/10/30/rollout-2026-10-30T16-01-59-01a18d1e-0c6d-7762-a0c0-565d5bc0ecf1.jsonl",
+            "cwd": "/private/tmp/relay-concurrency-sdij0vuy/project",
+            "cliVersion": "0.166.0",
+            "originator": "relay-concurrency-research",
+            "source": "vscode"
+          },
+          "model": "research-model",
+          "modelProvider": "research",
+          "serviceTier": null,
+          "disabledPluginIds": [],
+          "cwd": "/private/tmp/relay-concurrency-sdij0vuy/project",
+          "runtimeWorkspaceRoots": [
+            "/private/tmp/relay-concurrency-sdij0vuy/project"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": null,
+          "multiAgentMode": "explicitRequestOnly"
+        }
+      }
+    },
+    {
+      "name": "A_offline_turn",
+      "response": {
+        "id": 3,
+        "result": {
+          "turn": {
+            "id": "01a18d1e-0c79-7e60-9f53-8952ccabf39e",
+            "rootTurnId": "01a18d1e-0c79-7e60-9f53-8952ccabf39e",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": null,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      }
+    },
+    {
+      "name": "B_offline_turn",
+      "response": {
+        "id": 3,
+        "result": {
+          "turn": {
+            "id": "01a18d1e-0c7e-7260-9cca-10d5464e3214",
+            "rootTurnId": "01a18d1e-0c7e-7260-9cca-10d5464e3214",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": null,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      }
+    },
+    {
+      "name": "A_interrupt_offline_turn",
+      "response": {
+        "id": 4,
+        "result": {}
+      }
+    },
+    {
+      "name": "B_interrupt_offline_turn",
+      "response": {
+        "id": 4,
+        "result": {}
+      }
+    },
+    {
+      "name": "A_read_own",
+      "response": {
+        "id": 5,
+        "result": {
+          "thread": {
+            "id": "01a18d1e-0c63-76d2-bfb2-f3eed16e52ae",
+            "sessionId": "01a18d1e-0c63-76d2-bfb2-f3eed16e52ae",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "historyMode": "paginated",
+            "modelProvider": "research",
+            "status": {
+              "type": "idle"
+            },
+            "path": "/private/tmp/relay-concurrency-sdij0vuy/codex/sessions/2026/10/30/rollout-2026-10-30T16-01-59-01a18d1e-0c63-76d2-bfb2-f3eed16e52ae.jsonl",
+            "cwd": "/private/tmp/relay-concurrency-sdij0vuy/project",
+            "cliVersion": "0.166.0",
+            "originator": "relay-concurrency-research",
+            "source": "vscode"
+          },
+          "readState": {
+            "firstUnread": null,
+            "revision": "initial:01a18d1e-0c63-76d2-bfb2-f3eed16e52ae"
+          }
+        }
+      }
+    },
+    {
+      "name": "B_read_A",
+      "response": {
+        "id": 5,
+        "result": {
+          "thread": {
+            "id": "01a18d1e-0c63-76d2-bfb2-f3eed16e52ae",
+            "sessionId": "01a18d1e-0c63-76d2-bfb2-f3eed16e52ae",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "historyMode": "paginated",
+            "modelProvider": "research",
+            "status": {
+              "type": "notLoaded"
+            },
+            "path": "/private/tmp/relay-concurrency-sdij0vuy/codex/sessions/2026/10/30/rollout-2026-10-30T16-01-59-01a18d1e-0c63-76d2-bfb2-f3eed16e52ae.jsonl",
+            "cwd": "/private/tmp/relay-concurrency-sdij0vuy/project",
+            "cliVersion": "0.166.0",
+            "originator": "relay-concurrency-research",
+            "source": "vscode"
+          },
+          "readState": {
+            "firstUnread": null,
+            "revision": "initial:01a18d1e-0c63-76d2-bfb2-f3eed16e52ae"
+          }
+        }
+      }
+    },
+    {
+      "name": "B_resume_A_while_A_live",
+      "response": {
+        "error": {
+          "code": -32600,
+          "message": "thread 01a18d1e-0c63-76d2-bfb2-f3eed16e52ae already has an active writer"
+        },
+        "id": 6
+      }
+    },
+    {
+      "name": "B_fork_A",
+      "response": {
+        "id": 7,
+        "result": {
+          "thread": {
+            "id": "01a18d1e-0e3b-79d1-832d-88a6ddf0a647",
+            "sessionId": "01a18d1e-0e3b-79d1-832d-88a6ddf0a647",
+            "forkedFromId": "01a18d1e-0c63-76d2-bfb2-f3eed16e52ae",
+            "parentThreadId": null,
+            "historyMode": "paginated",
+            "modelProvider": "research",
+            "status": {
+              "type": "idle"
+            },
+            "path": "/private/tmp/relay-concurrency-sdij0vuy/codex/sessions/2026/10/30/rollout-2026-10-30T16-01-59-01a18d1e-0e3b-79d1-832d-88a6ddf0a647.jsonl",
+            "cwd": "/private/tmp/relay-concurrency-sdij0vuy/project",
+            "cliVersion": "0.166.0",
+            "originator": "relay-concurrency-research",
+            "source": "vscode"
+          },
+          "model": "research-model",
+          "modelProvider": "research",
+          "serviceTier": null,
+          "disabledPluginIds": [],
+          "cwd": "/private/tmp/relay-concurrency-sdij0vuy/project",
+          "runtimeWorkspaceRoots": [
+            "/private/tmp/relay-concurrency-sdij0vuy/project"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": null,
+          "multiAgentMode": "explicitRequestOnly"
+        }
+      }
+    },
+    {
+      "name": "A_loaded",
+      "response": {
+        "id": 6,
+        "result": {
+          "data": [
+            "01a18d1e-0c63-76d2-bfb2-f3eed16e52ae"
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "name": "B_loaded",
+      "response": {
+        "id": 8,
+        "result": {
+          "data": [
+            "01a18d1e-0c6d-7762-a0c0-565d5bc0ecf1",
+            "01a18d1e-0e3b-79d1-832d-88a6ddf0a647"
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "name": "B_resume_A_after_A_SIGKILL",
+      "response": {
+        "id": 9,
+        "result": {
+          "thread": {
+            "id": "01a18d1e-0c63-76d2-bfb2-f3eed16e52ae",
+            "sessionId": "01a18d1e-0c63-76d2-bfb2-f3eed16e52ae",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "historyMode": "paginated",
+            "modelProvider": "research",
+            "status": {
+              "type": "idle"
+            },
+            "path": "/private/tmp/relay-concurrency-sdij0vuy/codex/sessions/2026/10/30/rollout-2026-10-30T16-01-59-01a18d1e-0c63-76d2-bfb2-f3eed16e52ae.jsonl",
+            "cwd": "/private/tmp/relay-concurrency-sdij0vuy/project",
+            "cliVersion": "0.166.0",
+            "originator": "relay-concurrency-research",
+            "source": "vscode"
+          },
+          "model": "research-model",
+          "modelProvider": "research",
+          "serviceTier": null,
+          "disabledPluginIds": [],
+          "cwd": "/private/tmp/relay-concurrency-sdij0vuy/project",
+          "runtimeWorkspaceRoots": [
+            "/private/tmp/relay-concurrency-sdij0vuy/project"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": null,
+          "collaborationMode": {
+            "mode": "default",
+            "settings": {
+              "model": "research-model",
+              "reasoning_effort": null,
+              "developer_instructions": null
+            }
+          },
+          "multiAgentMode": "explicitRequestOnly",
+          "initialTurnsPage": null,
+          "turnsBackwardsCursor": "{\"requestedThreadId\":\"01a18d1e-0c63-76d2-bfb2-f3eed16e52ae\",\"rolloutOrdinal\":1,\"includeAnchor\":true,\"scope\":{\"kind\":\"turns\"}}",
+          "itemsBackwardsCursor": "{\"requestedThreadId\":\"01a18d1e-0c63-76d2-bfb2-f3eed16e52ae\",\"rolloutOrdinal\":8,\"includeAnchor\":true,\"scope\":{\"kind\":\"itemsByCreatedAtOrdinal\"}}"
+        }
+      }
+    },
+    {
+      "name": "B_read_B_after_A_SIGKILL",
+      "response": {
+        "id": 10,
+        "result": {
+          "thread": {
+            "id": "01a18d1e-0c6d-7762-a0c0-565d5bc0ecf1",
+            "sessionId": "01a18d1e-0c6d-7762-a0c0-565d5bc0ecf1",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "historyMode": "paginated",
+            "modelProvider": "research",
+            "status": {
+              "type": "idle"
+            },
+            "path": "/private/tmp/relay-concurrency-sdij0vuy/codex/sessions/2026/10/30/rollout-2026-10-30T16-01-59-01a18d1e-0c6d-7762-a0c0-565d5bc0ecf1.jsonl",
+            "cwd": "/private/tmp/relay-concurrency-sdij0vuy/project",
+            "cliVersion": "0.166.0",
+            "originator": "relay-concurrency-research",
+            "source": "vscode"
+          },
+          "readState": {
+            "firstUnread": null,
+            "revision": "initial:01a18d1e-0c6d-7762-a0c0-565d5bc0ecf1"
+          }
+        }
+      }
+    }
+  ],
+  "exception": null
+}

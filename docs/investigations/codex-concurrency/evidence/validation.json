@@ -1,0 +1,56 @@
+{
+  "fmt": "passed",
+  "clippy_workspace_all_targets": "passed",
+  "no_production_code_changes": true,
+  "evidence_checker_narrow_checks": 21,
+  "zero_regression_certification": false,
+  "tests": [
+    {
+      "name": "workspace",
+      "summaries": [
+        "test result: FAILED. 215 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s"
+      ],
+      "failure_headers": [
+        "control::tests::a_live_descendant_of_the_supervised_process_is_verified",
+        "control::tests::only_a_running_supervisor_with_a_matching_fingerprint_counts",
+        "control::tests::the_exact_same_pid_is_verified_only_once_reconfirmed_alive",
+        "terminal_session::tests::the_supervisor_record_follows_a_conversation_across_a_same_session_owner_change"
+      ]
+    },
+    {
+      "name": "relay-core",
+      "summaries": [
+        "test result: FAILED. 125 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s"
+      ],
+      "failure_headers": [
+        "handoff::lock::tests::a_fabricated_identity_with_a_wrong_fingerprint_is_detected_as_different",
+        "handoff::lock::tests::a_process_is_an_ancestor_of_its_own_direct_child",
+        "handoff::lock::tests::a_confirmed_dead_pid_is_reported_as_a_definite_not_the_same_process",
+        "handoff::lock::tests::an_unrelated_process_is_not_an_ancestor",
+        "handoff::lock::tests::a_process_is_an_ancestor_of_its_own_grandchild"
+      ]
+    },
+    {
+      "name": "relay-provider-codex",
+      "summaries": [
+        "test result: FAILED. 72 passed; 5 failed; 1 ignored; 0 measured; 0 filtered out; finished in 25.71s"
+      ],
+      "failure_headers": [
+        "rollout::tests::a_new_chat_started_after_attach_is_followed_as_the_authoritative_thread",
+        "rollout::tests::a_new_chat_appearing_before_the_originally_known_thread_is_still_followed",
+        "rollout::tests::a_rollout_created_and_fully_written_before_first_locate_is_never_skipped",
+        "rollout::tests::file_created_after_watch_begins_is_still_found",
+        "rollout::tests::only_the_candidate_that_actually_grew_is_followed_never_the_merely_newest_file"
+      ]
+    },
+    {
+      "name": "provider-representative-isolated-failure",
+      "summaries": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.62s"
+      ],
+      "failure_headers": []
+    }
+  ],
+  "research_prototype_clippy": "passed after fixing a needless-range-loop lint in research code",
+  "research_python_compile": "passed"
+}

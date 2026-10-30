@@ -1,0 +1,990 @@
+[
+  {
+    "trial": 0,
+    "outcomes": [
+      {
+        "name": "A",
+        "exception": "TimeoutError('A: initialize; exit=1; stderr=WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/private/tmp/relay-bootstrap-bto3wa0b/0\" (codex_home: AbsolutePathBuf(\"/private/tmp/relay-bootstrap-bto3wa0b/0/codex\"))\\nError: failed to initialize sqlite state runtime under /private/tmp/relay-bootstrap-bto3wa0b/0/codex: failed to initialize state runtime at /private/tmp/relay-bootstrap-bto3wa0b/0/codex\\n')"
+      },
+      {
+        "name": "B",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1e-07c4-7cb1-9242-8628f416fdb3",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/0",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/0"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1e-07c4-7cb1-9242-8628f416fdb3",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793368917,
+              "updatedAt": 1793368917,
+              "recencyAt": 1793368917,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/0/codex/sessions/2026/10/30/rollout-2026-10-30T16-01-57-01a18d1e-07c4-7cb1-9242-8628f416fdb3.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/0",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/0",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/0"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "trial": 1,
+    "outcomes": [
+      {
+        "name": "A",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1e-6988-7d31-9c8c-8d3b586d9b30",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/1",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/1"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1e-6988-7d31-9c8c-8d3b586d9b30",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793368942,
+              "updatedAt": 1793368942,
+              "recencyAt": 1793368942,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/1/codex/sessions/2026/10/30/rollout-2026-10-30T16-02-22-01a18d1e-6988-7d31-9c8c-8d3b586d9b30.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/1",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/1",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/1"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      },
+      {
+        "name": "B",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1e-6d68-7360-81c1-2df4ee054c20",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/1",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/1"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1e-6d68-7360-81c1-2df4ee054c20",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793368943,
+              "updatedAt": 1793368943,
+              "recencyAt": 1793368943,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/1/codex/sessions/2026/10/30/rollout-2026-10-30T16-02-23-01a18d1e-6d68-7360-81c1-2df4ee054c20.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/1",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/1",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/1"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "trial": 2,
+    "outcomes": [
+      {
+        "name": "A",
+        "exception": "TimeoutError('A: initialize; exit=1; stderr=WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/private/tmp/relay-bootstrap-bto3wa0b/2\" (codex_home: AbsolutePathBuf(\"/private/tmp/relay-bootstrap-bto3wa0b/2/codex\"))\\nError: failed to initialize sqlite state runtime under /private/tmp/relay-bootstrap-bto3wa0b/2/codex: failed to initialize state runtime at /private/tmp/relay-bootstrap-bto3wa0b/2/codex\\n')"
+      },
+      {
+        "name": "B",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1e-6dc2-7bc1-9bd0-7859d3b94cd8",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/2",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/2"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1e-6dc2-7bc1-9bd0-7859d3b94cd8",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793368944,
+              "updatedAt": 1793368944,
+              "recencyAt": 1793368944,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/2/codex/sessions/2026/10/30/rollout-2026-10-30T16-02-24-01a18d1e-6dc2-7bc1-9bd0-7859d3b94cd8.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/2",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/2",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/2"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "trial": 3,
+    "outcomes": [
+      {
+        "name": "A",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1e-cf9f-72f2-85ca-2d2290be73d2",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/3",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/3"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1e-cf9f-72f2-85ca-2d2290be73d2",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793368969,
+              "updatedAt": 1793368969,
+              "recencyAt": 1793368969,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/3/codex/sessions/2026/10/30/rollout-2026-10-30T16-02-49-01a18d1e-cf9f-72f2-85ca-2d2290be73d2.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/3",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/3",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/3"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      },
+      {
+        "name": "B",
+        "exception": "TimeoutError('B: initialize; exit=1; stderr=WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/private/tmp/relay-bootstrap-bto3wa0b/3\" (codex_home: AbsolutePathBuf(\"/private/tmp/relay-bootstrap-bto3wa0b/3/codex\"))\\nError: failed to initialize sqlite state runtime under /private/tmp/relay-bootstrap-bto3wa0b/3/codex: failed to initialize state runtime at /private/tmp/relay-bootstrap-bto3wa0b/3/codex\\n')"
+      }
+    ]
+  },
+  {
+    "trial": 4,
+    "outcomes": [
+      {
+        "name": "A",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1f-313b-7570-b4be-03b51d723437",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/4",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/4"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1f-313b-7570-b4be-03b51d723437",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793368994,
+              "updatedAt": 1793368994,
+              "recencyAt": 1793368994,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/4/codex/sessions/2026/10/30/rollout-2026-10-30T16-03-14-01a18d1f-313b-7570-b4be-03b51d723437.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/4",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/4",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/4"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      },
+      {
+        "name": "B",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1f-313a-7b62-9c9d-31ba7d99e903",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/4",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/4"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1f-313a-7b62-9c9d-31ba7d99e903",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793368994,
+              "updatedAt": 1793368994,
+              "recencyAt": 1793368994,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/4/codex/sessions/2026/10/30/rollout-2026-10-30T16-03-14-01a18d1f-313a-7b62-9c9d-31ba7d99e903.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/4",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/4",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/4"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "trial": 5,
+    "outcomes": [
+      {
+        "name": "A",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1f-318f-78e0-8a04-aa8444f6f6d7",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/5",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/5"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1f-318f-78e0-8a04-aa8444f6f6d7",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793368994,
+              "updatedAt": 1793368994,
+              "recencyAt": 1793368994,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/5/codex/sessions/2026/10/30/rollout-2026-10-30T16-03-14-01a18d1f-318f-78e0-8a04-aa8444f6f6d7.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/5",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/5",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/5"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      },
+      {
+        "name": "B",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1f-31a4-79b1-8ccc-fe2b2dba6445",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/5",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/5"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1f-31a4-79b1-8ccc-fe2b2dba6445",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793368994,
+              "updatedAt": 1793368994,
+              "recencyAt": 1793368994,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/5/codex/sessions/2026/10/30/rollout-2026-10-30T16-03-14-01a18d1f-31a4-79b1-8ccc-fe2b2dba6445.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/5",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/5",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/5"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "trial": 6,
+    "outcomes": [
+      {
+        "name": "A",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1f-31f0-75f2-821f-6b20093325d0",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/6",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/6"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1f-31f0-75f2-821f-6b20093325d0",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793368994,
+              "updatedAt": 1793368994,
+              "recencyAt": 1793368994,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/6/codex/sessions/2026/10/30/rollout-2026-10-30T16-03-14-01a18d1f-31f0-75f2-821f-6b20093325d0.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/6",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/6",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/6"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      },
+      {
+        "name": "B",
+        "exception": "TimeoutError('B: initialize; exit=1; stderr=WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/private/tmp/relay-bootstrap-bto3wa0b/6\" (codex_home: AbsolutePathBuf(\"/private/tmp/relay-bootstrap-bto3wa0b/6/codex\"))\\nError: failed to initialize sqlite state runtime under /private/tmp/relay-bootstrap-bto3wa0b/6/codex: failed to initialize state runtime at /private/tmp/relay-bootstrap-bto3wa0b/6/codex\\n')"
+      }
+    ]
+  },
+  {
+    "trial": 7,
+    "outcomes": [
+      {
+        "name": "A",
+        "exception": "TimeoutError('A: initialize; exit=1; stderr=WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/private/tmp/relay-bootstrap-bto3wa0b/7\" (codex_home: AbsolutePathBuf(\"/private/tmp/relay-bootstrap-bto3wa0b/7/codex\"))\\nError: failed to initialize sqlite state runtime under /private/tmp/relay-bootstrap-bto3wa0b/7/codex: failed to initialize state runtime at /private/tmp/relay-bootstrap-bto3wa0b/7/codex\\n')"
+      },
+      {
+        "name": "B",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1f-93ba-7761-826a-db358fe1b6a0",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/7",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/7"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1f-93ba-7761-826a-db358fe1b6a0",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793369019,
+              "updatedAt": 1793369019,
+              "recencyAt": 1793369019,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/7/codex/sessions/2026/10/30/rollout-2026-10-30T16-03-39-01a18d1f-93ba-7761-826a-db358fe1b6a0.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/7",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/7",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/7"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "trial": 8,
+    "outcomes": [
+      {
+        "name": "A",
+        "exception": "TimeoutError('A: initialize; exit=1; stderr=WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/private/tmp/relay-bootstrap-bto3wa0b/8\" (codex_home: AbsolutePathBuf(\"/private/tmp/relay-bootstrap-bto3wa0b/8/codex\"))\\nError: failed to initialize sqlite state runtime under /private/tmp/relay-bootstrap-bto3wa0b/8/codex: failed to initialize state runtime at /private/tmp/relay-bootstrap-bto3wa0b/8/codex\\n')"
+      },
+      {
+        "name": "B",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d1f-f572-7a41-b133-c8ed3c28f70e",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/8",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/8"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d1f-f572-7a41-b133-c8ed3c28f70e",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793369044,
+              "updatedAt": 1793369044,
+              "recencyAt": 1793369044,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/8/codex/sessions/2026/10/30/rollout-2026-10-30T16-04-04-01a18d1f-f572-7a41-b133-c8ed3c28f70e.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/8",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/8",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/8"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "trial": 9,
+    "outcomes": [
+      {
+        "name": "A",
+        "response": {
+          "id": 2,
+          "result": {
+            "thread": {
+              "id": "01a18d20-5721-77a0-9aeb-403a032c5e4b",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/9",
+                  "runtimeWorkspaceRoots": [
+                    "/private/tmp/relay-bootstrap-bto3wa0b/9"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a18d20-5721-77a0-9aeb-403a032c5e4b",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "research",
+              "model": "research-model",
+              "reasoningEffort": null,
+              "createdAt": 1793369069,
+              "updatedAt": 1793369069,
+              "recencyAt": 1793369069,
+              "status": {
+                "type": "idle"
+              },
+              "path": "/private/tmp/relay-bootstrap-bto3wa0b/9/codex/sessions/2026/10/30/rollout-2026-10-30T16-04-29-01a18d20-5721-77a0-9aeb-403a032c5e4b.jsonl",
+              "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/9",
+              "cliVersion": "0.166.0",
+              "originator": "relay-concurrency-research",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            },
+            "model": "research-model",
+            "modelProvider": "research",
+            "serviceTier": null,
+            "disabledPluginIds": [],
+            "cwd": "/private/tmp/relay-bootstrap-bto3wa0b/9",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-bootstrap-bto3wa0b/9"
+            ],
+            "instructionSources": [],
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": {
+              "type": "readOnly",
+              "networkAccess": false
+            },
+            "activePermissionProfile": null,
+            "reasoningEffort": null,
+            "multiAgentMode": "explicitRequestOnly"
+          }
+        }
+      },
+      {
+        "name": "B",
+        "exception": "TimeoutError('B: initialize; exit=1; stderr=WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/private/tmp/relay-bootstrap-bto3wa0b/9\" (codex_home: AbsolutePathBuf(\"/private/tmp/relay-bootstrap-bto3wa0b/9/codex\"))\\nError: failed to initialize sqlite state runtime under /private/tmp/relay-bootstrap-bto3wa0b/9/codex: failed to initialize state runtime at /private/tmp/relay-bootstrap-bto3wa0b/9/codex\\n')"
+      }
+    ]
+  }
+]

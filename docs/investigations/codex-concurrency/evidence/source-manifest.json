@@ -1,0 +1,181 @@
+{
+  "repository": "openai/codex",
+  "ref": "rust-v0.166.0",
+  "note": "Primary source fetched with GitHub connector. Source copies live under /private/tmp/relay-codex-concurrency/source and are not vendored into Relay.",
+  "files": [
+    {
+      "key": "research_initial_1",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app_server_session.rs",
+      "git_blob_sha": "683e7328e2a1992ad5605f0350d606c624e9dc55",
+      "characters": 187565
+    },
+    {
+      "key": "tui_lib",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/lib.rs",
+      "git_blob_sha": "1b0b08cb3a87b088fa21b61ef8fbb3626b93f114",
+      "characters": 89194
+    },
+    {
+      "key": "client_lib",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/app-server-client/src/lib.rs",
+      "git_blob_sha": "e7df794ea809c492ae02e32fe2d34dcb63f39132",
+      "characters": 88904
+    },
+    {
+      "key": "hooks_lib",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/lib.rs",
+      "git_blob_sha": "4e7c073d771485a86f3d7d9d4f229e6d23476bfc",
+      "characters": 4813
+    },
+    {
+      "key": "thread_store_lib",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/thread-store/src/lib.rs",
+      "git_blob_sha": "8e0eccabecf82df0f8eecb18394f8dc5f18b2e32",
+      "characters": 4378
+    },
+    {
+      "key": "appserver_processor",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/app-server/src/message_processor.rs",
+      "git_blob_sha": "417165a6352dbf2ad44a40d155f570f596a1c594",
+      "characters": 85229
+    },
+    {
+      "key": "hooks_context",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/context.rs",
+      "git_blob_sha": "d4afe5afe55b38330774657e6fb4b24672985c7f",
+      "characters": 423
+    },
+    {
+      "key": "hooks_session_start",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/events/session_start.rs",
+      "git_blob_sha": "0da8b217064e7aea7f471d1e61ab431242ab6500",
+      "characters": 20180
+    },
+    {
+      "key": "hooks_common",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/events/common.rs",
+      "git_blob_sha": "1d1bcb66929ebc2a66a4934ede1daeebdde1c426",
+      "characters": 10574
+    },
+    {
+      "key": "hooks_dispatcher",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/engine/dispatcher.rs",
+      "git_blob_sha": "cc45564933ffc5043727bb69a8ff7898565dc912",
+      "characters": 22372
+    },
+    {
+      "key": "workspace",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/Cargo.toml",
+      "git_blob_sha": "85cd80b7c4536c5510acc373f8d41d730817a2fb",
+      "characters": 21926
+    },
+    {
+      "key": "tui_cargo",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/Cargo.toml",
+      "git_blob_sha": "47968b86946d94be3b72d3dc2f817ec18cf82f55",
+      "characters": 6781
+    },
+    {
+      "key": "store_cargo",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/thread-store/Cargo.toml",
+      "git_blob_sha": "31e16dd72a9523bbb1c9b3eea00dc5377037e2e2",
+      "characters": 1313
+    },
+    {
+      "key": "local_mod",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/thread-store/src/local/mod.rs",
+      "git_blob_sha": "8a2506b904e5152534bb0a13ad0a4e62174dea25",
+      "characters": 89027
+    },
+    {
+      "key": "core_client",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/client.rs",
+      "git_blob_sha": "2ac9b931ffbcf47809d54c35569458003ccd7181",
+      "characters": 133039
+    },
+    {
+      "key": "hook_runtime",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/hook_runtime.rs",
+      "git_blob_sha": "02d710450024db7f79ae712996b2270c9a63350a",
+      "characters": 53020
+    },
+    {
+      "key": "hook_env",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/hook_environment_executor.rs",
+      "git_blob_sha": "fa6b30340580aeffe39bb156fdd6af0fa84a276d",
+      "characters": 10366
+    },
+    {
+      "key": "live_writer",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/thread-store/src/local/live_writer.rs",
+      "git_blob_sha": "0fba3f55f8a40cf58b49c91edf33f9e70a25367a",
+      "characters": 16848
+    },
+    {
+      "key": "core_thread",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/codex_thread.rs",
+      "git_blob_sha": "968d331a5e303cccef4d6c340a571ffc33f8bff7",
+      "characters": 53222
+    },
+    {
+      "key": "model_provider",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/model-provider-info/src/lib.rs",
+      "git_blob_sha": "9bf505dfa9cb1e330f9a7ec788ed1d18afdd7f9b",
+      "characters": 38171
+    },
+    {
+      "key": "session",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/session/session.rs",
+      "git_blob_sha": "a41f1471e4300986b7b5e0c7b80f82eba8407156",
+      "characters": 99587
+    },
+    {
+      "key": "native_writer",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/rollout/src/writer_lock.rs",
+      "git_blob_sha": "31068707a2731303ec48a0cfcf154923d8e75eeb",
+      "characters": 7531
+    },
+    {
+      "key": "tui_lifecycle",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app/session_lifecycle.rs",
+      "git_blob_sha": "c7dc18d544a064d4bc684b0a54e3e86be76731f6",
+      "characters": 66279
+    },
+    {
+      "key": "tui_routing",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app/thread_routing.rs",
+      "git_blob_sha": "e4ecae0ec92756ab19ad65dcb11779acb64794d6",
+      "characters": 90427
+    },
+    {
+      "key": "core_model_request",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/model_request.rs",
+      "git_blob_sha": "8b13422bc7281c02a4d8c49d042657949c17d0ad",
+      "characters": 1648
+    },
+    {
+      "key": "daemon_startup",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/daemon_startup.rs",
+      "git_blob_sha": "6c7dca50742a12a84e0be4dd28d0dd432038933b",
+      "characters": 9947
+    },
+    {
+      "key": "tui_connection",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app_server_connection.rs",
+      "git_blob_sha": "ac3ab1cb2cd4980ce795b63204d2ab65616c93e9",
+      "characters": 2133
+    },
+    {
+      "key": "tui_events",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app/thread_events.rs",
+      "git_blob_sha": "f810d38745a57baeb05502a43852397b27b5e7b1",
+      "characters": 47600
+    },
+    {
+      "key": "tui_thread_state",
+      "url": "https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app/thread_session_state.rs",
+      "git_blob_sha": "b5596528f2e1dea9327d3ea3d8673d4166bfb553",
+      "characters": 18736
+    }
+  ]
+}

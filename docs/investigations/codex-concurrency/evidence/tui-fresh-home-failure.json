@@ -1,0 +1,10 @@
+{
+  "root": "/private/tmp/relay-tui-dtgjd92n",
+  "actions": [],
+  "hooks": [],
+  "exits": {
+    "A": -15,
+    "B": 1
+  },
+  "B_terminal_diagnostic": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/private/tmp/relay-tui-dtgjd92n\" (codex_home: AbsolutePathBuf(\"/private/tmp/relay-tui-dtgjd92n/codex\"))\r\n\u001b]10;?\u001b\\\u001b]11;?\u001b\\   >_ OpenAI Codex (v0.166.0)     loading  \u203a Ask Codex to do anything   /private/tmp/relay-tui-dtgjd92n/projectCodex couldn't start because its local database appears to be damaged.\r\nRun `codex doctor` to check your setup and get next-step guidance.\r\nIf this keeps happening, share the technical details below when asking for help.\r\nTechnical details:\r\n  Location: /private/tmp/relay-tui-dtgjd92n/codex/state_5.sqlite\r\n  Cause: failed to initialize state runtime at /private/tmp/relay-tui-dtgjd92n/codex: failed to migrate state DB at /private/tmp/relay-tui-dtgjd92n/codex/state_5.sqlite: while executing migration 18: error returned from database: (code: 1) no such table: stage1_outputs: while executing migration 18: error returned from database: (code: 1) no such table: stage1_outputs: error returned from database: (code: 1) no such table: stage1_outputs: (code: 1) no such table: stage1_outputs\r\nERROR: failed to initialize sqlite local db at /private/tmp/relay-tui-dtgjd92n/codex/state_5.sqlite: failed to initialize state runtime at /private/tmp/relay-tui-dtgjd92n/codex: failed to migrate state DB at /private/tmp/relay-tui-dtgjd92n/codex/state_5.sqlite: while executing migration 18: error returned from database: (code: 1) no such table: stage1_outputs: while executing migration 18: error returned from database: (code: 1) no such table: stage1_outputs: error returned from database: (code: 1) no such table: stage1_outputs: (code: 1) no such table: stage1_outputs\r\n"
+}

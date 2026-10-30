@@ -1,0 +1,702 @@
+{
+  "root": "/private/tmp/relay-defects-8mobba0_",
+  "database_trials": [
+    {
+      "case": "cold-parallel",
+      "trial": 0,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "cold-parallel",
+      "trial": 1,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "cold-parallel",
+      "trial": 2,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "cold-parallel",
+      "trial": 3,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": false,
+          "exception": "RuntimeError('A: EOF during initialize; exit=1; stderr=WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/private/tmp/relay-defects-8mobba0_/cold-parallel-3\" (codex_home: AbsolutePathBuf(\"/private/tmp/relay-defects-8mobba0_/cold-parallel-3/codex\"))\\nError: failed to initialize sqlite state runtime under /private/tmp/relay-defects-8mobba0_/cold-parallel-3/codex: failed to initialize state runtime at /private/tmp/relay-defects-8mobba0_/cold-parallel-3/codex\\n')"
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "cold-parallel",
+      "trial": 4,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "cold-parallel",
+      "trial": 5,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "cold-parallel",
+      "trial": 6,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": false,
+          "exception": "RuntimeError('A: EOF during initialize; exit=1; stderr=WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/private/tmp/relay-defects-8mobba0_/cold-parallel-6\" (codex_home: AbsolutePathBuf(\"/private/tmp/relay-defects-8mobba0_/cold-parallel-6/codex\"))\\nError: failed to initialize sqlite state runtime under /private/tmp/relay-defects-8mobba0_/cold-parallel-6/codex: failed to initialize state runtime at /private/tmp/relay-defects-8mobba0_/cold-parallel-6/codex\\n')"
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "cold-parallel",
+      "trial": 7,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": false,
+          "exception": "RuntimeError('B: EOF during initialize; exit=1; stderr=WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/private/tmp/relay-defects-8mobba0_/cold-parallel-7\" (codex_home: AbsolutePathBuf(\"/private/tmp/relay-defects-8mobba0_/cold-parallel-7/codex\"))\\nError: failed to initialize sqlite state runtime under /private/tmp/relay-defects-8mobba0_/cold-parallel-7/codex: failed to initialize state runtime at /private/tmp/relay-defects-8mobba0_/cold-parallel-7/codex\\n')"
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "warm-parallel",
+      "trial": 0,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "warm-parallel",
+      "trial": 1,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "warm-parallel",
+      "trial": 2,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "warm-parallel",
+      "trial": 3,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "warm-parallel",
+      "trial": 4,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "warm-parallel",
+      "trial": 5,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "warm-parallel",
+      "trial": 6,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "warm-parallel",
+      "trial": 7,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "short-bootstrap-gate",
+      "trial": 0,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "short-bootstrap-gate",
+      "trial": 1,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "short-bootstrap-gate",
+      "trial": 2,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "short-bootstrap-gate",
+      "trial": 3,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "short-bootstrap-gate",
+      "trial": 4,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "short-bootstrap-gate",
+      "trial": 5,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "short-bootstrap-gate",
+      "trial": 6,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    },
+    {
+      "case": "short-bootstrap-gate",
+      "trial": 7,
+      "outcomes": [
+        {
+          "endpoint": "A",
+          "ok": true,
+          "error": null
+        },
+        {
+          "endpoint": "B",
+          "ok": true,
+          "error": null
+        }
+      ],
+      "database_quick_checks": {
+        "queue_1.sqlite": "ok",
+        "logs_2.sqlite": "ok",
+        "memories_1.sqlite": "ok",
+        "state_5.sqlite": "ok",
+        "goals_1.sqlite": "ok"
+      }
+    }
+  ],
+  "historical_fork_trials": [
+    {
+      "mode": "production",
+      "watchers": 1,
+      "history": 0,
+      "attach_ms": 4.2965420000000005,
+      "observation_ms": 1002.3033750000001,
+      "outcomes": [
+        {
+          "watcher": 0,
+          "healthy": true,
+          "events": [
+            "ThreadTransitioned(\"old-fork\")"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "production",
+      "watchers": 1,
+      "history": 0,
+      "attach_ms": 2.377209,
+      "observation_ms": 1005.0708749999999,
+      "outcomes": [
+        {
+          "watcher": 0,
+          "healthy": true,
+          "events": [
+            "ThreadTransitioned(\"old-fork\")"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "production",
+      "watchers": 1,
+      "history": 0,
+      "attach_ms": 8.240874999999999,
+      "observation_ms": 1005.0658750000001,
+      "outcomes": [
+        {
+          "watcher": 0,
+          "healthy": true,
+          "events": [
+            "ThreadTransitioned(\"old-fork\")"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "production",
+      "watchers": 1,
+      "history": 0,
+      "attach_ms": 7.324334,
+      "observation_ms": 1004.7963339999999,
+      "outcomes": [
+        {
+          "watcher": 0,
+          "healthy": true,
+          "events": [
+            "ThreadTransitioned(\"old-fork\")"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "production",
+      "watchers": 1,
+      "history": 0,
+      "attach_ms": 5.614833,
+      "observation_ms": 1003.821334,
+      "outcomes": [
+        {
+          "watcher": 0,
+          "healthy": true,
+          "events": [
+            "ThreadTransitioned(\"old-fork\")"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "production",
+      "watchers": 1,
+      "history": 0,
+      "attach_ms": 7.170333,
+      "observation_ms": 1004.083834,
+      "outcomes": [
+        {
+          "watcher": 0,
+          "healthy": true,
+          "events": [
+            "ThreadTransitioned(\"old-fork\")"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "production",
+      "watchers": 1,
+      "history": 0,
+      "attach_ms": 7.052959,
+      "observation_ms": 1004.0704579999999,
+      "outcomes": [
+        {
+          "watcher": 0,
+          "healthy": true,
+          "events": [
+            "ThreadTransitioned(\"old-fork\")"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "production",
+      "watchers": 1,
+      "history": 0,
+      "attach_ms": 5.796583,
+      "observation_ms": 1005.0755419999999,
+      "outcomes": [
+        {
+          "watcher": 0,
+          "healthy": true,
+          "events": [
+            "ThreadTransitioned(\"old-fork\")"
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "cold-parallel": {
+      "failed_endpoints": 3,
+      "endpoints": 16
+    },
+    "warm-parallel": {
+      "failed_endpoints": 0,
+      "endpoints": 16
+    },
+    "short-bootstrap-gate": {
+      "failed_endpoints": 0,
+      "endpoints": 16
+    },
+    "historical_fork_misbindings": 8
+  }
+}

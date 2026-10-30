@@ -1,0 +1,205 @@
+{
+  "root": "/private/tmp/relay-concurrency-rg9jfk18",
+  "version": "codex-cli 0.166.0",
+  "cases": [
+    {
+      "name": "A_start",
+      "response": {
+        "id": 2,
+        "result": {
+          "thread": {
+            "id": "01a18d15-34aa-7873-961d-39b511d9f794",
+            "sessionId": "01a18d15-34aa-7873-961d-39b511d9f794",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "historyMode": "paginated",
+            "modelProvider": "research",
+            "status": {
+              "type": "idle"
+            },
+            "path": "/private/tmp/relay-concurrency-rg9jfk18/codex/sessions/2026/10/30/rollout-2026-10-30T15-52-19-01a18d15-34aa-7873-961d-39b511d9f794.jsonl",
+            "cwd": "/private/tmp/relay-concurrency-rg9jfk18/project",
+            "cliVersion": "0.166.0",
+            "originator": "relay-concurrency-research",
+            "source": "vscode"
+          },
+          "model": "research-model",
+          "modelProvider": "research",
+          "serviceTier": null,
+          "disabledPluginIds": [],
+          "cwd": "/private/tmp/relay-concurrency-rg9jfk18/project",
+          "runtimeWorkspaceRoots": [
+            "/private/tmp/relay-concurrency-rg9jfk18/project"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": null,
+          "multiAgentMode": "explicitRequestOnly"
+        }
+      }
+    },
+    {
+      "name": "B_start",
+      "response": {
+        "id": 2,
+        "result": {
+          "thread": {
+            "id": "01a18d15-3531-7401-9d4b-a0e33d52c8a4",
+            "sessionId": "01a18d15-3531-7401-9d4b-a0e33d52c8a4",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "historyMode": "paginated",
+            "modelProvider": "research",
+            "status": {
+              "type": "idle"
+            },
+            "path": "/private/tmp/relay-concurrency-rg9jfk18/codex/sessions/2026/10/30/rollout-2026-10-30T15-52-19-01a18d15-3531-7401-9d4b-a0e33d52c8a4.jsonl",
+            "cwd": "/private/tmp/relay-concurrency-rg9jfk18/project",
+            "cliVersion": "0.166.0",
+            "originator": "relay-concurrency-research",
+            "source": "vscode"
+          },
+          "model": "research-model",
+          "modelProvider": "research",
+          "serviceTier": null,
+          "disabledPluginIds": [],
+          "cwd": "/private/tmp/relay-concurrency-rg9jfk18/project",
+          "runtimeWorkspaceRoots": [
+            "/private/tmp/relay-concurrency-rg9jfk18/project"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": null,
+          "multiAgentMode": "explicitRequestOnly"
+        }
+      }
+    },
+    {
+      "name": "A_read_own",
+      "response": {
+        "id": 3,
+        "result": {
+          "thread": {
+            "id": "01a18d15-34aa-7873-961d-39b511d9f794",
+            "sessionId": "01a18d15-34aa-7873-961d-39b511d9f794",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "historyMode": "paginated",
+            "modelProvider": "research",
+            "status": {
+              "type": "idle"
+            },
+            "path": "/private/tmp/relay-concurrency-rg9jfk18/codex/sessions/2026/10/30/rollout-2026-10-30T15-52-19-01a18d15-34aa-7873-961d-39b511d9f794.jsonl",
+            "cwd": "/private/tmp/relay-concurrency-rg9jfk18/project",
+            "cliVersion": "0.166.0",
+            "originator": "relay-concurrency-research",
+            "source": "vscode"
+          },
+          "readState": null
+        }
+      }
+    },
+    {
+      "name": "B_read_A",
+      "response": {
+        "error": {
+          "code": -32600,
+          "message": "thread not loaded: 01a18d15-34aa-7873-961d-39b511d9f794"
+        },
+        "id": 3
+      }
+    },
+    {
+      "name": "B_resume_A_while_A_live",
+      "response": {
+        "error": {
+          "code": -32600,
+          "message": "no rollout found for thread id 01a18d15-34aa-7873-961d-39b511d9f794"
+        },
+        "id": 4
+      }
+    },
+    {
+      "name": "B_fork_A",
+      "response": {
+        "error": {
+          "code": -32600,
+          "message": "no rollout found for thread id 01a18d15-34aa-7873-961d-39b511d9f794"
+        },
+        "id": 5
+      }
+    },
+    {
+      "name": "A_loaded",
+      "response": {
+        "id": 4,
+        "result": {
+          "data": [
+            "01a18d15-34aa-7873-961d-39b511d9f794"
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "name": "B_loaded",
+      "response": {
+        "id": 6,
+        "result": {
+          "data": [
+            "01a18d15-3531-7401-9d4b-a0e33d52c8a4"
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "name": "B_resume_A_after_A_SIGKILL",
+      "response": {
+        "error": {
+          "code": -32600,
+          "message": "no rollout found for thread id 01a18d15-34aa-7873-961d-39b511d9f794"
+        },
+        "id": 7
+      }
+    },
+    {
+      "name": "B_read_B_after_A_SIGKILL",
+      "response": {
+        "id": 8,
+        "result": {
+          "thread": {
+            "id": "01a18d15-3531-7401-9d4b-a0e33d52c8a4",
+            "sessionId": "01a18d15-3531-7401-9d4b-a0e33d52c8a4",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "historyMode": "paginated",
+            "modelProvider": "research",
+            "status": {
+              "type": "idle"
+            },
+            "path": "/private/tmp/relay-concurrency-rg9jfk18/codex/sessions/2026/10/30/rollout-2026-10-30T15-52-19-01a18d15-3531-7401-9d4b-a0e33d52c8a4.jsonl",
+            "cwd": "/private/tmp/relay-concurrency-rg9jfk18/project",
+            "cliVersion": "0.166.0",
+            "originator": "relay-concurrency-research",
+            "source": "vscode"
+          },
+          "readState": null
+        }
+      }
+    }
+  ],
+  "exception": null
+}

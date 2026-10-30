@@ -1,0 +1,52 @@
+{
+  "root": "/private/tmp/relay-native-faults-hsurioz_",
+  "scope": "REAL_NATIVE_REQUESTS_WITH_CONTROLLED_FAILURE_INJECTION",
+  "checks": [
+    "concurrent fence cannot pass an admitted but not forwarded mutation",
+    "per-thread admission lock does not block neighbor",
+    "ordered admitted mutation and fence produce only a turn-drain receipt",
+    "lost native reply quarantines its controller",
+    "unknown native target is not adopted from broadcast or recency",
+    "neighbor existing work survives another controller's lost reply"
+  ],
+  "native_created_before_reply_loss": "01a18d57-9501-7b03-bc75-16bd4e6c77ed",
+  "registry": {
+    "owners": [
+      [
+        "01a18d57-94a5-7d13-a4d8-fc4a04150165",
+        "A",
+        "e05181f8c3cf411f9014a077fde30df2",
+        "FENCED"
+      ],
+      [
+        "01a18d57-94b1-7400-bb2e-2ad8e407e9cb",
+        "B",
+        "a330ef3aa6fd42ecae7507c9e79b5cb8",
+        "ACTIVE"
+      ]
+    ],
+    "intents": [
+      [
+        "0754c072b75f419a91fcc81026057df2",
+        "A",
+        "thread/start",
+        "BOUND",
+        "01a18d57-94a5-7d13-a4d8-fc4a04150165"
+      ],
+      [
+        "0ae1aaaa057e46f89d2f91700ce33df4",
+        "B",
+        "thread/start",
+        "BOUND",
+        "01a18d57-94b1-7400-bb2e-2ad8e407e9cb"
+      ],
+      [
+        "e58e366268a741c79b5a022e127ec113",
+        "lost-reply",
+        "thread/start",
+        "UNKNOWN",
+        null
+      ]
+    ]
+  }
+}

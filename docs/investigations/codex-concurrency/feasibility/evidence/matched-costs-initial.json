@@ -1,0 +1,659 @@
+[
+  {
+    "mode": "direct",
+    "root": "/private/tmp/relay-feasibility-cost-my9hhhz1",
+    "operations": [
+      {
+        "thread": "01a18d58-7a38-7a90-a29e-c372f5035d21",
+        "latency_ms": 116.05391699413303
+      },
+      {
+        "thread": "01a18d58-7a38-7a90-a29e-c322847ef6c3",
+        "latency_ms": 62.08866600354668
+      },
+      {
+        "thread": "01a18d58-7a38-7a90-a29e-c2e758ef586e",
+        "latency_ms": 9.969875012757257
+      },
+      {
+        "thread": "01a18d58-7a38-7a90-a29e-c35f1921f453",
+        "latency_ms": 9.241374995326623
+      },
+      {
+        "thread": "01a18d58-7a38-7a90-a29e-c3673b452efa",
+        "latency_ms": 61.90983399574179
+      },
+      {
+        "thread": "01a18d58-7a38-7a90-a29e-c3125ea20a84",
+        "latency_ms": 61.00570899434388
+      },
+      {
+        "thread": "01a18d58-7a38-7a90-a29e-c380a279d496",
+        "latency_ms": 8.96283399197273
+      },
+      {
+        "thread": "01a18d58-7a39-75a1-a4f7-a3c59b0b04bf",
+        "latency_ms": 9.905166007229127
+      }
+    ],
+    "wall_s_8_starts": 0.1171207500010496,
+    "worker_cpu_s": 0.054063999999999994,
+    "children_cpu_s": 0.43577699999999997,
+    "worker_peak_rss": 28721152,
+    "rss_units": "bytes",
+    "backend_diagnostics": {
+      "process": {
+        "id": 18252,
+        "residentMemoryBytes": 100220928,
+        "physicalFootprintBytes": 37307448
+      },
+      "gauges": [
+        {
+          "name": "app.requests.in_flight",
+          "value": 1
+        },
+        {
+          "name": "core.threads.live",
+          "value": 9
+        }
+      ]
+    },
+    "actual_native_methods": [
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "server/diagnostics"
+    ],
+    "repetition": 0
+  },
+  {
+    "mode": "controller",
+    "root": "/private/tmp/relay-feasibility-cost-sxs2zv2l",
+    "operations": [
+      {
+        "thread": "01a18d58-7c80-71a2-8d54-2f5b45d88019",
+        "latency_ms": 13.915167000959627
+      },
+      {
+        "thread": "01a18d58-7c79-7cc0-a53d-8506bbb901d7",
+        "latency_ms": 7.223459004308097
+      },
+      {
+        "thread": "01a18d58-7c86-7043-83f8-5c681a3df12d",
+        "latency_ms": 19.610250004916452
+      },
+      {
+        "thread": "01a18d58-7c8c-74b3-9550-93e79126816b",
+        "latency_ms": 25.211416999809444
+      },
+      {
+        "thread": "01a18d58-7c92-7362-83cd-db0e7a4eb89e",
+        "latency_ms": 31.506750005064532
+      },
+      {
+        "thread": "01a18d58-7c99-7a62-80ef-93fcea8385c3",
+        "latency_ms": 38.069750007707626
+      },
+      {
+        "thread": "01a18d58-7ca6-7f20-8496-cf76c0f070ea",
+        "latency_ms": 50.98866700427607
+      },
+      {
+        "thread": "01a18d58-7c9f-76b0-827c-9fcad9d3f4ab",
+        "latency_ms": 44.46720900887158
+      }
+    ],
+    "wall_s_8_starts": 0.052603750009438954,
+    "worker_cpu_s": 0.08685599999999999,
+    "children_cpu_s": 0.33128599999999997,
+    "worker_peak_rss": 28966912,
+    "rss_units": "bytes",
+    "backend_diagnostics": {
+      "process": {
+        "id": 18436,
+        "residentMemoryBytes": 92831744,
+        "physicalFootprintBytes": 29885352
+      },
+      "gauges": [
+        {
+          "name": "app.requests.in_flight",
+          "value": 1
+        },
+        {
+          "name": "core.threads.live",
+          "value": 9
+        }
+      ]
+    },
+    "actual_native_methods": [
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "server/diagnostics"
+    ],
+    "repetition": 0
+  },
+  {
+    "mode": "bridge",
+    "root": "/private/tmp/relay-feasibility-cost-v1rywxf9",
+    "operations": [
+      {
+        "thread": "01a18d58-80a8-7bb0-a760-46dd8e84ed63",
+        "latency_ms": 767.4678750045132
+      },
+      {
+        "thread": "01a18d58-80b0-7d52-b94d-e121b64da523",
+        "latency_ms": 771.2440839968622
+      },
+      {
+        "thread": "01a18d58-80a1-7cf2-9ec2-90d7ebaa933b",
+        "latency_ms": 757.9178339947248
+      },
+      {
+        "thread": "01a18d58-807a-79f2-952e-eff3dfe1981f",
+        "latency_ms": 720.1330840034643
+      },
+      {
+        "thread": "01a18d58-808b-7463-bbe8-0e2a83b9b2a2",
+        "latency_ms": 733.6843329976546
+      },
+      {
+        "thread": "01a18d58-8085-7931-97ff-068e7da1cf18",
+        "latency_ms": 724.2814170022029
+      },
+      {
+        "thread": "01a18d58-8092-7101-860c-8967e3ff951a",
+        "latency_ms": 733.8167909911135
+      },
+      {
+        "thread": "01a18d58-8099-7d52-8c95-06c8040b096e",
+        "latency_ms": 740.2847089979332
+      }
+    ],
+    "wall_s_8_starts": 0.773600415996043,
+    "worker_cpu_s": 0.070465,
+    "children_cpu_s": 0.862466,
+    "worker_peak_rss": 28704768,
+    "rss_units": "bytes",
+    "backend_diagnostics": {
+      "process": {
+        "id": 18595,
+        "residentMemoryBytes": 92766208,
+        "physicalFootprintBytes": 30000064
+      },
+      "gauges": [
+        {
+          "name": "app.requests.in_flight",
+          "value": 1
+        },
+        {
+          "name": "core.threads.live",
+          "value": 9
+        }
+      ]
+    },
+    "actual_native_methods": [
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "server/diagnostics"
+    ],
+    "repetition": 0
+  },
+  {
+    "mode": "direct",
+    "root": "/private/tmp/relay-feasibility-cost-uqewnsj5",
+    "operations": [
+      {
+        "thread": "01a18d58-81f1-7481-b9a6-f129814a7252",
+        "latency_ms": 60.256041993852705
+      },
+      {
+        "thread": "01a18d58-81f1-7481-b9a6-f15acf9b5694",
+        "latency_ms": 14.976082995417528
+      },
+      {
+        "thread": "01a18d58-81f1-7481-b9a6-f0cd700d337a",
+        "latency_ms": 11.645874998066574
+      },
+      {
+        "thread": "01a18d58-81f1-7481-b9a6-f0faa1dc9b7f",
+        "latency_ms": 10.02395800605882
+      },
+      {
+        "thread": "01a18d58-81f2-7300-b4c4-b829ea7cbcf5",
+        "latency_ms": 56.85495900979731
+      },
+      {
+        "thread": "01a18d58-81f2-7300-b4c4-b88aac0b45c9",
+        "latency_ms": 14.65879198804032
+      },
+      {
+        "thread": "01a18d58-81f2-7300-b4c4-b7fd086925bc",
+        "latency_ms": 16.644207993522286
+      },
+      {
+        "thread": "01a18d58-81f3-7e30-b8b8-43cc15cf3d66",
+        "latency_ms": 17.732124993926845
+      }
+    ],
+    "wall_s_8_starts": 0.0610539589979453,
+    "worker_cpu_s": 0.054547,
+    "children_cpu_s": 0.373428,
+    "worker_peak_rss": 28803072,
+    "rss_units": "bytes",
+    "backend_diagnostics": {
+      "process": {
+        "id": 19237,
+        "residentMemoryBytes": 99221504,
+        "physicalFootprintBytes": 36488368
+      },
+      "gauges": [
+        {
+          "name": "app.requests.in_flight",
+          "value": 1
+        },
+        {
+          "name": "core.threads.live",
+          "value": 9
+        }
+      ]
+    },
+    "actual_native_methods": [
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "server/diagnostics"
+    ],
+    "repetition": 1
+  },
+  {
+    "mode": "controller",
+    "root": "/private/tmp/relay-feasibility-cost-lzf0jphh",
+    "operations": [
+      {
+        "thread": "01a18d58-8303-7ee1-8d02-ee22803d666e",
+        "latency_ms": 12.927499992656521
+      },
+      {
+        "thread": "01a18d58-82fd-7802-83cd-475d36315bae",
+        "latency_ms": 6.243041993002407
+      },
+      {
+        "thread": "01a18d58-830a-77d1-9a27-ae1203dd584e",
+        "latency_ms": 19.369374989764765
+      },
+      {
+        "thread": "01a18d58-8310-7711-98e3-d3d4fee59c57",
+        "latency_ms": 25.3502080013277
+      },
+      {
+        "thread": "01a18d58-8316-78c2-a5d2-87090ee790cb",
+        "latency_ms": 32.29674999602139
+      },
+      {
+        "thread": "01a18d58-8324-7312-bd80-03fcb48e8c6c",
+        "latency_ms": 46.09879200870637
+      },
+      {
+        "thread": "01a18d58-831e-7211-8e35-9725bd2e4fb3",
+        "latency_ms": 38.74070799793117
+      },
+      {
+        "thread": "01a18d58-832c-7500-917e-3c67ad19fda7",
+        "latency_ms": 53.86591600836255
+      }
+    ],
+    "wall_s_8_starts": 0.05577454100421164,
+    "worker_cpu_s": 0.07148299999999999,
+    "children_cpu_s": 0.34106899999999996,
+    "worker_peak_rss": 28950528,
+    "rss_units": "bytes",
+    "backend_diagnostics": {
+      "process": {
+        "id": 19395,
+        "residentMemoryBytes": 92192768,
+        "physicalFootprintBytes": 29197248
+      },
+      "gauges": [
+        {
+          "name": "app.requests.in_flight",
+          "value": 1
+        },
+        {
+          "name": "core.threads.live",
+          "value": 9
+        }
+      ]
+    },
+    "actual_native_methods": [
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "server/diagnostics"
+    ],
+    "repetition": 1
+  },
+  {
+    "mode": "bridge",
+    "root": "/private/tmp/relay-feasibility-cost-9xahzs48",
+    "operations": [
+      {
+        "thread": "01a18d58-8597-7493-b88f-2de9ce31e304",
+        "latency_ms": 288.87616700376384
+      },
+      {
+        "thread": "01a18d58-857a-75e0-9466-2d55978b50d6",
+        "latency_ms": 258.1551670009503
+      },
+      {
+        "thread": "01a18d58-8581-7a51-a49c-c812f516cc8b",
+        "latency_ms": 268.2142080011545
+      },
+      {
+        "thread": "01a18d58-85a6-7991-b73e-904db12cd9ce",
+        "latency_ms": 301.07620799390133
+      },
+      {
+        "thread": "01a18d58-8572-7a52-8269-ca491b00c9e7",
+        "latency_ms": 251.7343749932479
+      },
+      {
+        "thread": "01a18d58-859f-79f1-9cc4-785a2dadf8e0",
+        "latency_ms": 292.85316698951647
+      },
+      {
+        "thread": "01a18d58-8591-7ba1-a43e-7a98e9be8fce",
+        "latency_ms": 274.78449999762233
+      },
+      {
+        "thread": "01a18d58-858b-7fb0-a96d-29868312f43b",
+        "latency_ms": 269.5053749921499
+      }
+    ],
+    "wall_s_8_starts": 0.3044490830070572,
+    "worker_cpu_s": 0.076555,
+    "children_cpu_s": 0.904654,
+    "worker_peak_rss": 28934144,
+    "rss_units": "bytes",
+    "backend_diagnostics": {
+      "process": {
+        "id": 19567,
+        "residentMemoryBytes": 93126656,
+        "physicalFootprintBytes": 30000040
+      },
+      "gauges": [
+        {
+          "name": "app.requests.in_flight",
+          "value": 1
+        },
+        {
+          "name": "core.threads.live",
+          "value": 9
+        }
+      ]
+    },
+    "actual_native_methods": [
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "server/diagnostics"
+    ],
+    "repetition": 1
+  },
+  {
+    "mode": "direct",
+    "root": "/private/tmp/relay-feasibility-cost-3gy782gq",
+    "operations": [
+      {
+        "thread": "01a18d58-86fd-7db1-9952-67444a749edb",
+        "latency_ms": 10.2995000052033
+      },
+      {
+        "thread": "01a18d58-86fd-7db1-9952-677815855016",
+        "latency_ms": 15.01529201050289
+      },
+      {
+        "thread": "01a18d58-86fd-7db1-9952-678e6f065e5c",
+        "latency_ms": 15.873875003308058
+      },
+      {
+        "thread": "01a18d58-86fe-72f1-adbe-140a52b6a1c0",
+        "latency_ms": 17.778250010451302
+      },
+      {
+        "thread": "01a18d58-86fd-7db1-9952-67e1c22aa9dd",
+        "latency_ms": 31.942457993864082
+      },
+      {
+        "thread": "01a18d58-86fe-72f1-adbe-145c750f00bc",
+        "latency_ms": 16.91533399571199
+      },
+      {
+        "thread": "01a18d58-8702-78f1-a81c-181a915bc3c4",
+        "latency_ms": 34.00825000426266
+      },
+      {
+        "thread": "01a18d58-8700-7cd3-8764-7cd9e8355d53",
+        "latency_ms": 20.383541996125132
+      }
+    ],
+    "wall_s_8_starts": 0.03802870900835842,
+    "worker_cpu_s": 0.065243,
+    "children_cpu_s": 0.415917,
+    "worker_peak_rss": 28540928,
+    "rss_units": "bytes",
+    "backend_diagnostics": {
+      "process": {
+        "id": 19754,
+        "residentMemoryBytes": 98500608,
+        "physicalFootprintBytes": 36193408
+      },
+      "gauges": [
+        {
+          "name": "app.requests.in_flight",
+          "value": 1
+        },
+        {
+          "name": "core.threads.live",
+          "value": 9
+        }
+      ]
+    },
+    "actual_native_methods": [
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "server/diagnostics"
+    ],
+    "repetition": 2
+  },
+  {
+    "mode": "controller",
+    "root": "/private/tmp/relay-feasibility-cost-hzug7hqm",
+    "operations": [
+      {
+        "thread": "01a18d58-8829-7d00-b279-73e7aa51a771",
+        "latency_ms": 6.564416995388456
+      },
+      {
+        "thread": "01a18d58-882f-7cf0-8d7f-27cf2b838f4b",
+        "latency_ms": 13.130040999385528
+      },
+      {
+        "thread": "01a18d58-8836-7b90-88f5-ca5f37ff6fc3",
+        "latency_ms": 19.472250001854263
+      },
+      {
+        "thread": "01a18d58-883c-7b01-bc03-d9dd28ad616a",
+        "latency_ms": 26.429791992995888
+      },
+      {
+        "thread": "01a18d58-8843-7372-b08b-e1c71234789a",
+        "latency_ms": 33.541416996740736
+      },
+      {
+        "thread": "01a18d58-884a-7f82-ba37-105cd934feaa",
+        "latency_ms": 40.115249998052604
+      },
+      {
+        "thread": "01a18d58-8858-7d23-8bf3-a5cccff4f3c2",
+        "latency_ms": 52.69279101048596
+      },
+      {
+        "thread": "01a18d58-8851-7812-acf0-4653d6e8446a",
+        "latency_ms": 46.830374994897284
+      }
+    ],
+    "wall_s_8_starts": 0.05429362499853596,
+    "worker_cpu_s": 0.07391199999999999,
+    "children_cpu_s": 0.33762899999999996,
+    "worker_peak_rss": 28966912,
+    "rss_units": "bytes",
+    "backend_diagnostics": {
+      "process": {
+        "id": 19925,
+        "residentMemoryBytes": 93061120,
+        "physicalFootprintBytes": 30049216
+      },
+      "gauges": [
+        {
+          "name": "app.requests.in_flight",
+          "value": 1
+        },
+        {
+          "name": "core.threads.live",
+          "value": 9
+        }
+      ]
+    },
+    "actual_native_methods": [
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "server/diagnostics"
+    ],
+    "repetition": 2
+  },
+  {
+    "mode": "bridge",
+    "root": "/private/tmp/relay-feasibility-cost-4ds77ryl",
+    "operations": [
+      {
+        "thread": "01a18d58-8ad2-79d2-b9a0-a94394eb4136",
+        "latency_ms": 303.8502089912072
+      },
+      {
+        "thread": "01a18d58-8abe-7f62-bf81-a6e8bbb319b8",
+        "latency_ms": 281.8987089995062
+      },
+      {
+        "thread": "01a18d58-8ac4-7fe1-b9ac-9f33e61dd839",
+        "latency_ms": 287.2909999859985
+      },
+      {
+        "thread": "01a18d58-8ab6-7960-817c-08be6b8261c0",
+        "latency_ms": 273.00916699459776
+      },
+      {
+        "thread": "01a18d58-8a9a-7843-986c-e683e2970efd",
+        "latency_ms": 251.90116700832732
+      },
+      {
+        "thread": "01a18d58-8aa7-7a31-b5fb-60d7919afe42",
+        "latency_ms": 259.34470900392625
+      },
+      {
+        "thread": "01a18d58-8aae-71d3-9e47-4517c5ff0146",
+        "latency_ms": 261.72454199695494
+      },
+      {
+        "thread": "01a18d58-8acb-7e02-bbe7-d9fa238c4756",
+        "latency_ms": 287.33745800855104
+      }
+    ],
+    "wall_s_8_starts": 0.304717332997825,
+    "worker_cpu_s": 0.07618799999999999,
+    "children_cpu_s": 0.9107000000000001,
+    "worker_peak_rss": 28934144,
+    "rss_units": "bytes",
+    "backend_diagnostics": {
+      "process": {
+        "id": 20083,
+        "residentMemoryBytes": 92962816,
+        "physicalFootprintBytes": 29934528
+      },
+      "gauges": [
+        {
+          "name": "app.requests.in_flight",
+          "value": 1
+        },
+        {
+          "name": "core.threads.live",
+          "value": 9
+        }
+      ]
+    },
+    "actual_native_methods": [
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "thread/start",
+      "server/diagnostics"
+    ],
+    "repetition": 2
+  }
+]

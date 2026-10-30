@@ -1,0 +1,5 @@
+{
+  "revision_refusal_observed": true,
+  "exit_code": 1,
+  "reason": "SHA mismatch for modified source; no second application performed"
+}

@@ -1,0 +1,39 @@
+{
+  "root": "/private/tmp/relay-tui-si4eb6vh",
+  "actions": [
+    "A /new"
+  ],
+  "hooks": [
+    {
+      "event": {
+        "session_id": "01a18d16-c44c-7e93-bb63-8678e81aa715",
+        "transcript_path": "/private/tmp/relay-tui-si4eb6vh/codex/sessions/2026/10/30/rollout-2026-10-30T15-54-01-01a18d16-c44c-7e93-bb63-8678e81aa715.jsonl",
+        "cwd": "/private/tmp/relay-tui-si4eb6vh/project",
+        "hook_event_name": "SessionEnd",
+        "reason": "other"
+      },
+      "marker": "A",
+      "pid": 92126,
+      "ppid": 91743,
+      "time_ns": 87732383580625
+    },
+    {
+      "event": {
+        "session_id": "01a18d16-e60a-7750-a8e9-9165e79cedcc",
+        "transcript_path": "/private/tmp/relay-tui-si4eb6vh/codex/sessions/2026/10/30/rollout-2026-10-30T15-54-10-01a18d16-e60a-7750-a8e9-9165e79cedcc.jsonl",
+        "cwd": "/private/tmp/relay-tui-si4eb6vh/project",
+        "hook_event_name": "SessionEnd",
+        "reason": "other"
+      },
+      "marker": "A",
+      "pid": 92127,
+      "ppid": 91743,
+      "time_ns": 87732383580625
+    }
+  ],
+  "exits": {
+    "A": 0,
+    "B": -15
+  },
+  "harness_failure": "The initial harness coalesced text/Enter; prompt submission was not established. This is not counted as a lifecycle test."
+}

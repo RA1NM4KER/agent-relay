@@ -1,0 +1,49 @@
+{
+  "root": "/private/tmp/relay-registry-stress-9xcu6m86",
+  "scope": "REGISTRY_ONLY",
+  "rounds": [
+    {
+      "round": 0,
+      "winners": 1,
+      "refusals": 7
+    },
+    {
+      "round": 1,
+      "winners": 1,
+      "refusals": 7
+    },
+    {
+      "round": 2,
+      "winners": 1,
+      "refusals": 7
+    },
+    {
+      "round": 3,
+      "winners": 1,
+      "refusals": 7
+    },
+    {
+      "round": 4,
+      "winners": 1,
+      "refusals": 7
+    },
+    {
+      "round": 5,
+      "winners": 1,
+      "refusals": 7
+    },
+    {
+      "round": 6,
+      "winners": 1,
+      "refusals": 7
+    },
+    {
+      "round": 7,
+      "winners": 1,
+      "refusals": 7
+    }
+  ],
+  "canonical_home_alias_same_identity": true,
+  "stale_epoch_refused": true,
+  "pending_creation_blocks_unregistered_adoption_after_process_death": true
+}

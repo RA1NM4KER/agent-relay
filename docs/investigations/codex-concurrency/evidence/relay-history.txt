@@ -1,0 +1,381 @@
+commit b15d68d6a98b04465908229ccf150d477ac64f23
+Author:     Kefas Aleck <24862940@sun.ac.za>
+AuthorDate: Tue Sep 22 02:19:44 2026 +0200
+Commit:     Kefas Aleck <24862940@sun.ac.za>
+CommitDate: Tue Sep 22 02:19:44 2026 +0200
+
+    feat: Relay Sessions — one active owner per conversation, not one writer per project
+    
+    A project holds many Relay Sessions (stable ids, per-session lease, journals, provider args, control
+    endpoint). ACTIVE while a live provider process is supervised, DORMANT afterwards; zero-turn sessions are
+    removed. relay claude/codex always start a new session; relay claude --resume, relay resume, relay switch,
+    /relay, status line, hooks, auto-handoff and Herdr resolve the session from the exact conversation.
+    Old one-lease-per-project state is migrated deterministically and idempotently. Process checks are
+    conversation-scoped.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+commit b2320f5ccd53a6aeaebd7aaee573b9f703bedd3d
+Author:     Kefas Aleck <24862940@sun.ac.za>
+AuthorDate: Tue Sep 29 09:07:27 2026 +0200
+Commit:     Kefas Aleck <24862940@sun.ac.za>
+CommitDate: Tue Sep 29 12:27:27 2026 +0200
+
+    fix(codex): reuse Codex's own shared daemon instead of --remote (agent-relay#18)
+    
+    Root cause, live-verified against codex-cli 0.155.0's own source at the
+    matching release tag: the event-driven runtime spawned a private
+    `codex app-server --listen unix://...` and appended `--remote <endpoint>`
+    to the interactive command so it would attach to that private runtime.
+    Codex's own TUI puts any `--remote`-launched client in
+    `ThreadParamsMode::Remote`, and explicitly strips every permission field
+    (approval_policy, sandbox, permissions, permission-related `-c` overrides)
+    from a `thread/resume` request in that mode -- "resuming restores the
+    server's saved permission settings", per the TUI's own source comment --
+    rejecting the request outright first if the CLI explicitly asked for an
+    override. A real dogfood session hit this directly: `--yolo` plus
+    `--remote` was rejected with "Permission overrides are not supported when
+    resuming a remote task."; dropping `--yolo` let the resume proceed but
+    under Codex's non-yolo default, breaking previously-unattended MCP writes.
+    
+    Fix: `ensure_managed_daemon` (relay-provider-codex::runtime) runs
+    `codex app-server daemon start` -- the same officially supported shared
+    local daemon `codex agents` already relies on for multi-client access --
+    and returns its well-known control-socket endpoint. The event runtime
+    attaches its own observer to that daemon instead of a private one, and the
+    interactive `TerminalCommand` is never modified: no `--remote`, nothing
+    else appended. An ordinary local `codex resume` with no `--remote` flag
+    auto-discovers and reuses that exact same daemon on its own
+    (`ThreadParamsMode::Embedded`, not `Remote`), so every already-resolved
+    provider argument -- `--yolo` included -- keeps meaning exactly what it
+    always did. Relay never owns or terminates this daemon: it is shared and
+    Codex-owned, and must keep running after this session ends.
+    
+    Removes the now-superseded "Relay owns and must reap its private
+    app-server" machinery (CodexRuntimeRecord/StaleReconciliation/
+    reconcile_stale/terminate_orphan and the durable runtime-record file) --
+    there is no longer a process Relay itself spawns and must reap. The
+    executable-resolution fix this depends on (event runtime reusing the
+    terminal's already-resolved executable) was already fixed and merged
+    separately (1668a88); this change does not touch it.
+    
+    Tests: ensure_managed_daemon parses the documented daemon-start JSON and
+    fails closed on a missing/failing executable or malformed output; a
+    resume's argv with event-driven mode on is byte-for-byte identical to
+    event-driven mode off, including a persisted permission-affecting
+    argument (--sandbox); the existing executable-resolution regression is
+    updated for the renamed trace event and now also asserts unmutated argv.
+    Observer attach/reconnect tests are unchanged and still pass -- they test
+    the protocol against a disposable AppServerHandle-spawned app-server,
+    independent of which app-server the production path now uses. Polling
+    (GitHub #13) is untouched.
+    
+    Full `cargo test --workspace` is green except pre-existing, already-
+    documented m6_auto.rs timing flakes under full-workspace parallel load
+    (three different, unrelated tests have each flaked once across three
+    separate full-workspace runs this session; every one passes reliably in
+    isolation) -- not touched, per instruction not to chase unrelated flakes
+    in this change.
+    
+    Does not close agent-relay#18: periodic polling (#13) is intentionally
+    still active, and this has not yet been validated against a real natural
+    exhaustion end-to-end.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+commit 00893fd6be3a37e7f9f536d2628639a82e2edc0c
+Author:     Kefas Aleck <24862940@sun.ac.za>
+AuthorDate: Mon Oct 12 02:17:21 2026 +0200
+Commit:     Kefas Aleck <24862940@sun.ac.za>
+CommitDate: Mon Oct 12 02:17:21 2026 +0200
+
+    feat(codex): close event-attribution for simultaneous sessions and suppress periodic polling while healthy (agent-relay#18)
+    
+    The previous audit's one remaining blocker: Codex's app-server protocol
+    broadcasts thread/started to every client sharing a CODEX_HOME, with no
+    client/session-scoped filter anywhere in the protocol (confirmed
+    exhaustively against the generated schema: 170 client request methods,
+    84 server notifications, none scoped by identity). Two live Relay
+    sessions sharing one Codex profile could therefore misattribute each
+    other's threads during event-driven observation — a configuration this
+    project's own history shows actually happens.
+    
+    Closes it architecturally, not by guessing: EventDrivenRuntime::start
+    now acquires a new relay_core::handoff::ProfileSessionLock (a genuine
+    flock, not a pid file) for the exact CODEX_HOME before doing anything
+    else, making "at most one live Relay-managed session observes this
+    profile's events at a time" a provable invariant. A second session is
+    refused visibly and falls back to ordinary polling-only supervision.
+    
+    Two issues surfaced and fixed during the adversarial pass:
+    - an initial join-based stop() implementation made ordinary shutdown
+      take as long as a full attach-retry timeout (15s, live-measured);
+      fixed by moving the lock's ownership into the worker thread's own
+      closure while attaching, and back onto the runtime struct on success,
+      so stop() stays fast while the invariant still holds without a join.
+    - the lock leaked a heap allocation and an open fd on every *refused*
+      acquisition, not only successful ones (caught by an independent
+      adversarial review); fixed by testing the lock locally before ever
+      needing a 'static guard, so nothing is leaked on either path.
+    
+    With exclusivity provable, CodexPollScheduler can now suppress its own
+    periodic timer while the observer is proven healthy — zero periodic
+    account/rateLimits/read calls, never just a long interval — while still
+    responding to a real usageLimitExceeded event or a post-reconnect
+    reconciliation read exactly as before. The moment health can't be
+    confirmed, the ordinary adaptive timer resumes immediately and visibly.
+    An operator's own explicit RELAY_CODEX_POLL_SECS override is left alone
+    regardless of health.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+commit 65dd11f9be54e560d1b94649481e8c499e949aac
+Author:     Kefas Aleck <24862940@sun.ac.za>
+AuthorDate: Mon Oct 12 02:38:34 2026 +0200
+Commit:     Kefas Aleck <24862940@sun.ac.za>
+CommitDate: Mon Oct 12 02:38:34 2026 +0200
+
+    fix(core): keep ProfileSessionLock's explicit unlock, fix its leak-on-refusal without it (agent-relay#18)
+    
+    The previous commit's ProfileSessionLock forgot its fd_lock guard and
+    relied on closing the underlying File to release the flock implicitly.
+    CI's macOS runner proved that unreliable: a held lock stayed held even
+    after the holder was dropped (crates/relay-core/src/handoff/lock.rs's
+    own a_profile_lock_is_acquired_when_free_and_refused_while_held test
+    failed there, though it passed 50/50 locally). Reverting to keeping
+    fd_lock's own guard alive — whose Drop issues an explicit flock/LOCK_UN
+    call rather than relying on close-implies-unlock — fixes it.
+    
+    That reintroduces the leak-on-refusal bug the guard-forgetting version
+    was fixing: Box::leak-ing before attempting the lock means a *refused*
+    attempt leaks too. Fixed instead with a cheap, non-leaking probe first
+    (a throwaway, un-leaked RwLock that tests the real lock and explicitly
+    unlocks before returning) — only once that confirms the lock is free
+    does this leak a Box and re-acquire for real. A narrow race remains
+    between the probe's release and the real acquisition, but that only
+    costs a leak in a genuine, rare race, never on an ordinary "already
+    busy" refusal.
+    
+    Also loosens the leak-detection test's assertion from exact equality to
+    a tolerance: it reads /dev/fd, which reflects the whole test process,
+    and other tests running concurrently on their own threads produced
+    enough cross-test noise to make exact equality itself flaky.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+commit 8a6e693ee68cd0ed136c71222daaa27cc653612e
+Author:     Kefas Aleck <24862940@sun.ac.za>
+AuthorDate: Mon Oct 12 08:41:51 2026 +0200
+Commit:     Kefas Aleck <24862940@sun.ac.za>
+CommitDate: Mon Oct 12 08:41:51 2026 +0200
+
+    fix(codex): gate the interactive Codex launch itself on profile exclusivity, not just the observer (agent-relay#18)
+    
+    ProfileSessionLock previously only gated EventDrivenRuntime::start, so a second
+    live session's interactive Codex TUI still launched unobserved on a refusal and
+    could still broadcast its own thread/started into a first session's live
+    observer, fully defeating the attribution invariant. The lock now gates the
+    interactive launch itself (acquired before the command is ever spawned, held
+    for its entire run, independent of whether this session's own observer ever
+    attaches) — a refusal now refuses to launch the TUI at all, visibly, rather
+    than falling back to unobserved polling-only supervision.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+commit 75ba067b04a4349d165ca06ac2c91e599c3d05b9
+Author:     Kefas Aleck <24862940@sun.ac.za>
+AuthorDate: Tue Oct 13 10:15:57 2026 +0200
+Commit:     Kefas Aleck <24862940@sun.ac.za>
+CommitDate: Tue Oct 13 10:15:57 2026 +0200
+
+    fix(codex): replace the app-server observer with a rollout-file watch (agent-relay#18)
+    
+    A live incident (proj-43efc346dfb87732, thread 01a133b0-...) proved, via the
+    real app-server daemon's own structured logs, that the opt-in event-driven
+    observer's own thread/resume call could win a race against the real
+    interactive client's own resume for the identical thread and get the
+    daemon's thread-store to reject the interactive client with "thread-store
+    conflict: ... already has an active writer" -- the confirmed cause of a
+    real "This conversation is open in another app" failure. The app-server's
+    own protocol exposes no read-only subscribe distinct from thread/resume, so
+    there is no way to fix this by reordering alone.
+    
+    RELAY_CODEX_EVENT_DRIVEN=1 now watches Codex's own local rollout file for
+    the known thread id directly (relay_provider_codex::rollout::RolloutWatcher)
+    instead of connecting to the app-server at all. Every Codex thread's
+    conversation is durably persisted, append-only, under
+    CODEX_HOME/sessions/<Y>/<M>/<D>/rollout-<timestamp>-<thread-id>.jsonl,
+    structurally naming its exact thread id in both the filename and its own
+    first record; a failed turn's exhaustion is a task_complete record whose
+    error.codex_error_info is usage_limit_exceeded. An ordinary OS-level
+    filesystem watcher (notify) reports this -- never an app-server connection,
+    so there is nothing to contend for a writer slot with, by construction.
+    
+    Removed the now-dead app-server-connected observer machinery
+    (relay-provider-codex::{events,runtime}, the thread/resume-based
+    attach/reconnect state machine in relay-cli::codex_runtime) rather than
+    leaving it in place looking production-capable. tungstenite is no longer a
+    dependency anywhere in the workspace.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+commit 5c09bcdc66777169869e0ae37cd678850fbfbb62
+Author:     Kefas Aleck <24862940@sun.ac.za>
+AuthorDate: Tue Oct 13 11:13:59 2026 +0200
+Commit:     Kefas Aleck <24862940@sun.ac.za>
+CommitDate: Tue Oct 13 11:13:59 2026 +0200
+
+    fix(codex): close rollout-watcher baseline/offset and health-truthfulness gaps (agent-relay#18)
+    
+    An independent review of commit 75ba067's rollout.rs found two concrete
+    correctness gaps, both now fixed:
+    
+    1. A file created after RolloutWatcher::attach, with records (including a
+       usage_limit_exceeded one) already written before the background loop's
+       first lazy discovery, could have its baseline computed from the file's
+       raw current length at the wrong moment, or from a stale/impossible
+       durable offset, silently skipping content this exact watcher never
+       actually read:
+       - open_tail now rejects a persisted WatchState offset outright (falling
+         back to the safe baseline instead of clamping) unless its path AND
+         device/inode AND offset-no-larger-than-current-length all hold —
+         never a stale offset left over from a different file generation at
+         the same path, and never a blind clamp of an offset the file has
+         since shrunk past.
+       - Baseline::ExistedBeforeWatch's fallback is now the file's last
+         *complete* line boundary, never its raw byte length, so a record
+         only partially written at the exact instant attach()'s one
+         synchronous stat runs can no longer be torn in two and lost.
+    
+    2. Added regression tests reproducing both gaps (now fixed) plus an
+       end-to-end test proving the full chain a real rollout exhaustion record
+       takes through to the scheduler: rollout event ->
+       codex_usage_limit_event_received -> exactly one triggered evaluation,
+       with zero periodic reads while healthy throughout.
+    
+    An independent reviewer agent confirmed worker health-truthfulness
+    (every worker_loop exit path, via the HealthGuard drop guard) and
+    exit/recovery semantics were already sound; only the baseline/offset
+    logic needed fixing.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+commit 92fea8d4fe54559139228531cb3e0000faffc11f
+Author:     Kefas Aleck <24862940@sun.ac.za>
+AuthorDate: Thu Oct 15 08:52:53 2026 +0200
+Commit:     Kefas Aleck <24862940@sun.ac.za>
+CommitDate: Thu Oct 15 08:52:53 2026 +0200
+
+    fix(codex): enforce profile exclusivity before thread creation and watch the whole profile domain (agent-relay#18)
+    
+    A second, concurrent Relay-managed operation on the same Codex profile (a fresh `relay codex`
+    launch, or a handoff/switch/automatic-handoff bootstrap target) could create a real thread via
+    `codex exec` before the profile's exclusivity lock was ever checked - only the later interactive
+    attach checked it. Both paths now acquire the lock before any provider action that could create a
+    thread, and the lock itself is unconditional rather than gated behind the opt-in event-driven flag.
+    
+    With that invariant actually provable, RolloutWatcher is redesigned from a single-thread watcher
+    into a profile-domain one: a live supervised Codex TUI can change which native thread it drives
+    mid-session without ending supervision (/new, /fork, "resume a saved chat" are real in-TUI
+    commands), and the watcher now rebinds to whichever thread becomes authoritative - /fork via its
+    own forked_from_id, /new and "resume a saved chat" via post-watch growth on another structurally
+    top-level rollout, attributable to the one supervised TUI because no other Relay-controlled
+    operation can be driving a top-level thread on this profile while it holds the lock. Subagents and
+    ephemeral side-conversations are excluded structurally, never by heuristic.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+commit deeac2f07a2b9ff7e528becec654d0e7731c1546
+Author:     Kefas Aleck <24862940@sun.ac.za>
+AuthorDate: Thu Oct 15 12:09:00 2026 +0200
+Commit:     Kefas Aleck <24862940@sun.ac.za>
+CommitDate: Thu Oct 15 12:09:00 2026 +0200
+
+    fix(codex): read bounded-by-record, not 8 KiB, to find real rollout headers (agent-relay#18)
+    
+    A real pinned codex-cli 0.156.0 rollout's first session_meta record (its
+    base_instructions payload included) is 22,275 bytes. read_session_meta_payload
+    read a single fixed 8,192-byte chunk looking for the first newline, so it could
+    never find that record: find_rollout_file returned None forever, the watcher
+    never became healthy, and the zero-poll architecture never engaged, though
+    timer polling correctly stayed the fallback. Now reads bounded by the record
+    itself via read_until(b'\n'), with a 1 MiB safety ceiling that fails closed
+    (never silently misparsed) if exceeded. Also adds a durable
+    codex_event_driven_discovery_stalled trace, fired once if a watch never
+    becomes healthy within 10s, so a future discovery failure is distinguishable
+    from an ordinary startup window instead of indistinguishable from it.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+commit 6810a502ec09eda2b691c535f3f089be048bdb35
+Author:     Kefas Aleck <24862940@sun.ac.za>
+AuthorDate: Thu Oct 15 21:08:29 2026 +0200
+Commit:     Kefas Aleck <24862940@sun.ac.za>
+CommitDate: Thu Oct 15 21:08:29 2026 +0200
+
+    feat(release): v0.5.0 — graduate Codex event-driven exhaustion detection to default (agent-relay#18)
+    
+    The event-driven rollout-watcher architecture has been live-proven end to
+    end against a real natural exhaustion (2026-10-15, codex-cli 0.156.0): zero
+    periodic account/rateLimits/read polling while healthy, exactly one
+    authoritative read triggered by the real structured event, and a correct
+    automatic handoff. It is no longer dogfood-only.
+    
+    - RELAY_CODEX_EVENT_DRIVEN now defaults to enabled for a verified Codex
+      version; "0" is the one kept override to force polling-only supervision.
+      There was no documented user contract for the historical "1"-to-opt-in
+      shape, so this is a plain default flip, not a preserved legacy value.
+      An unverified Codex version is unaffected either way: the existing
+      version_verified gate inside EventDrivenRuntime::start still declines for
+      it unconditionally, falling back to structured adaptive polling exactly
+      as before.
+    - Added integration tests proving: a verified Codex version starts
+      event-driven observation with no opt-in env var; an explicit
+      RELAY_CODEX_EVENT_DRIVEN=0 leaves no event-driven trace at all; an
+      unverified version declines visibly and falls back to polling. Removed
+      now-redundant explicit opt-in env vars from existing tests that no longer
+      need them.
+    - No #18 safety invariant changed: profile exclusivity before thread
+      creation remains unconditional, the watcher remains read-only with no
+      app-server connection, interactive argv stays untouched, and
+      ordinaryUsageAllowed==false remains the sole exhaustion verdict.
+    - Bumped workspace version 0.4.1 -> 0.5.0. Verified a release build
+      (RELAY_RELEASE_BUILD=1) reports the clean "relay 0.5.0" with no dev
+      metadata, and an ordinary dev build still reports
+      "<next-patch>-dev.<count>+<sha>" as before.
+    - Rewrote CHANGELOG.md's Unreleased section into a clean v0.5.0 entry
+      describing the final architecture, not the abandoned app-server-observer
+      design or the research-history narrative that preceded it.
+    - Updated README.md, docs/automatic-handoff.md, docs/security.md, and
+      docs/benchmarks.md to drop stale "opt-in"/"experimental"/"not yet
+      observed live" claims and describe the current default-on, zero-poll-
+      while-healthy, polling-fallback behavior and the real live validation.
+    - Updated relay-provider-codex::VERIFIED_VERSIONS's own doc comment to
+      describe the current rollout-watcher architecture's verification
+      evidence for 0.156.0 (including the new live natural-exhaustion proof),
+      replacing stale evidence description for the deleted app-server-observer
+      design it previously cited.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+commit 5414fdd09baee7e1b0b36516c8a13f7ca3075537
+Author:     Kefas Aleck <24862940@sun.ac.za>
+AuthorDate: Tue Sep 22 23:30:13 2026 +0200
+Commit:     Kefas Aleck <24862940@sun.ac.za>
+CommitDate: Tue Sep 22 23:30:13 2026 +0200
+
+    fix(codex): close automatic handoff gaps on stop and exit
+    
+    CodexSessionStopper::stop_and_verify no longer lets an ambiguous
+    recorded-pid check short-circuit the authoritative CODEX_HOME scan -
+    either signal establishing quiescence is now enough, matching
+    CodexSourceLiveness's existing OR semantics. Only StopNotVerified when
+    neither view can confirm it.
+    
+    run_managed_terminal_inner now runs a final structured Codex usage
+    evaluation, synchronously and in-process, when the child exits - Codex
+    has no "the limit was hit" event, so a child that exits exhausted
+    between two periodic polls (or before the first one ever fires) would
+    otherwise never trigger a handoff before the session is released.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>

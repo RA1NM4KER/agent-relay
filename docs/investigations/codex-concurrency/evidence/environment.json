@@ -1,0 +1,15 @@
+{
+  "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "python": "3.14.3",
+  "codex_path": "/Users/kefasmanda/.codex/packages/standalone/releases/0.166.0-aarch64-apple-darwin/bin/codex",
+  "codex_sha256": "39acf979729dd290f9a24ee38b2914e036c91b65952872e28ae2a6b88a7db7c1",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01) (Homebrew)",
+  "relay_commit": "7a6466667ddf1aa3196a9351d5f87c90d9527c77",
+  "limitations": [
+    "TCP loopback bind EPERM",
+    "Unix-domain bind EPERM",
+    "shell DNS resolution unavailable",
+    "CPU brand sysctl EPERM",
+    "no real credentials/provider/model completions used"
+  ]
+}
