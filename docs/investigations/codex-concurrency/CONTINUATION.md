@@ -2,6 +2,24 @@
 
 Date: 2026-10-30. This is a research/engineering branch, not a release.
 
+## Storage recovery and linked native TUI follow-up
+
+User-authorized cache cleanup reclaimed about 6 GiB while preserving this lab's
+cache and all source/evidence/active profiles. The cached pinned CLI build now
+passes; the binary reports 0.166.0. See NATIVE_BUILD.md's latest section and
+engineering/evidence/native-tui-20261030/. Do not repeat setup or cleanup.
+
+Eight actual rebuilt embedded TUIs pass initial pre-prompt selection reporting,
+then fail the /new gate. Native ephemeral structured-request threads are owned
+but incorrectly constrained to foreground display selection; refusal quarantines
+the owner and the bridge's global failed flag then blocks turn interruption.
+Startup read-method coverage is also incomplete. Preserve these failures and
+repair native role propagation and narrowly owned cancellation before retrying
+embedded/shared gates. Do not disable background features, clear reservations,
+weaken method policy or infer binding from terminal output. Production is unchanged;
+host enforcement, executor quiescence, successful handoff and full parity remain
+unproven. Earlier disk-blocked sections below are historical, not current blockers.
+
 ## Pinned native build follow-up from aa96aea
 
 [NATIVE_BUILD.md](NATIVE_BUILD.md) records the now-successful isolated Rust

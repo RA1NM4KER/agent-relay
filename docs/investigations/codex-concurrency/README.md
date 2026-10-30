@@ -1,5 +1,10 @@
 # Concurrent Codex sessions: investigation and decision record
 
+**First rebuilt native run:** cache cleanup unblocked full CLI linking. Eight
+embedded source-built TUIs report initial selections, but /new fails on the
+prototype's background-root/cancellation handling. NATIVE_BUILD.md retains this
+failure and next engineering obligations; full parity remains unproven.
+
 **Pinned build follow-up:** [NATIVE_BUILD.md](NATIVE_BUILD.md) records an actual
 successful native client/TUI type-check with Rust 1.95.0. CLI linking reached
 the disk reserve; native TUI runtime/permission and enforcement gates remain

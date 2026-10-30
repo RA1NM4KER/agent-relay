@@ -1,0 +1,50 @@
+[
+  {
+    "file": "build-cli-after-cleanup.log.gz",
+    "uncompressed_sha256": "9675bf6e5498ae060e41b349a2cb15eecba5ebaa46379ac1f987dd2d20992de9"
+  },
+  {
+    "file": "built-version.log.gz",
+    "uncompressed_sha256": "728b255fa6d47ac8019747aaf2876baaafacdb93dfba1e4697257224bbc75a5c"
+  },
+  {
+    "file": "tui-embedded-initial.log.gz",
+    "uncompressed_sha256": "912ce6b4755315e3cff4405839d56cd23c1c8ffe1c18bfbf0e8d377a9eb2e0f9"
+  },
+  {
+    "file": "tui-embedded-warm.log.gz",
+    "uncompressed_sha256": "e087bd8bb7ac151d1bc1164c0e99e7ea1c863fb20d250b73172ce8b3682b5ecd"
+  },
+  {
+    "file": "tui-embedded-warm-pane-0.terminal.gz",
+    "uncompressed_sha256": "5a2810959120f5903fb74b3d6d3be47dcd960c264ef7529f52494f527c1c13ad"
+  },
+  {
+    "file": "tui-embedded-warm-pane-1.terminal.gz",
+    "uncompressed_sha256": "b7eb54d1a47cc7f75c74531e1484861f2ef03d573cc913aac372467304b705fd"
+  },
+  {
+    "file": "tui-embedded-warm-pane-2.terminal.gz",
+    "uncompressed_sha256": "91f3fd0924847cab68666df7f8c89c24c4b93c51f2a7a3090a4bfa56ee242382"
+  },
+  {
+    "file": "tui-embedded-warm-pane-3.terminal.gz",
+    "uncompressed_sha256": "decec6b1dbcfb4cf60a0ba00b18c727bf6f3eae116368dd712fc085f3f8dfecc"
+  },
+  {
+    "file": "tui-embedded-warm-pane-4.terminal.gz",
+    "uncompressed_sha256": "1c2b73a00e836a5b5eadef9b4ddea98ef361094087c05d319fd1e67295cae103"
+  },
+  {
+    "file": "tui-embedded-warm-pane-5.terminal.gz",
+    "uncompressed_sha256": "99f26f8c2c72fbec02e4b9c009bdccdbd619fc1468dfe15195fc1f83c40f86da"
+  },
+  {
+    "file": "tui-embedded-warm-pane-6.terminal.gz",
+    "uncompressed_sha256": "919fdbbf9a568b2377e809d3bc151ba79eda082e3c9eaefabd75e5ede15097c6"
+  },
+  {
+    "file": "tui-embedded-warm-pane-7.terminal.gz",
+    "uncompressed_sha256": "f406067e5665b24bc394370a4ca1678c1d0d9400563ae81b0365569cd72f8a9b"
+  }
+]

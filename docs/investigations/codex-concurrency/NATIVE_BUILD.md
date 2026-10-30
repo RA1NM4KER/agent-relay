@@ -4,6 +4,65 @@ This increment continues `aa96aea`; it does not restart the architecture study.
 Production Relay, ProfileSessionLock, installed binaries, real provider homes,
 and live Herdr panes remain unchanged. Full parity remains unproven.
 
+## Storage recovery and first native runtime attempt
+
+This follow-up supersedes the disk blocker below, retaining all earlier failures.
+The user explicitly authorized removal of unnecessary caches. Removed inactive
+Relay debug dependency/incremental/build metadata and package-download metadata;
+kept the native source/toolchain/target cache, Relay entry/release binaries,
+personal files, provider homes and running application caches. Available disk
+increased from approximately 1.7 to 7.6 GiB (about 6 GiB reclaimed). The detailed
+cleanup inventory is local-only under workspace checkpoints.
+
+The cached `cargo build --locked -p codex-cli --bin codex` then **passed** in
+146.4s, using the original source insertion, pin and audited lockfile. The linked
+binary reports `codex-cli 0.166.0`. Native build is no longer an environment
+blocker. Exact stages/results and binary hash are in
+`engineering/evidence/native-tui-20261030/`.
+
+The first harness attempt overlapped the binary's slow initial version check:
+the standalone check took 16.0s, while NativeRPC's five-second version probe
+timed out. That attempt started no TUI. Retained it, then reran only after the
+successful version check completed; no timeout or version gate was weakened.
+
+The next embedded run launched eight actual source-built native TUIs across
+two disposable projects and acknowledged eight exact initial selections before
+any prompt. It then **failed** `eight native new selections before their prompts`.
+No fork/resume/crash success is implied; shared mode has not been run while the
+embedded gate remains unresolved.
+
+### Runtime failure diagnosis
+
+The pinned TUI legitimately creates ephemeral temporary structured-request
+threads (`tui/src/temporary_structured_request.rs`, `start_temporary_thread`),
+separate from the displayed foreground root. The callback reserves their exact
+returned IDs, but its generic mutation path requires every owned root to equal
+the frontend's display selection. It does not retain/propagate the native
+ephemeral/background role. This conflicts with ordinary native background work.
+
+The run retained eight foreground selections, sixteen bound creation intents,
+and sixteen subsequently UNKNOWN reservations. Native logs report supervision
+loss in temporary-thread cleanup and foreground `turn/interrupt`. The source
+bridge checks its global FAILED flag before even its nominally ungated interrupt
+path, so callback refusal also disables cancellation. The foreground task remains
+in progress and native `/new` refuses accordingly. Terminal text is diagnostic
+only; no identity or ownership is inferred from it. The registry, structured
+native logs, rollout metadata and pinned source establish the relevant paths.
+
+Startup also reports unclassified `hooks/list` and `thread/attachment/list` RPCs.
+They require separate source-level classification and parity tests; do not
+blindly allow unknown methods to make the harness green. No native hooks,
+temporary tasks or user permission features were disabled as a workaround.
+
+Next engineering increment: propagate explicit primary/display/background roles
+from native response-bound identity, preserve reservations and event scope for
+background work, and provide narrowly owned cancellation/cleanup after admission
+loss without reopening writes or releasing uncertain ownership. Add deterministic
+negative/interleaving tests, rebuild, and rerun embedded before shared mode.
+The harness must observe completed cancellation through structured evidence before
+issuing navigation; changing a sleep or weakening selection assertions is not a
+fix. Host-wide admission and executor quiescence still remain separate foundations.
+
 ## Exact source and isolated tools
 
 - Upstream: `rust-v0.166.0`, commit

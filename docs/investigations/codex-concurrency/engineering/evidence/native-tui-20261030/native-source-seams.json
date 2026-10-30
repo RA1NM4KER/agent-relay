@@ -1,0 +1,16 @@
+{
+  "repository": "openai/codex",
+  "commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+  "sources": [
+    {
+      "path": "codex-rs/tui/src/temporary_structured_request.rs",
+      "git_blob": "840eafb2bae3cb0defb510bfa1ef4a7d1e8252bf"
+    },
+    {
+      "path": "codex-rs/app-server-protocol/src/protocol/v2/thread_data.rs",
+      "git_blob": "dd7c0d854a62f34d60c130154f86570bf1770e0f"
+    }
+  ],
+  "callback_source": "feasibility/native_callback.py",
+  "failed_flag_source": "feasibility/native_bridge.rs"
+}

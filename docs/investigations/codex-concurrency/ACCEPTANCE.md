@@ -219,3 +219,17 @@ embedded/shared TUI runtime tests were **not run**. No selection, permission,
 Herdr, host-admission, executor-quiescence or handoff runtime gate is passed.
 Full parity remains NOT DEMONSTRATED. Earlier network/ps restrictions no longer
 block this lab, but extra storage is required before another build/runtime run.
+
+## Storage recovery and first rebuilt TUI run
+
+User-authorized cache cleanup resolves the disk blocker. Full pinned CLI linking
+now passes with the original insertion and external dependency closure unchanged.
+Eight real embedded source-built TUIs report initial selections before prompts:
+O, limited to startup reporting, not full C01/C03 certification. C12 (/new) fails:
+the prototype does not distinguish native ephemeral/background roots from display
+selection; refusal also blocks interruption through the bridge's failed flag.
+Fork/resume/reconnect/permissions and shared native mode remain U; no handoff or
+quiescence guarantee is upgraded. NATIVE_BUILD.md retains exact diagnosis and
+engineering/evidence/native-tui-20261030/ preserves both the initial cold-version
+timeout and the subsequent selection-gate failure. No features were disabled to
+make these tests pass. Full parity remains NOT DEMONSTRATED.

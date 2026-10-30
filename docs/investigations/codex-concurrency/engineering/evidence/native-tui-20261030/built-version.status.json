@@ -1,0 +1,18 @@
+{
+  "stage": "built-version",
+  "argv": [
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex",
+    "--version"
+  ],
+  "started": 1793388796.162464,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 7181500416,
+  "pid": 42652,
+  "exit_code": 0,
+  "elapsed_s": 16.04379391670227,
+  "free_after": 7179669504
+}

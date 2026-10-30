@@ -1,0 +1,82 @@
+[
+  {
+    "native_id": "01a18e4e-44d0-7c93-8ccb-b8e7fe488153",
+    "session_id": "01a18e4e-44d0-7c93-8ccb-b8e7fe488153",
+    "source": "cli",
+    "event_types": [
+      "task_started",
+      "thread_settings_applied",
+      "item_completed"
+    ]
+  },
+  {
+    "native_id": "01a18e4e-4482-7fb3-a875-aacde331a20f",
+    "session_id": "01a18e4e-4482-7fb3-a875-aacde331a20f",
+    "source": "cli",
+    "event_types": [
+      "task_started",
+      "thread_settings_applied",
+      "item_completed"
+    ]
+  },
+  {
+    "native_id": "01a18e4e-4450-79d1-8381-72727b8d6c9f",
+    "session_id": "01a18e4e-4450-79d1-8381-72727b8d6c9f",
+    "source": "cli",
+    "event_types": [
+      "task_started",
+      "thread_settings_applied",
+      "item_completed"
+    ]
+  },
+  {
+    "native_id": "01a18e4e-4438-7b43-9b7d-4756aefcb0b4",
+    "session_id": "01a18e4e-4438-7b43-9b7d-4756aefcb0b4",
+    "source": "cli",
+    "event_types": [
+      "task_started",
+      "thread_settings_applied",
+      "item_completed"
+    ]
+  },
+  {
+    "native_id": "01a18e4e-449e-7c71-8cdf-4193b225783b",
+    "session_id": "01a18e4e-449e-7c71-8cdf-4193b225783b",
+    "source": "cli",
+    "event_types": [
+      "task_started",
+      "thread_settings_applied",
+      "item_completed"
+    ]
+  },
+  {
+    "native_id": "01a18e4e-446a-7a43-9ab0-d32af76c2699",
+    "session_id": "01a18e4e-446a-7a43-9ab0-d32af76c2699",
+    "source": "cli",
+    "event_types": [
+      "task_started",
+      "thread_settings_applied",
+      "item_completed"
+    ]
+  },
+  {
+    "native_id": "01a18e4e-43c2-71c0-a510-484d40c5e9ff",
+    "session_id": "01a18e4e-43c2-71c0-a510-484d40c5e9ff",
+    "source": "cli",
+    "event_types": [
+      "task_started",
+      "thread_settings_applied",
+      "item_completed"
+    ]
+  },
+  {
+    "native_id": "01a18e4e-44b8-7441-a7c1-f814ae40e4e1",
+    "session_id": "01a18e4e-44b8-7441-a7c1-f814ae40e4e1",
+    "source": "cli",
+    "event_types": [
+      "task_started",
+      "thread_settings_applied",
+      "item_completed"
+    ]
+  }
+]

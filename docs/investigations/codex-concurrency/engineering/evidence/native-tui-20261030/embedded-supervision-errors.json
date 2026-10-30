@@ -1,0 +1,162 @@
+[
+  [
+    "WARN",
+    "codex_tui::startup_hooks_review",
+    "failed to load startup hook review state: hooks/list failed in TUI: hooks/list transport error: unclassified research RPC: hooks/list: unclassified research RPC: hooks/list"
+  ],
+  [
+    "WARN",
+    "codex_tui::app_server_session",
+    "managed worktree attachment storage unavailable error=thread/attachment/list transport error: unclassified research RPC: thread/attachment/list"
+  ],
+  [
+    "DEBUG",
+    "codex_tui::temporary_structured_request",
+    "failed to unsubscribe from temporary structured thread error=thread/unsubscribe transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::app::thread_routing",
+    "turn/interrupt failed in TUI error=turn/interrupt transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::startup_hooks_review",
+    "failed to load startup hook review state: hooks/list failed in TUI: hooks/list transport error: unclassified research RPC: hooks/list: unclassified research RPC: hooks/list"
+  ],
+  [
+    "WARN",
+    "codex_tui::app_server_session",
+    "managed worktree attachment storage unavailable error=thread/attachment/list transport error: unclassified research RPC: thread/attachment/list"
+  ],
+  [
+    "DEBUG",
+    "codex_tui::temporary_structured_request",
+    "failed to unsubscribe from temporary structured thread error=thread/unsubscribe transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::app::thread_routing",
+    "turn/interrupt failed in TUI error=turn/interrupt transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::startup_hooks_review",
+    "failed to load startup hook review state: hooks/list failed in TUI: hooks/list transport error: unclassified research RPC: hooks/list: unclassified research RPC: hooks/list"
+  ],
+  [
+    "WARN",
+    "codex_tui::app_server_session",
+    "managed worktree attachment storage unavailable error=thread/attachment/list transport error: unclassified research RPC: thread/attachment/list"
+  ],
+  [
+    "DEBUG",
+    "codex_tui::temporary_structured_request",
+    "failed to unsubscribe from temporary structured thread error=thread/unsubscribe transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::app::thread_routing",
+    "turn/interrupt failed in TUI error=turn/interrupt transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::startup_hooks_review",
+    "failed to load startup hook review state: hooks/list failed in TUI: hooks/list transport error: unclassified research RPC: hooks/list: unclassified research RPC: hooks/list"
+  ],
+  [
+    "WARN",
+    "codex_tui::app_server_session",
+    "managed worktree attachment storage unavailable error=thread/attachment/list transport error: unclassified research RPC: thread/attachment/list"
+  ],
+  [
+    "DEBUG",
+    "codex_tui::temporary_structured_request",
+    "failed to unsubscribe from temporary structured thread error=thread/unsubscribe transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::app::thread_routing",
+    "turn/interrupt failed in TUI error=turn/interrupt transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::startup_hooks_review",
+    "failed to load startup hook review state: hooks/list failed in TUI: hooks/list transport error: unclassified research RPC: hooks/list: unclassified research RPC: hooks/list"
+  ],
+  [
+    "WARN",
+    "codex_tui::app_server_session",
+    "managed worktree attachment storage unavailable error=thread/attachment/list transport error: unclassified research RPC: thread/attachment/list"
+  ],
+  [
+    "DEBUG",
+    "codex_tui::temporary_structured_request",
+    "failed to unsubscribe from temporary structured thread error=thread/unsubscribe transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::app::thread_routing",
+    "turn/interrupt failed in TUI error=turn/interrupt transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::startup_hooks_review",
+    "failed to load startup hook review state: hooks/list failed in TUI: hooks/list transport error: unclassified research RPC: hooks/list: unclassified research RPC: hooks/list"
+  ],
+  [
+    "WARN",
+    "codex_tui::app_server_session",
+    "managed worktree attachment storage unavailable error=thread/attachment/list transport error: unclassified research RPC: thread/attachment/list"
+  ],
+  [
+    "DEBUG",
+    "codex_tui::temporary_structured_request",
+    "failed to unsubscribe from temporary structured thread error=thread/unsubscribe transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::app::thread_routing",
+    "turn/interrupt failed in TUI error=turn/interrupt transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::startup_hooks_review",
+    "failed to load startup hook review state: hooks/list failed in TUI: hooks/list transport error: unclassified research RPC: hooks/list: unclassified research RPC: hooks/list"
+  ],
+  [
+    "WARN",
+    "codex_tui::app_server_session",
+    "managed worktree attachment storage unavailable error=thread/attachment/list transport error: unclassified research RPC: thread/attachment/list"
+  ],
+  [
+    "DEBUG",
+    "codex_tui::temporary_structured_request",
+    "failed to unsubscribe from temporary structured thread error=thread/unsubscribe transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::app::thread_routing",
+    "turn/interrupt failed in TUI error=turn/interrupt transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::startup_hooks_review",
+    "failed to load startup hook review state: hooks/list failed in TUI: hooks/list transport error: unclassified research RPC: hooks/list: unclassified research RPC: hooks/list"
+  ],
+  [
+    "WARN",
+    "codex_tui::app_server_session",
+    "managed worktree attachment storage unavailable error=thread/attachment/list transport error: unclassified research RPC: thread/attachment/list"
+  ],
+  [
+    "DEBUG",
+    "codex_tui::temporary_structured_request",
+    "failed to unsubscribe from temporary structured thread error=thread/unsubscribe transport error: research supervision lost"
+  ],
+  [
+    "WARN",
+    "codex_tui::app::thread_routing",
+    "turn/interrupt failed in TUI error=turn/interrupt transport error: research supervision lost"
+  ]
+]

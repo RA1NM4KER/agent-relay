@@ -1,5 +1,10 @@
 # Integration lab setup and capability boundary
 
+Latest: cache cleanup resolved disk pressure; the pinned native CLI builds and
+reports 0.166.0. The first embedded runtime gate now fails on prototype handling
+of native background roots and cancellation, rather than environment capacity.
+See NATIVE_BUILD.md's latest section before retrying any earlier runbook stage.
+
 Updated execution evidence is in [NATIVE_BUILD.md](NATIVE_BUILD.md): the earlier
 DNS/socket/ps restrictions below are now resolved, isolated Rust 1.95.0 is set
 up, and the unchanged native client/TUI insertion passes cargo check. Full CLI

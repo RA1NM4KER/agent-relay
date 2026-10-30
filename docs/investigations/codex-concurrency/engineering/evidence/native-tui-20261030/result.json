@@ -1,0 +1,16 @@
+{
+  "source_commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+  "original_source_insertion_unchanged": true,
+  "linked_cli_build": "PASSED",
+  "binary_path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex",
+  "binary_sha256": "0ff33527a63abf3c51de4c424f659274bb39fae21ab48aff5a0a0f9d882910a6",
+  "version": "codex-cli 0.166.0",
+  "embedded_initial_attempt": "FAILED_VERSION_CHECK_TIMEOUT_BEFORE_TUIS",
+  "embedded_warm_attempt": "FAILED_NEW_SELECTION_GATE_AFTER_EIGHT_INITIAL_SELECTIONS",
+  "shared_mode": "NOT_RUN_PENDING_EMBEDDED_FAILURE_DIAGNOSIS",
+  "full_parity": false,
+  "host_enforcement": false,
+  "executor_quiescence": "UNPROVEN",
+  "production_source_changed": false,
+  "cleanup_report_local_only": "/Users/kefasmanda/repos/agent-relay/docs/investigations/checkpoints/disk-cleanup-2026-10-30.json"
+}

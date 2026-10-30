@@ -1,5 +1,11 @@
 # Controlled engineering validation, 2026-10-30
 
+Latest follow-up: user-authorized cache cleanup resolved disk pressure and the
+pinned CLI now links. Eight actual rebuilt embedded TUIs pass initial selection
+reporting but fail /new due to missing background-root role handling and blocked
+interruption after callback refusal. See NATIVE_BUILD.md and the retained native
+runtime evidence. Production and all full-parity requirements remain unchanged.
+
 Pinned build continuation from aa96aea: [NATIVE_BUILD.md](NATIVE_BUILD.md).
 Actual native client/TUI cargo check now passes with isolated Rust 1.95.0 and
 the original source insertion. Full CLI linking is blocked by the lab's disk

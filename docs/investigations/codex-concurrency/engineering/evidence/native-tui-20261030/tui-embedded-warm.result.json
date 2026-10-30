@@ -1,0 +1,9 @@
+{
+  "root": "/var/folders/j5/kknrxsqx5hv7cgl6s_mp2v840000gn/T/relay-native-tui-lab-r805aogg",
+  "mode": "embedded",
+  "checks": [
+    "eight initial native selections acknowledged before any prompt"
+  ],
+  "full_parity": false,
+  "exception": "AssertionError('eight native new selections before their prompts')"
+}

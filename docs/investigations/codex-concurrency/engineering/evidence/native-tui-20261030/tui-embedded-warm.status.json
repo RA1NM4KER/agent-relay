@@ -1,0 +1,22 @@
+{
+  "stage": "tui-embedded-warm",
+  "argv": [
+    "python3",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/native_tui_lab.py",
+    "--codex",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex",
+    "--mode",
+    "embedded"
+  ],
+  "started": 1793388854.0056498,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 7177474048,
+  "pid": 44146,
+  "exit_code": 1,
+  "elapsed_s": 26.059991121292114,
+  "free_after": 7097696256
+}

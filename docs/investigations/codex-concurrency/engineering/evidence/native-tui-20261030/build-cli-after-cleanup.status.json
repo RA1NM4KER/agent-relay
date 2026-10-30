@@ -1,0 +1,23 @@
+{
+  "stage": "build-cli-after-cleanup",
+  "argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "-p",
+    "codex-cli",
+    "--bin",
+    "codex"
+  ],
+  "started": 1793388593.511799,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 8185724928,
+  "pid": 37008,
+  "exit_code": 0,
+  "elapsed_s": 146.35146498680115,
+  "free_after": 7184351232
+}

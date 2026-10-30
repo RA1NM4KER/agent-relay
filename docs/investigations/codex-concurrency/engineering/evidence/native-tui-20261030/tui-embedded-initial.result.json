@@ -1,0 +1,7 @@
+{
+  "root": "/var/folders/j5/kknrxsqx5hv7cgl6s_mp2v840000gn/T/relay-native-tui-lab-cb_duy5a",
+  "mode": "embedded",
+  "checks": [],
+  "full_parity": false,
+  "exception": "TimeoutExpired(['/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex', '--version'], 5)"
+}

@@ -1,5 +1,18 @@
 # Experiment ledger
 
+## Cache cleanup and first rebuilt TUI execution
+
+NATIVE_BUILD.md and engineering/evidence/native-tui-20261030/ retain this follow-up.
+User-authorized cache cleanup reclaimed about 6 GiB; the pinned native CLI links
+successfully with the unchanged insertion. Initial harness attempt timed out its
+five-second version probe during overlapping cold execution; no TUI started.
+After version verification completed, eight real embedded TUIs passed initial
+pre-prompt selection reporting, then failed /new. The callback conflates owned
+ephemeral/background work with foreground selection; supervision loss blocks
+interrupt/cleanup too. Read-RPC classification is additionally incomplete.
+Shared mode remains unrun. No safety or permission gate was loosened, and no
+production source, credential or active session changed.
+
 ## Pinned native build continuation from aa96aea
 
 NATIVE_BUILD.md and engineering/evidence/native-build-20261030/ retain every
