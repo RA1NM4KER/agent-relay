@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-30",
+  "repository": "RA1NM4KER/agent-relay",
+  "remote_research_ref_found": false,
+  "workflow_blobs_matched_local": {
+    "ci.yml": "873603d8dceb0eae0c855863bdbdea95788fbcfc",
+    "dogfood.yml": "1d9626980d0696ffd9a0c3e4760237470ed58a38",
+    "release.yml": "91f2c5f41b371f883839655704381c9721a6268f",
+    "pages-stable-version.yml": "8d604f2a65c540567053316c3f0cefd2a55967c4"
+  },
+  "deployment_triggers_match_research_branch_backup": false,
+  "attempted_action": "GitHub create_blob, exact original verified bundle encoded as base64",
+  "result": "REJECTED",
+  "error": "MCP tool call requires approval, but approval policy is never",
+  "remote_backup_created": false,
+  "remote_branch_created": false,
+  "bundle_uploaded": false
+}

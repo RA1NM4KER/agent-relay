@@ -2,6 +2,25 @@
 
 Date: 2026-10-30. This is a research/engineering branch, not a release.
 
+## Latest capability follow-up
+
+The continuation from c113acf verified its bundle/hash and all 90 mirrored files.
+Current DNS, listener and own-process inspection probes remain blocked; PTYs work.
+No native suites were rerun. The remote research ref was not found, and remote
+backup via GitHub create_blob was rejected because write approval is required
+while session policy is never. No remote backup exists from that attempt.
+
+[LAB_SETUP.md](LAB_SETUP.md) contains precise required capability changes, the
+verified Rust 1.95.0 pin, safe branch-only push instructions, and the native build/
+integration sequence for an authorized disposable lab. The deployment workflows
+were checked against remote blob hashes; research backup matches none of their
+deployment triggers. The research checkout's origin is the local original
+workspace, so use the explicit GitHub URL when backing up remotely.
+
+This follow-up stops at the environmental boundary as requested. It changes no
+prototype/production implementation or guarantee status. A new documentation/
+evidence commit follows c113acf; exact tip and bundle hash remain in checkpoint.json.
+
 ## Durable state
 
 - Original workspace: `/Users/kefasmanda/repos/agent-relay`, still on main at

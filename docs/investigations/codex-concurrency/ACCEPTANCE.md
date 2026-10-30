@@ -198,3 +198,12 @@ retain management authority/descriptors. An empty cgroup is insufficient if
 work previously escaped it. Direct native requests must refuse after a fence;
 the new service experiment still positively demonstrates that this is not true
 for the unmodified provider dispatcher.
+
+## Capability follow-up from c113acf
+
+Checkpoint integrity is verified (bundle/hash and 90 mirrored files). Full native
+build/shared-daemon/process-supervision validation remains blocked by DNS,
+socket-listener and process-inspection restrictions. Remote backup is separately
+blocked by GitHub write approval under a never-approval policy; no remote backup
+is claimed. Exact setup and branch-only backup commands: LAB_SETUP.md. No native
+acceptance row or previous test result is upgraded by these capability checks.

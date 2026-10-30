@@ -1,5 +1,11 @@
 # Controlled engineering validation, 2026-10-30
 
+Capability follow-up from c113acf: [LAB_SETUP.md](LAB_SETUP.md) records checkpoint
+verification, the blocked remote-backup attempt and exact environmental changes
+needed for native integration. The execution environment remains unsuitable;
+this follow-up does not introduce another unvalidated architecture or rerun the
+already completed native experiments.
+
 ## Result and boundary
 
 Progress is preserved on `research/codex-concurrency-native-validation`, based on

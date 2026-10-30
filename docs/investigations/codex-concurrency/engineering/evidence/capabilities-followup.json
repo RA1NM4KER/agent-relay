@@ -1,0 +1,31 @@
+{
+  "prior_probe_failure": "Process probe raised PermissionError before first attempt could save results; this corrected probe records errors.",
+  "github.com": {
+    "error": "[Errno 8] nodename nor servname provided, or not known"
+  },
+  "index.crates.io": {
+    "error": "[Errno 8] nodename nor servname provided, or not known"
+  },
+  "static.rust-lang.org": {
+    "error": "[Errno 8] nodename nor servname provided, or not known"
+  },
+  "tcp": {
+    "errno": 1,
+    "error": "[Errno 1] Operation not permitted"
+  },
+  "unix": {
+    "errno": 1,
+    "error": "[Errno 1] Operation not permitted"
+  },
+  "pty": "OPEN_OK",
+  "own_process_identity": {
+    "errno": 1,
+    "error": "[Errno 1] Operation not permitted: '/bin/ps'"
+  },
+  "full_codex_checkout_available": false,
+  "checkpoint_verified": {
+    "tip": "c113acf5f850a01fb253b8f49692d3496ed6388d",
+    "bundle_sha256": "9084b8a485170adb43b23ad2860cb1b39da4d40315a0caa72aae1e0a7c3fdb83",
+    "mirrored_files_verified": 90
+  }
+}
