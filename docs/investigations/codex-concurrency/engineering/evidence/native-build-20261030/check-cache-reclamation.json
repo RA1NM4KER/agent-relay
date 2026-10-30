@@ -1,0 +1,3524 @@
+{
+  "reason": "completed cargo-check metadata only; full build uses linked rlibs; all Cargo stages stopped before removal",
+  "files": [
+    {
+      "path": "target/debug/deps/libmatchit-afd6a5a1059d7170.rmeta",
+      "bytes": 118058
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_fuzzy_match-72de3fd5e39521f9.rmeta",
+      "bytes": 3497
+    },
+    {
+      "path": "target/debug/deps/libsignal_hook_mio-8740d620c9f6c7c8.rmeta",
+      "bytes": 17804
+    },
+    {
+      "path": "target/debug/deps/libradix_trie-5df986fdc63ec191.rmeta",
+      "bytes": 135035
+    },
+    {
+      "path": "target/debug/deps/libhash32-315f3a10b8d9dec7.rmeta",
+      "bytes": 96077
+    },
+    {
+      "path": "target/debug/deps/libtagptr-3d2e811ee86de8d6.rmeta",
+      "bytes": 142837
+    },
+    {
+      "path": "target/debug/deps/libbincode-4569a6fe9dd7fbd3.rmeta",
+      "bytes": 386948
+    },
+    {
+      "path": "target/debug/deps/libinventory-13fe6898a27cba91.rmeta",
+      "bytes": 30902
+    },
+    {
+      "path": "target/debug/deps/libfsevent_sys-f6526ddb6b726406.rmeta",
+      "bytes": 30909
+    },
+    {
+      "path": "target/debug/deps/libsentry_core-a5acd64b4b414bcf.rmeta",
+      "bytes": 315355
+    },
+    {
+      "path": "target/debug/deps/libhashbrown-20dc59b4f80fb724.rmeta",
+      "bytes": 1017996
+    },
+    {
+      "path": "target/debug/deps/libasync_channel-41320f7d14459c5f.rmeta",
+      "bytes": 150848
+    },
+    {
+      "path": "target/debug/deps/libfile_id-d61f3fbf412691c5.rmeta",
+      "bytes": 13063
+    },
+    {
+      "path": "target/debug/deps/libconst_oid-e885140df97eccc9.rmeta",
+      "bytes": 73974
+    },
+    {
+      "path": "target/debug/deps/libansi_to_tui-436bb0f72bf3e02f.rmeta",
+      "bytes": 60689
+    },
+    {
+      "path": "target/debug/deps/libsystem_configuration_sys-b6bd16be4d7c85aa.rmeta",
+      "bytes": 94473
+    },
+    {
+      "path": "target/debug/deps/libtextwrap-bfacfc0b235223b8.rmeta",
+      "bytes": 47213
+    },
+    {
+      "path": "target/debug/deps/libcodex_backend_client-dc97420834033710.rmeta",
+      "bytes": 1379979
+    },
+    {
+      "path": "target/debug/deps/libclap-535197325ef4422f.rmeta",
+      "bytes": 12910
+    },
+    {
+      "path": "target/debug/deps/libmd5-3e6af9faee49b58e.rmeta",
+      "bytes": 27541
+    },
+    {
+      "path": "target/debug/deps/libcodex_rollout-ce88d1bb5403cb95.rmeta",
+      "bytes": 2986992
+    },
+    {
+      "path": "target/debug/deps/libcodex_model_provider-b034db722fa022b1.rmeta",
+      "bytes": 906338
+    },
+    {
+      "path": "target/debug/deps/libhyper_tls-33fe5c81f4e51438.rmeta",
+      "bytes": 45296
+    },
+    {
+      "path": "target/debug/deps/libder_parser-43741d04e7271174.rmeta",
+      "bytes": 386536
+    },
+    {
+      "path": "target/debug/deps/libnibble_vec-2562ede59635d78f.rmeta",
+      "bytes": 15906
+    },
+    {
+      "path": "target/debug/deps/libtracing_error-2addc07cd41248f0.rmeta",
+      "bytes": 67450
+    },
+    {
+      "path": "target/debug/deps/libwildcard-f280498bc5250da3.rmeta",
+      "bytes": 38662
+    },
+    {
+      "path": "target/debug/deps/libcpufeatures-fb7bb65b14a14668.rmeta",
+      "bytes": 12698
+    },
+    {
+      "path": "target/debug/deps/libaws_sdk_ssooidc-969adf11e69c7561.rmeta",
+      "bytes": 1309422
+    },
+    {
+      "path": "target/debug/deps/libassert_json_diff-9ba2a69ab56884ea.rmeta",
+      "bytes": 51958
+    },
+    {
+      "path": "target/debug/deps/libis_terminal_polyfill-5bef39d5358e99a7.rmeta",
+      "bytes": 8485
+    },
+    {
+      "path": "target/debug/deps/libtoml_writer-fd62389b293eea43.rmeta",
+      "bytes": 101508
+    },
+    {
+      "path": "target/debug/deps/libgix_diff-4d40c5ef4bb4bd8e.rmeta",
+      "bytes": 62233
+    },
+    {
+      "path": "target/debug/deps/liboption_ext-6a18ab56c7ca395d.rmeta",
+      "bytes": 9136
+    },
+    {
+      "path": "target/debug/deps/libevent_listener-361ca802e3b393f8.rmeta",
+      "bytes": 240448
+    },
+    {
+      "path": "target/debug/deps/librama_http_core-ba30b132f04094ae.rmeta",
+      "bytes": 5038241
+    },
+    {
+      "path": "target/debug/deps/libfutures_io-4ca48f7cfd81404e.rmeta",
+      "bytes": 54228
+    },
+    {
+      "path": "target/debug/deps/libdirs_sys_next-d6999e3cb897aa1f.rmeta",
+      "bytes": 5510
+    },
+    {
+      "path": "target/debug/deps/libgix_revision-f7bfa7d9455dae8b.rmeta",
+      "bytes": 118223
+    },
+    {
+      "path": "target/debug/deps/libsecurity_framework-69406fbe735f9d4f.rmeta",
+      "bytes": 1484095
+    },
+    {
+      "path": "target/debug/deps/libcodex_otel-e057d0cadad6f067.rmeta",
+      "bytes": 1723796
+    },
+    {
+      "path": "target/debug/deps/libsubtle-b161374ef26051af.rmeta",
+      "bytes": 75243
+    },
+    {
+      "path": "target/debug/deps/libnix-267e7fe341a99892.rmeta",
+      "bytes": 2560329
+    },
+    {
+      "path": "target/debug/deps/libpxfm-0309488e95b2fff6.rmeta",
+      "bytes": 2128797
+    },
+    {
+      "path": "target/debug/deps/libparking-1cfd4a703f4ae65d.rmeta",
+      "bytes": 18739
+    },
+    {
+      "path": "target/debug/deps/libclru-a373e069355dbc41.rmeta",
+      "bytes": 106820
+    },
+    {
+      "path": "target/debug/deps/libcrc32fast-12f277d2436930cb.rmeta",
+      "bytes": 40324
+    },
+    {
+      "path": "target/debug/deps/libwhich-a0172f4cfe05d081.rmeta",
+      "bytes": 109086
+    },
+    {
+      "path": "target/debug/deps/libtokio_native_tls-152327cec336a23c.rmeta",
+      "bytes": 54083
+    },
+    {
+      "path": "target/debug/deps/libipnet-562cf51acc6c453b.rmeta",
+      "bytes": 224869
+    },
+    {
+      "path": "target/debug/deps/libserde_path_to_error-9ec743d805f5fe83.rmeta",
+      "bytes": 224909
+    },
+    {
+      "path": "target/debug/deps/libheapless-a4bd3384f9989d38.rmeta",
+      "bytes": 784606
+    },
+    {
+      "path": "target/debug/deps/libcolorchoice-ea65ff5d37fd32c9.rmeta",
+      "bytes": 11458
+    },
+    {
+      "path": "target/debug/deps/libsupports_color-d476c84b1beaea35.rmeta",
+      "bytes": 17071
+    },
+    {
+      "path": "target/debug/deps/libcpubits-bcb175c7a52fe0a2.rmeta",
+      "bytes": 20626
+    },
+    {
+      "path": "target/debug/deps/libahash-9e0f10d02c33ad8f.rmeta",
+      "bytes": 177389
+    },
+    {
+      "path": "target/debug/deps/libsymphonia_common-f3589af71df4e1e1.rmeta",
+      "bytes": 97322
+    },
+    {
+      "path": "target/debug/deps/libthiserror-a7836cbaabd02d43.rmeta",
+      "bytes": 23969
+    },
+    {
+      "path": "target/debug/deps/libopentelemetry_otlp-906e06d1a2b7be24.rmeta",
+      "bytes": 709228
+    },
+    {
+      "path": "target/debug/deps/libcodex_windows_sandbox-5f9aaefa75a373f1.rmeta",
+      "bytes": 87040
+    },
+    {
+      "path": "target/debug/deps/libcodex_http_client-7a566c2ffff0176b.rmeta",
+      "bytes": 958106
+    },
+    {
+      "path": "target/debug/deps/libsecurity_framework_sys-1dd79e25b7dc5f80.rmeta",
+      "bytes": 414837
+    },
+    {
+      "path": "target/debug/deps/libweezl-9c01297a1bb57419.rmeta",
+      "bytes": 141104
+    },
+    {
+      "path": "target/debug/deps/libunicode_segmentation-efc5c38b0534aaab.rmeta",
+      "bytes": 931928
+    },
+    {
+      "path": "target/debug/deps/libbumpalo-f1d6a436dea36f30.rmeta",
+      "bytes": 152598
+    },
+    {
+      "path": "target/debug/deps/libbit_vec-108f5316bc39190e.rmeta",
+      "bytes": 90439
+    },
+    {
+      "path": "target/debug/deps/libtokio_stream-d5428fc7c43feccc.rmeta",
+      "bytes": 715548
+    },
+    {
+      "path": "target/debug/deps/libmatchit-fae5ee07bdc22d58.rmeta",
+      "bytes": 102960
+    },
+    {
+      "path": "target/debug/deps/libdata_encoding-7a97e9724681f25c.rmeta",
+      "bytes": 313377
+    },
+    {
+      "path": "target/debug/deps/libschemars-95d84cd7b7649051.rmeta",
+      "bytes": 654285
+    },
+    {
+      "path": "target/debug/deps/libcrossbeam_utils-bb74142d4011767b.rmeta",
+      "bytes": 294739
+    },
+    {
+      "path": "target/debug/deps/libspki-b007d3bc8da0cc62.rmeta",
+      "bytes": 79919
+    },
+    {
+      "path": "target/debug/deps/libpoly1305-4097941b3264206c.rmeta",
+      "bytes": 20203
+    },
+    {
+      "path": "target/debug/deps/libsalsa20-815983df5fd7732b.rmeta",
+      "bytes": 36483
+    },
+    {
+      "path": "target/debug/deps/libcodex_runtime_agent_instance-264d28c23eafe8d6.rmeta",
+      "bytes": 279568
+    },
+    {
+      "path": "target/debug/deps/libtinystr-7c754226d8757b88.rmeta",
+      "bytes": 272615
+    },
+    {
+      "path": "target/debug/deps/libcodex_context_fragments-137d344a4d730983.rmeta",
+      "bytes": 83041
+    },
+    {
+      "path": "target/debug/deps/libtracing-a03dd0636b7b01d9.rmeta",
+      "bytes": 564431
+    },
+    {
+      "path": "target/debug/deps/libtoml_datetime-f3adf060a669e083.rmeta",
+      "bytes": 98291
+    },
+    {
+      "path": "target/debug/deps/libtracing_subscriber-addd8b591888e572.rmeta",
+      "bytes": 1546054
+    },
+    {
+      "path": "target/debug/deps/libaws_smithy_runtime-ba629e458ff7544b.rmeta",
+      "bytes": 2312578
+    },
+    {
+      "path": "target/debug/deps/libsyntect-f0cf1a9ec19c2e10.rmeta",
+      "bytes": 727294
+    },
+    {
+      "path": "target/debug/deps/libwindows_strings-21ca0f540145834e.rmeta",
+      "bytes": 2462
+    },
+    {
+      "path": "target/debug/deps/libcodex_app_server_daemon-2731119970654073.rmeta",
+      "bytes": 2447279
+    },
+    {
+      "path": "target/debug/deps/libunic_langid_impl-dde16fcb3aeaa3d8.rmeta",
+      "bytes": 91890
+    },
+    {
+      "path": "target/debug/deps/libcodex_build_info-0e4ad96003d8e5d4.rmeta",
+      "bytes": 25557
+    },
+    {
+      "path": "target/debug/deps/libunicode_width-cee7d9de48ae7719.rmeta",
+      "bytes": 768843
+    },
+    {
+      "path": "target/debug/deps/libbitflags-d819b6362a652f48.rmeta",
+      "bytes": 176357
+    },
+    {
+      "path": "target/debug/deps/libtokio_rustls-1f0ca006aecc480c.rmeta",
+      "bytes": 121649
+    },
+    {
+      "path": "target/debug/deps/liblogos-05d170589916be4d.rmeta",
+      "bytes": 82980
+    },
+    {
+      "path": "target/debug/deps/libjsonptr-6eb9888af3274c61.rmeta",
+      "bytes": 265795
+    },
+    {
+      "path": "target/debug/deps/libbytemuck-2d338c245c731b76.rmeta",
+      "bytes": 432790
+    },
+    {
+      "path": "target/debug/deps/libnix-791c1d010352a26e.rmeta",
+      "bytes": 295599
+    },
+    {
+      "path": "target/debug/deps/libcodex_models_manager-01bf47bee1b0b5b4.rmeta",
+      "bytes": 672992
+    },
+    {
+      "path": "target/debug/deps/libchardetng-5dffcdd29de87d12.rmeta",
+      "bytes": 194417
+    },
+    {
+      "path": "target/debug/deps/libserde_spanned-a9fabf9eda3040cf.rmeta",
+      "bytes": 28949
+    },
+    {
+      "path": "target/debug/deps/libanstyle_query-80e1607f727f4eb4.rmeta",
+      "bytes": 8050
+    },
+    {
+      "path": "target/debug/deps/libsentry-bb3fe41b75277553.rmeta",
+      "bytes": 41699
+    },
+    {
+      "path": "target/debug/deps/libencoding_rs-37442f7d4b05b95b.rmeta",
+      "bytes": 1005482
+    },
+    {
+      "path": "target/debug/deps/libsecurity_framework-52d292c4ee68fd55.rmeta",
+      "bytes": 1284512
+    },
+    {
+      "path": "target/debug/deps/libopentelemetry_sdk-06138e8fe239fe03.rmeta",
+      "bytes": 2366142
+    },
+    {
+      "path": "target/debug/deps/libcodex_mcp-592a1afc15124a8c.rmeta",
+      "bytes": 3755986
+    },
+    {
+      "path": "target/debug/deps/libimage-b2dae65ed2950c19.rmeta",
+      "bytes": 1562121
+    },
+    {
+      "path": "target/debug/deps/libtinyvec-346ee429ac2b01d5.rmeta",
+      "bytes": 266472
+    },
+    {
+      "path": "target/debug/deps/librand_regex-dd8d2331a72c7739.rmeta",
+      "bytes": 65660
+    },
+    {
+      "path": "target/debug/deps/libdeadpool-621bdbacf6455ada.rmeta",
+      "bytes": 339964
+    },
+    {
+      "path": "target/debug/deps/libpbkdf2-5febc50349ca9318.rmeta",
+      "bytes": 16133
+    },
+    {
+      "path": "target/debug/deps/libgetrandom-fb689df981538518.rmeta",
+      "bytes": 51134
+    },
+    {
+      "path": "target/debug/deps/libelliptic_curve-e000ec801183f3a5.rmeta",
+      "bytes": 309912
+    },
+    {
+      "path": "target/debug/deps/libiri_string-ed9d54abfdd7fdde.rmeta",
+      "bytes": 2008446
+    },
+    {
+      "path": "target/debug/deps/libcodex_secrets-cb2eda68afdf0464.rmeta",
+      "bytes": 122571
+    },
+    {
+      "path": "target/debug/deps/libsqlx-5494b65f5f5d7ac2.rmeta",
+      "bytes": 26793
+    },
+    {
+      "path": "target/debug/deps/libclap_builder-90ecee265dec7cfa.rmeta",
+      "bytes": 1659707
+    },
+    {
+      "path": "target/debug/deps/libdotenvy-b30c8ab19e0175a6.rmeta",
+      "bytes": 43351
+    },
+    {
+      "path": "target/debug/deps/libcodex_user_verification-9be60edff771e659.rmeta",
+      "bytes": 98176
+    },
+    {
+      "path": "target/debug/deps/libglobset-b7078611fc509db0.rmeta",
+      "bytes": 131955
+    },
+    {
+      "path": "target/debug/deps/libmime_guess-72a01d5cb917dba7.rmeta",
+      "bytes": 317047
+    },
+    {
+      "path": "target/debug/deps/libform_urlencoded-5eaa2d5053087357.rmeta",
+      "bytes": 27169
+    },
+    {
+      "path": "target/debug/deps/libgix_shallow-9fff1f4feebaf424.rmeta",
+      "bytes": 17048
+    },
+    {
+      "path": "target/debug/deps/libicu_collections-171f51438a7fc507.rmeta",
+      "bytes": 316377
+    },
+    {
+      "path": "target/debug/deps/libnum_integer-6a57109e2e1291e1.rmeta",
+      "bytes": 177504
+    },
+    {
+      "path": "target/debug/deps/libderanged-ecdeaf02c9549f6a.rmeta",
+      "bytes": 3195170
+    },
+    {
+      "path": "target/debug/deps/libcodex_file_system-1f24447fd2ba06f8.rmeta",
+      "bytes": 460391
+    },
+    {
+      "path": "target/debug/deps/libstrum-3ff287019ebdb761.rmeta",
+      "bytes": 27917
+    },
+    {
+      "path": "target/debug/deps/libicu_locale_core-22a7fdf385c5ab3a.rmeta",
+      "bytes": 1457909
+    },
+    {
+      "path": "target/debug/deps/libmemoffset-9a344a6049e46487.rmeta",
+      "bytes": 27368
+    },
+    {
+      "path": "target/debug/deps/libctutils-0ab023b856c5693f.rmeta",
+      "bytes": 283156
+    },
+    {
+      "path": "target/debug/deps/libzeroize-237e9400cca1f0a5.rmeta",
+      "bytes": 266824
+    },
+    {
+      "path": "target/debug/deps/libopaque_debug-96321fbb76a969b7.rmeta",
+      "bytes": 5746
+    },
+    {
+      "path": "target/debug/deps/libcodex_client-e7f1657c4281d6b2.rmeta",
+      "bytes": 85359
+    },
+    {
+      "path": "target/debug/deps/libcodex_file_watcher-66d7d092248e6d4e.rmeta",
+      "bytes": 128291
+    },
+    {
+      "path": "target/debug/deps/libfutures_executor-05da9cd01775f629.rmeta",
+      "bytes": 43495
+    },
+    {
+      "path": "target/debug/deps/libsymphonia_core-e7a6250bf19fcd04.rmeta",
+      "bytes": 2351153
+    },
+    {
+      "path": "target/debug/deps/libbase64ct-716d220597baae9c.rmeta",
+      "bytes": 183832
+    },
+    {
+      "path": "target/debug/deps/libitertools-a9f364dc4a2ecbbc.rmeta",
+      "bytes": 1618446
+    },
+    {
+      "path": "target/debug/deps/libmaplit-003d968cc4c47630.rmeta",
+      "bytes": 14755
+    },
+    {
+      "path": "target/debug/deps/libgix_commitgraph-5b55339a4e6dc9af.rmeta",
+      "bytes": 109111
+    },
+    {
+      "path": "target/debug/deps/libhashbrown-c348626f25970047.rmeta",
+      "bytes": 997336
+    },
+    {
+      "path": "target/debug/deps/libsupports_color-008c279490e59ab8.rmeta",
+      "bytes": 18335
+    },
+    {
+      "path": "target/debug/deps/libcodex_ollama-7ff072be1d0b3eb5.rmeta",
+      "bytes": 222974
+    },
+    {
+      "path": "target/debug/deps/libml_kem-609a9cb600e5c3ac.rmeta",
+      "bytes": 240560
+    },
+    {
+      "path": "target/debug/deps/libinclude_dir-0cd32c672896e3fd.rmeta",
+      "bytes": 32010
+    },
+    {
+      "path": "target/debug/deps/libmio-bcd5fc515f2f6756.rmeta",
+      "bytes": 417242
+    },
+    {
+      "path": "target/debug/deps/libcrossterm-e7432c2552b5eed9.rmeta",
+      "bytes": 1135256
+    },
+    {
+      "path": "target/debug/deps/libcaseless-d6500cc8439573f9.rmeta",
+      "bytes": 221053
+    },
+    {
+      "path": "target/debug/deps/libtracing_log-86a8491b4e13e3ed.rmeta",
+      "bytes": 58919
+    },
+    {
+      "path": "target/debug/deps/libcolor_quant-70c0531a1f5eb960.rmeta",
+      "bytes": 16125
+    },
+    {
+      "path": "target/debug/deps/libcodex_aws_auth-031fd11b97caeb0f.rmeta",
+      "bytes": 172403
+    },
+    {
+      "path": "target/debug/deps/libnum_cpus-c5d4929bae313883.rmeta",
+      "bytes": 9263
+    },
+    {
+      "path": "target/debug/deps/libgix_protocol-cbe479d4b7c64eec.rmeta",
+      "bytes": 98151
+    },
+    {
+      "path": "target/debug/deps/libeyre-ceedfabe1bfa27ed.rmeta",
+      "bytes": 198316
+    },
+    {
+      "path": "target/debug/deps/libheaders_core-b32fc096f560123b.rmeta",
+      "bytes": 9199
+    },
+    {
+      "path": "target/debug/deps/librust_embed-846bd1eae1eccff7.rmeta",
+      "bytes": 8929
+    },
+    {
+      "path": "target/debug/deps/libobjc2_local_authentication-f9dc1917476486e0.rmeta",
+      "bytes": 252462
+    },
+    {
+      "path": "target/debug/deps/libshlex-7c593aaf8c957b52.rmeta",
+      "bytes": 44334
+    },
+    {
+      "path": "target/debug/deps/libunicode_width-9ab3f2b846495a18.rmeta",
+      "bytes": 809583
+    },
+    {
+      "path": "target/debug/deps/libhybrid_array-83139183f2fd523a.rmeta",
+      "bytes": 1418306
+    },
+    {
+      "path": "target/debug/deps/libaws_smithy_query-c466175f7035672d.rmeta",
+      "bytes": 14107
+    },
+    {
+      "path": "target/debug/deps/libcodex_code_mode-c9c4f2700dda2df6.rmeta",
+      "bytes": 1349175
+    },
+    {
+      "path": "target/debug/deps/libzstd_sys-fa0b610a47479806.rmeta",
+      "bytes": 152260
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_home_dir-d72b68377f8e690b.rmeta",
+      "bytes": 5597
+    },
+    {
+      "path": "target/debug/deps/libaws_smithy_runtime_api-80c5ddf8e2cc12fe.rmeta",
+      "bytes": 1294302
+    },
+    {
+      "path": "target/debug/deps/librustc_hash-f63a98f7b5bb271f.rmeta",
+      "bytes": 18045
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_path-2ca5d1963f495458.rmeta",
+      "bytes": 16112
+    },
+    {
+      "path": "target/debug/deps/libmemchr-ac6ce58f913faad5.rmeta",
+      "bytes": 620081
+    },
+    {
+      "path": "target/debug/deps/libmultimap-bac42627c3562bc4.rmeta",
+      "bytes": 80361
+    },
+    {
+      "path": "target/debug/deps/libsys_locale-4c357d5c9aff20ad.rmeta",
+      "bytes": 12594
+    },
+    {
+      "path": "target/debug/deps/libcodex_guardian_v2-1ae0c4dc9cc33728.rmeta",
+      "bytes": 1376105
+    },
+    {
+      "path": "target/debug/deps/libblock2-73f41570d4fc44ad.rmeta",
+      "bytes": 288518
+    },
+    {
+      "path": "target/debug/deps/libgix_tempfile-dd7bf5ff8ac2abf7.rmeta",
+      "bytes": 66761
+    },
+    {
+      "path": "target/debug/deps/libaws_smithy_http-8ca8efa9a8ca34e4.rmeta",
+      "bytes": 80528
+    },
+    {
+      "path": "target/debug/deps/libendian_type-f0fb7a11698b075e.rmeta",
+      "bytes": 79810
+    },
+    {
+      "path": "target/debug/deps/libjiff-af499663cb6cca46.rmeta",
+      "bytes": 4228718
+    },
+    {
+      "path": "target/debug/deps/libendian_type-22d73c26d547f803.rmeta",
+      "bytes": 47756
+    },
+    {
+      "path": "target/debug/deps/libplist-158e7aaf1d1c7cbb.rmeta",
+      "bytes": 524667
+    },
+    {
+      "path": "target/debug/deps/libmatchers-4bf871ad13de384a.rmeta",
+      "bytes": 22953
+    },
+    {
+      "path": "target/debug/deps/libwildmatch-da1963a1d5cbe28c.rmeta",
+      "bytes": 19735
+    },
+    {
+      "path": "target/debug/deps/libcrossbeam_deque-51cf0b24e5fed8a6.rmeta",
+      "bytes": 68182
+    },
+    {
+      "path": "target/debug/deps/libquick_xml-f28288dc2d69a72e.rmeta",
+      "bytes": 814542
+    },
+    {
+      "path": "target/debug/deps/libnum_traits-f4bda5d8f9614475.rmeta",
+      "bytes": 1261990
+    },
+    {
+      "path": "target/debug/deps/libschemars-eda752bedef77082.rmeta",
+      "bytes": 595094
+    },
+    {
+      "path": "target/debug/deps/libsha1-bd531935e6e98a1a.rmeta",
+      "bytes": 31557
+    },
+    {
+      "path": "target/debug/deps/libpagable-dc39ce07786f7cc7.rmeta",
+      "bytes": 802554
+    },
+    {
+      "path": "target/debug/deps/libcodex_linux_sandbox-96ae8fe422805833.rmeta",
+      "bytes": 3183
+    },
+    {
+      "path": "target/debug/deps/libcodex_hooks-5e5f5d7b49330600.rmeta",
+      "bytes": 1692569
+    },
+    {
+      "path": "target/debug/deps/librama_http_types-31e5c619cb10844e.rmeta",
+      "bytes": 1802662
+    },
+    {
+      "path": "target/debug/deps/liboauth2-f80e781e91894693.rmeta",
+      "bytes": 1026456
+    },
+    {
+      "path": "target/debug/deps/libcodex_analytics-57a647ccbeda20b8.rmeta",
+      "bytes": 1419827
+    },
+    {
+      "path": "target/debug/deps/libterminal_size-73b560ce0f7f596d.rmeta",
+      "bytes": 15182
+    },
+    {
+      "path": "target/debug/deps/libtonic_prost-60583cf5ea203e72.rmeta",
+      "bytes": 25852
+    },
+    {
+      "path": "target/debug/deps/libaho_corasick-38254b9b094b5d97.rmeta",
+      "bytes": 1162653
+    },
+    {
+      "path": "target/debug/deps/libhome-8b0c212b18948bf2.rmeta",
+      "bytes": 17920
+    },
+    {
+      "path": "target/debug/deps/libcore_foundation-e8b0315ed3b885da.rmeta",
+      "bytes": 454074
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_output_truncation-85f9383e2dbd9828.rmeta",
+      "bytes": 36908
+    },
+    {
+      "path": "target/debug/deps/libsignal_hook-aebe196acd4575ef.rmeta",
+      "bytes": 201430
+    },
+    {
+      "path": "target/debug/deps/libcodex_network_proxy-97eee09b21435adc.rmeta",
+      "bytes": 4288638
+    },
+    {
+      "path": "target/debug/deps/libatoi-33da51d1301c888e.rmeta",
+      "bytes": 32529
+    },
+    {
+      "path": "target/debug/deps/libunicode_normalization-d18de40ad283e92b.rmeta",
+      "bytes": 1487167
+    },
+    {
+      "path": "target/debug/deps/libcached-c5b136cf3d9e5001.rmeta",
+      "bytes": 258057
+    },
+    {
+      "path": "target/debug/deps/libcodex_connectors_extension-0429a2ef48f3a91b.rmeta",
+      "bytes": 71320
+    },
+    {
+      "path": "target/debug/deps/libblock_buffer-61007e74dda32ae9.rmeta",
+      "bytes": 28488
+    },
+    {
+      "path": "target/debug/deps/libdirs_sys-5194916adf72d8e2.rmeta",
+      "bytes": 5877
+    },
+    {
+      "path": "target/debug/deps/libctr-4e60568922912101.rmeta",
+      "bytes": 61308
+    },
+    {
+      "path": "target/debug/deps/libserde_ignored-f6a3f1ba615bf191.rmeta",
+      "bytes": 91986
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_plugins-403da8c338223beb.rmeta",
+      "bytes": 79237
+    },
+    {
+      "path": "target/debug/deps/libryu-c84087964ccbcdf2.rmeta",
+      "bytes": 53782
+    },
+    {
+      "path": "target/debug/deps/libtokio_util-99d10697c8322c16.rmeta",
+      "bytes": 1180805
+    },
+    {
+      "path": "target/debug/deps/liblazy_static-aa79d8d8e33a807a.rmeta",
+      "bytes": 19793
+    },
+    {
+      "path": "target/debug/deps/libcodex_queue_extension-b420a993ffeb8d78.rmeta",
+      "bytes": 380280
+    },
+    {
+      "path": "target/debug/deps/librand-a852a42f81acbc75.rmeta",
+      "bytes": 762798
+    },
+    {
+      "path": "target/debug/deps/librustls-d3823b93ffdcadc2.rmeta",
+      "bytes": 3991085
+    },
+    {
+      "path": "target/debug/deps/libcodex_execpolicy-fc8129dfb9ad8b95.rmeta",
+      "bytes": 319231
+    },
+    {
+      "path": "target/debug/deps/libspin-07c2e70618bac1d6.rmeta",
+      "bytes": 201769
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_string-5eb5acdae928f016.rmeta",
+      "bytes": 18081
+    },
+    {
+      "path": "target/debug/deps/libstreaming_iterator-10bfce0e84e9d73e.rmeta",
+      "bytes": 290731
+    },
+    {
+      "path": "target/debug/deps/libwant-870b6847e891c700.rmeta",
+      "bytes": 25174
+    },
+    {
+      "path": "target/debug/deps/libserde_urlencoded-f23e105e1c833aa5.rmeta",
+      "bytes": 133837
+    },
+    {
+      "path": "target/debug/deps/libcipher-82b13c158d65deac.rmeta",
+      "bytes": 191786
+    },
+    {
+      "path": "target/debug/deps/libunicode_general_category-077c8a88f17d25fc.rmeta",
+      "bytes": 2846052
+    },
+    {
+      "path": "target/debug/deps/libicu_decimal-3a9b15f68081fce6.rmeta",
+      "bytes": 171154
+    },
+    {
+      "path": "target/debug/deps/libkasuari-b8700a6ec8c5a607.rmeta",
+      "bytes": 214239
+    },
+    {
+      "path": "target/debug/deps/libtar-5c2b0f2067396f66.rmeta",
+      "bytes": 296304
+    },
+    {
+      "path": "target/debug/deps/libgix_refspec-3442890bdb062d34.rmeta",
+      "bytes": 137329
+    },
+    {
+      "path": "target/debug/deps/liblsp_types-9f56d42dfc7a141d.rmeta",
+      "bytes": 7705723
+    },
+    {
+      "path": "target/debug/deps/libaes-e288d283f3a60443.rmeta",
+      "bytes": 116068
+    },
+    {
+      "path": "target/debug/deps/libcodex_tui-a95c6ab0c97345af.rmeta",
+      "bytes": 29075742
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_sandbox_summary-e64dd6806a27ff81.rmeta",
+      "bytes": 27803
+    },
+    {
+      "path": "target/debug/deps/liberrno-1c86f2e634b86594.rmeta",
+      "bytes": 14906
+    },
+    {
+      "path": "target/debug/deps/libascii-178993df1ae87998.rmeta",
+      "bytes": 339272
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_absolute_path-5b11529989370289.rmeta",
+      "bytes": 49756
+    },
+    {
+      "path": "target/debug/deps/libx25519_dalek-cbc417c8d7c3ef0a.rmeta",
+      "bytes": 40818
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_redacted_string-c8df211c5c0829a7.rmeta",
+      "bytes": 18398
+    },
+    {
+      "path": "target/debug/deps/librust_stemmers-f712a16f62830661.rmeta",
+      "bytes": 569514
+    },
+    {
+      "path": "target/debug/deps/libcobs-872d5d35defb9ce8.rmeta",
+      "bytes": 42029
+    },
+    {
+      "path": "target/debug/deps/libcodex_home-507d666966446408.rmeta",
+      "bytes": 86493
+    },
+    {
+      "path": "target/debug/deps/libinout-4a38c8c9370a9aab.rmeta",
+      "bytes": 46924
+    },
+    {
+      "path": "target/debug/deps/libconstant_time_eq-266e249b7f1ef2ee.rmeta",
+      "bytes": 191747
+    },
+    {
+      "path": "target/debug/deps/libopentelemetry-a98050be517503d2.rmeta",
+      "bytes": 816825
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_pty-1e7aa5a1fb93f194.rmeta",
+      "bytes": 351583
+    },
+    {
+      "path": "target/debug/deps/libicu_normalizer_data-f33efe79eec10952.rmeta",
+      "bytes": 437011
+    },
+    {
+      "path": "target/debug/deps/libsemver-897d418fb18a864b.rmeta",
+      "bytes": 123531
+    },
+    {
+      "path": "target/debug/deps/libgix_validate-fe8602e856266d16.rmeta",
+      "bytes": 50339
+    },
+    {
+      "path": "target/debug/deps/libzip-3305760f52f2cd4c.rmeta",
+      "bytes": 1121750
+    },
+    {
+      "path": "target/debug/deps/libsymphonia_format_riff-e7a1f5501ed9f420.rmeta",
+      "bytes": 87011
+    },
+    {
+      "path": "target/debug/deps/libratatui_core-524b96fb066666cf.rmeta",
+      "bytes": 1502188
+    },
+    {
+      "path": "target/debug/deps/libhyper_rustls-3de86fd7caaa31d1.rmeta",
+      "bytes": 81704
+    },
+    {
+      "path": "target/debug/deps/libkem-4ef2ca770cc362be.rmeta",
+      "bytes": 12051
+    },
+    {
+      "path": "target/debug/deps/libconcurrent_queue-c936c447b28df719.rmeta",
+      "bytes": 96409
+    },
+    {
+      "path": "target/debug/deps/libhyper_timeout-7934188e616a65d3.rmeta",
+      "bytes": 113471
+    },
+    {
+      "path": "target/debug/deps/librand_chacha-338cdfe15af6ee9b.rmeta",
+      "bytes": 94238
+    },
+    {
+      "path": "target/debug/deps/libflume-0bcf20de82418952.rmeta",
+      "bytes": 218484
+    },
+    {
+      "path": "target/debug/deps/libgix_transport-e8935d6e1d380cd7.rmeta",
+      "bytes": 74888
+    },
+    {
+      "path": "target/debug/deps/libconst_oid-81b55bd94339b05e.rmeta",
+      "bytes": 118345
+    },
+    {
+      "path": "target/debug/deps/libbase64-bdb9c8fba37d6cd8.rmeta",
+      "bytes": 463216
+    },
+    {
+      "path": "target/debug/deps/libcodex_backend_openapi_models-22d6a5b9b62ed1fc.rmeta",
+      "bytes": 916774
+    },
+    {
+      "path": "target/debug/deps/libsync_wrapper-6a21a05775ba8aa7.rmeta",
+      "bytes": 19631
+    },
+    {
+      "path": "target/debug/deps/libcodex_external_agent_migration-f78a6c0df1519b41.rmeta",
+      "bytes": 1009181
+    },
+    {
+      "path": "target/debug/deps/libdunce-a7f0de465cf01de4.rmeta",
+      "bytes": 7808
+    },
+    {
+      "path": "target/debug/deps/libfluent_syntax-0737ba7f02a532ec.rmeta",
+      "bytes": 242403
+    },
+    {
+      "path": "target/debug/deps/libgix_lock-5323113da55a2085.rmeta",
+      "bytes": 44694
+    },
+    {
+      "path": "target/debug/deps/libder-c31d0285ca1c774d.rmeta",
+      "bytes": 1281600
+    },
+    {
+      "path": "target/debug/deps/libcodex_app_server-3def16cb875706c4.rmeta",
+      "bytes": 16848404
+    },
+    {
+      "path": "target/debug/deps/libfutures_channel-2b92d727f2a9471f.rmeta",
+      "bytes": 143833
+    },
+    {
+      "path": "target/debug/deps/libcodex_model_provider_info-be3ed02454f0e024.rmeta",
+      "bytes": 273833
+    },
+    {
+      "path": "target/debug/deps/libunicase-fe89d5bc01056232.rmeta",
+      "bytes": 63387
+    },
+    {
+      "path": "target/debug/deps/libcodex_mxc_sandbox-d496f7f6a3ac930a.rmeta",
+      "bytes": 46183
+    },
+    {
+      "path": "target/debug/deps/libradix_trie-7918bebda58db6bd.rmeta",
+      "bytes": 135254
+    },
+    {
+      "path": "target/debug/deps/libidna_adapter-a6520486a88dccc0.rmeta",
+      "bytes": 28867
+    },
+    {
+      "path": "target/debug/deps/librama_unix-e3782cdc32b5da1e.rmeta",
+      "bytes": 529226
+    },
+    {
+      "path": "target/debug/deps/libignore-ec1d8655c0f651ad.rmeta",
+      "bytes": 397704
+    },
+    {
+      "path": "target/debug/deps/libgix_parallel-7df0120b80da19a6.rmeta",
+      "bytes": 74038
+    },
+    {
+      "path": "target/debug/deps/libcodex_feedback-7b7631c3a074036d.rmeta",
+      "bytes": 438259
+    },
+    {
+      "path": "target/debug/deps/libzune_core-5ac4d95885bdddb5.rmeta",
+      "bytes": 252277
+    },
+    {
+      "path": "target/debug/deps/libarrayvec-799df7eb538ebe56.rmeta",
+      "bytes": 160942
+    },
+    {
+      "path": "target/debug/deps/libhttp_body-5accbe2ac7181ff5.rmeta",
+      "bytes": 33812
+    },
+    {
+      "path": "target/debug/deps/libindenter-37fa89ee741bc27e.rmeta",
+      "bytes": 11411
+    },
+    {
+      "path": "target/debug/deps/libcodex_apply_patch-ede6139cfa8d8d67.rmeta",
+      "bytes": 371333
+    },
+    {
+      "path": "target/debug/deps/libref_cast-5f970a1b4ede6962.rmeta",
+      "bytes": 23705
+    },
+    {
+      "path": "target/debug/deps/libtokio_tungstenite-4b831974e198fa85.rmeta",
+      "bytes": 364834
+    },
+    {
+      "path": "target/debug/deps/libheapless-f35523a1dbb2196f.rmeta",
+      "bytes": 650725
+    },
+    {
+      "path": "target/debug/deps/libaws_runtime-a75984e9b88a94f6.rmeta",
+      "bytes": 686064
+    },
+    {
+      "path": "target/debug/deps/libaws_smithy_async-eacacf50938d50fb.rmeta",
+      "bytes": 200037
+    },
+    {
+      "path": "target/debug/deps/libgix_config-51173be54b6b38ff.rmeta",
+      "bytes": 748575
+    },
+    {
+      "path": "target/debug/deps/libobjc2_app_kit-6386dc667d96eee8.rmeta",
+      "bytes": 2656908
+    },
+    {
+      "path": "target/debug/deps/libzopfli-b97588b60237bf3b.rmeta",
+      "bytes": 205042
+    },
+    {
+      "path": "target/debug/deps/libtyped_path-d20405d26de3803e.rmeta",
+      "bytes": 1347290
+    },
+    {
+      "path": "target/debug/deps/libdisplay_container-d5f3bcc45d462d18.rmeta",
+      "bytes": 16621
+    },
+    {
+      "path": "target/debug/deps/librama_tcp-7750c15c2f72734b.rmeta",
+      "bytes": 901785
+    },
+    {
+      "path": "target/debug/deps/libnucleo_matcher-f05b0d8374d80bb2.rmeta",
+      "bytes": 328493
+    },
+    {
+      "path": "target/debug/deps/libcodex_protocol-01a3aa680ba7980e.rmeta",
+      "bytes": 12621361
+    },
+    {
+      "path": "target/debug/deps/libcidr-85d52fee72b9f2ca.rmeta",
+      "bytes": 492518
+    },
+    {
+      "path": "target/debug/deps/libhash32-33037ff07c36e968.rmeta",
+      "bytes": 27553
+    },
+    {
+      "path": "target/debug/deps/libbacktrace-0cfdf8c505139daa.rmeta",
+      "bytes": 217564
+    },
+    {
+      "path": "target/debug/deps/libevent_listener_strategy-66b72ae7124e2f14.rmeta",
+      "bytes": 54571
+    },
+    {
+      "path": "target/debug/deps/libis_ci-b29585a7d0f70885.rmeta",
+      "bytes": 4413
+    },
+    {
+      "path": "target/debug/deps/libdashmap-cdbdd575146d9496.rmeta",
+      "bytes": 320185
+    },
+    {
+      "path": "target/debug/deps/libprimeorder-1f5f55833e988b9c.rmeta",
+      "bytes": 165031
+    },
+    {
+      "path": "target/debug/deps/libcodex_async_utils-e63115a1bd6b8a89.rmeta",
+      "bytes": 23000
+    },
+    {
+      "path": "target/debug/deps/libsha3-20482bacc16d7296.rmeta",
+      "bytes": 143294
+    },
+    {
+      "path": "target/debug/deps/liberased_serde-a1c6bfd83274580a.rmeta",
+      "bytes": 535862
+    },
+    {
+      "path": "target/debug/deps/libcodex_prompts-3d731b1a4565502e.rmeta",
+      "bytes": 341053
+    },
+    {
+      "path": "target/debug/deps/libgimli-cd683f4fb243b7a1.rmeta",
+      "bytes": 2767273
+    },
+    {
+      "path": "target/debug/deps/libcodex_memories_read-13630b5062fff9d8.rmeta",
+      "bytes": 37628
+    },
+    {
+      "path": "target/debug/deps/libgix_config_value-3ce054c5946170da.rmeta",
+      "bytes": 243366
+    },
+    {
+      "path": "target/debug/deps/libfutures_util-60717136bf61a1f4.rmeta",
+      "bytes": 4780025
+    },
+    {
+      "path": "target/debug/deps/libnotify_types-1d0f972362f29064.rmeta",
+      "bytes": 220611
+    },
+    {
+      "path": "target/debug/deps/libsymphonia_format_isomp4-13f4d9c7cff56524.rmeta",
+      "bytes": 531177
+    },
+    {
+      "path": "target/debug/deps/libhttp_body_util-05a9fe4a0c5d85c4.rmeta",
+      "bytes": 264970
+    },
+    {
+      "path": "target/debug/deps/libgix_utils-8c49fd036cce4b8e.rmeta",
+      "bytes": 110277
+    },
+    {
+      "path": "target/debug/deps/liblzma_rust2-fe2f00c306697a9a.rmeta",
+      "bytes": 865590
+    },
+    {
+      "path": "target/debug/deps/libconst_hex-f3cbbcdb24d5c943.rmeta",
+      "bytes": 325372
+    },
+    {
+      "path": "target/debug/deps/libaws_config-11b1b60135499670.rmeta",
+      "bytes": 2286911
+    },
+    {
+      "path": "target/debug/deps/libthiserror-14ce66137913f62a.rmeta",
+      "bytes": 29293
+    },
+    {
+      "path": "target/debug/deps/libtower_http-fc8f5ff211e639bd.rmeta",
+      "bytes": 390896
+    },
+    {
+      "path": "target/debug/deps/libindexmap-6c0eb2708d190d85.rmeta",
+      "bytes": 944031
+    },
+    {
+      "path": "target/debug/deps/libregex_lite-696bfcaa57d092bc.rmeta",
+      "bytes": 509223
+    },
+    {
+      "path": "target/debug/deps/libthiserror_no_std-2ba548536fbd0281.rmeta",
+      "bytes": 14681
+    },
+    {
+      "path": "target/debug/deps/libstatic_assertions-203d6e5e34f7cf0d.rmeta",
+      "bytes": 53856
+    },
+    {
+      "path": "target/debug/deps/libdyn_clone-44e9983d3a171b49.rmeta",
+      "bytes": 24127
+    },
+    {
+      "path": "target/debug/deps/libwebbrowser-d3797f92083d477b.rmeta",
+      "bytes": 38638
+    },
+    {
+      "path": "target/debug/deps/libonce_cell-3b6bdb1f61e032e3.rmeta",
+      "bytes": 139371
+    },
+    {
+      "path": "target/debug/deps/libderive_more-b8193ba9e0ea7731.rmeta",
+      "bytes": 117467
+    },
+    {
+      "path": "target/debug/deps/libreqwest-ee6683a8a2deaa89.rmeta",
+      "bytes": 659618
+    },
+    {
+      "path": "target/debug/deps/libprocess_wrap-564e978de14a79f6.rmeta",
+      "bytes": 225980
+    },
+    {
+      "path": "target/debug/deps/librand-34e0c0566122cf9e.rmeta",
+      "bytes": 916966
+    },
+    {
+      "path": "target/debug/deps/libline_clipping-101808052c183766.rmeta",
+      "bytes": 83173
+    },
+    {
+      "path": "target/debug/deps/libcodex_thread_store-5ad568eb44f3aaf6.rmeta",
+      "bytes": 5415744
+    },
+    {
+      "path": "target/debug/deps/libcodex_code_mode_protocol-412b5aeb9cef072a.rmeta",
+      "bytes": 2143385
+    },
+    {
+      "path": "target/debug/deps/libsha1dc-4d26671d54a6a875.rmeta",
+      "bytes": 578814
+    },
+    {
+      "path": "target/debug/deps/libzerocopy-d2408d7e64fbd51c.rmeta",
+      "bytes": 12891948
+    },
+    {
+      "path": "target/debug/deps/librama_socks5-469c98603e0ed883.rmeta",
+      "bytes": 2864965
+    },
+    {
+      "path": "target/debug/deps/libwalkdir-f75157a10e3cbfb0.rmeta",
+      "bytes": 86427
+    },
+    {
+      "path": "target/debug/deps/libts_rs-6d6b78e6ed8b7403.rmeta",
+      "bytes": 273748
+    },
+    {
+      "path": "target/debug/deps/libuntrusted-1a8337b3c03c151b.rmeta",
+      "bytes": 32836
+    },
+    {
+      "path": "target/debug/deps/libfoldhash-399556b6309650a3.rmeta",
+      "bytes": 66152
+    },
+    {
+      "path": "target/debug/deps/liboid_registry-7ebf1e17392a9ec4.rmeta",
+      "bytes": 175921
+    },
+    {
+      "path": "target/debug/deps/libp256-cfc747aa84c1368a.rmeta",
+      "bytes": 245357
+    },
+    {
+      "path": "target/debug/deps/libbase16ct-967262a5cdd52f8f.rmeta",
+      "bytes": 31075
+    },
+    {
+      "path": "target/debug/deps/libclap_lex-6f24789d8298c471.rmeta",
+      "bytes": 55925
+    },
+    {
+      "path": "target/debug/deps/libzune_core-77c940d5ef7673a7.rmeta",
+      "bytes": 191757
+    },
+    {
+      "path": "target/debug/deps/libzmij-277c5d5d8d23c0f3.rmeta",
+      "bytes": 69064
+    },
+    {
+      "path": "target/debug/deps/libhashbrown-02d9625646460835.rmeta",
+      "bytes": 909694
+    },
+    {
+      "path": "target/debug/deps/libnom-7e782e1ab36cadc0.rmeta",
+      "bytes": 1462060
+    },
+    {
+      "path": "target/debug/deps/libblake2-053c77419063b575.rmeta",
+      "bytes": 158849
+    },
+    {
+      "path": "target/debug/deps/libcipher-77286b128eb92269.rmeta",
+      "bytes": 118789
+    },
+    {
+      "path": "target/debug/deps/libinout-735664fafa3bd23e.rmeta",
+      "bytes": 49928
+    },
+    {
+      "path": "target/debug/deps/libhkdf-bff1c2b079fe3fd9.rmeta",
+      "bytes": 36210
+    },
+    {
+      "path": "target/debug/deps/librand_core-438c178d467374ab.rmeta",
+      "bytes": 87387
+    },
+    {
+      "path": "target/debug/deps/libcodex_multi_env_copy_file-9074a96b3244e23c.rmeta",
+      "bytes": 84247
+    },
+    {
+      "path": "target/debug/deps/libblock_buffer-1b63565422b1350a.rmeta",
+      "bytes": 51732
+    },
+    {
+      "path": "target/debug/deps/libobjc2-fb58b1e18b392f65.rmeta",
+      "bytes": 3510553
+    },
+    {
+      "path": "target/debug/deps/libarrayref-08489d62084d6fcf.rmeta",
+      "bytes": 17228
+    },
+    {
+      "path": "target/debug/deps/libserial2-9fd2df956dd04fd0.rmeta",
+      "bytes": 134236
+    },
+    {
+      "path": "target/debug/deps/libanstyle_parse-e296585c2d137299.rmeta",
+      "bytes": 136420
+    },
+    {
+      "path": "target/debug/deps/libsha1_smol-32122e72c3ab72dd.rmeta",
+      "bytes": 51967
+    },
+    {
+      "path": "target/debug/deps/libfutures_core-4accd5e4b3e96c28.rmeta",
+      "bytes": 56154
+    },
+    {
+      "path": "target/debug/deps/libcodex_api-f23fdcb941dbaae6.rmeta",
+      "bytes": 3107247
+    },
+    {
+      "path": "target/debug/deps/liblru-a8a3fe6dff70f03c.rmeta",
+      "bytes": 87419
+    },
+    {
+      "path": "target/debug/deps/libtree_sitter-89c1ae5ec608235e.rmeta",
+      "bytes": 505967
+    },
+    {
+      "path": "target/debug/deps/libfutures_intrusive-3787e42004afdffb.rmeta",
+      "bytes": 628283
+    },
+    {
+      "path": "target/debug/deps/liboutref-b3f675de652afc11.rmeta",
+      "bytes": 16183
+    },
+    {
+      "path": "target/debug/deps/libcodex_agent_graph_store-d70a3f60766cb001.rmeta",
+      "bytes": 71014
+    },
+    {
+      "path": "target/debug/deps/libgix_glob-61dcd3e9649b6767.rmeta",
+      "bytes": 233391
+    },
+    {
+      "path": "target/debug/deps/libchacha20-b2f6a0677e5d8392.rmeta",
+      "bytes": 52600
+    },
+    {
+      "path": "target/debug/deps/libminimal_lexical-b23d66e55f00bae7.rmeta",
+      "bytes": 154077
+    },
+    {
+      "path": "target/debug/deps/libff-3367381eb7a3fde1.rmeta",
+      "bytes": 39234
+    },
+    {
+      "path": "target/debug/deps/libcodex_message_board-f063137600292c94.rmeta",
+      "bytes": 1602324
+    },
+    {
+      "path": "target/debug/deps/libcore_foundation_sys-349c8e57db73792a.rmeta",
+      "bytes": 652810
+    },
+    {
+      "path": "target/debug/deps/libpulldown_cmark-9fb141140c74a1ba.rmeta",
+      "bytes": 1055034
+    },
+    {
+      "path": "target/debug/deps/libclatter-54ce6327c716721f.rmeta",
+      "bytes": 510367
+    },
+    {
+      "path": "target/debug/deps/libmxc_sdk-cd326b7f63c1b595.rmeta",
+      "bytes": 7311393
+    },
+    {
+      "path": "target/debug/deps/libmoka-758ad41c84beb920.rmeta",
+      "bytes": 874262
+    },
+    {
+      "path": "target/debug/deps/libanyhow-e48883679ffa937c.rmeta",
+      "bytes": 386755
+    },
+    {
+      "path": "target/debug/deps/libitoa-3eb49ee540f3522b.rmeta",
+      "bytes": 49917
+    },
+    {
+      "path": "target/debug/deps/libunicode_bom-90fe4ebc9f1776b7.rmeta",
+      "bytes": 18236
+    },
+    {
+      "path": "target/debug/deps/libcrypto_box-e2f7affb4fb2ffb9.rmeta",
+      "bytes": 58152
+    },
+    {
+      "path": "target/debug/deps/libzstd-b12080a0b4dcc31a.rmeta",
+      "bytes": 168886
+    },
+    {
+      "path": "target/debug/deps/libcached_proc_macro_types-9f08cef50b25b61b.rmeta",
+      "bytes": 4961
+    },
+    {
+      "path": "target/debug/deps/libcompact_str-25bf6dd88f8986c4.rmeta",
+      "bytes": 478945
+    },
+    {
+      "path": "target/debug/deps/libportable_atomic-5503c5923e0a0060.rmeta",
+      "bytes": 1070463
+    },
+    {
+      "path": "target/debug/deps/libregex_syntax-a49b21181a685727.rmeta",
+      "bytes": 4192465
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_sleep_inhibitor-4c2edbd4d34328ea.rmeta",
+      "bytes": 26237
+    },
+    {
+      "path": "target/debug/deps/libgeneric_array-002073ef14080e4d.rmeta",
+      "bytes": 647616
+    },
+    {
+      "path": "target/debug/deps/libwriteable-2aed5d96e40f449d.rmeta",
+      "bytes": 173499
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_audio-f5819b584691e4c2.rmeta",
+      "bytes": 56394
+    },
+    {
+      "path": "target/debug/deps/libsignal_hook_registry-fb3620f961630d36.rmeta",
+      "bytes": 65462
+    },
+    {
+      "path": "target/debug/deps/libsha2-cf20e7009546a594.rmeta",
+      "bytes": 419320
+    },
+    {
+      "path": "target/debug/deps/libpem-a8c3728a2cac9a79.rmeta",
+      "bytes": 52298
+    },
+    {
+      "path": "target/debug/deps/libportable_pty-c485214d0a6fa24b.rmeta",
+      "bytes": 105273
+    },
+    {
+      "path": "target/debug/deps/libsqlx_core-2a2693db210977dc.rmeta",
+      "bytes": 2603521
+    },
+    {
+      "path": "target/debug/deps/librcgen-aa123e40a097df6d.rmeta",
+      "bytes": 497566
+    },
+    {
+      "path": "target/debug/deps/libcodex_image_generation_extension-3990c0ea25f61493.rmeta",
+      "bytes": 328263
+    },
+    {
+      "path": "target/debug/deps/libcodex_keyring_store-c8ff8e74587d2c89.rmeta",
+      "bytes": 51718
+    },
+    {
+      "path": "target/debug/deps/libgix_odb-c8a8bd13c0d8599d.rmeta",
+      "bytes": 461282
+    },
+    {
+      "path": "target/debug/deps/libobjc2_core_foundation-6a65ae80bf29fb49.rmeta",
+      "bytes": 3626310
+    },
+    {
+      "path": "target/debug/deps/libctor-f9274e3832c3941a.rmeta",
+      "bytes": 408550
+    },
+    {
+      "path": "target/debug/deps/libnu_ansi_term-108363cbd5c56f17.rmeta",
+      "bytes": 183063
+    },
+    {
+      "path": "target/debug/deps/libcodex_collaboration_mode_templates-1f8877454488fa04.rmeta",
+      "bytes": 23540
+    },
+    {
+      "path": "target/debug/deps/libeither-f67d90eb6178be14.rmeta",
+      "bytes": 178188
+    },
+    {
+      "path": "target/debug/deps/libcodex_skills_extension-418eb981a899515d.rmeta",
+      "bytes": 2592250
+    },
+    {
+      "path": "target/debug/deps/libhmac-8986994d754f29b6.rmeta",
+      "bytes": 68296
+    },
+    {
+      "path": "target/debug/deps/libcodex_agent_message_board_client-b50138e8afa8ab6a.rmeta",
+      "bytes": 335290
+    },
+    {
+      "path": "target/debug/deps/libmemmap2-603e6771544d5a5d.rmeta",
+      "bytes": 95136
+    },
+    {
+      "path": "target/debug/deps/libcodex_guardian_reviewer-8ff1d31e4c21c9c0.rmeta",
+      "bytes": 946737
+    },
+    {
+      "path": "target/debug/deps/libcodex_chatgpt-d5f8900b35f938ab.rmeta",
+      "bytes": 321603
+    },
+    {
+      "path": "target/debug/deps/libdowncast_rs-63e8543012bbdb53.rmeta",
+      "bytes": 35662
+    },
+    {
+      "path": "target/debug/deps/libcookie_factory-e56afc0356d6a3eb.rmeta",
+      "bytes": 237318
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_elapsed-293122fd6bdd7ced.rmeta",
+      "bytes": 3166
+    },
+    {
+      "path": "target/debug/deps/libaws_sdk_sts-370b6d81914a04b3.rmeta",
+      "bytes": 2036924
+    },
+    {
+      "path": "target/debug/deps/libsimilar-8d5e3df30debd987.rmeta",
+      "bytes": 330045
+    },
+    {
+      "path": "target/debug/deps/liblitemap-bef4dbd1cb3b5586.rmeta",
+      "bytes": 220448
+    },
+    {
+      "path": "target/debug/deps/libsimd_adler32-bd69dfee82da4eb3.rmeta",
+      "bytes": 30646
+    },
+    {
+      "path": "target/debug/deps/libeventsource_stream-fe168ef4da04be56.rmeta",
+      "bytes": 69359
+    },
+    {
+      "path": "target/debug/deps/libio_tee-d5afe562bff01142.rmeta",
+      "bytes": 17318
+    },
+    {
+      "path": "target/debug/deps/libasn1_rs-d532fd1e6bf8a536.rmeta",
+      "bytes": 1293716
+    },
+    {
+      "path": "target/debug/deps/libstarlark-5d578f5b69d3bf6e.rmeta",
+      "bytes": 11527929
+    },
+    {
+      "path": "target/debug/deps/libblake3-6e0af71804018841.rmeta",
+      "bytes": 249251
+    },
+    {
+      "path": "target/debug/deps/libsmawk-9ed12e0f9d314c23.rmeta",
+      "bytes": 22116
+    },
+    {
+      "path": "target/debug/deps/libstrsim-3e22cd5d0dd6a252.rmeta",
+      "bytes": 22749
+    },
+    {
+      "path": "target/debug/deps/libzerovec-29abf686d8a75148.rmeta",
+      "bytes": 1275934
+    },
+    {
+      "path": "target/debug/deps/libcodex_agent_roles-058e6240d8bafa8b.rmeta",
+      "bytes": 178097
+    },
+    {
+      "path": "target/debug/deps/libserde_with-501ddf6e8b94fd24.rmeta",
+      "bytes": 2296842
+    },
+    {
+      "path": "target/debug/deps/libzune_jpeg-55f9c2da2a5c1936.rmeta",
+      "bytes": 772442
+    },
+    {
+      "path": "target/debug/deps/librama_http-b1c87b74f01619ea.rmeta",
+      "bytes": 8627867
+    },
+    {
+      "path": "target/debug/deps/librustix-4d45503fb20f2a85.rmeta",
+      "bytes": 3472898
+    },
+    {
+      "path": "target/debug/deps/libmoxcms-9fb86dc274a4d0b3.rmeta",
+      "bytes": 3380774
+    },
+    {
+      "path": "target/debug/deps/libdirs-7126e7cceb20aca7.rmeta",
+      "bytes": 23917
+    },
+    {
+      "path": "target/debug/deps/libcodex_state-1db5b4801e2f2d5f.rmeta",
+      "bytes": 3816882
+    },
+    {
+      "path": "target/debug/deps/libcrypto_secretbox-c640184ca54eebe0.rmeta",
+      "bytes": 28112
+    },
+    {
+      "path": "target/debug/deps/libwinnow-6c3dea27ce330012.rmeta",
+      "bytes": 491538
+    },
+    {
+      "path": "target/debug/deps/libsymphonia_format_mkv-2599dee02e5112fe.rmeta",
+      "bytes": 427260
+    },
+    {
+      "path": "target/debug/deps/libserde_html_form-c14e821a37194b4d.rmeta",
+      "bytes": 238850
+    },
+    {
+      "path": "target/debug/deps/libcrc_catalog-0a5b0f6adf1ffce2.rmeta",
+      "bytes": 47135
+    },
+    {
+      "path": "target/debug/deps/libdns_lookup-85182d59ba4ec636.rmeta",
+      "bytes": 64739
+    },
+    {
+      "path": "target/debug/deps/libtry_lock-a9c13e387990766e.rmeta",
+      "bytes": 16793
+    },
+    {
+      "path": "target/debug/deps/libicu_normalizer-8c73b300008757d3.rmeta",
+      "bytes": 443223
+    },
+    {
+      "path": "target/debug/deps/libobjc2_encode-f11619703ce3e049.rmeta",
+      "bytes": 199645
+    },
+    {
+      "path": "target/debug/deps/libshell_words-229b7561fb98d773.rmeta",
+      "bytes": 17275
+    },
+    {
+      "path": "target/debug/deps/libresolv_conf-caa3efcbb6cac3e8.rmeta",
+      "bytes": 69468
+    },
+    {
+      "path": "target/debug/deps/libicu_properties_data-676c8f8267287738.rmeta",
+      "bytes": 1873477
+    },
+    {
+      "path": "target/debug/deps/libobject-dd86284992b9b630.rmeta",
+      "bytes": 4903136
+    },
+    {
+      "path": "target/debug/deps/libdebugid-2adbd687ad2f4942.rmeta",
+      "bytes": 49200
+    },
+    {
+      "path": "target/debug/deps/libsimdutf8-e71bd2ce961b9859.rmeta",
+      "bytes": 90022
+    },
+    {
+      "path": "target/debug/deps/libcritical_section-e881ddbd8fd754f8.rmeta",
+      "bytes": 44195
+    },
+    {
+      "path": "target/debug/deps/libkeccak-b83b7c9f129d6a3d.rmeta",
+      "bytes": 37191
+    },
+    {
+      "path": "target/debug/deps/libnucleo-de5677555f591d1c.rmeta",
+      "bytes": 118053
+    },
+    {
+      "path": "target/debug/deps/libcmp_any-90362312f8ab8830.rmeta",
+      "bytes": 12332
+    },
+    {
+      "path": "target/debug/deps/libcodex_app_server_transport-4ef61d5b2be865be.rmeta",
+      "bytes": 3359354
+    },
+    {
+      "path": "target/debug/deps/libbech32-fddf5844fa882057.rmeta",
+      "bytes": 454042
+    },
+    {
+      "path": "target/debug/deps/libparking_lot_core-cbacd4c2d99d2d7a.rmeta",
+      "bytes": 91146
+    },
+    {
+      "path": "target/debug/deps/libhttp_body-3e21a89c5b52982d.rmeta",
+      "bytes": 204316
+    },
+    {
+      "path": "target/debug/deps/libobjc2_core_graphics-d004e42ab8de491c.rmeta",
+      "bytes": 1955192
+    },
+    {
+      "path": "target/debug/deps/libsimple_asn1-6908ca3a3c71c95d.rmeta",
+      "bytes": 58787
+    },
+    {
+      "path": "target/debug/deps/libfaster_hex-350972e95b50a5ac.rmeta",
+      "bytes": 289151
+    },
+    {
+      "path": "target/debug/deps/libcodex_direct_tool_timing-074003bc42c05d24.rmeta",
+      "bytes": 32128
+    },
+    {
+      "path": "target/debug/deps/libquick_xml-752655859b946282.rmeta",
+      "bytes": 1720683
+    },
+    {
+      "path": "target/debug/deps/libbytes-8b6326ecf042ba2b.rmeta",
+      "bytes": 592573
+    },
+    {
+      "path": "target/debug/deps/libpsl_types-e58493c5cb6cf19d.rmeta",
+      "bytes": 34912
+    },
+    {
+      "path": "target/debug/deps/librmcp-da67e6a701ec02b8.rmeta",
+      "bytes": 13788152
+    },
+    {
+      "path": "target/debug/deps/librama_error-d8a3a2d95aacd0c7.rmeta",
+      "bytes": 52517
+    },
+    {
+      "path": "target/debug/deps/libcodex_diagnostics-c06f081e2d9a807b.rmeta",
+      "bytes": 15997
+    },
+    {
+      "path": "target/debug/deps/libcodex_arg0-780c7ed08906ea8b.rmeta",
+      "bytes": 57524
+    },
+    {
+      "path": "target/debug/deps/librama_net-04ff5b8c0307e575.rmeta",
+      "bytes": 4679526
+    },
+    {
+      "path": "target/debug/deps/libtypenum-d01c27d2b1579eba.rmeta",
+      "bytes": 3373194
+    },
+    {
+      "path": "target/debug/deps/libfluent_bundle-b15e4ce00621767f.rmeta",
+      "bytes": 312867
+    },
+    {
+      "path": "target/debug/deps/libtempfile-4d89e721be550d10.rmeta",
+      "bytes": 189090
+    },
+    {
+      "path": "target/debug/deps/liballocator_api2-aea431e02690c2c4.rmeta",
+      "bytes": 479377
+    },
+    {
+      "path": "target/debug/deps/libaxum-a6314a8a8ebfc6a1.rmeta",
+      "bytes": 4496465
+    },
+    {
+      "path": "target/debug/deps/libicu_properties-f5f21314359c0c53.rmeta",
+      "bytes": 2317963
+    },
+    {
+      "path": "target/debug/deps/libtiny_http-3d37f885b994832e.rmeta",
+      "bytes": 245687
+    },
+    {
+      "path": "target/debug/deps/libsmallvec-2a2eadfba09fef39.rmeta",
+      "bytes": 121511
+    },
+    {
+      "path": "target/debug/deps/libcodex_ansi_escape-40576247bfb6eec1.rmeta",
+      "bytes": 16512
+    },
+    {
+      "path": "target/debug/deps/libgix_trace-dd98375c206fac55.rmeta",
+      "bytes": 69152
+    },
+    {
+      "path": "target/debug/deps/libnonempty-db76a1bd8c8dcfee.rmeta",
+      "bytes": 71269
+    },
+    {
+      "path": "target/debug/deps/libserde_json-3cd6c26580eed085.rmeta",
+      "bytes": 1113039
+    },
+    {
+      "path": "target/debug/deps/libcodex_goal_extension-cbd4ceba5a3d7cf9.rmeta",
+      "bytes": 946176
+    },
+    {
+      "path": "target/debug/deps/libcrypto_common-3fec1e94c3521ab4.rmeta",
+      "bytes": 308504
+    },
+    {
+      "path": "target/debug/deps/libpowerfmt-a2c6560c679e4528.rmeta",
+      "bytes": 103652
+    },
+    {
+      "path": "target/debug/deps/libhashlink-836002a62757c73c.rmeta",
+      "bytes": 301301
+    },
+    {
+      "path": "target/debug/deps/libhyper_util-8e741fac4e69404d.rmeta",
+      "bytes": 1544800
+    },
+    {
+      "path": "target/debug/deps/libbytes_utils-a5e2ce7a133ab814.rmeta",
+      "bytes": 147604
+    },
+    {
+      "path": "target/debug/deps/libcodex_core_plugin_common-3415b1922ac340bc.rmeta",
+      "bytes": 31878
+    },
+    {
+      "path": "target/debug/deps/libzerofrom-515b6a04c45f8362.rmeta",
+      "bytes": 56129
+    },
+    {
+      "path": "target/debug/deps/libbyteorder-86861342aaa828b4.rmeta",
+      "bytes": 173005
+    },
+    {
+      "path": "target/debug/deps/libstarlark_map-e40ce0ce8d1b5dd5.rmeta",
+      "bytes": 815908
+    },
+    {
+      "path": "target/debug/deps/libgix_revwalk-f8b4e2aae6761f05.rmeta",
+      "bytes": 67436
+    },
+    {
+      "path": "target/debug/deps/libcookie_store-119650cd29b69217.rmeta",
+      "bytes": 217627
+    },
+    {
+      "path": "target/debug/deps/libcodex_history-26469dd0f392a360.rmeta",
+      "bytes": 823471
+    },
+    {
+      "path": "target/debug/deps/libaws_smithy_xml-34aff82e22705818.rmeta",
+      "bytes": 56709
+    },
+    {
+      "path": "target/debug/deps/libgix_command-d46ee04534ae79d0.rmeta",
+      "bytes": 64604
+    },
+    {
+      "path": "target/debug/deps/libbit_set-4683002251313683.rmeta",
+      "bytes": 60518
+    },
+    {
+      "path": "target/debug/deps/libstable_deref_trait-f0c7a7ddc8587003.rmeta",
+      "bytes": 13390
+    },
+    {
+      "path": "target/debug/deps/libage_core-4dc51a7ff0ca3b47.rmeta",
+      "bytes": 65814
+    },
+    {
+      "path": "target/debug/deps/libsha1-06723358d502a077.rmeta",
+      "bytes": 55840
+    },
+    {
+      "path": "target/debug/deps/librusticata_macros-49d2cf841758b254.rmeta",
+      "bytes": 45174
+    },
+    {
+      "path": "target/debug/deps/libgix_url-bf4f5106b6204dde.rmeta",
+      "bytes": 128208
+    },
+    {
+      "path": "target/debug/deps/libcodex_response_debug_context-8246d8636e73e7d3.rmeta",
+      "bytes": 33839
+    },
+    {
+      "path": "target/debug/deps/libdeadpool_runtime-562ce1ed6b42fb9f.rmeta",
+      "bytes": 18658
+    },
+    {
+      "path": "target/debug/deps/libanstyle-d5936e81f5da6616.rmeta",
+      "bytes": 133879
+    },
+    {
+      "path": "target/debug/deps/libunsafe_libyaml-d0dbeb7f966edff4.rmeta",
+      "bytes": 512174
+    },
+    {
+      "path": "target/debug/deps/libcrc-9c5ccf69c333bf3a.rmeta",
+      "bytes": 286287
+    },
+    {
+      "path": "target/debug/deps/libaddr2line-353d14b9a25ba379.rmeta",
+      "bytes": 161246
+    },
+    {
+      "path": "target/debug/deps/libcodex_terminal_detection-a1686fef4a17d14b.rmeta",
+      "bytes": 31319
+    },
+    {
+      "path": "target/debug/deps/libonig_sys-6249124c982dad34.rmeta",
+      "bytes": 202661
+    },
+    {
+      "path": "target/debug/deps/libslab-cdb77b9223035bfe.rmeta",
+      "bytes": 79299
+    },
+    {
+      "path": "target/debug/deps/libadler2-819a3ebc52db03e8.rmeta",
+      "bytes": 16333
+    },
+    {
+      "path": "target/debug/deps/libratatui_macros-cd2cde37fea6f230.rmeta",
+      "bytes": 40502
+    },
+    {
+      "path": "target/debug/deps/libtake_mut-37569074a43dd5b9.rmeta",
+      "bytes": 17508
+    },
+    {
+      "path": "target/debug/deps/libfnv-95d77e8532e0d223.rmeta",
+      "bytes": 9566
+    },
+    {
+      "path": "target/debug/deps/libcsv-7011fbe03d841a16.rmeta",
+      "bytes": 584038
+    },
+    {
+      "path": "target/debug/deps/libaws_smithy_observability-36691827b98162e9.rmeta",
+      "bytes": 93862
+    },
+    {
+      "path": "target/debug/deps/libicu_locale-869160df09f38111.rmeta",
+      "bytes": 1013961
+    },
+    {
+      "path": "target/debug/deps/libcodex_rmcp_client-ff380f22ae8b4afa.rmeta",
+      "bytes": 4511644
+    },
+    {
+      "path": "target/debug/deps/libtracing_opentelemetry-ac65cad0de882f90.rmeta",
+      "bytes": 202849
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_path_uri-f448c2e2652b97fe.rmeta",
+      "bytes": 151123
+    },
+    {
+      "path": "target/debug/deps/libwebpki_roots-eaffab1c84620bb5.rmeta",
+      "bytes": 139168
+    },
+    {
+      "path": "target/debug/deps/libgix_pack-ed85ca920da83fc6.rmeta",
+      "bytes": 634523
+    },
+    {
+      "path": "target/debug/deps/libtokio_test-3ae663864cab5800.rmeta",
+      "bytes": 85070
+    },
+    {
+      "path": "target/debug/deps/libdupe-65ef418917b224a0.rmeta",
+      "bytes": 40260
+    },
+    {
+      "path": "target/debug/deps/libcrossbeam_queue-a305b505a54d08aa.rmeta",
+      "bytes": 41142
+    },
+    {
+      "path": "target/debug/deps/libpin_project-29a7a6ce801bb207.rmeta",
+      "bytes": 19609
+    },
+    {
+      "path": "target/debug/deps/libwinnow-7790806a0d3ab2a3.rmeta",
+      "bytes": 1707918
+    },
+    {
+      "path": "target/debug/deps/libcodex_agent_message_board_extension-14bb620cf369f990.rmeta",
+      "bytes": 73418
+    },
+    {
+      "path": "target/debug/deps/libsecrecy-7e92f242506cb817.rmeta",
+      "bytes": 22655
+    },
+    {
+      "path": "target/debug/deps/libgethostname-9d6eed58e9c175c5.rmeta",
+      "bytes": 4984
+    },
+    {
+      "path": "target/debug/deps/liburl-34f703c49ae7521f.rmeta",
+      "bytes": 324242
+    },
+    {
+      "path": "target/debug/deps/libcodex_git_utils-990313decc193b5d.rmeta",
+      "bytes": 660311
+    },
+    {
+      "path": "target/debug/deps/libcrypto_common-b1b00009a7a4fcac.rmeta",
+      "bytes": 25693
+    },
+    {
+      "path": "target/debug/deps/libextended-11a8fa55d3135c7c.rmeta",
+      "bytes": 10043
+    },
+    {
+      "path": "target/debug/deps/libnum_complex-533083f4a5fdb24b.rmeta",
+      "bytes": 467525
+    },
+    {
+      "path": "target/debug/deps/libcodex_login-993767fb2418cd7f.rmeta",
+      "bytes": 2690006
+    },
+    {
+      "path": "target/debug/deps/libpkcs8-8a684f16bd707aab.rmeta",
+      "bytes": 64451
+    },
+    {
+      "path": "target/debug/deps/libcodex_sandboxing-863dd9b6105574e4.rmeta",
+      "bytes": 357728
+    },
+    {
+      "path": "target/debug/deps/libh2-40c65ea6fffd0f39.rmeta",
+      "bytes": 2744753
+    },
+    {
+      "path": "target/debug/deps/libequivalent-29140e0efac4a066.rmeta",
+      "bytes": 7754
+    },
+    {
+      "path": "target/debug/deps/libcore_foundation-483307957ca41eb4.rmeta",
+      "bytes": 423522
+    },
+    {
+      "path": "target/debug/deps/librama_http_backend-87745a2cbc1048bd.rmeta",
+      "bytes": 911921
+    },
+    {
+      "path": "target/debug/deps/libstarlark_syntax-433e4320ae4b9825.rmeta",
+      "bytes": 1488866
+    },
+    {
+      "path": "target/debug/deps/librustc_demangle-ecb77790c306e689.rmeta",
+      "bytes": 62583
+    },
+    {
+      "path": "target/debug/deps/libdeunicode-dc1adc6950ed4c52.rmeta",
+      "bytes": 2037879
+    },
+    {
+      "path": "target/debug/deps/libwindows_targets-07cdc9a3f96946ad.rmeta",
+      "bytes": 2360
+    },
+    {
+      "path": "target/debug/deps/libglob-c3e49d8d7d42ca2c.rmeta",
+      "bytes": 65592
+    },
+    {
+      "path": "target/debug/deps/libhpke-91cbbeb7fdd66444.rmeta",
+      "bytes": 221960
+    },
+    {
+      "path": "target/debug/deps/libuuid-7f91db5e204cad23.rmeta",
+      "bytes": 455955
+    },
+    {
+      "path": "target/debug/deps/librustls_native_certs-bd3589e1a1a366ac.rmeta",
+      "bytes": 24816
+    },
+    {
+      "path": "target/debug/deps/libgetrandom-09aef8291883334e.rmeta",
+      "bytes": 62672
+    },
+    {
+      "path": "target/debug/deps/libhttp-abfffd49651bf581.rmeta",
+      "bytes": 1084232
+    },
+    {
+      "path": "target/debug/deps/libos_info-5781c5965a5b3260.rmeta",
+      "bytes": 143929
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_critical_path-372084cfae04ac91.rmeta",
+      "bytes": 17289
+    },
+    {
+      "path": "target/debug/deps/libtracing_serde-59d79e91c73767d4.rmeta",
+      "bytes": 60338
+    },
+    {
+      "path": "target/debug/deps/liballocative-30ef89752ffb0da6.rmeta",
+      "bytes": 252421
+    },
+    {
+      "path": "target/debug/deps/libasync_stream-cdcbde6adfeb3b6f.rmeta",
+      "bytes": 45536
+    },
+    {
+      "path": "target/debug/deps/libcodex_uds-5a1e3535fee7da65.rmeta",
+      "bytes": 65145
+    },
+    {
+      "path": "target/debug/deps/libsame_file-72ab7c5d11421924.rmeta",
+      "bytes": 27083
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_stream_parser-efaa9fe579b2c499.rmeta",
+      "bytes": 90145
+    },
+    {
+      "path": "target/debug/deps/libarboard-53fc75a801e2da86.rmeta",
+      "bytes": 61640
+    },
+    {
+      "path": "target/debug/deps/libcodex_core-4c58ad7a7f674b43.rmeta",
+      "bytes": 33377249
+    },
+    {
+      "path": "target/debug/deps/libnix-6f7f9c621b9667ec.rmeta",
+      "bytes": 3648502
+    },
+    {
+      "path": "target/debug/deps/libenv_filter-5450a27e78b6252e.rmeta",
+      "bytes": 38189
+    },
+    {
+      "path": "target/debug/deps/libenv_home-ffcd440c2b0d3def.rmeta",
+      "bytes": 5226
+    },
+    {
+      "path": "target/debug/deps/libgix_discover-e8cd7b011d0e8bfe.rmeta",
+      "bytes": 99992
+    },
+    {
+      "path": "target/debug/deps/libfixed_decimal-ab2f5ff239e6395a.rmeta",
+      "bytes": 232624
+    },
+    {
+      "path": "target/debug/deps/libtokio-5fa403b8efbdc78d.rmeta",
+      "bytes": 7393067
+    },
+    {
+      "path": "target/debug/deps/libcfg_if-fba393dd771888b3.rmeta",
+      "bytes": 5613
+    },
+    {
+      "path": "target/debug/deps/libuntrusted-ad5e73d3ac315a41.rmeta",
+      "bytes": 30895
+    },
+    {
+      "path": "target/debug/deps/libcodex_git_attribution-fb588941399665f7.rmeta",
+      "bytes": 90070
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_approval_presets-62e21722f9fdfb7f.rmeta",
+      "bytes": 30144
+    },
+    {
+      "path": "target/debug/deps/libsec1-8e3064c6ad3ac2ac.rmeta",
+      "bytes": 109695
+    },
+    {
+      "path": "target/debug/deps/libuniversal_hash-b65be6b7e201e366.rmeta",
+      "bytes": 18457
+    },
+    {
+      "path": "target/debug/deps/libcodex_app_server_protocol-fc4ab6c2ef301d10.rmeta",
+      "bytes": 21496973
+    },
+    {
+      "path": "target/debug/deps/libbase64_simd-b385e28ced3f55c4.rmeta",
+      "bytes": 161863
+    },
+    {
+      "path": "target/debug/deps/libdeflate64-b0b6bafdce1ad4e4.rmeta",
+      "bytes": 83380
+    },
+    {
+      "path": "target/debug/deps/libtypeid-db7f02fa85cd86cb.rmeta",
+      "bytes": 15853
+    },
+    {
+      "path": "target/debug/deps/libcodex_rollout_trace-9755d9c94cb050c2.rmeta",
+      "bytes": 1874416
+    },
+    {
+      "path": "target/debug/deps/libchrono-eebdc7626574c670.rmeta",
+      "bytes": 1790107
+    },
+    {
+      "path": "target/debug/deps/librayon_core-7008856835c92c2c.rmeta",
+      "bytes": 345858
+    },
+    {
+      "path": "target/debug/deps/libunicode_linebreak-52d3534c55211aae.rmeta",
+      "bytes": 68340
+    },
+    {
+      "path": "target/debug/deps/libkeyring-667c05669fee85c5.rmeta",
+      "bytes": 88912
+    },
+    {
+      "path": "target/debug/deps/librand_core-2bca779ee79d7746.rmeta",
+      "bytes": 99116
+    },
+    {
+      "path": "target/debug/deps/libtokio_graceful-b443ca47c5d8a710.rmeta",
+      "bytes": 417189
+    },
+    {
+      "path": "target/debug/deps/libcodex_core_plugins-53eb3716cb8cc696.rmeta",
+      "bytes": 5346998
+    },
+    {
+      "path": "target/debug/deps/liblinkify-ae38629d906487fb.rmeta",
+      "bytes": 42365
+    },
+    {
+      "path": "target/debug/deps/libstrsim-fa8432f661f3be42.rmeta",
+      "bytes": 35515
+    },
+    {
+      "path": "target/debug/deps/libsse_stream-9c84eacf73997453.rmeta",
+      "bytes": 72235
+    },
+    {
+      "path": "target/debug/deps/libstatic_interner-06f3df7d0341e159.rmeta",
+      "bytes": 32375
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_image-d55380802bd700b8.rmeta",
+      "bytes": 47617
+    },
+    {
+      "path": "target/debug/deps/libcurve25519_dalek-f7bd256ef3190138.rmeta",
+      "bytes": 677460
+    },
+    {
+      "path": "target/debug/deps/libfd_lock-923ece388182dfd5.rmeta",
+      "bytes": 40018
+    },
+    {
+      "path": "target/debug/deps/libdebugserver_types-8382cff24e50b5d8.rmeta",
+      "bytes": 2912888
+    },
+    {
+      "path": "target/debug/deps/libsymphonia-fcb52ecdb93b1a92.rmeta",
+      "bytes": 19756
+    },
+    {
+      "path": "target/debug/deps/libtower_layer-2f12bdd8471ea407.rmeta",
+      "bytes": 60619
+    },
+    {
+      "path": "target/debug/deps/libsmol_str-ec50c16c9ef94db0.rmeta",
+      "bytes": 80330
+    },
+    {
+      "path": "target/debug/deps/libpotential_utf-cde12e50c55425ba.rmeta",
+      "bytes": 47938
+    },
+    {
+      "path": "target/debug/deps/libcpufeatures-08cbe8a5c13bce74.rmeta",
+      "bytes": 15621
+    },
+    {
+      "path": "target/debug/deps/libcodex_config-8dc4338f72d324f2.rmeta",
+      "bytes": 5914829
+    },
+    {
+      "path": "target/debug/deps/libatomic_waker-e88a7969cd61cd19.rmeta",
+      "bytes": 14035
+    },
+    {
+      "path": "target/debug/deps/libsha2-2f1e85497ed1138c.rmeta",
+      "bytes": 124455
+    },
+    {
+      "path": "target/debug/deps/libage-143af1a085e5ecb0.rmeta",
+      "bytes": 390860
+    },
+    {
+      "path": "target/debug/deps/libsymphonia_bundle_mp3-196c6c737316aa7a.rmeta",
+      "bytes": 333010
+    },
+    {
+      "path": "target/debug/deps/librustyline-43fa2fe3065a0c38.rmeta",
+      "bytes": 838647
+    },
+    {
+      "path": "target/debug/deps/libtracing_core-ba555f2eb086df92.rmeta",
+      "bytes": 494924
+    },
+    {
+      "path": "target/debug/deps/libatomic-14ba1045b3d8531e.rmeta",
+      "bytes": 77822
+    },
+    {
+      "path": "target/debug/deps/liblink_section-c16896492abd1d55.rmeta",
+      "bytes": 571234
+    },
+    {
+      "path": "target/debug/deps/libconstant_time_eq-200e232bc5ba19c3.rmeta",
+      "bytes": 7192
+    },
+    {
+      "path": "target/debug/deps/libquickcheck-3b54625329be1f8d.rmeta",
+      "bytes": 218890
+    },
+    {
+      "path": "target/debug/deps/libgix_date-f1ea764856994349.rmeta",
+      "bytes": 74744
+    },
+    {
+      "path": "target/debug/deps/libnotify-4b51b6173871baa2.rmeta",
+      "bytes": 293684
+    },
+    {
+      "path": "target/debug/deps/libtree_sitter_powershell-4c8b77caa0704c42.rmeta",
+      "bytes": 164660
+    },
+    {
+      "path": "target/debug/deps/libfutures_sink-90dff2c9050a1a04.rmeta",
+      "bytes": 24063
+    },
+    {
+      "path": "target/debug/deps/libchacha20-d8e9071ceae452e7.rmeta",
+      "bytes": 260672
+    },
+    {
+      "path": "target/debug/deps/libtracing_appender-9fc685d3c6beb354.rmeta",
+      "bytes": 117775
+    },
+    {
+      "path": "target/debug/deps/libxmlparser-7361161e9fd86935.rmeta",
+      "bytes": 144705
+    },
+    {
+      "path": "target/debug/deps/libed25519_dalek-96b3575724726ebc.rmeta",
+      "bytes": 107889
+    },
+    {
+      "path": "target/debug/deps/libflatbuffers-72bf10ad4907c64d.rmeta",
+      "bytes": 319027
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_cli-0b63d99da611a5d9.rmeta",
+      "bytes": 79673
+    },
+    {
+      "path": "target/debug/deps/libregex_automata-d65bdf598c517671.rmeta",
+      "bytes": 3157720
+    },
+    {
+      "path": "target/debug/deps/libtree_sitter_bash-7cb289a05d819865.rmeta",
+      "bytes": 115838
+    },
+    {
+      "path": "target/debug/deps/libdigest-c7be984c28134855.rmeta",
+      "bytes": 226688
+    },
+    {
+      "path": "target/debug/deps/libcastaway-f7df04fea29dcf7e.rmeta",
+      "bytes": 58786
+    },
+    {
+      "path": "target/debug/deps/liburlencoding-6abe213302d0f691.rmeta",
+      "bytes": 24197
+    },
+    {
+      "path": "target/debug/deps/liblock_api-ec519df1db75eaec.rmeta",
+      "bytes": 360354
+    },
+    {
+      "path": "target/debug/deps/libpin_project_lite-c37ab4f16ddfa6d4.rmeta",
+      "bytes": 92709
+    },
+    {
+      "path": "target/debug/deps/librama_core-dfe6458768653578.rmeta",
+      "bytes": 2943808
+    },
+    {
+      "path": "target/debug/deps/liblog-8d6295e7cd8fd642.rmeta",
+      "bytes": 169583
+    },
+    {
+      "path": "target/debug/deps/libgix-ff1ab7e0eb742c80.rmeta",
+      "bytes": 1975227
+    },
+    {
+      "path": "target/debug/deps/libzerotrie-74940be76461c2a0.rmeta",
+      "bytes": 441497
+    },
+    {
+      "path": "target/debug/deps/libbzip2_sys-64e8a5b6effdc3ff.rmeta",
+      "bytes": 8383
+    },
+    {
+      "path": "target/debug/deps/libsymphonia_metadata-7c4b447013cb685e.rmeta",
+      "bytes": 131267
+    },
+    {
+      "path": "target/debug/deps/libgix_error-aae4d0bb3a6bc923.rmeta",
+      "bytes": 374939
+    },
+    {
+      "path": "target/debug/deps/libcodex_install_context-78e7c90a141177b7.rmeta",
+      "bytes": 37673
+    },
+    {
+      "path": "target/debug/deps/libcookie-6fff40099d141431.rmeta",
+      "bytes": 246526
+    },
+    {
+      "path": "target/debug/deps/libutf8_iter-68b81ffd7d4b49e4.rmeta",
+      "bytes": 26866
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_oss-5f786fd0cdb220dd.rmeta",
+      "bytes": 62551
+    },
+    {
+      "path": "target/debug/deps/libcodex_mcp-144f85e55f49d489.rmeta",
+      "bytes": 5515529
+    },
+    {
+      "path": "target/debug/deps/libfiledescriptor-5e25873be5de13ee.rmeta",
+      "bytes": 67491
+    },
+    {
+      "path": "target/debug/deps/librustls_pki_types-a5191376b4d25646.rmeta",
+      "bytes": 332785
+    },
+    {
+      "path": "target/debug/deps/libcodex_websocket_client-08e2f0a3ef385ac6.rmeta",
+      "bytes": 186376
+    },
+    {
+      "path": "target/debug/deps/libgix_fs-8944dbf3b66a2818.rmeta",
+      "bytes": 132986
+    },
+    {
+      "path": "target/debug/deps/libcrypto_bigint-f7315bf3341a0d04.rmeta",
+      "bytes": 1928727
+    },
+    {
+      "path": "target/debug/deps/libcodex_websocket_auth-6db4214464d96f8c.rmeta",
+      "bytes": 65447
+    },
+    {
+      "path": "target/debug/deps/libgix_traverse-261b833398c3c24d.rmeta",
+      "bytes": 314317
+    },
+    {
+      "path": "target/debug/deps/librama_tls_rustls-294759ff2bb738da.rmeta",
+      "bytes": 486697
+    },
+    {
+      "path": "target/debug/deps/libyoke-16d84106d1670991.rmeta",
+      "bytes": 217755
+    },
+    {
+      "path": "target/debug/deps/libtime-8ab22cafe970ab1a.rmeta",
+      "bytes": 2261442
+    },
+    {
+      "path": "target/debug/deps/libtype_map-b39050d885dc31fb.rmeta",
+      "bytes": 45564
+    },
+    {
+      "path": "target/debug/deps/libtower-243384908789d12e.rmeta",
+      "bytes": 1499912
+    },
+    {
+      "path": "target/debug/deps/librayon-58b3997a29ea1bab.rmeta",
+      "bytes": 3066526
+    },
+    {
+      "path": "target/debug/deps/libintl_memoizer-48b3d3d34084b446.rmeta",
+      "bytes": 26352
+    },
+    {
+      "path": "target/debug/deps/libunic_langid-12be4770c92311d9.rmeta",
+      "bytes": 8373
+    },
+    {
+      "path": "target/debug/deps/libcodex_realtime_webrtc-fbd1b5ee045e0c1d.rmeta",
+      "bytes": 512455
+    },
+    {
+      "path": "target/debug/deps/libserde-6fd98b1e466e1d15.rmeta",
+      "bytes": 516151
+    },
+    {
+      "path": "target/debug/deps/libderive_more-0d5dca1f5d224495.rmeta",
+      "bytes": 25582
+    },
+    {
+      "path": "target/debug/deps/libsymphonia_format_ogg-c24ca8ad5ab086da.rmeta",
+      "bytes": 123479
+    },
+    {
+      "path": "target/debug/deps/libfax-010e7a6312b052b6.rmeta",
+      "bytes": 89319
+    },
+    {
+      "path": "target/debug/deps/libaws_smithy_types-2ee779cfc835c2ac.rmeta",
+      "bytes": 672516
+    },
+    {
+      "path": "target/debug/deps/libtoml_edit-59c6670f094d48ec.rmeta",
+      "bytes": 519873
+    },
+    {
+      "path": "target/debug/deps/libpng-01f2a633a1e57975.rmeta",
+      "bytes": 716185
+    },
+    {
+      "path": "target/debug/deps/libhickory_proto-b887799f87e50d76.rmeta",
+      "bytes": 2691494
+    },
+    {
+      "path": "target/debug/deps/libicu_provider-907f87097a94fed6.rmeta",
+      "bytes": 451032
+    },
+    {
+      "path": "target/debug/deps/libgix_sec-d1db3de6ceb555c7.rmeta",
+      "bytes": 96843
+    },
+    {
+      "path": "target/debug/deps/libaws_credential_types-78b557f32b99e8f4.rmeta",
+      "bytes": 153706
+    },
+    {
+      "path": "target/debug/deps/libpin_utils-5862f8c93e3c893e.rmeta",
+      "bytes": 10652
+    },
+    {
+      "path": "target/debug/deps/libaws_smithy_http_client-1d894178d1cccc06.rmeta",
+      "bytes": 358315
+    },
+    {
+      "path": "target/debug/deps/libi18n_embed-82c856a5489d03d1.rmeta",
+      "bytes": 133331
+    },
+    {
+      "path": "target/debug/deps/libhex-62a0b13ada3139df.rmeta",
+      "bytes": 193273
+    },
+    {
+      "path": "target/debug/deps/libpem_rfc7468-0bedf886e82bc512.rmeta",
+      "bytes": 59830
+    },
+    {
+      "path": "target/debug/deps/librand_chacha-854c9a26c90a1c66.rmeta",
+      "bytes": 97652
+    },
+    {
+      "path": "target/debug/deps/libnum_conv-79b8cee9f1ed7701.rmeta",
+      "bytes": 111073
+    },
+    {
+      "path": "target/debug/deps/libenv_logger-3dbc8a23a23e15a9.rmeta",
+      "bytes": 142761
+    },
+    {
+      "path": "target/debug/deps/libfluent_langneg-640b5fa70c2db28a.rmeta",
+      "bytes": 24512
+    },
+    {
+      "path": "target/debug/deps/libtungstenite-97dc33aeb8cd30e8.rmeta",
+      "bytes": 689208
+    },
+    {
+      "path": "target/debug/deps/libcodex_web_search_extension-ab521cba44a9490f.rmeta",
+      "bytes": 161494
+    },
+    {
+      "path": "target/debug/deps/libopentelemetry_http-305b4f0ac8968be8.rmeta",
+      "bytes": 72510
+    },
+    {
+      "path": "target/debug/deps/libfutures-d25e0caf3cf95dcc.rmeta",
+      "bytes": 17658
+    },
+    {
+      "path": "target/debug/deps/libidna-babbda933b51f265.rmeta",
+      "bytes": 142330
+    },
+    {
+      "path": "target/debug/deps/libtoml-bb1af1f986848d7f.rmeta",
+      "bytes": 754684
+    },
+    {
+      "path": "target/debug/deps/libfluent_uri-3cf1512bbd16a83f.rmeta",
+      "bytes": 317606
+    },
+    {
+      "path": "target/debug/deps/libnix-edc6a9e8ec9eb5f5.rmeta",
+      "bytes": 1901029
+    },
+    {
+      "path": "target/debug/deps/libcodex_app_server_client-de4389144ae9fa34.rmeta",
+      "bytes": 829328
+    },
+    {
+      "path": "target/debug/deps/libring-6e2cf1d9bd62cd5b.rmeta",
+      "bytes": 1732614
+    },
+    {
+      "path": "target/debug/deps/librand-c47d6790e980eb83.rmeta",
+      "bytes": 701428
+    },
+    {
+      "path": "target/debug/deps/libsystem_configuration-952e251cf9c6a896.rmeta",
+      "bytes": 220475
+    },
+    {
+      "path": "target/debug/deps/libarc_swap-25edbae791abca75.rmeta",
+      "bytes": 326732
+    },
+    {
+      "path": "target/debug/deps/libgif-7515c5019351857d.rmeta",
+      "bytes": 240775
+    },
+    {
+      "path": "target/debug/deps/libzune_jpeg-870bdc2b0fe5bb05.rmeta",
+      "bytes": 635791
+    },
+    {
+      "path": "target/debug/deps/libsocket2-71c6016a0b32981a.rmeta",
+      "bytes": 320062
+    },
+    {
+      "path": "target/debug/deps/libserde_core-de865eb7c6272b27.rmeta",
+      "bytes": 2673321
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_process-d65c57e2ea087e19.rmeta",
+      "bytes": 3263
+    },
+    {
+      "path": "target/debug/deps/libprodash-74aaf8596021a01e.rmeta",
+      "bytes": 313487
+    },
+    {
+      "path": "target/debug/deps/liblibc-292e76ed4686d241.rmeta",
+      "bytes": 2352085
+    },
+    {
+      "path": "target/debug/deps/libtree_sitter_language-2d88e32e79daeda3.rmeta",
+      "bytes": 3990
+    },
+    {
+      "path": "target/debug/deps/libonig-e67be3e5228ce158.rmeta",
+      "bytes": 891103
+    },
+    {
+      "path": "target/debug/deps/libaws_sigv4-c60f1a5a762aa401.rmeta",
+      "bytes": 216568
+    },
+    {
+      "path": "target/debug/deps/libpbkdf2-88af68627dbbda8c.rmeta",
+      "bytes": 15872
+    },
+    {
+      "path": "target/debug/deps/libtime_core-a29cc6dd9de7d574.rmeta",
+      "bytes": 242378
+    },
+    {
+      "path": "target/debug/deps/libbstr-1ba6f0be91d9177c.rmeta",
+      "bytes": 1286673
+    },
+    {
+      "path": "target/debug/deps/libzlib_rs-2bbf3268fe9197a6.rmeta",
+      "bytes": 744566
+    },
+    {
+      "path": "target/debug/deps/librama_dns-3f53f0ca6d24d7e1.rmeta",
+      "bytes": 4045768
+    },
+    {
+      "path": "target/debug/deps/libobjc2_foundation-d31477750bf83318.rmeta",
+      "bytes": 43419502
+    },
+    {
+      "path": "target/debug/deps/libwindows_result-39136a87557d5cbe.rmeta",
+      "bytes": 54695
+    },
+    {
+      "path": "target/debug/deps/libfxhash-1a7d330a7923faf9.rmeta",
+      "bytes": 23392
+    },
+    {
+      "path": "target/debug/deps/libcodex_shell_command-2635ba91372e413e.rmeta",
+      "bytes": 270830
+    },
+    {
+      "path": "target/debug/deps/libasynk_strim-cdb83dbdc8689d76.rmeta",
+      "bytes": 70616
+    },
+    {
+      "path": "target/debug/deps/libecdsa-b2c4215769de471a.rmeta",
+      "bytes": 244763
+    },
+    {
+      "path": "target/debug/deps/libcrossbeam_channel-527f70f94ee8025c.rmeta",
+      "bytes": 480897
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_json_to_toml-c5b0c701cacb1e44.rmeta",
+      "bytes": 4075
+    },
+    {
+      "path": "target/debug/deps/libhttp-d8a3cb70a1bbe7a2.rmeta",
+      "bytes": 1044801
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_rustls_provider-7e55b26f73e1115c.rmeta",
+      "bytes": 4862
+    },
+    {
+      "path": "target/debug/deps/libcodex_tui-f844b4b5b6bccb0a.rmeta",
+      "bytes": 0
+    },
+    {
+      "path": "target/debug/deps/libflate2-6727a08df314d688.rmeta",
+      "bytes": 390363
+    },
+    {
+      "path": "target/debug/deps/liblock_free_hashtable-11fa0303972f94b1.rmeta",
+      "bytes": 58207
+    },
+    {
+      "path": "target/debug/deps/liberased_serde-6831a23228aa3f04.rmeta",
+      "bytes": 484147
+    },
+    {
+      "path": "target/debug/deps/libjsonwebtoken-26bed50f16312f99.rmeta",
+      "bytes": 487589
+    },
+    {
+      "path": "target/debug/deps/libbzip2-28765b39f261deb8.rmeta",
+      "bytes": 96794
+    },
+    {
+      "path": "target/debug/deps/libx509_parser-d751cf4b1837bcaf.rmeta",
+      "bytes": 951125
+    },
+    {
+      "path": "target/debug/deps/libquick_error-d861719310f54b42.rmeta",
+      "bytes": 80537
+    },
+    {
+      "path": "target/debug/deps/libgix_ref-134c427a766ece96.rmeta",
+      "bytes": 637423
+    },
+    {
+      "path": "target/debug/deps/libcolor_spantrace-c29a5d5a582a97f4.rmeta",
+      "bytes": 30091
+    },
+    {
+      "path": "target/debug/deps/libaws_sdk_signin-15bb6fa65a696edd.rmeta",
+      "bytes": 607982
+    },
+    {
+      "path": "target/debug/deps/libnum_bigint-efc6bd5e8caefa1e.rmeta",
+      "bytes": 1423512
+    },
+    {
+      "path": "target/debug/deps/libregex-b3fa590986c36923.rmeta",
+      "bytes": 561354
+    },
+    {
+      "path": "target/debug/deps/libcodex_connectors-93e4a98cddb6fbf0.rmeta",
+      "bytes": 511860
+    },
+    {
+      "path": "target/debug/deps/libtwo_face-32d2a8b12116ab9b.rmeta",
+      "bytes": 161356
+    },
+    {
+      "path": "target/debug/deps/libcodex_memories_write-87cb3781ffaca539.rmeta",
+      "bytes": 1311947
+    },
+    {
+      "path": "target/debug/deps/libwiremock-c07e59ab779f4e11.rmeta",
+      "bytes": 482251
+    },
+    {
+      "path": "target/debug/deps/libdigest-0aa8a4404122a695.rmeta",
+      "bytes": 141593
+    },
+    {
+      "path": "target/debug/deps/libparking_lot-8c49c145a55b2b23.rmeta",
+      "bytes": 155233
+    },
+    {
+      "path": "target/debug/deps/libannotate_snippets-7afad9eda1f5ecfc.rmeta",
+      "bytes": 107694
+    },
+    {
+      "path": "target/debug/deps/libhashbrown-83b6884053178560.rmeta",
+      "bytes": 889196
+    },
+    {
+      "path": "target/debug/deps/libgroup-b79b3f54eb9f4c21.rmeta",
+      "bytes": 63281
+    },
+    {
+      "path": "target/debug/deps/libcodex_exec_server-57f868e1640f88e2.rmeta",
+      "bytes": 9216471
+    },
+    {
+      "path": "target/debug/deps/libstrong_hash-a9a2297cdd66f56e.rmeta",
+      "bytes": 27975
+    },
+    {
+      "path": "target/debug/deps/libcodex_tools-b44ef0b66e197091.rmeta",
+      "bytes": 607506
+    },
+    {
+      "path": "target/debug/deps/libimage_webp-1dccff926d1fb0a5.rmeta",
+      "bytes": 461830
+    },
+    {
+      "path": "target/debug/deps/libwhoami-cb4ee55024dd05bb.rmeta",
+      "bytes": 105095
+    },
+    {
+      "path": "target/debug/deps/libtower_service-85678723ad9beb73.rmeta",
+      "bytes": 22026
+    },
+    {
+      "path": "target/debug/deps/libmime-7301ee68011e6615.rmeta",
+      "bytes": 107092
+    },
+    {
+      "path": "target/debug/deps/libyasna-b19e411f446b6b86.rmeta",
+      "bytes": 358706
+    },
+    {
+      "path": "target/debug/deps/libcodex_extension_api-742fb01d4e3df4f8.rmeta",
+      "bytes": 459546
+    },
+    {
+      "path": "target/debug/deps/libfdeflate-cf4c3012c70b8365.rmeta",
+      "bytes": 93574
+    },
+    {
+      "path": "target/debug/deps/libwindows_core-e43e765aa648e7f8.rmeta",
+      "bytes": 399894
+    },
+    {
+      "path": "target/debug/deps/libintl_pluralrules-a34be2bcbc30958f.rmeta",
+      "bytes": 287173
+    },
+    {
+      "path": "target/debug/deps/libzstd_safe-5c6689ec657d6035.rmeta",
+      "bytes": 118058
+    },
+    {
+      "path": "target/debug/deps/libopentelemetry_proto-2653d828873ecb62.rmeta",
+      "bytes": 1735457
+    },
+    {
+      "path": "target/debug/deps/libscopeguard-b5bf87ecad38f98d.rmeta",
+      "bytes": 22023
+    },
+    {
+      "path": "target/debug/deps/libgix_hash-90a9e075492a5eec.rmeta",
+      "bytes": 138399
+    },
+    {
+      "path": "target/debug/deps/libgix_path-047b690401de9b44.rmeta",
+      "bytes": 80491
+    },
+    {
+      "path": "target/debug/deps/libpolyval-fa00d74cbedf26eb.rmeta",
+      "bytes": 27104
+    },
+    {
+      "path": "target/debug/deps/libhyper-7f32724089eace34.rmeta",
+      "bytes": 1467434
+    },
+    {
+      "path": "target/debug/deps/libobjc2_security-dd6da0d535a2f4ea.rmeta",
+      "bytes": 1147322
+    },
+    {
+      "path": "target/debug/deps/libaws_lc_sys-48490aeacf26caaa.rmeta",
+      "bytes": 2083466
+    },
+    {
+      "path": "target/debug/deps/libcolor_eyre-d6848cfbc7f2ac31.rmeta",
+      "bytes": 189668
+    },
+    {
+      "path": "target/debug/deps/librfc6979-be5de186361a9f81.rmeta",
+      "bytes": 15168
+    },
+    {
+      "path": "target/debug/deps/librama_utils-118ecac32076a598.rmeta",
+      "bytes": 706341
+    },
+    {
+      "path": "target/debug/deps/libicu_locale_data-d344cb08797eafdc.rmeta",
+      "bytes": 816692
+    },
+    {
+      "path": "target/debug/deps/liblibbz2_rs_sys-ee2ae86403955887.rmeta",
+      "bytes": 293538
+    },
+    {
+      "path": "target/debug/deps/libwindows-236d185d0e34a5a3.rmeta",
+      "bytes": 2568
+    },
+    {
+      "path": "target/debug/deps/libpulldown_cmark_escape-f7ffe6d8d45b1330.rmeta",
+      "bytes": 18166
+    },
+    {
+      "path": "target/debug/deps/libaws_types-66cc52a79da8477f.rmeta",
+      "bytes": 249548
+    },
+    {
+      "path": "target/debug/deps/libratatui_crossterm-ccaa088c87bd1a3f.rmeta",
+      "bytes": 62256
+    },
+    {
+      "path": "target/debug/deps/libis_terminal-1fb1a29da1e55e25.rmeta",
+      "bytes": 6654
+    },
+    {
+      "path": "target/debug/deps/libsorted_vector_map-820ec57d888e09ca.rmeta",
+      "bytes": 152227
+    },
+    {
+      "path": "target/debug/deps/libcodex_features-f3833ffb4429b3b8.rmeta",
+      "bytes": 788145
+    },
+    {
+      "path": "target/debug/deps/libchacha20poly1305-f0273745adb2c04f.rmeta",
+      "bytes": 34184
+    },
+    {
+      "path": "target/debug/deps/libghash-1a168697b7115c8f.rmeta",
+      "bytes": 15894
+    },
+    {
+      "path": "target/debug/deps/libaws_lc_rs-96da0ef16dfa0c36.rmeta",
+      "bytes": 1771543
+    },
+    {
+      "path": "target/debug/deps/libbyteorder_lite-4fef49a449c534c3.rmeta",
+      "bytes": 169242
+    },
+    {
+      "path": "target/debug/deps/libcodex_worktree-122901ab431ad043.rmeta",
+      "bytes": 86289
+    },
+    {
+      "path": "target/debug/deps/libhttpdate-b1d1d00b73262193.rmeta",
+      "bytes": 24188
+    },
+    {
+      "path": "target/debug/deps/libserde_yaml-fab56d95e2e0e15e.rmeta",
+      "bytes": 1055547
+    },
+    {
+      "path": "target/debug/deps/libcodex_mcp_extension-5c9e217de7aebd80.rmeta",
+      "bytes": 567729
+    },
+    {
+      "path": "target/debug/deps/librust_embed_utils-f73d29e253d91a9d.rmeta",
+      "bytes": 14266
+    },
+    {
+      "path": "target/debug/deps/libprost-cb107f878fd51ef1.rmeta",
+      "bytes": 298496
+    },
+    {
+      "path": "target/debug/deps/libpathdiff-7c6a2924659ff404.rmeta",
+      "bytes": 5580
+    },
+    {
+      "path": "target/debug/deps/libcmov-26fec13f11f6df21.rmeta",
+      "bytes": 181237
+    },
+    {
+      "path": "target/debug/deps/libhalf-e35e237960b6b88c.rmeta",
+      "bytes": 407312
+    },
+    {
+      "path": "target/debug/deps/libfiletime-60e9a8beb39090de.rmeta",
+      "bytes": 38303
+    },
+    {
+      "path": "target/debug/deps/libcodex_mermaid-84be49f475df0da2.rmeta",
+      "bytes": 62842
+    },
+    {
+      "path": "target/debug/deps/libowo_colors-86ac21c2c2a256f7.rmeta",
+      "bytes": 2082549
+    },
+    {
+      "path": "target/debug/deps/libhmac-fcbec1d854c0798f.rmeta",
+      "bytes": 33138
+    },
+    {
+      "path": "target/debug/deps/libiana_time_zone-1875c55391a45ed7.rmeta",
+      "bytes": 17877
+    },
+    {
+      "path": "target/debug/deps/libpsl-4882b733d646e2f6.rmeta",
+      "bytes": 2566860
+    },
+    {
+      "path": "target/debug/deps/libweb_time-bec4c09d46dd0d73.rmeta",
+      "bytes": 11486
+    },
+    {
+      "path": "target/debug/deps/libsequence_trie-9ecee18dd5e4064b.rmeta",
+      "bytes": 50192
+    },
+    {
+      "path": "target/debug/deps/libcodex_skills-b9169dd6e1f10eab.rmeta",
+      "bytes": 673869
+    },
+    {
+      "path": "target/debug/deps/libgix_quote-d1aade805f53942a.rmeta",
+      "bytes": 13802
+    },
+    {
+      "path": "target/debug/deps/libminiz_oxide-0d7640762a51ef00.rmeta",
+      "bytes": 345732
+    },
+    {
+      "path": "target/debug/deps/libratatui_widgets-4a8deeb421073a33.rmeta",
+      "bytes": 1268234
+    },
+    {
+      "path": "target/debug/deps/libcodex_lmstudio-ef27a82f2b104a08.rmeta",
+      "bytes": 163799
+    },
+    {
+      "path": "target/debug/deps/libthread_local-e8a36b931a706e43.rmeta",
+      "bytes": 69335
+    },
+    {
+      "path": "target/debug/deps/libbm25-f52767adc38257bb.rmeta",
+      "bytes": 115231
+    },
+    {
+      "path": "target/debug/deps/libtriomphe-7cc9b8529e23ccfb.rmeta",
+      "bytes": 216989
+    },
+    {
+      "path": "target/debug/deps/libhickory_resolver-a3a5adbecbeabcf6.rmeta",
+      "bytes": 853670
+    },
+    {
+      "path": "target/debug/deps/libgix_packetline-cd2ec2c4466cce2b.rmeta",
+      "bytes": 68327
+    },
+    {
+      "path": "target/debug/deps/libcodex_cloud_config-950a63002d2fc860.rmeta",
+      "bytes": 585477
+    },
+    {
+      "path": "target/debug/deps/libhttp_range_header-4902cbba25e3d1dc.rmeta",
+      "bytes": 33017
+    },
+    {
+      "path": "target/debug/deps/libutf8parse-caacb7acd1e89e00.rmeta",
+      "bytes": 20936
+    },
+    {
+      "path": "target/debug/deps/libcodex_history_notes_extension-278c02a3bae5ad84.rmeta",
+      "bytes": 171986
+    },
+    {
+      "path": "target/debug/deps/libhybrid_array-b61daae33aa6f4a8.rmeta",
+      "bytes": 1114053
+    },
+    {
+      "path": "target/debug/deps/libpercent_encoding-c918fbecd7426639.rmeta",
+      "bytes": 45299
+    },
+    {
+      "path": "target/debug/deps/libgix_zlib-8eb12308ac9c1d14.rmeta",
+      "bytes": 52979
+    },
+    {
+      "path": "target/debug/deps/libaws_sdk_sso-a4de9a24c3474281.rmeta",
+      "bytes": 911743
+    },
+    {
+      "path": "target/debug/deps/libnative_tls-7e11ef8fec2841c0.rmeta",
+      "bytes": 94572
+    },
+    {
+      "path": "target/debug/deps/libcsv_core-30f2ba7439ee4fc5.rmeta",
+      "bytes": 114570
+    },
+    {
+      "path": "target/debug/deps/librama_udp-34680c8d3728cb57.rmeta",
+      "bytes": 30906
+    },
+    {
+      "path": "target/debug/deps/libwebpki-cd136bf6e27f9895.rmeta",
+      "bytes": 513575
+    },
+    {
+      "path": "target/debug/deps/libnom-41881f0718301729.rmeta",
+      "bytes": 2154879
+    },
+    {
+      "path": "target/debug/deps/libfancy_regex-86721cdadabbef6b.rmeta",
+      "bytes": 324422
+    },
+    {
+      "path": "target/debug/deps/libmd_events-a6c81e79610d3822.rmeta",
+      "bytes": 0
+    },
+    {
+      "path": "target/debug/deps/libaes_gcm-1f1dcd4b35676801.rmeta",
+      "bytes": 33265
+    },
+    {
+      "path": "target/debug/deps/libaws_smithy_json-ff33fe6cfbe517b7.rmeta",
+      "bytes": 100935
+    },
+    {
+      "path": "target/debug/deps/libanstream-f63710c5db944ba7.rmeta",
+      "bytes": 167628
+    },
+    {
+      "path": "target/debug/deps/libppv_lite86-629307baf240e9f5.rmeta",
+      "bytes": 262335
+    },
+    {
+      "path": "target/debug/deps/libdiffy-72565dccd3d9fc5b.rmeta",
+      "bytes": 299953
+    },
+    {
+      "path": "target/debug/deps/libcodex_attachment_store-a5ea9d776a917ffe.rmeta",
+      "bytes": 123511
+    },
+    {
+      "path": "target/debug/deps/libcodex_extension_items-90d445f906953be0.rmeta",
+      "bytes": 214466
+    },
+    {
+      "path": "target/debug/deps/libcodex_memories_extension-9adaa1c9d8a9f575.rmeta",
+      "bytes": 559735
+    },
+    {
+      "path": "target/debug/deps/libratatui-41c0596d0c8595bb.rmeta",
+      "bytes": 158014
+    },
+    {
+      "path": "target/debug/deps/libcodex_agent_identity-f9aa93d31ec43e36.rmeta",
+      "bytes": 180461
+    },
+    {
+      "path": "target/debug/deps/libcodex_message_history-27bb6c4c6234622a.rmeta",
+      "bytes": 153957
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_cache-e677c49192283a85.rmeta",
+      "bytes": 14951
+    },
+    {
+      "path": "target/debug/deps/libgix_object-cb5bd55f693c31a5.rmeta",
+      "bytes": 623574
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_git_discovery-61cd5a29cacd8ed3.rmeta",
+      "bytes": 64370
+    },
+    {
+      "path": "target/debug/deps/libscrypt-e2a69a8832768f22.rmeta",
+      "bytes": 25579
+    },
+    {
+      "path": "target/debug/deps/libreqwest-a93dbb6f24fcc8b7.rmeta",
+      "bytes": 1200889
+    },
+    {
+      "path": "target/debug/deps/libfastrand-33951782d1cb71a3.rmeta",
+      "bytes": 63997
+    },
+    {
+      "path": "target/debug/deps/libtextwrap-50ea3ead169272a1.rmeta",
+      "bytes": 182286
+    },
+    {
+      "path": "target/debug/deps/libcodex_exec_server_protocol-3497d538df1ac85c.rmeta",
+      "bytes": 1733775
+    },
+    {
+      "path": "target/debug/deps/libcrossbeam_epoch-c5c635ba0172b211.rmeta",
+      "bytes": 256257
+    },
+    {
+      "path": "target/debug/deps/libgix_actor-eec5b31748bd9ba1.rmeta",
+      "bytes": 52941
+    },
+    {
+      "path": "target/debug/deps/libwidestring-d782432c723aa61f.rmeta",
+      "bytes": 1438174
+    },
+    {
+      "path": "target/debug/deps/libaead-620590d84e624fa4.rmeta",
+      "bytes": 44737
+    },
+    {
+      "path": "target/debug/deps/libbase64-f099cd5ce0334a11.rmeta",
+      "bytes": 224114
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_head_tail_buffer-b1fe4238d8c77716.rmeta",
+      "bytes": 11778
+    },
+    {
+      "path": "target/debug/deps/libgix_chunk-ebe467a9dad46eef.rmeta",
+      "bytes": 30154
+    },
+    {
+      "path": "target/debug/deps/libheaders-a08e383338df878e.rmeta",
+      "bytes": 725817
+    },
+    {
+      "path": "target/debug/deps/libfutures_task-c629a9fb05ebb069.rmeta",
+      "bytes": 73900
+    },
+    {
+      "path": "target/debug/deps/libcodex_guardian_context-38f1fac05fc48908.rmeta",
+      "bytes": 624322
+    },
+    {
+      "path": "target/debug/deps/libfoldhash-3d9ac37c1dd678e0.rmeta",
+      "bytes": 63446
+    },
+    {
+      "path": "target/debug/deps/libaxum_core-818d00e639ed7230.rmeta",
+      "bytes": 1538328
+    },
+    {
+      "path": "target/debug/deps/libgetrandom-4303b43ac78964b1.rmeta",
+      "bytes": 54184
+    },
+    {
+      "path": "target/debug/deps/libgix_hashtable-74fbb59c82b2a550.rmeta",
+      "bytes": 17952
+    },
+    {
+      "path": "target/debug/deps/libtinyvec_macros-c867abb87c08a6af.rmeta",
+      "bytes": 3012
+    },
+    {
+      "path": "target/debug/deps/libdirs_next-0b58263c095cfe9e.rmeta",
+      "bytes": 20288
+    },
+    {
+      "path": "target/debug/deps/libtoml_parser-154cb57814447e3a.rmeta",
+      "bytes": 261709
+    },
+    {
+      "path": "target/debug/deps/libself_cell-dc339958390d8bf4.rmeta",
+      "bytes": 62508
+    },
+    {
+      "path": "target/debug/deps/libsentry_types-57a5c73a235ad72d.rmeta",
+      "bytes": 1694411
+    },
+    {
+      "path": "target/debug/deps/libcodex_file_search-c315d35837d3d471.rmeta",
+      "bytes": 84720
+    },
+    {
+      "path": "target/debug/deps/libnum_threads-da8f7127190ea791.rmeta",
+      "bytes": 5411
+    },
+    {
+      "path": "target/debug/deps/libcodex_utils_template-e4abaea6450947f2.rmeta",
+      "bytes": 26582
+    },
+    {
+      "path": "target/debug/deps/libcodex_plugin-237ba97799c04c86.rmeta",
+      "bytes": 144285
+    },
+    {
+      "path": "target/debug/deps/libicu_decimal_data-93bb199a4228179f.rmeta",
+      "bytes": 185286
+    },
+    {
+      "path": "target/debug/deps/libjiff_core-d83a653a1ec09486.rmeta",
+      "bytes": 1424313
+    },
+    {
+      "path": "target/debug/deps/libutf8-ee391d1984c73ab5.rmeta",
+      "bytes": 30056
+    },
+    {
+      "path": "target/debug/deps/libchunked_transfer-f0a050431e8dc2f0.rmeta",
+      "bytes": 18321
+    },
+    {
+      "path": "target/debug/deps/libsharded_slab-02a15968540aeefe.rmeta",
+      "bytes": 393191
+    },
+    {
+      "path": "target/debug/deps/libpostcard-36c1a5d2c944744d.rmeta",
+      "bytes": 402889
+    },
+    {
+      "path": "target/debug/deps/libsqlx_sqlite-cf3c4e5367f814dc.rmeta",
+      "bytes": 1203589
+    },
+    {
+      "path": "target/debug/deps/libpublicsuffix-58c740e66fda0fb9.rmeta",
+      "bytes": 40905
+    },
+    {
+      "path": "target/debug/deps/libopentelemetry_semantic_conventions-f294a65d15945fd8.rmeta",
+      "bytes": 187732
+    },
+    {
+      "path": "target/debug/deps/libfluent-d1fd356a297cff49.rmeta",
+      "bytes": 9141
+    },
+    {
+      "path": "target/debug/deps/libconst_format-cc9c3b88f13409cf.rmeta",
+      "bytes": 542764
+    },
+    {
+      "path": "target/debug/deps/liblibsqlite3_sys-91167bfa9bccd30d.rmeta",
+      "bytes": 396387
+    },
+    {
+      "path": "target/debug/deps/libstop_words-ba1355f913361210.rmeta",
+      "bytes": 313956
+    },
+    {
+      "path": "target/debug/deps/libunicode_truncate-ba3aba70794bd2b1.rmeta",
+      "bytes": 18294
+    },
+    {
+      "path": "target/debug/deps/libzlib_rs-627c7ccde31c2cf8.rmeta",
+      "bytes": 745482
+    },
+    {
+      "path": "target/debug/deps/librand_core-7a8d3b1292b062b3.rmeta",
+      "bytes": 80989
+    },
+    {
+      "path": "target/debug/deps/libaes-99de5c3b87a4f34d.rmeta",
+      "bytes": 527958
+    },
+    {
+      "path": "target/debug/deps/libcodex_workload_identity-b56376b3ea612917.rmeta",
+      "bytes": 121435
+    },
+    {
+      "path": "target/debug/deps/libed25519-259d9842f7a8c97c.rmeta",
+      "bytes": 60495
+    },
+    {
+      "path": "target/debug/deps/libstrum-f046b6f0ccc4a279.rmeta",
+      "bytes": 27970
+    },
+    {
+      "path": "target/debug/deps/libbitflags-3c5fbcda6b918f70.rmeta",
+      "bytes": 43940
+    },
+    {
+      "path": "target/debug/deps/libtonic-93c36cb425c8ed54.rmeta",
+      "bytes": 1434543
+    },
+    {
+      "path": "target/debug/deps/libsignature-1daad2e818071634.rmeta",
+      "bytes": 53155
+    },
+    {
+      "path": "target/debug/deps/libtiff-74e3f08d0f5cc06a.rmeta",
+      "bytes": 761652
+    },
+    {
+      "path": "target/debug/deps/libvsimd-5e7579f5b093826f.rmeta",
+      "bytes": 1237513
+    },
+    {
+      "path": "target/debug/deps/libopentelemetry_appender_tracing-ef177067bd1c01d5.rmeta",
+      "bytes": 28277
+    },
+    {
+      "path": "target/debug/deps/librama_http_headers-18570bf18e315809.rmeta",
+      "bytes": 2216424
+    },
+    {
+      "path": "target/debug/deps/libhttparse-533ae38155f01c02.rmeta",
+      "bytes": 287238
+    }
+  ],
+  "bytes_removed": 683624369,
+  "free_before": 1656922112,
+  "free_after": 2343022592
+}

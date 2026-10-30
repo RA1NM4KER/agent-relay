@@ -1,0 +1,18 @@
+{
+  "release.yml": {
+    "remote_equals_local": true,
+    "sha256": "662a3fa2727eaede6c43b95c52b086d27df7a20695a427ce952f8edb1f273b2a"
+  },
+  "dogfood.yml": {
+    "remote_equals_local": true,
+    "sha256": "95c37ac410af38bb04c055fc2730e86e47bd1b19521a5c6daa84273472a4d040"
+  },
+  "pages-stable-version.yml": {
+    "remote_equals_local": true,
+    "sha256": "7baf1db53f0a1e7d1bf2cd6af4a74c2c4e2250a5473e5cf116eb0ebf47f6e826"
+  },
+  "ci.yml": {
+    "remote_equals_local": true,
+    "sha256": "eb8d17997e80f943b638872fc8c47d583fb93af55fb8e21b81537f506e3c1315"
+  }
+}

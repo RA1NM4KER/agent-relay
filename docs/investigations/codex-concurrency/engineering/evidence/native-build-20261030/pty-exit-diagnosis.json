@@ -1,0 +1,75 @@
+{
+  "scope": "diagnostic only; unmodified Relay profiles under private roots; not a production test fix",
+  "trials": [
+    {
+      "trial": 0,
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004947290988638997,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.7416998161934316e-05,
+      "total_s": 0.0049818330007838085,
+      "output_bytes": 103,
+      "colored": true
+    },
+    {
+      "trial": 1,
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004453834000742063,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.4958000974729657e-05,
+      "total_s": 0.0044817919988418,
+      "output_bytes": 103,
+      "colored": true
+    },
+    {
+      "trial": 2,
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004869374999543652,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.2625008821487427e-05,
+      "total_s": 0.004890457988949493,
+      "output_bytes": 103,
+      "colored": true
+    },
+    {
+      "trial": 3,
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004319874991779216,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.8916005501523614e-05,
+      "total_s": 0.004349041992099956,
+      "output_bytes": 103,
+      "colored": true
+    },
+    {
+      "trial": 4,
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004806165990885347,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.5083001926541328e-05,
+      "total_s": 0.004830332996789366,
+      "output_bytes": 103,
+      "colored": true
+    }
+  ]
+}

@@ -2,6 +2,31 @@
 
 Date: 2026-10-30. This is a research/engineering branch, not a release.
 
+## Pinned native build follow-up from aa96aea
+
+[NATIVE_BUILD.md](NATIVE_BUILD.md) records the now-successful isolated Rust
+1.95.0 setup, exact upstream source and actual native client/TUI type-check.
+The source insertion compiled without changes. A release-tag lockfile mismatch
+required only 170 local package version stamps to match 0.166.0; all external
+dependencies/checksums/edges are unchanged and builds retain --locked.
+
+The linked CLI build remains **BLOCKED_DISK_RESERVE**, not compiler-failed:
+three bounded attempts ended at the lab's 1.5 GiB reserve, even after reclaiming
+only generated lab caches/history. Native core compiled; the final attempt
+reached app-server. No CLI binary exists, and no embedded/shared TUI runtime
+suite was run. All owned build process groups are gone. Production is untouched.
+
+The complete lab and compiled cache remain at
+`/private/tmp/relay-native-build-20261030-9fw2zv7w`. First provide additional
+storage, then use NATIVE_BUILD.md's new-stage resume command; do not repeat
+already completed research or source/toolchain downloads. Host admission and
+executor quiescence obligations remain unchanged. The original research tip
+aa96aea was backed up remotely after a fresh workflow audit; final new checkpoint
+identity/bundle verification are recorded outside the bundle in checkpoint.json.
+
+The sections below retain earlier historical state and blockers. Their DNS,
+listener and ps failures are superseded only by the new capability/build evidence.
+
 ## Latest capability follow-up
 
 The continuation from c113acf verified its bundle/hash and all 90 mirrored files.

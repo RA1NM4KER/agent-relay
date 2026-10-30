@@ -1,0 +1,18 @@
+{
+  "stage": "toolchain-show",
+  "argv": [
+    "rustup",
+    "show"
+  ],
+  "started": 1793384985.825557,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "2"
+  },
+  "free_before": 9016983552,
+  "pid": 58221,
+  "exit_code": 0,
+  "elapsed_s": 0.0532379150390625,
+  "free_after": 9016840192
+}

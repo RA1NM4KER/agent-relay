@@ -1,5 +1,18 @@
 # Experiment ledger
 
+## Pinned native build continuation from aa96aea
+
+NATIVE_BUILD.md and engineering/evidence/native-build-20261030/ retain every
+stage. Exact 0.166.0 source fetched; official isolated Rust 1.95.0 installed;
+source patch hashes matched unchanged. Initial --locked refusal was diagnosed
+as 170 source-only version stamps, with no external dependency changes.
+Native client/TUI cargo check then passed. Three CLI build stages stopped at
+the explicit disk reserve; final code generation reached app-server after
+native core compiled. Neither native TUI mode ran. All owned build process
+groups are absent, production is unchanged, and full parity remains false.
+Only this lab's redundant history/generated check metadata was reclaimed;
+all pinned source trees and original evidence are preserved.
+
 Phase 2 is recorded in [FEASIBILITY.md](FEASIBILITY.md), [DEFECTS.md](DEFECTS.md), and the additional
 ledger below. Prior phase 1 evidence remains unchanged, including failed/blocked experiments.
 

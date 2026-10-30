@@ -1,0 +1,24 @@
+{
+  "stage": "build-cli",
+  "argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "-p",
+    "codex-cli",
+    "--bin",
+    "codex"
+  ],
+  "started": 1793385911.441441,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 1763905536,
+  "pid": 97837,
+  "stopped_for_disk_reserve": true,
+  "exit_code": -15,
+  "elapsed_s": 24.06408190727234,
+  "free_after": 1597947904
+}

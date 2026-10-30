@@ -1,0 +1,122 @@
+[
+  {
+    "file": "lockfile-version-normalization.patch.gz",
+    "uncompressed_sha256": "7a9bd49df3a2498e79cd404ddc5d038991de189c3776d7f8d482e98128573689",
+    "reason": "preserve exact raw unified-diff context or installer whitespace without repository text-whitespace errors"
+  },
+  {
+    "file": "native-initial.patch.gz",
+    "uncompressed_sha256": "48184de3a16a04921801a3ec7e768f5f0869b42276b5d32e327c05645552a828",
+    "reason": "preserve exact raw unified-diff context or installer whitespace without repository text-whitespace errors"
+  },
+  {
+    "file": "rustup-init.log.gz",
+    "uncompressed_sha256": "24b652f749220f9b2c3b61ef2378ffe14d1f30899adfc5aa546b435bd8d188eb",
+    "reason": "preserve exact raw unified-diff context or installer whitespace without repository text-whitespace errors"
+  },
+  {
+    "file": "build-cli-final.log.gz",
+    "uncompressed_sha256": "401497cae70078119d65653d88bf8d5e48574f062ecb658a530f84e40c38e633",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "build-cli-resumed.log.gz",
+    "uncompressed_sha256": "b26e5007280e99399802755cd51cbc530b74f31ebd52da28c734276da155e831",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "build-cli.log.gz",
+    "uncompressed_sha256": "ec44560e55ad7c1b9cac70f4382ee08502d0bacef4bf585dd12688fa89dbcf54",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "check-initial.log.gz",
+    "uncompressed_sha256": "3f65a19db14e57f5469b44d02d11a18be38049951f91f032ad021a85c778084f",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "check-normalized.log.gz",
+    "uncompressed_sha256": "3940e13cff4a3745b0920f47a9b7500223ceae94cd0bfa149d601942f85ef167",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "clone.log.gz",
+    "uncompressed_sha256": "be472be83da2a2b2ae8160f5c23f5f75b75b857ccb5790bb986484c9bd85ad69",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "compact-cache-icu-65e5d034597e79c3.log.gz",
+    "uncompressed_sha256": "e121275fa51c3b8b519b0783d8da59c58f9486c45f04a9af3e49499b94b3d562",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "compact-cache-v8-fe0fb0544a81ddba.log.gz",
+    "uncompressed_sha256": "727eedbf3f93359d3f3e78f645216012f77bbea006116edd7fbae80af449c538",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "compact-remaining.log.gz",
+    "uncompressed_sha256": "2ee47b5f22e81b1dbf6980f3d26f2839ffd7271a3e5d86258b84cf9df5af4e66",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "compact-third_party-icu.log.gz",
+    "uncompressed_sha256": "c2e3b4c21cfecedf4000d0c152e6d974b98be3cb76b842c4a3858f06f53e37e8",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "compact-v8.log.gz",
+    "uncompressed_sha256": "dd89bbd63f9a63d11bcddeaac3f04e5c7ada83ba11b4dcf396a2b7ccf2a57422",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "lock-diagnosis-runner.log.gz",
+    "uncompressed_sha256": "38f2ad3214e42f14750dcddb65b7519d9b1b58df28b3aec525c4c353f5ab5245",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "lock-diagnosis.log.gz",
+    "uncompressed_sha256": "b055c26b6736e4d1fe9b01d5ea564d83a7e1c6dace98384a9cec77d175d962b4",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "patch-initial.log.gz",
+    "uncompressed_sha256": "8a29b57e56aef74f7c99e65d4b21169b87b9b6ca6d3a9f7ef31e522ef501d1ab",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "relay-clippy.log.gz",
+    "uncompressed_sha256": "a178c7902ac24dda0e2c0cd4cf0e47a2a6976ef30481cb4015f2f71620380d8b",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "relay-fmt.log.gz",
+    "uncompressed_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "relay-presentation-isolated.log.gz",
+    "uncompressed_sha256": "0f551ae7a21c3aeca025173e2c293863ffb742fdaab36c6b5f6532352b3d791b",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "relay-remaining-tests.log.gz",
+    "uncompressed_sha256": "712d0d712ead1d619d15305aa4ed95d4ed0788762e9870c2b20805dc7a00f1c4",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "relay-tests.log.gz",
+    "uncompressed_sha256": "586070eac36a7d8e9f1bc6e5eec8b7a72d797666ba459e1b786ecd7ef094617d",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "toolchain-install.log.gz",
+    "uncompressed_sha256": "0c7622716e69511990923a8f532485c9524ccd484e720c9f0395fc8308cd83a6",
+    "reason": "byte-exact raw log retention"
+  },
+  {
+    "file": "toolchain-show.log.gz",
+    "uncompressed_sha256": "78df9e95d6e5575b990275fc04fe716448d575bc7e14ac2f93330aa2ea71388c",
+    "reason": "byte-exact raw log retention"
+  }
+]

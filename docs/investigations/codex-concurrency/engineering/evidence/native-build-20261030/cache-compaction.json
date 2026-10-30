@@ -1,0 +1,20 @@
+[
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/db/v8-fe0fb0544a81ddba",
+    "head": "c4ca1eccb90c5464d826b7713dc27178a53b0cfe",
+    "tree": "25cea24a7c6c9e377bf9685d6972e1a8714909c1",
+    "metadata_before_kib": 1001780,
+    "metadata_after_kib": 36316,
+    "free_before": 1597218816,
+    "free_after": 2589495296
+  },
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/db/icu-65e5d034597e79c3",
+    "head": "d578f2e8b7bd5938e21cfb6bf15c079e0aa5b738",
+    "tree": "1a597ddb83a0d67c5138b9ef1554a45d5d152ec7",
+    "metadata_before_kib": 973640,
+    "metadata_after_kib": 42860,
+    "free_before": 2589487104,
+    "free_after": 3546292224
+  }
+]

@@ -1,0 +1,92 @@
+[
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/build",
+    "head": "2c779f961da7f5632d6836113112179e67938868",
+    "tree": "cb15783947766baf6f7203010974886339c117af",
+    "source_unchanged": true,
+    "metadata_before_kib": 124940,
+    "metadata_after_kib": 4748,
+    "free_before": 2342113280,
+    "free_after": 2402369536
+  },
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/third_party/abseil-cpp",
+    "head": "d16e32215c3ab90ba57c2e904a5344d85c7353e4",
+    "tree": "ace871bd59bbbcf9111fc3bcfe3966de28eef89f",
+    "source_unchanged": true,
+    "metadata_before_kib": 44176,
+    "metadata_after_kib": 6728,
+    "free_before": 2402066432,
+    "free_after": 2417893376
+  },
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/third_party/dragonbox/src",
+    "head": "beeeef91cf6fef89a4d4ba5e95d47ca64ccb3a44",
+    "tree": "176383f02746d0248e7b04409367f691cc231cef",
+    "source_unchanged": true,
+    "metadata_before_kib": 48416,
+    "metadata_after_kib": 8504,
+    "free_before": 2417893376,
+    "free_after": 2434162688
+  },
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/third_party/highway/src",
+    "head": "2607d3b5b0113992fe84d3848859eae13b3b52c1",
+    "tree": "e240dc0bc54afd953256adbe67eb2f267beb9d86",
+    "source_unchanged": true,
+    "metadata_before_kib": 116852,
+    "metadata_after_kib": 7704,
+    "free_before": 2434097152,
+    "free_after": 2486579200
+  },
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/third_party/libc++/src",
+    "head": "b16984ce99c702355a5b2b4c52574e82cec41fb9",
+    "tree": "259b31836fe451d0c58620553af519c5cfbb0d65",
+    "source_unchanged": true,
+    "metadata_before_kib": 159344,
+    "metadata_after_kib": 23044,
+    "free_before": 2486538240,
+    "free_after": 2545553408
+  },
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/third_party/llvm-libc/src",
+    "head": "75ae50cd48c8a9d70f552ccff040029968778da9",
+    "tree": "a76e949547e2e0c26351b50c2a0774bd56e1f08b",
+    "source_unchanged": true,
+    "metadata_before_kib": 146596,
+    "metadata_after_kib": 18760,
+    "free_before": 2545471488,
+    "free_after": 2601914368
+  },
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/third_party/partition_alloc",
+    "head": "ff3b8b885b8374cbd3902642d94dc737bda93d5d",
+    "tree": "89bb7ef4a998b00e579155d82dc60064a12fe3f6",
+    "source_unchanged": true,
+    "metadata_before_kib": 35644,
+    "metadata_after_kib": 2264,
+    "free_before": 2601910272,
+    "free_after": 2617884672
+  },
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/third_party/rust",
+    "head": "afbc96607d0e659715d803cc099607dd1737fc41",
+    "tree": "ae03b1d94a3ebbced0685a097df5bb38661d7ba7",
+    "source_unchanged": true,
+    "metadata_before_kib": 278552,
+    "metadata_after_kib": 68508,
+    "free_before": 2617950208,
+    "free_after": 2691604480
+  },
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/tools/clang",
+    "head": "56a7ab321b6840e949e3acf5f4528dadc6cb05bc",
+    "tree": "a8520a352418edbf5c1ad06e6719d330b0d16c9c",
+    "source_unchanged": true,
+    "metadata_before_kib": 24744,
+    "metadata_after_kib": 2132,
+    "free_before": 2691207168,
+    "free_after": 2701783040
+  }
+]

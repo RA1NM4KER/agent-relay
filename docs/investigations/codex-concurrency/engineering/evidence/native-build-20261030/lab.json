@@ -1,0 +1,10 @@
+{
+  "upstream_ref": "rust-v0.166.0",
+  "research": "/private/tmp/agent-relay-native-validation",
+  "production_untouched": true,
+  "upstream_commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+  "rust_toolchain": "1.95.0",
+  "research_checkpoint": "aa96aea2d8a3dc61d7ae95e777de8ade8b075f1b",
+  "remote_backup_verified": true,
+  "patch_initial_sha256": "48184de3a16a04921801a3ec7e768f5f0869b42276b5d32e327c05645552a828"
+}

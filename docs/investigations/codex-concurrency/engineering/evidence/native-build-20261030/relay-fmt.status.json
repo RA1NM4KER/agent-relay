@@ -1,0 +1,13 @@
+{
+  "stage": "relay-fmt",
+  "argv": [
+    "cargo",
+    "fmt",
+    "--check"
+  ],
+  "started": 1793386846.712129,
+  "free_before": 1781833728,
+  "exit_code": 0,
+  "elapsed_s": 2.0221056938171387,
+  "free_after": 1781252096
+}

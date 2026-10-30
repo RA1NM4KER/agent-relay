@@ -1,0 +1,18 @@
+[
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/v8",
+    "head": "c4ca1eccb90c5464d826b7713dc27178a53b0cfe",
+    "tree": "25cea24a7c6c9e377bf9685d6972e1a8714909c1",
+    "source_unchanged": true,
+    "metadata_before_kib": 1003888,
+    "metadata_after_kib": 38416
+  },
+  {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/third_party/icu",
+    "head": "d578f2e8b7bd5938e21cfb6bf15c079e0aa5b738",
+    "tree": "1a597ddb83a0d67c5138b9ef1554a45d5d152ec7",
+    "source_unchanged": true,
+    "metadata_before_kib": 974024,
+    "metadata_after_kib": 43532
+  }
+]

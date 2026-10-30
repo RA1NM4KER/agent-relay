@@ -1,0 +1,211 @@
+{
+  "checked_at": "2026-10-30T19:00:00.326284+00:00",
+  "lab_root": "/private/tmp/relay-native-build-20261030-9fw2zv7w",
+  "upstream_commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+  "rust_toolchain": "1.95.0",
+  "native_client_and_tui_typecheck": "PASSED",
+  "linked_cli": "BLOCKED_DISK_RESERVE",
+  "native_tui_embedded": "NOT_RUN_NO_LINKED_BINARY",
+  "native_tui_shared": "NOT_RUN_NO_LINKED_BINARY",
+  "compiler_errors_observed": false,
+  "full_parity": false,
+  "native_host_enforcement": false,
+  "executor_quiescence": "UNPROVEN",
+  "production_source_changed": false,
+  "lab_build_process_groups": {
+    "build-cli": "ABSENT",
+    "build-cli-resumed": "ABSENT",
+    "build-cli-final": "ABSENT"
+  },
+  "free_disk_bytes": 1782661120,
+  "initial_research_remote_backup": "VERIFIED_aa96aea",
+  "stages": {
+    "check-initial": {
+      "stage": "check-initial",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "codex-app-server-client",
+        "-p",
+        "codex-tui"
+      ],
+      "started": 1793384986.015224,
+      "build_settings": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "2"
+      },
+      "free_before": 9016766464,
+      "pid": 58223,
+      "exit_code": 101,
+      "elapsed_s": 411.12051010131836,
+      "free_after": 5234507776
+    },
+    "check-normalized": {
+      "stage": "check-normalized",
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "codex-app-server-client",
+        "-p",
+        "codex-tui"
+      ],
+      "started": 1793385465.669302,
+      "build_settings": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "2"
+      },
+      "free_before": 5247938560,
+      "pid": 71616,
+      "exit_code": 0,
+      "elapsed_s": 375.63651514053345,
+      "free_after": 1846210560
+    },
+    "build-cli": {
+      "stage": "build-cli",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "-p",
+        "codex-cli",
+        "--bin",
+        "codex"
+      ],
+      "started": 1793385911.441441,
+      "build_settings": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "1"
+      },
+      "free_before": 1763905536,
+      "pid": 97837,
+      "stopped_for_disk_reserve": true,
+      "exit_code": -15,
+      "elapsed_s": 24.06408190727234,
+      "free_after": 1597947904
+    },
+    "build-cli-resumed": {
+      "stage": "build-cli-resumed",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "-p",
+        "codex-cli",
+        "--bin",
+        "codex"
+      ],
+      "started": 1793385996.049902,
+      "build_settings": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "1"
+      },
+      "free_before": 3490496512,
+      "pid": 349,
+      "stopped_for_disk_reserve": true,
+      "exit_code": -15,
+      "elapsed_s": 379.2445058822632,
+      "free_after": 1608503296
+    },
+    "build-cli-final": {
+      "stage": "build-cli-final",
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "-p",
+        "codex-cli",
+        "--bin",
+        "codex"
+      ],
+      "started": 1793386456.515456,
+      "build_settings": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "1"
+      },
+      "free_before": 2701459456,
+      "pid": 14262,
+      "stopped_for_disk_reserve": true,
+      "exit_code": -15,
+      "elapsed_s": 254.97341108322144,
+      "free_after": 1542561792
+    },
+    "lock-diagnosis": {
+      "stage": "lock-diagnosis",
+      "argv": [
+        "cargo",
+        "metadata",
+        "--offline",
+        "--format-version",
+        "1"
+      ],
+      "started": 1793385436.686309,
+      "build_settings": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "2"
+      },
+      "free_before": 5246955520,
+      "pid": 70860,
+      "exit_code": 101,
+      "elapsed_s": 2.0088438987731934,
+      "free_after": 5246873600
+    },
+    "toolchain-show": {
+      "stage": "toolchain-show",
+      "argv": [
+        "rustup",
+        "show"
+      ],
+      "started": 1793384985.825557,
+      "build_settings": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "2"
+      },
+      "free_before": 9016983552,
+      "pid": 58221,
+      "exit_code": 0,
+      "elapsed_s": 0.0532379150390625,
+      "free_after": 9016840192
+    }
+  },
+  "relay_baseline": {
+    "fmt": "PASSED",
+    "workspace_clippy_all_targets_warnings_denied": "PASSED",
+    "full_workspace_test_command": "FAILED_EXISTING_PRESENTATION_TEST",
+    "presentation_isolated_rerun": "PASSED",
+    "non_cli_workspace_packages": "PASSED",
+    "original_failed_run_preserved": true,
+    "cli_targets_after_presentation": "NOT_RUN_BY_FAILED_FULL_COMMAND",
+    "relay-tests_observed_totals": {
+      "passed": 454,
+      "failed": 1,
+      "ignored": 2
+    },
+    "relay-remaining-tests_observed_totals": {
+      "passed": 507,
+      "failed": 0,
+      "ignored": 2
+    }
+  },
+  "presentation_diagnostic": {
+    "scope": "25 predetermined diagnostic cases, not altered production tests; private config/state roots only",
+    "early_eof_before_exit_observed": 2,
+    "all_commands_exited_successfully": true,
+    "all_color_policies_match": true
+  },
+  "rustup_init": {
+    "official_url": "https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin/rustup-init",
+    "sha256": "f7c7e11eb2e07f006e532a8aaac77b32f4527d305ac386c0c633ca6133d35ca9",
+    "verified": true
+  }
+}

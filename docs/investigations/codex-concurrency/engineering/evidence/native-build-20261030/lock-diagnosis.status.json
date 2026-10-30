@@ -1,0 +1,21 @@
+{
+  "stage": "lock-diagnosis",
+  "argv": [
+    "cargo",
+    "metadata",
+    "--offline",
+    "--format-version",
+    "1"
+  ],
+  "started": 1793385436.686309,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "2"
+  },
+  "free_before": 5246955520,
+  "pid": 70860,
+  "exit_code": 101,
+  "elapsed_s": 2.0088438987731934,
+  "free_after": 5246873600
+}

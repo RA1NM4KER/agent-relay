@@ -1,0 +1,14 @@
+{
+  "stage": "relay-tests",
+  "argv": [
+    "cargo",
+    "test",
+    "--workspace",
+    "--offline"
+  ],
+  "started": 1793386849.743928,
+  "free_before": 1779720192,
+  "exit_code": 101,
+  "elapsed_s": 190.27581024169922,
+  "free_after": 1967861760
+}

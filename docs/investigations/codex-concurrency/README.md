@@ -1,5 +1,10 @@
 # Concurrent Codex sessions: investigation and decision record
 
+**Pinned build follow-up:** [NATIVE_BUILD.md](NATIVE_BUILD.md) records an actual
+successful native client/TUI type-check with Rust 1.95.0. CLI linking reached
+the disk reserve; native TUI runtime/permission and enforcement gates remain
+unverified. Production profile exclusivity remains unchanged.
+
 **Phase 2 experimental update:** [FEASIBILITY.md](FEASIBILITY.md) contains two working competing
 prototypes, real eight-controller native execution, crash/admission falsification, measurements,
 and the native-source insertion/lab procedure. [DEFECTS.md](DEFECTS.md) independently characterizes

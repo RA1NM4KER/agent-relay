@@ -1,5 +1,11 @@
 # Controlled engineering validation, 2026-10-30
 
+Pinned build continuation from aa96aea: [NATIVE_BUILD.md](NATIVE_BUILD.md).
+Actual native client/TUI cargo check now passes with isolated Rust 1.95.0 and
+the original source insertion. Full CLI linking is blocked by the lab's disk
+reserve; neither native TUI runtime mode ran. Native enforcement, executor
+quiescence and full parity remain unproven. Prior experiments below are retained.
+
 Capability follow-up from c113acf: [LAB_SETUP.md](LAB_SETUP.md) records checkpoint
 verification, the blocked remote-backup attempt and exact environmental changes
 needed for native integration. The execution environment remains unsuitable;

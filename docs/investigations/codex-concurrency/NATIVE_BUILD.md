@@ -1,0 +1,155 @@
+# Pinned native build continuation, 2026-10-30
+
+This increment continues `aa96aea`; it does not restart the architecture study.
+Production Relay, ProfileSessionLock, installed binaries, real provider homes,
+and live Herdr panes remain unchanged. Full parity remains unproven.
+
+## Exact source and isolated tools
+
+- Upstream: `rust-v0.166.0`, commit
+  `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`.
+- Disposable lab: `/private/tmp/relay-native-build-20261030-9fw2zv7w`.
+- Research: `/private/tmp/agent-relay-native-validation`, branch
+  `research/codex-concurrency-native-validation`.
+- The existing four-file source patch matched every expected Git blob and
+  applied unchanged. Its SHA-256 remains
+  `48184de3a16a04921801a3ec7e768f5f0869b42276b5d32e327c05645552a828`.
+- Installed Rust 1.95.0 with clippy, rustfmt and rust-src beneath the lab's
+  `tooling/` directory. The downloaded official rustup-init executable was
+  checked against its official SHA-256. No shell profile/PATH installation or
+  system Rust replacement occurred. `rustup show` confirms the source's pin.
+- Builds use a dedicated HOME, CARGO_HOME, RUSTUP_HOME and target directory,
+  debug symbols disabled and incremental compilation off. The CLI build uses
+  one worker to limit memory/swap pressure. No features or permissions removed.
+
+The former network/listener/process-inspection environment restrictions no
+longer prevent this lab. This does not supply executor containment or prove
+native safety; those remain independent engineering requirements.
+
+## Release-tag lockfile mismatch
+
+The first `cargo check --locked -p codex-app-server-client -p codex-tui` stopped
+before compilation because the release tag's Cargo.lock describes 170 local
+workspace packages as version `0.0.0`, while its workspace manifest declares
+`0.166.0`. The original lockfile was retained. Offline Cargo metadata produced
+the proposed normalization, then stopped because registry archives had not yet
+been downloaded.
+
+A structural TOML comparison verifies the entire normalization: only those 170
+source-only workspace package version fields changed. External package entries,
+versions, Git revisions, checksums and dependency edges remain identical.
+All subsequent Cargo commands retain `--locked`. The exact diff, hashes and
+changed-package list are retained in `engineering/evidence/native-build-20261030/`.
+This is a release-stamping adjustment, not permission to update dependencies.
+
+## Completed build gate
+
+`cargo check --locked -p codex-app-server-client -p codex-tui` **passed** with
+the original source insertion on Rust 1.95.0 (375.6 seconds after dependency
+fetch/lock diagnosis). No source fix was required to get this check green.
+This advances the earlier source-applicability result to actual native workspace
+type checking. It is not a linked CLI, a running native TUI, host-wide admission,
+an executor fence, or successful handoff evidence.
+
+## Resource failure and recovery
+
+The machine initially had roughly 9 GiB free. Dependency fetching includes
+V8/Chromium submodule history; native compilation also competes with macOS swap.
+The first CLI build was deliberately stopped by the lab runner's 1.5 GiB free
+space reserve. The recorded exit is SIGTERM from that guard, not a compiler
+error. The runner signals only the new process group it created for that stage.
+
+Compacted only this lab's downloaded V8 and ICU Git histories and bare Cargo
+cache entries to their exact pinned commits. Verified HEAD, Git tree and clean
+tracked source before/after; no source or dependency identity changed. Initial
+checkout compaction alone did not free space because the Cargo bare cache held
+hardlinks to the old objects. Compacting those bare caches reclaimed about
+1.8 GiB. Both passes and the interrupted build remain recorded.
+
+The resumed CLI build again reached the reserve. With all build processes
+stopped, reclaimed 651 MiB of completed check-only `.rmeta` files without linked
+`.rlib`/`.dylib` counterparts and compacted the remaining lab Git histories.
+Verified source HEAD/tree/clean status throughout. This is generated-cache
+reclamation, not removal of experimental evidence or a changed dependency set.
+
+The final resumed `cargo build --locked -p codex-cli --bin codex` compiled
+codex-core successfully and reached codex-app-server, then hit the same reserve.
+All three CLI attempts ended with the guard's SIGTERM, not a compiler diagnostic.
+All owned build process groups were verified absent afterward. No linked
+`target/debug/codex` exists; **neither embedded nor shared native TUI runtime
+suite was run**. No source/compiler error was observed, but a complete linked
+build is still unproven. The successful check result is retained separately.
+
+The current blocker is disk capacity, replacing the earlier DNS/listener/ps
+blockers. Approximately 1.7 GiB remained when recording the final result;
+the source/toolchain/dependency/build caches remain usable for continuation.
+Do not repeat the build until additional storage is available. Prefer several
+additional GiB for linking and sufficient further headroom for eight native
+runtimes, swap and test artifacts; 15–20 GiB free is a conservative lab setup
+target, not a measured exact minimum. Do not remove unrelated user files or
+relax native features, admission checks or permission gates to fit this volume.
+
+## Remote durability
+
+Rechecked remote main, the absence of the research ref, and the four workflow
+files against the main commit. Workflow contents match the local audit:
+research pushes trigger no CI deployment, dogfood, release or Pages publication.
+Pushed the existing research tip `aa96aea` to its named research branch and
+verified the remote ref equals that exact tip. This resolves the prior backup
+attempt's blocker; no main/tag/PR/release/deployment was created.
+
+## Evidence and continuation
+
+`engineering/evidence/native-build-20261030/` retains source/toolchain identity,
+initial patch, workflow audit, lockfile comparison, build commands/statuses,
+resource-compaction records and logs. Large disposable source/toolchain/build
+caches remain in the lab directory, not in Git. `run_stage.py` records exact
+argv, timing, worker settings, exit code and free disk before/after each stage.
+
+Once capacity is available, resume without repeating source/toolchain setup:
+
+```sh
+python3 /private/tmp/relay-native-build-20261030-9fw2zv7w/run_stage.py build-cli-after-capacity cargo build --locked -p codex-cli --bin codex
+```
+
+The stage name is new so no previous log is overwritten. The runner selects
+the isolated tools, pinned source cwd, one worker, existing target cache and
+the same disk reserve. If moving the lab, update the explicit path references
+in lab helpers; do not copy live provider homes into it.
+
+After a successful linked CLI build, run the existing native_tui_lab in both
+embedded and shared modes against that explicit source-built path, with fresh
+HOME/CODEX_HOME and projects. Preserve failed runs and diagnose their real
+compiler/transport/callback/selection/permission failures. Do not weaken gates,
+drop permission flags, inject --remote or claim eight logical clients are eight
+native TUIs. Host-wide admission and executor quiescence remain mandatory even
+if the frontend laboratory passes.
+
+`result.json` is the machine-readable result for this increment. Earlier raw
+evidence remains untouched; no successful native runtime, host admission,
+executor quiescence, quota or handoff acceptance is added by this build work.
+
+## Relay baseline verification
+
+Required `cargo fmt --check` and workspace/all-targets Clippy with warnings denied
+pass using the unchanged Relay checkout and its existing cached toolchain.
+`cargo test --workspace --offline` fails in the existing PTY presentation test
+after earlier targets pass, including all 219 CLI unit tests and 74 automatic
+handoff integration tests. The old process-inspection failures are absent from
+the completed CLI unit target. Do not call the full workspace suite green.
+
+The presentation test passes on one isolated rerun. An independent, fixed
+25-case diagnostic reproduced PTY EOF before waitable exit twice, followed by
+successful exit within approximately 50 microseconds; every command's color
+policy matched. DEFECTS.md records this as separate D3; no production/test fix
+is included. Remaining non-CLI workspace packages passed separately: 507 passed,
+zero failed, two ignored. Cargo stopped before subsequent CLI test targets, so
+those targets are not represented as passing. Exact statuses are retained in
+relay-validation.json and relay-followup-validation.json. A retry passing cannot
+erase the first failure, and earlier provider timing failures are not considered
+fixed merely because this invocation passed all 77 nonignored provider tests.
+
+Raw logs and unified patches are saved as deterministic `.gz` records;
+compressed-records.json supplies their
+uncompressed SHA-256 values. Source/evidence integrity is preserved without
+rewriting raw diff context or installer output to satisfy text whitespace checks.

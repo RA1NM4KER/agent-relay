@@ -1,0 +1,39 @@
+[
+  {
+    "stage": "relay-presentation-isolated",
+    "argv": [
+      "cargo",
+      "test",
+      "--offline",
+      "-p",
+      "relay-cli",
+      "--test",
+      "presentation",
+      "real_terminal_obeys_color_no_color_dumb_and_json_policy",
+      "--",
+      "--exact",
+      "--nocapture"
+    ],
+    "started": 1793387107.023649,
+    "free_before": 2078212096,
+    "exit_code": 0,
+    "elapsed_s": 2.022429943084717,
+    "free_after": 2078093312
+  },
+  {
+    "stage": "relay-remaining-tests",
+    "argv": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--exclude",
+      "relay-cli",
+      "--offline"
+    ],
+    "started": 1793387109.0473778,
+    "free_before": 2078089216,
+    "exit_code": 0,
+    "elapsed_s": 83.59029126167297,
+    "free_after": 1776672768
+  }
+]

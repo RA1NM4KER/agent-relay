@@ -69,3 +69,29 @@ semantic migration-state verification as well as quick_check; no effect on unrel
 Primary source additionally inspected: pinned `codex-rs/state/src/runtime.rs`, blob
 `2ecd9592c69aa2c7aade3f083a5bb95b5dfd8233`. The experiment establishes the startup race;
 it does not claim a complete root-cause proof for every failure inside the native migration code.
+
+## D3: Baseline PTY presentation test conflates EOF with process exit
+
+Found during the native-build continuation's required Relay baseline check.
+The unchanged `relay-cli --test presentation` case
+`real_terminal_obeys_color_no_color_dumb_and_json_policy` reported a ten-second
+terminal-command timeout after its entire three-test target took only 0.13s.
+The script breaks on PTY EOF/EIO, immediately checks `process.poll()`, and kills
+the child if its exit status is not observable yet, without waiting for the
+remaining deadline. PTY closure can precede waitable process exit.
+
+The original test passed on one isolated rerun; the original full workspace
+command remains failed. A separate, predetermined 25-case diagnostic (five
+trials across tty/no-color/dumb/json/control) observed two early-EOF cases with
+poll=None followed by successful exit in about 50 microseconds. All 25 exited
+successfully and matched the color policy. A preliminary five-case tty-only
+diagnostic did not observe the race and is retained too. This diagnoses a
+false-timeout mechanism, not a native concurrency regression or a production fix.
+
+Evidence: `engineering/evidence/native-build-20261030/pty-modes-exit-diagnosis.json`
+and the original/isolated Relay test logs. No production/test source changed.
+Review separately: after terminal EOF, wait for the exact owned child with the
+remaining monotonic deadline; only kill/reap after a real timeout. Add a
+deterministic child that closes its terminal before a delayed successful exit,
+and a child that never exits, so both normal exit and the real deadline remain
+covered. Do not mask nonzero exits or weaken output/color assertions.

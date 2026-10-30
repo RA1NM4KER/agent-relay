@@ -1,0 +1,383 @@
+{
+  "scope": "25 predetermined diagnostic cases, not altered production tests; private config/state roots only",
+  "trials": [
+    {
+      "trial": 0,
+      "mode": "tty",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.04334304199437611,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 2.895899524446577e-05,
+      "total_s": 0.04342316699330695,
+      "output_bytes": 103,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 0,
+      "mode": "no-color",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004878833991824649,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 2.037500962615013e-05,
+      "total_s": 0.004927333997329697,
+      "output_bytes": 79,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 0,
+      "mode": "dumb",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004620292005711235,
+        "poll_at_eof": null
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.45840022014454e-05,
+      "total_s": 0.0046453340037260205,
+      "output_bytes": 79,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 0,
+      "mode": "json",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.005389250000007451,
+        "poll_at_eof": null
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.4334000297822058e-05,
+      "total_s": 0.00541354100278113,
+      "output_bytes": 109,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 0,
+      "mode": "control",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.006249250000109896,
+        "poll_at_eof": null
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.8167003872804344e-05,
+      "total_s": 0.00628050000523217,
+      "output_bytes": 48,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 1,
+      "mode": "tty",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004497874993830919,
+        "poll_at_eof": null
+      },
+      "poll_before_wait": null,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 4.5958993723616004e-05,
+      "total_s": 0.004549916004179977,
+      "output_bytes": 103,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 1,
+      "mode": "no-color",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004217791007249616,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 2.158299321308732e-05,
+      "total_s": 0.004250583006069064,
+      "output_bytes": 79,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 1,
+      "mode": "dumb",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004525041993474588,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.7583006410859525e-05,
+      "total_s": 0.0045523750013671815,
+      "output_bytes": 79,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 1,
+      "mode": "json",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004487083991989493,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.416700251866132e-05,
+      "total_s": 0.0045099589915480465,
+      "output_bytes": 109,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 1,
+      "mode": "control",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.0044790840038331226,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.820900070015341e-05,
+      "total_s": 0.004505083998083137,
+      "output_bytes": 48,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 2,
+      "mode": "tty",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004178375005722046,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.2458011042326689e-05,
+      "total_s": 0.004198292008368298,
+      "output_bytes": 103,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 2,
+      "mode": "no-color",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.0041682499868329614,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.4000004739500582e-05,
+      "total_s": 0.004188957987935282,
+      "output_bytes": 79,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 2,
+      "mode": "dumb",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004149000000325032,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.4666002243757248e-05,
+      "total_s": 0.004172665998339653,
+      "output_bytes": 79,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 2,
+      "mode": "json",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004125000006752089,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.4165998436510563e-05,
+      "total_s": 0.004147291008848697,
+      "output_bytes": 109,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 2,
+      "mode": "control",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004283958987798542,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.7583995941095054e-05,
+      "total_s": 0.004311541997594759,
+      "output_bytes": 48,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 3,
+      "mode": "tty",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004527791999862529,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.937500201165676e-05,
+      "total_s": 0.004558999993605539,
+      "output_bytes": 103,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 3,
+      "mode": "no-color",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004398749995743856,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.7709011444821954e-05,
+      "total_s": 0.004425834005814977,
+      "output_bytes": 79,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 3,
+      "mode": "dumb",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004076082987012342,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.6249992768280208e-05,
+      "total_s": 0.004099540994502604,
+      "output_bytes": 79,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 3,
+      "mode": "json",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004447708997759037,
+        "poll_at_eof": null
+      },
+      "poll_before_wait": null,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 4.124999395571649e-05,
+      "total_s": 0.0045183339971117675,
+      "output_bytes": 109,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 3,
+      "mode": "control",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004579583997838199,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.6792007954791188e-05,
+      "total_s": 0.004605667010764591,
+      "output_bytes": 48,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 4,
+      "mode": "tty",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.0042042080021929,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.4834004105068743e-05,
+      "total_s": 0.004226417004247196,
+      "output_bytes": 103,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 4,
+      "mode": "no-color",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004095666008652188,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.4208999346010387e-05,
+      "total_s": 0.0041169160103891045,
+      "output_bytes": 79,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 4,
+      "mode": "dumb",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.004023332992801443,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.370901009067893e-05,
+      "total_s": 0.004044667002744973,
+      "output_bytes": 79,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 4,
+      "mode": "json",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.00405783299356699,
+        "poll_at_eof": 0
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.9208004232496023e-05,
+      "total_s": 0.004086832996108569,
+      "output_bytes": 109,
+      "color_policy_matches": true
+    },
+    {
+      "trial": 4,
+      "mode": "control",
+      "eof": {
+        "bytes": 0,
+        "elapsed_s": 0.0045839999947929755,
+        "poll_at_eof": null
+      },
+      "poll_before_wait": 0,
+      "exit_after_bounded_wait": 0,
+      "wait_s": 1.391599653288722e-05,
+      "total_s": 0.004607540991855785,
+      "output_bytes": 48,
+      "color_policy_matches": true
+    }
+  ],
+  "early_eof_before_exit_observed": 2,
+  "all_commands_exited_successfully": true,
+  "all_color_policies_match": true
+}

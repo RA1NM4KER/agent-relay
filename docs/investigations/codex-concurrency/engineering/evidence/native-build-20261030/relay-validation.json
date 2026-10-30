@@ -1,0 +1,47 @@
+[
+  {
+    "stage": "relay-fmt",
+    "argv": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "started": 1793386846.712129,
+    "free_before": 1781833728,
+    "exit_code": 0,
+    "elapsed_s": 2.0221056938171387,
+    "free_after": 1781252096
+  },
+  {
+    "stage": "relay-clippy",
+    "argv": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--offline",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "started": 1793386848.735046,
+    "free_before": 1781248000,
+    "exit_code": 0,
+    "elapsed_s": 1.007209300994873,
+    "free_after": 1779724288
+  },
+  {
+    "stage": "relay-tests",
+    "argv": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--offline"
+    ],
+    "started": 1793386849.743928,
+    "free_before": 1779720192,
+    "exit_code": 101,
+    "elapsed_s": 190.27581024169922,
+    "free_after": 1967861760
+  }
+]

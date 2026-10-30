@@ -207,3 +207,15 @@ socket-listener and process-inspection restrictions. Remote backup is separately
 blocked by GitHub write approval under a never-approval policy; no remote backup
 is claimed. Exact setup and branch-only backup commands: LAB_SETUP.md. No native
 acceptance row or previous test result is upgraded by these capability checks.
+
+## Pinned native build follow-up from aa96aea
+
+See NATIVE_BUILD.md and engineering/evidence/native-build-20261030/result.json.
+C12–C15/U01–U05 advance only from source applicability to successful **native
+client/TUI type-checking**, using the unchanged insertion and Rust 1.95.0.
+External locked dependencies and permission parameters are unchanged. Full CLI
+linking was stopped by a 1.5 GiB disk reserve, with no compiler diagnostic;
+embedded/shared TUI runtime tests were **not run**. No selection, permission,
+Herdr, host-admission, executor-quiescence or handoff runtime gate is passed.
+Full parity remains NOT DEMONSTRATED. Earlier network/ps restrictions no longer
+block this lab, but extra storage is required before another build/runtime run.

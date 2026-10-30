@@ -1,5 +1,11 @@
 # Integration lab setup and capability boundary
 
+Updated execution evidence is in [NATIVE_BUILD.md](NATIVE_BUILD.md): the earlier
+DNS/socket/ps restrictions below are now resolved, isolated Rust 1.95.0 is set
+up, and the unchanged native client/TUI insertion passes cargo check. Full CLI
+linking and native TUI execution remain blocked by disk capacity. Preserve this
+runbook's safety requirements; resume the cached build only after adding space.
+
 Continuation from `c113acf`, checked 2026-10-30. This is an execution runbook,
 not a new architectural investigation. Do not rerun completed native experiments
 until an implementation change or a newly available capability justifies it.

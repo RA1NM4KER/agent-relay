@@ -1,0 +1,23 @@
+{
+  "stage": "check-initial",
+  "argv": [
+    "cargo",
+    "check",
+    "--locked",
+    "-p",
+    "codex-app-server-client",
+    "-p",
+    "codex-tui"
+  ],
+  "started": 1793384986.015224,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "2"
+  },
+  "free_before": 9016766464,
+  "pid": 58223,
+  "exit_code": 101,
+  "elapsed_s": 411.12051010131836,
+  "free_after": 5234507776
+}

@@ -1,0 +1,16 @@
+{
+  "stage": "relay-remaining-tests",
+  "argv": [
+    "cargo",
+    "test",
+    "--workspace",
+    "--exclude",
+    "relay-cli",
+    "--offline"
+  ],
+  "started": 1793387109.0473778,
+  "free_before": 2078089216,
+  "exit_code": 0,
+  "elapsed_s": 83.59029126167297,
+  "free_after": 1776672768
+}
