@@ -83,7 +83,11 @@ class SharedLoadedObserver(Server):
         self.calls = []
         super().__init__(str(executable), env, "shared-loaded-proof",
                          arguments=["app-server", "proxy", "--sock", socket_path])
-        if Path(self.home).resolve(strict=True) != Path(env["CODEX_HOME"]).resolve(strict=True):
+        try:
+            matches = bool(self.home) and Path(self.home).resolve(strict=True) == Path(env["CODEX_HOME"]).resolve(strict=True)
+        except (OSError, TypeError):
+            matches = False
+        if not matches:
             self.close()
             raise AssertionError("shared observer resolved a foreign home")
 
