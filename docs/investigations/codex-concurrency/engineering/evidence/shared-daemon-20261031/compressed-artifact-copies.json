@@ -1,0 +1,16 @@
+[
+  {
+    "name": "libcodex_app_server_protocol-d658199b625b5908.rmeta",
+    "sha256": "ea0823f694d88df4a088db4becd7db3f7bfd2a322abc206304c2b12e71c8ee39",
+    "logical_bytes": 49165366,
+    "original_allocated": 49168384,
+    "compressed_allocated": 19701760
+  },
+  {
+    "name": "libcodex_app_server_protocol-d658199b625b5908.rlib",
+    "sha256": "b691b6f5f1f97a955022be04a49f435778929a752407aeb3478c80bb41315f99",
+    "logical_bytes": 92866432,
+    "original_allocated": 92868608,
+    "compressed_allocated": 29069312
+  }
+]

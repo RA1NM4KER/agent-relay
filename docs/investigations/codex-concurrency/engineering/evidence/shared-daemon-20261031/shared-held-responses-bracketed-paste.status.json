@@ -1,0 +1,23 @@
+{
+  "stage": "shared-held-responses-bracketed-paste",
+  "argv": [
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/native_tui_lab.py",
+    "--codex",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/research-package/bin/codex",
+    "--mode",
+    "shared",
+    "--holding-provider"
+  ],
+  "started": 1793463654.015989,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 5076750336,
+  "pid": 80103,
+  "exit_code": 0,
+  "elapsed_s": 168.54252195358276,
+  "free_after": 3969896448
+}

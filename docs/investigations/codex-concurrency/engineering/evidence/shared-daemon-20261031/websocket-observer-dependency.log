@@ -1,0 +1,5 @@
+Collecting websockets==15.0.1
+  Downloading websockets-15.0.1-py3-none-any.whl.metadata (6.8 kB)
+Downloading websockets-15.0.1-py3-none-any.whl (169 kB)
+Installing collected packages: websockets
+Successfully installed websockets-15.0.1

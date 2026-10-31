@@ -1,0 +1,20 @@
+{
+  "stage": "lossless-build-cache-compaction",
+  "argv": [
+    "python3",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/engineering/compact_build_cache.py",
+    "--lab",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w"
+  ],
+  "started": 1793461074.8224158,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 3687976960,
+  "pid": 8251,
+  "exit_code": 0,
+  "elapsed_s": 92.2160861492157,
+  "free_after": 7507709952
+}

@@ -1,0 +1,964 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-zqnciiy7",
+  "harness_pid": 80103,
+  "mode": "shared",
+  "checks": [
+    "eight initial native selections acknowledged before any prompt",
+    "exact foreground bindings loaded in actual shared daemon: initial",
+    "eight exact foreground native starts observed",
+    "eight exact foreground response streams open concurrently",
+    "exact interrupted foreground turns complete before navigation",
+    "interruption disconnects exact held foreground responses",
+    "eight native new selections before their prompts",
+    "exact foreground bindings loaded in actual shared daemon: new",
+    "eight exact foreground native starts observed",
+    "eight exact foreground response streams open concurrently",
+    "exact interrupted foreground turns complete before navigation",
+    "interruption disconnects exact held foreground responses",
+    "eight fork selections before new prompts",
+    "exact foreground bindings loaded in actual shared daemon: fork",
+    "eight native picker resumes bind exact original IDs",
+    "exact foreground bindings loaded in actual shared daemon: resume",
+    "eight exact foreground native starts observed",
+    "eight exact foreground response streams open concurrently",
+    "exact interrupted foreground turns complete before navigation",
+    "interruption disconnects exact held foreground responses",
+    "A cancellation leaves seven exact native streams progressing",
+    "seven native frontends remain alive after A crash",
+    "A frontend crash leaves seven exact native streams progressing",
+    "exact foreground bindings loaded in actual shared daemon: after-A-crash",
+    "exact interrupted foreground turns complete before navigation",
+    "interruption disconnects exact held foreground responses"
+  ],
+  "full_parity": false,
+  "inference_fixture": "holding",
+  "interrupt_ui_action": "Escape (native interrupt binding)",
+  "binding_phases": {
+    "initial": {
+      "pane-0": "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+      "pane-7": "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+      "pane-2": "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+      "pane-3": "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+      "pane-1": "01a192c4-cb96-7c92-b25c-eebe8770284b",
+      "pane-6": "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+      "pane-5": "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+      "pane-4": "01a192c4-cbe6-74e3-9c9a-d893a4215965"
+    },
+    "new": {
+      "pane-6": "01a192c4-ddfb-7413-bbab-fc7b7ee5bfdc",
+      "pane-1": "01a192c4-ddcf-7553-be6e-d6abf9fba9c2",
+      "pane-3": "01a192c4-de14-7942-a124-2152b2590509",
+      "pane-4": "01a192c4-de2b-7820-81af-da49538c81a0",
+      "pane-5": "01a192c4-dde6-72a3-88d8-cbecf003037f",
+      "pane-0": "01a192c4-de42-7242-81fa-b6f10db6d237",
+      "pane-2": "01a192c4-de58-7511-8df1-59c9dec9eee4",
+      "pane-7": "01a192c4-de72-7290-8145-4f6a7e976bbd"
+    },
+    "fork": {
+      "pane-5": "01a192c4-fa58-7731-aa18-cf7a6c0bbbd1",
+      "pane-3": "01a192c4-faa4-7d21-8dce-b796e7fd5c7d",
+      "pane-1": "01a192c4-fa7f-78a0-ab0c-29c3117af6b0",
+      "pane-0": "01a192c4-facc-7ef3-9817-d52aa38b4745",
+      "pane-4": "01a192c4-faf4-7df1-83ac-4ecaabd901da",
+      "pane-7": "01a192c4-fb1d-7381-9d35-0c8e0db110ad",
+      "pane-6": "01a192c4-fb42-7783-a8d8-7d820220995d",
+      "pane-2": "01a192c4-fb67-7a71-8bbb-081ea5b86ff8"
+    },
+    "resume": {
+      "pane-0": "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+      "pane-7": "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+      "pane-2": "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+      "pane-3": "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+      "pane-1": "01a192c4-cb96-7c92-b25c-eebe8770284b",
+      "pane-6": "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+      "pane-5": "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+      "pane-4": "01a192c4-cbe6-74e3-9c9a-d893a4215965"
+    },
+    "after-A-crash": {
+      "pane-7": "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+      "pane-2": "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+      "pane-3": "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+      "pane-1": "01a192c4-cb96-7c92-b25c-eebe8770284b",
+      "pane-6": "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+      "pane-5": "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+      "pane-4": "01a192c4-cbe6-74e3-9c9a-d893a4215965"
+    }
+  },
+  "shared_loaded_proof": [
+    {
+      "phase": "initial",
+      "expected": {
+        "pane-0": "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+        "pane-7": "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+        "pane-2": "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+        "pane-3": "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+        "pane-1": "01a192c4-cb96-7c92-b25c-eebe8770284b",
+        "pane-6": "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+        "pane-5": "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+        "pane-4": "01a192c4-cbe6-74e3-9c9a-d893a4215965"
+      },
+      "loaded": [
+        "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+        "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+        "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+        "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+        "01a192c4-cb96-7c92-b25c-eebe8770284b",
+        "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+        "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+        "01a192c4-cbe6-74e3-9c9a-d893a4215965"
+      ]
+    },
+    {
+      "phase": "new",
+      "expected": {
+        "pane-6": "01a192c4-ddfb-7413-bbab-fc7b7ee5bfdc",
+        "pane-1": "01a192c4-ddcf-7553-be6e-d6abf9fba9c2",
+        "pane-3": "01a192c4-de14-7942-a124-2152b2590509",
+        "pane-4": "01a192c4-de2b-7820-81af-da49538c81a0",
+        "pane-5": "01a192c4-dde6-72a3-88d8-cbecf003037f",
+        "pane-0": "01a192c4-de42-7242-81fa-b6f10db6d237",
+        "pane-2": "01a192c4-de58-7511-8df1-59c9dec9eee4",
+        "pane-7": "01a192c4-de72-7290-8145-4f6a7e976bbd"
+      },
+      "loaded": [
+        "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+        "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+        "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+        "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+        "01a192c4-cb96-7c92-b25c-eebe8770284b",
+        "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+        "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+        "01a192c4-cbe6-74e3-9c9a-d893a4215965",
+        "01a192c4-cff5-7801-ae5c-ad415a2e8d1a",
+        "01a192c4-d02b-7df1-91ca-3745552b986e",
+        "01a192c4-d055-7a41-b6e7-8f02952ff06f",
+        "01a192c4-d07e-7e72-ad55-83d767ed3351",
+        "01a192c4-d0aa-7211-ab86-0413b6681284",
+        "01a192c4-d0d7-7081-81b6-7a89556f6ec5",
+        "01a192c4-d100-7391-9db2-222a7a26caf6",
+        "01a192c4-d12a-7be1-b173-4d5f4204927f",
+        "01a192c4-ddcf-7553-be6e-d6abf9fba9c2",
+        "01a192c4-dde6-72a3-88d8-cbecf003037f",
+        "01a192c4-ddfb-7413-bbab-fc7b7ee5bfdc",
+        "01a192c4-de14-7942-a124-2152b2590509",
+        "01a192c4-de2b-7820-81af-da49538c81a0",
+        "01a192c4-de42-7242-81fa-b6f10db6d237",
+        "01a192c4-de58-7511-8df1-59c9dec9eee4",
+        "01a192c4-de72-7290-8145-4f6a7e976bbd"
+      ]
+    },
+    {
+      "phase": "fork",
+      "expected": {
+        "pane-5": "01a192c4-fa58-7731-aa18-cf7a6c0bbbd1",
+        "pane-3": "01a192c4-faa4-7d21-8dce-b796e7fd5c7d",
+        "pane-1": "01a192c4-fa7f-78a0-ab0c-29c3117af6b0",
+        "pane-0": "01a192c4-facc-7ef3-9817-d52aa38b4745",
+        "pane-4": "01a192c4-faf4-7df1-83ac-4ecaabd901da",
+        "pane-7": "01a192c4-fb1d-7381-9d35-0c8e0db110ad",
+        "pane-6": "01a192c4-fb42-7783-a8d8-7d820220995d",
+        "pane-2": "01a192c4-fb67-7a71-8bbb-081ea5b86ff8"
+      },
+      "loaded": [
+        "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+        "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+        "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+        "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+        "01a192c4-cb96-7c92-b25c-eebe8770284b",
+        "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+        "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+        "01a192c4-cbe6-74e3-9c9a-d893a4215965",
+        "01a192c4-cff5-7801-ae5c-ad415a2e8d1a",
+        "01a192c4-d02b-7df1-91ca-3745552b986e",
+        "01a192c4-d055-7a41-b6e7-8f02952ff06f",
+        "01a192c4-d07e-7e72-ad55-83d767ed3351",
+        "01a192c4-d0aa-7211-ab86-0413b6681284",
+        "01a192c4-d0d7-7081-81b6-7a89556f6ec5",
+        "01a192c4-d100-7391-9db2-222a7a26caf6",
+        "01a192c4-d12a-7be1-b173-4d5f4204927f",
+        "01a192c4-ddcf-7553-be6e-d6abf9fba9c2",
+        "01a192c4-dde6-72a3-88d8-cbecf003037f",
+        "01a192c4-ddfb-7413-bbab-fc7b7ee5bfdc",
+        "01a192c4-de14-7942-a124-2152b2590509",
+        "01a192c4-de2b-7820-81af-da49538c81a0",
+        "01a192c4-de42-7242-81fa-b6f10db6d237",
+        "01a192c4-de58-7511-8df1-59c9dec9eee4",
+        "01a192c4-de72-7290-8145-4f6a7e976bbd",
+        "01a192c4-ec6d-77c0-b77d-90d4e79a1bc6",
+        "01a192c4-ec9f-7080-a39f-a0c0c6e87cde",
+        "01a192c4-ecc8-7b40-94a7-20a2f3b6dbf3",
+        "01a192c4-ecf0-7580-baff-33a8176348af",
+        "01a192c4-ed1d-7723-a0b2-c85187bc7efe",
+        "01a192c4-ed49-7382-b52a-58858fccfced",
+        "01a192c4-ed75-73a0-bc17-de505ecdc702",
+        "01a192c4-eda0-7302-a098-64e1f05a1819",
+        "01a192c4-fa58-7731-aa18-cf7a6c0bbbd1",
+        "01a192c4-fa7f-78a0-ab0c-29c3117af6b0",
+        "01a192c4-faa4-7d21-8dce-b796e7fd5c7d",
+        "01a192c4-facc-7ef3-9817-d52aa38b4745",
+        "01a192c4-faf4-7df1-83ac-4ecaabd901da",
+        "01a192c4-fb1d-7381-9d35-0c8e0db110ad",
+        "01a192c4-fb42-7783-a8d8-7d820220995d",
+        "01a192c4-fb67-7a71-8bbb-081ea5b86ff8"
+      ]
+    },
+    {
+      "phase": "resume",
+      "expected": {
+        "pane-0": "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+        "pane-7": "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+        "pane-2": "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+        "pane-3": "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+        "pane-1": "01a192c4-cb96-7c92-b25c-eebe8770284b",
+        "pane-6": "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+        "pane-5": "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+        "pane-4": "01a192c4-cbe6-74e3-9c9a-d893a4215965"
+      },
+      "loaded": [
+        "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+        "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+        "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+        "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+        "01a192c4-cb96-7c92-b25c-eebe8770284b",
+        "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+        "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+        "01a192c4-cbe6-74e3-9c9a-d893a4215965",
+        "01a192c4-cff5-7801-ae5c-ad415a2e8d1a",
+        "01a192c4-d02b-7df1-91ca-3745552b986e",
+        "01a192c4-d055-7a41-b6e7-8f02952ff06f",
+        "01a192c4-d07e-7e72-ad55-83d767ed3351",
+        "01a192c4-d0aa-7211-ab86-0413b6681284",
+        "01a192c4-d0d7-7081-81b6-7a89556f6ec5",
+        "01a192c4-d100-7391-9db2-222a7a26caf6",
+        "01a192c4-d12a-7be1-b173-4d5f4204927f",
+        "01a192c4-ddcf-7553-be6e-d6abf9fba9c2",
+        "01a192c4-dde6-72a3-88d8-cbecf003037f",
+        "01a192c4-ddfb-7413-bbab-fc7b7ee5bfdc",
+        "01a192c4-de14-7942-a124-2152b2590509",
+        "01a192c4-de2b-7820-81af-da49538c81a0",
+        "01a192c4-de42-7242-81fa-b6f10db6d237",
+        "01a192c4-de58-7511-8df1-59c9dec9eee4",
+        "01a192c4-de72-7290-8145-4f6a7e976bbd",
+        "01a192c4-ec6d-77c0-b77d-90d4e79a1bc6",
+        "01a192c4-ec9f-7080-a39f-a0c0c6e87cde",
+        "01a192c4-ecc8-7b40-94a7-20a2f3b6dbf3",
+        "01a192c4-ecf0-7580-baff-33a8176348af",
+        "01a192c4-ed1d-7723-a0b2-c85187bc7efe",
+        "01a192c4-ed49-7382-b52a-58858fccfced",
+        "01a192c4-ed75-73a0-bc17-de505ecdc702",
+        "01a192c4-eda0-7302-a098-64e1f05a1819",
+        "01a192c4-fa58-7731-aa18-cf7a6c0bbbd1",
+        "01a192c4-fa7f-78a0-ab0c-29c3117af6b0",
+        "01a192c4-faa4-7d21-8dce-b796e7fd5c7d",
+        "01a192c4-facc-7ef3-9817-d52aa38b4745",
+        "01a192c4-faf4-7df1-83ac-4ecaabd901da",
+        "01a192c4-fb1d-7381-9d35-0c8e0db110ad",
+        "01a192c4-fb42-7783-a8d8-7d820220995d",
+        "01a192c4-fb67-7a71-8bbb-081ea5b86ff8"
+      ]
+    },
+    {
+      "phase": "after-A-crash",
+      "expected": {
+        "pane-7": "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+        "pane-2": "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+        "pane-3": "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+        "pane-1": "01a192c4-cb96-7c92-b25c-eebe8770284b",
+        "pane-6": "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+        "pane-5": "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+        "pane-4": "01a192c4-cbe6-74e3-9c9a-d893a4215965"
+      },
+      "loaded": [
+        "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+        "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+        "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+        "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+        "01a192c4-cb96-7c92-b25c-eebe8770284b",
+        "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+        "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+        "01a192c4-cbe6-74e3-9c9a-d893a4215965",
+        "01a192c4-cff5-7801-ae5c-ad415a2e8d1a",
+        "01a192c4-d02b-7df1-91ca-3745552b986e",
+        "01a192c4-d055-7a41-b6e7-8f02952ff06f",
+        "01a192c4-d07e-7e72-ad55-83d767ed3351",
+        "01a192c4-d0aa-7211-ab86-0413b6681284",
+        "01a192c4-d0d7-7081-81b6-7a89556f6ec5",
+        "01a192c4-d100-7391-9db2-222a7a26caf6",
+        "01a192c4-d12a-7be1-b173-4d5f4204927f",
+        "01a192c4-ddcf-7553-be6e-d6abf9fba9c2",
+        "01a192c4-dde6-72a3-88d8-cbecf003037f",
+        "01a192c4-ddfb-7413-bbab-fc7b7ee5bfdc",
+        "01a192c4-de14-7942-a124-2152b2590509",
+        "01a192c4-de2b-7820-81af-da49538c81a0",
+        "01a192c4-de42-7242-81fa-b6f10db6d237",
+        "01a192c4-de58-7511-8df1-59c9dec9eee4",
+        "01a192c4-de72-7290-8145-4f6a7e976bbd",
+        "01a192c4-ec6d-77c0-b77d-90d4e79a1bc6",
+        "01a192c4-ec9f-7080-a39f-a0c0c6e87cde",
+        "01a192c4-ecc8-7b40-94a7-20a2f3b6dbf3",
+        "01a192c4-ecf0-7580-baff-33a8176348af",
+        "01a192c4-ed1d-7723-a0b2-c85187bc7efe",
+        "01a192c4-ed49-7382-b52a-58858fccfced",
+        "01a192c4-ed75-73a0-bc17-de505ecdc702",
+        "01a192c4-eda0-7302-a098-64e1f05a1819",
+        "01a192c4-fa58-7731-aa18-cf7a6c0bbbd1",
+        "01a192c4-fa7f-78a0-ab0c-29c3117af6b0",
+        "01a192c4-faa4-7d21-8dce-b796e7fd5c7d",
+        "01a192c4-facc-7ef3-9817-d52aa38b4745",
+        "01a192c4-faf4-7df1-83ac-4ecaabd901da",
+        "01a192c4-fb1d-7381-9d35-0c8e0db110ad",
+        "01a192c4-fb42-7783-a8d8-7d820220995d",
+        "01a192c4-fb67-7a71-8bbb-081ea5b86ff8"
+      ]
+    }
+  ],
+  "shared_turn_states": [
+    {
+      "owner": "pane-0",
+      "thread": "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+      "expected_turns": [
+        "01a192c4-cee4-7d92-94b4-4a4efc54ccb7"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-cee4-7d92-94b4-4a4efc54ccb7": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-7",
+      "thread": "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+      "expected_turns": [
+        "01a192c4-cede-73f3-bd7d-c530fd925fe0"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-cede-73f3-bd7d-c530fd925fe0": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-2",
+      "thread": "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+      "expected_turns": [
+        "01a192c4-cee0-7dc3-be8e-68a8f70fe4ff"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-cee0-7dc3-be8e-68a8f70fe4ff": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-3",
+      "thread": "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+      "expected_turns": [
+        "01a192c4-cee4-7d92-94b4-4a5168ae3821"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-cee4-7d92-94b4-4a5168ae3821": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-1",
+      "thread": "01a192c4-cb96-7c92-b25c-eebe8770284b",
+      "expected_turns": [
+        "01a192c4-cee3-7ff2-a963-4d85de16a545"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-cee3-7ff2-a963-4d85de16a545": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-6",
+      "thread": "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+      "expected_turns": [
+        "01a192c4-cee0-7dc3-be8e-688f2f7caeff"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-cee0-7dc3-be8e-688f2f7caeff": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-5",
+      "thread": "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+      "expected_turns": [
+        "01a192c4-cee2-7d90-b8f4-d9222d31669e"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-cee2-7d90-b8f4-d9222d31669e": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-4",
+      "thread": "01a192c4-cbe6-74e3-9c9a-d893a4215965",
+      "expected_turns": [
+        "01a192c4-cee0-7dc3-be8e-689ab70b62e1"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-cee0-7dc3-be8e-689ab70b62e1": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-0",
+      "thread": "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+      "expected_turns": [
+        "01a192c4-cee4-7d92-94b4-4a4efc54ccb7"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-cee4-7d92-94b4-4a4efc54ccb7": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-7",
+      "thread": "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+      "expected_turns": [
+        "01a192c4-cede-73f3-bd7d-c530fd925fe0"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-cede-73f3-bd7d-c530fd925fe0": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-2",
+      "thread": "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+      "expected_turns": [
+        "01a192c4-cee0-7dc3-be8e-68a8f70fe4ff"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-cee0-7dc3-be8e-68a8f70fe4ff": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-3",
+      "thread": "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+      "expected_turns": [
+        "01a192c4-cee4-7d92-94b4-4a5168ae3821"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-cee4-7d92-94b4-4a5168ae3821": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-1",
+      "thread": "01a192c4-cb96-7c92-b25c-eebe8770284b",
+      "expected_turns": [
+        "01a192c4-cee3-7ff2-a963-4d85de16a545"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-cee3-7ff2-a963-4d85de16a545": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-6",
+      "thread": "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+      "expected_turns": [
+        "01a192c4-cee0-7dc3-be8e-688f2f7caeff"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-cee0-7dc3-be8e-688f2f7caeff": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-5",
+      "thread": "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+      "expected_turns": [
+        "01a192c4-cee2-7d90-b8f4-d9222d31669e"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-cee2-7d90-b8f4-d9222d31669e": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-4",
+      "thread": "01a192c4-cbe6-74e3-9c9a-d893a4215965",
+      "expected_turns": [
+        "01a192c4-cee0-7dc3-be8e-689ab70b62e1"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-cee0-7dc3-be8e-689ab70b62e1": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-6",
+      "thread": "01a192c4-ddfb-7413-bbab-fc7b7ee5bfdc",
+      "expected_turns": [
+        "01a192c4-eb6c-7833-8b95-ee0aada2aa4a"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-eb6c-7833-8b95-ee0aada2aa4a": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-1",
+      "thread": "01a192c4-ddcf-7553-be6e-d6abf9fba9c2",
+      "expected_turns": [
+        "01a192c4-eb69-7a11-90b7-2fc94fee78e2"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-eb69-7a11-90b7-2fc94fee78e2": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-3",
+      "thread": "01a192c4-de14-7942-a124-2152b2590509",
+      "expected_turns": [
+        "01a192c4-eb68-7503-b079-2a1e4bdac617"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-eb68-7503-b079-2a1e4bdac617": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-4",
+      "thread": "01a192c4-de2b-7820-81af-da49538c81a0",
+      "expected_turns": [
+        "01a192c4-eb6e-7fa2-b68c-273f79e45c28"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-eb6e-7fa2-b68c-273f79e45c28": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-5",
+      "thread": "01a192c4-dde6-72a3-88d8-cbecf003037f",
+      "expected_turns": [
+        "01a192c4-eb76-76e0-bb33-6d5c0ebf99e1"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-eb76-76e0-bb33-6d5c0ebf99e1": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-0",
+      "thread": "01a192c4-de42-7242-81fa-b6f10db6d237",
+      "expected_turns": [
+        "01a192c4-eb6c-7833-8b95-edf9c0fc5381"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-eb6c-7833-8b95-edf9c0fc5381": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-2",
+      "thread": "01a192c4-de58-7511-8df1-59c9dec9eee4",
+      "expected_turns": [
+        "01a192c4-eb75-7ab0-9032-276e3b925a13"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-eb75-7ab0-9032-276e3b925a13": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-7",
+      "thread": "01a192c4-de72-7290-8145-4f6a7e976bbd",
+      "expected_turns": [
+        "01a192c4-eb67-7300-b1b7-0d52f1a556e8"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c4-eb67-7300-b1b7-0d52f1a556e8": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-6",
+      "thread": "01a192c4-ddfb-7413-bbab-fc7b7ee5bfdc",
+      "expected_turns": [
+        "01a192c4-eb6c-7833-8b95-ee0aada2aa4a"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-eb6c-7833-8b95-ee0aada2aa4a": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-1",
+      "thread": "01a192c4-ddcf-7553-be6e-d6abf9fba9c2",
+      "expected_turns": [
+        "01a192c4-eb69-7a11-90b7-2fc94fee78e2"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-eb69-7a11-90b7-2fc94fee78e2": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-3",
+      "thread": "01a192c4-de14-7942-a124-2152b2590509",
+      "expected_turns": [
+        "01a192c4-eb68-7503-b079-2a1e4bdac617"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-eb68-7503-b079-2a1e4bdac617": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-4",
+      "thread": "01a192c4-de2b-7820-81af-da49538c81a0",
+      "expected_turns": [
+        "01a192c4-eb6e-7fa2-b68c-273f79e45c28"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-eb6e-7fa2-b68c-273f79e45c28": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-5",
+      "thread": "01a192c4-dde6-72a3-88d8-cbecf003037f",
+      "expected_turns": [
+        "01a192c4-eb76-76e0-bb33-6d5c0ebf99e1"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-eb76-76e0-bb33-6d5c0ebf99e1": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-0",
+      "thread": "01a192c4-de42-7242-81fa-b6f10db6d237",
+      "expected_turns": [
+        "01a192c4-eb6c-7833-8b95-edf9c0fc5381"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-eb6c-7833-8b95-edf9c0fc5381": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-2",
+      "thread": "01a192c4-de58-7511-8df1-59c9dec9eee4",
+      "expected_turns": [
+        "01a192c4-eb75-7ab0-9032-276e3b925a13"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-eb75-7ab0-9032-276e3b925a13": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-7",
+      "thread": "01a192c4-de72-7290-8145-4f6a7e976bbd",
+      "expected_turns": [
+        "01a192c4-eb67-7300-b1b7-0d52f1a556e8"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c4-eb67-7300-b1b7-0d52f1a556e8": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-0",
+      "thread": "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+      "expected_turns": [
+        "01a192c5-1cae-73a0-8e8d-d56ef4165d2b"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1cae-73a0-8e8d-d56ef4165d2b": "inProgress",
+        "01a192c4-cee4-7d92-94b4-4a4efc54ccb7": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-7",
+      "thread": "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+      "expected_turns": [
+        "01a192c5-1bf0-7020-9661-01647a3846e2"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1bf0-7020-9661-01647a3846e2": "inProgress",
+        "01a192c4-cede-73f3-bd7d-c530fd925fe0": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-2",
+      "thread": "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+      "expected_turns": [
+        "01a192c5-1c7b-7180-8b0c-138618bf8ffc"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1c7b-7180-8b0c-138618bf8ffc": "inProgress",
+        "01a192c4-cee0-7dc3-be8e-68a8f70fe4ff": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-3",
+      "thread": "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+      "expected_turns": [
+        "01a192c5-1d4d-7ab2-a3bb-22055d38676b"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1d4d-7ab2-a3bb-22055d38676b": "inProgress",
+        "01a192c4-cee4-7d92-94b4-4a5168ae3821": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-1",
+      "thread": "01a192c4-cb96-7c92-b25c-eebe8770284b",
+      "expected_turns": [
+        "01a192c5-1cd9-7410-b7c8-84af8c4fb4f5"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1cd9-7410-b7c8-84af8c4fb4f5": "inProgress",
+        "01a192c4-cee3-7ff2-a963-4d85de16a545": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-6",
+      "thread": "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+      "expected_turns": [
+        "01a192c5-1c3c-7eb1-bd41-12016bc0c6a4"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1c3c-7eb1-bd41-12016bc0c6a4": "inProgress",
+        "01a192c4-cee0-7dc3-be8e-688f2f7caeff": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-5",
+      "thread": "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+      "expected_turns": [
+        "01a192c5-1d80-7972-b4f7-a125e1f70a6b"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1d80-7972-b4f7-a125e1f70a6b": "inProgress",
+        "01a192c4-cee2-7d90-b8f4-d9222d31669e": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-4",
+      "thread": "01a192c4-cbe6-74e3-9c9a-d893a4215965",
+      "expected_turns": [
+        "01a192c5-1d15-7a02-b243-4d8e06cb0c9c"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1d15-7a02-b243-4d8e06cb0c9c": "inProgress",
+        "01a192c4-cee0-7dc3-be8e-689ab70b62e1": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-0",
+      "thread": "01a192c4-cae1-7450-80f2-7018b9efe4c8",
+      "expected_turns": [
+        "01a192c5-1cae-73a0-8e8d-d56ef4165d2b"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192c5-1cae-73a0-8e8d-d56ef4165d2b": "interrupted",
+        "01a192c4-cee4-7d92-94b4-4a4efc54ccb7": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-7",
+      "thread": "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+      "expected_turns": [
+        "01a192c5-1bf0-7020-9661-01647a3846e2"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1bf0-7020-9661-01647a3846e2": "inProgress",
+        "01a192c4-cede-73f3-bd7d-c530fd925fe0": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-2",
+      "thread": "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+      "expected_turns": [
+        "01a192c5-1c7b-7180-8b0c-138618bf8ffc"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1c7b-7180-8b0c-138618bf8ffc": "inProgress",
+        "01a192c4-cee0-7dc3-be8e-68a8f70fe4ff": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-3",
+      "thread": "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+      "expected_turns": [
+        "01a192c5-1d4d-7ab2-a3bb-22055d38676b"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1d4d-7ab2-a3bb-22055d38676b": "inProgress",
+        "01a192c4-cee4-7d92-94b4-4a5168ae3821": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-1",
+      "thread": "01a192c4-cb96-7c92-b25c-eebe8770284b",
+      "expected_turns": [
+        "01a192c5-1cd9-7410-b7c8-84af8c4fb4f5"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1cd9-7410-b7c8-84af8c4fb4f5": "inProgress",
+        "01a192c4-cee3-7ff2-a963-4d85de16a545": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-6",
+      "thread": "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+      "expected_turns": [
+        "01a192c5-1c3c-7eb1-bd41-12016bc0c6a4"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1c3c-7eb1-bd41-12016bc0c6a4": "inProgress",
+        "01a192c4-cee0-7dc3-be8e-688f2f7caeff": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-5",
+      "thread": "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+      "expected_turns": [
+        "01a192c5-1d80-7972-b4f7-a125e1f70a6b"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1d80-7972-b4f7-a125e1f70a6b": "inProgress",
+        "01a192c4-cee2-7d90-b8f4-d9222d31669e": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-4",
+      "thread": "01a192c4-cbe6-74e3-9c9a-d893a4215965",
+      "expected_turns": [
+        "01a192c5-1d15-7a02-b243-4d8e06cb0c9c"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1d15-7a02-b243-4d8e06cb0c9c": "inProgress",
+        "01a192c4-cee0-7dc3-be8e-689ab70b62e1": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-7",
+      "thread": "01a192c4-cb41-7ad2-9fb6-e6c40f5647a3",
+      "expected_turns": [
+        "01a192c5-1bf0-7020-9661-01647a3846e2"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1bf0-7020-9661-01647a3846e2": "inProgress",
+        "01a192c4-cede-73f3-bd7d-c530fd925fe0": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-2",
+      "thread": "01a192c4-cb7a-7d51-93b7-41d7cd4054d6",
+      "expected_turns": [
+        "01a192c5-1c7b-7180-8b0c-138618bf8ffc"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1c7b-7180-8b0c-138618bf8ffc": "inProgress",
+        "01a192c4-cee0-7dc3-be8e-68a8f70fe4ff": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-3",
+      "thread": "01a192c4-cbaf-73e3-8442-e75304e9d61f",
+      "expected_turns": [
+        "01a192c5-1d4d-7ab2-a3bb-22055d38676b"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1d4d-7ab2-a3bb-22055d38676b": "inProgress",
+        "01a192c4-cee4-7d92-94b4-4a5168ae3821": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-1",
+      "thread": "01a192c4-cb96-7c92-b25c-eebe8770284b",
+      "expected_turns": [
+        "01a192c5-1cd9-7410-b7c8-84af8c4fb4f5"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1cd9-7410-b7c8-84af8c4fb4f5": "inProgress",
+        "01a192c4-cee3-7ff2-a963-4d85de16a545": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-6",
+      "thread": "01a192c4-cb5c-73d0-83ff-e8356ca421dd",
+      "expected_turns": [
+        "01a192c5-1c3c-7eb1-bd41-12016bc0c6a4"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1c3c-7eb1-bd41-12016bc0c6a4": "inProgress",
+        "01a192c4-cee0-7dc3-be8e-688f2f7caeff": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-5",
+      "thread": "01a192c4-cbcb-7882-bf3f-9fda6d818fe0",
+      "expected_turns": [
+        "01a192c5-1d80-7972-b4f7-a125e1f70a6b"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1d80-7972-b4f7-a125e1f70a6b": "inProgress",
+        "01a192c4-cee2-7d90-b8f4-d9222d31669e": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-4",
+      "thread": "01a192c4-cbe6-74e3-9c9a-d893a4215965",
+      "expected_turns": [
+        "01a192c5-1d15-7a02-b243-4d8e06cb0c9c"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192c5-1d15-7a02-b243-4d8e06cb0c9c": "inProgress",
+        "01a192c4-cee0-7dc3-be8e-689ab70b62e1": "interrupted"
+      }
+    }
+  ],
+  "provider_url": "http://127.0.0.1:55290/v1",
+  "daemon_start": {
+    "exit_code": 0,
+    "stdout": "{\"status\":\"started\",\"backend\":\"pid\",\"pid\":82228,\"managedCodexPath\":\"/private/tmp/relay-native-tui-lab-zqnciiy7/codex/packages/app-server-daemon/current/bin/codex\",\"managedCodexVersion\":\"0.166.0\",\"socketPath\":\"/private/tmp/relay-native-tui-lab-zqnciiy7/codex/app-server-control/app-server-control.sock\",\"cliVersion\":\"0.166.0\",\"appServerVersion\":\"0.166.0\"}\n",
+    "stderr": "Installing daemon from CLI version 0.166.0-relay-research into /private/tmp/relay-native-tui-lab-zqnciiy7/codex/packages/app-server-daemon...\n{\"timestampMs\":1793463730667,\"processPid\":80147,\"stage\":\"process_spawn\",\"outcome\":\"succeeded\",\"elapsedMs\":5,\"failure\":null}\n{\"timestampMs\":1793463730701,\"processPid\":80147,\"event\":\"process_spawned\",\"details\":{\"pid\":82228}}\n{\"timestampMs\":1793463730735,\"processPid\":80147,\"stage\":\"process_identity\",\"outcome\":\"succeeded\",\"elapsedMs\":28,\"failure\":null}\n{\"timestampMs\":1793463730762,\"processPid\":80147,\"stage\":\"pid_write\",\"outcome\":\"succeeded\",\"elapsedMs\":14,\"failure\":null}\n{\"timestampMs\":1793463730763,\"processPid\":80147,\"stage\":\"pid_publish\",\"outcome\":\"succeeded\",\"elapsedMs\":0,\"failure\":null}\n"
+  },
+  "daemon_binary_sha256": "dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e",
+  "daemon_pid": 82228,
+  "daemon_socket": "/private/tmp/relay-native-tui-lab-zqnciiy7/codex/app-server-control/app-server-control.sock",
+  "frontend_pids": [
+    82289,
+    82291,
+    82292,
+    82293,
+    82294,
+    82295,
+    82296,
+    82297
+  ]
+}

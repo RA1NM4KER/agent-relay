@@ -1,0 +1,22 @@
+{
+  "scope": "NATIVE_WS_READ_OBSERVER_SMOKE",
+  "full_parity": false,
+  "start": {
+    "exit_code": 0,
+    "stdout": "{\"status\":\"started\",\"backend\":\"pid\",\"pid\":35802,\"managedCodexPath\":\"/private/tmp/relay-native-tui-lab-o4fbcor9/codex/packages/app-server-daemon/current/bin/codex\",\"managedCodexVersion\":\"0.166.0\",\"socketPath\":\"/private/tmp/relay-native-tui-lab-o4fbcor9/codex/app-server-control/app-server-control.sock\",\"cliVersion\":\"0.166.0\",\"appServerVersion\":\"0.166.0\"}\n",
+    "stderr": "{\"timestampMs\":1793462011124,\"processPid\":35573,\"stage\":\"process_spawn\",\"outcome\":\"succeeded\",\"elapsedMs\":5,\"failure\":null}\n{\"timestampMs\":1793462011136,\"processPid\":35573,\"event\":\"process_spawned\",\"details\":{\"pid\":35802}}\n{\"timestampMs\":1793462011148,\"processPid\":35573,\"stage\":\"process_identity\",\"outcome\":\"succeeded\",\"elapsedMs\":10,\"failure\":null}\n{\"timestampMs\":1793462011154,\"processPid\":35573,\"stage\":\"pid_write\",\"outcome\":\"succeeded\",\"elapsedMs\":3,\"failure\":null}\n{\"timestampMs\":1793462011154,\"processPid\":35573,\"stage\":\"pid_publish\",\"outcome\":\"succeeded\",\"elapsedMs\":0,\"failure\":null}\n"
+  },
+  "methods": [
+    "initialize",
+    "thread/loaded/list"
+  ],
+  "status": "PASSED",
+  "observer_socket_closed": true,
+  "stop": {
+    "exit_code": 0,
+    "stdout": "{\"status\":\"stopped\",\"backend\":\"pid\",\"managedCodexPath\":\"/private/tmp/relay-native-tui-lab-o4fbcor9/codex/packages/app-server-daemon/current/bin/codex\",\"managedCodexVersion\":\"0.166.0\",\"socketPath\":\"/private/tmp/relay-native-tui-lab-o4fbcor9/codex/app-server-control/app-server-control.sock\",\"cliVersion\":\"0.166.0\"}\n",
+    "stderr": "{\"timestampMs\":1793462012393,\"processPid\":35851,\"event\":\"shutdown_requested\",\"details\":{\"pid\":35802}}\n"
+  },
+  "daemon_pid_absent": true,
+  "daemon_socket_quiet": true
+}

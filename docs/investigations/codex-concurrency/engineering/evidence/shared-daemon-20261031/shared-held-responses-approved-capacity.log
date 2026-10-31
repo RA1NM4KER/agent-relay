@@ -1,0 +1,29 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-o4fbcor9",
+  "harness_pid": 19571,
+  "mode": "shared",
+  "checks": [],
+  "full_parity": false,
+  "inference_fixture": "holding",
+  "binding_phases": {},
+  "shared_loaded_proof": [],
+  "shared_turn_states": [],
+  "provider_url": "http://127.0.0.1:54035/v1",
+  "daemon_start": {
+    "exit_code": 0,
+    "stdout": "{\"status\":\"started\",\"backend\":\"pid\",\"pid\":21499,\"managedCodexPath\":\"/private/tmp/relay-native-tui-lab-o4fbcor9/codex/packages/app-server-daemon/current/bin/codex\",\"managedCodexVersion\":\"0.166.0\",\"socketPath\":\"/private/tmp/relay-native-tui-lab-o4fbcor9/codex/app-server-control/app-server-control.sock\",\"cliVersion\":\"0.166.0\",\"appServerVersion\":\"0.166.0\"}\n",
+    "stderr": "Installing daemon from CLI version 0.166.0-relay-research into /private/tmp/relay-native-tui-lab-o4fbcor9/codex/packages/app-server-daemon...\n{\"timestampMs\":1793461467675,\"processPid\":19603,\"stage\":\"process_spawn\",\"outcome\":\"succeeded\",\"elapsedMs\":18,\"failure\":null}\n{\"timestampMs\":1793461467802,\"processPid\":19603,\"event\":\"process_spawned\",\"details\":{\"pid\":21499}}\n{\"timestampMs\":1793461467915,\"processPid\":19603,\"stage\":\"process_identity\",\"outcome\":\"succeeded\",\"elapsedMs\":98,\"failure\":null}\n{\"timestampMs\":1793461468003,\"processPid\":19603,\"stage\":\"pid_write\",\"outcome\":\"succeeded\",\"elapsedMs\":53,\"failure\":null}\n{\"timestampMs\":1793461468009,\"processPid\":19603,\"stage\":\"pid_publish\",\"outcome\":\"succeeded\",\"elapsedMs\":6,\"failure\":null}\n"
+  },
+  "daemon_binary_sha256": "dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e",
+  "daemon_pid": 21499,
+  "daemon_socket": "/private/tmp/relay-native-tui-lab-o4fbcor9/codex/app-server-control/app-server-control.sock",
+  "exception": "TimeoutError('shared-loaded-proof: initialize; exit=None; stderr=')",
+  "native_turn_events": [],
+  "frontend_cleanup": [],
+  "isolated_daemon_cleanup_exit": 0,
+  "isolated_daemon_cleanup_stdout": "{\"status\":\"stopped\",\"backend\":\"pid\",\"managedCodexPath\":\"/private/tmp/relay-native-tui-lab-o4fbcor9/codex/packages/app-server-daemon/current/bin/codex\",\"managedCodexVersion\":\"0.166.0\",\"socketPath\":\"/private/tmp/relay-native-tui-lab-o4fbcor9/codex/app-server-control/app-server-control.sock\",\"cliVersion\":\"0.166.0\"}\n",
+  "isolated_daemon_cleanup_stderr": "{\"timestampMs\":1793461495124,\"processPid\":22273,\"event\":\"shutdown_requested\",\"details\":{\"pid\":21499}}\n",
+  "daemon_pid_absent_after_cleanup": true,
+  "daemon_socket_quiet_after_cleanup": true,
+  "provider_requests": []
+}

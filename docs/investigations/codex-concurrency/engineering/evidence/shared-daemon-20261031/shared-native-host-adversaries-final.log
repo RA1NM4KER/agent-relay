@@ -1,0 +1,127 @@
+{
+  "root": "/private/tmp/relay-shared-host-adversary-_1igdmfs",
+  "scope": "REAL_NATIVE_UNIX_HOST_EXTERNAL_FENCE_COUNTEREXAMPLE",
+  "full_parity": false,
+  "native_host_enforcement": false,
+  "checks": [
+    "exact pinned research executable",
+    "A foreground drains while B progresses",
+    "detached A writes after native turn completion",
+    "cooperating stale owner refused",
+    "independent raw native peer bypasses external fenced epoch",
+    "forged quiescence cannot release ownership",
+    "committed exact identity recovers without native replay",
+    "global service generation rejects B old admission: scoped recovery missing",
+    "B existing execution survives service restart",
+    "detached A writes after exact owned host death"
+  ],
+  "sha256": "dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e",
+  "native_pid": 90329,
+  "bindings": [
+    {
+      "thread": "01a192c8-cef0-73f2-a250-f844e6c8aaf4",
+      "epoch": "46f2aa890d744cb9b161863ef0a33652",
+      "sequence": 1,
+      "intent": "07a750ab26734406b6b4977b4da0195c"
+    },
+    {
+      "thread": "01a192c8-cf16-73b1-9fe2-65fc74b6cf22",
+      "epoch": "2426c3c58d1443298161f939dbb05caf",
+      "sequence": 1,
+      "intent": "d208ed5e2ef74f5fbc9d44ba93918b12"
+    }
+  ],
+  "receipt": {
+    "kind": "TURN_DRAIN_ONLY",
+    "thread": "01a192c8-cef0-73f2-a250-f844e6c8aaf4",
+    "turns": [
+      "01a192c8-cf21-7d60-b5c8-b4b65dd75a41"
+    ],
+    "execution_quiescent": false,
+    "host_generation": "cf59d5ce80714b73a24c392f7c9fb8b8",
+    "epoch": "46f2aa890d744cb9b161863ef0a33652"
+  },
+  "status": "COUNTEREXAMPLES_CONFIRMED_NOT_PARITY",
+  "registry": {
+    "owners": [
+      [
+        "01a192c8-cef0-73f2-a250-f844e6c8aaf4",
+        "527cc056872044ddb08d5bb55f8f7ea7",
+        "46f2aa890d744cb9b161863ef0a33652",
+        "UNKNOWN"
+      ],
+      [
+        "01a192c8-cf16-73b1-9fe2-65fc74b6cf22",
+        "61c0ce4f48aa49388200ef43b782e24c",
+        "2426c3c58d1443298161f939dbb05caf",
+        "ACTIVE"
+      ]
+    ],
+    "intents": [
+      [
+        "07a750ab26734406b6b4977b4da0195c",
+        "527cc056872044ddb08d5bb55f8f7ea7",
+        "thread/start",
+        "BOUND",
+        "01a192c8-cef0-73f2-a250-f844e6c8aaf4"
+      ],
+      [
+        "d208ed5e2ef74f5fbc9d44ba93918b12",
+        "61c0ce4f48aa49388200ef43b782e24c",
+        "thread/start",
+        "BOUND",
+        "01a192c8-cf16-73b1-9fe2-65fc74b6cf22"
+      ]
+    ]
+  },
+  "controller_methods": [
+    {
+      "method": "initialize",
+      "thread": null
+    },
+    {
+      "method": "thread/start",
+      "thread": null
+    },
+    {
+      "method": "thread/start",
+      "thread": null
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a192c8-cef0-73f2-a250-f844e6c8aaf4"
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a192c8-cf16-73b1-9fe2-65fc74b6cf22"
+    },
+    {
+      "method": "thread/turns/list",
+      "thread": "01a192c8-cef0-73f2-a250-f844e6c8aaf4"
+    },
+    {
+      "method": "turn/interrupt",
+      "thread": "01a192c8-cef0-73f2-a250-f844e6c8aaf4"
+    },
+    {
+      "method": "thread/turns/list",
+      "thread": "01a192c8-cef0-73f2-a250-f844e6c8aaf4"
+    }
+  ],
+  "outsider_methods": [
+    {
+      "method": "initialize",
+      "thread": null
+    },
+    {
+      "method": "thread/resume",
+      "thread": "01a192c8-cef0-73f2-a250-f844e6c8aaf4"
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a192c8-cef0-73f2-a250-f844e6c8aaf4"
+    }
+  ],
+  "native_exit": -9,
+  "socket_quiet_after_cleanup": true
+}

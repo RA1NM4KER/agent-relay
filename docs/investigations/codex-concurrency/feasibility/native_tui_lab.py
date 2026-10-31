@@ -25,7 +25,7 @@ import time
 from controller import NativeRPC
 from holding_provider import HoldingProvider
 from native_callback import CallbackRegistry
-from stdio_probe import Server, environment
+from stdio_probe import environment
 
 
 def file_sha256(path):
@@ -77,30 +77,60 @@ def socket_quiet(path):
     return False
 
 
-class SharedLoadedObserver(Server):
-    """Supported socket proxy, restricted to reads; never resumes a writer."""
+def observer_transport():
+    import websockets
+    from websockets.sync.client import unix_connect
+    if websockets.__version__ != "15.0.1":
+        raise RuntimeError("shared observer requires pinned websockets 15.0.1 in the isolated lab environment")
+    return unix_connect
+
+
+class SharedLoadedObserver:
+    """Native WebSocket-over-UDS transport, restricted to read-only RPCs."""
     def __init__(self, executable, env, socket_path):
         self.calls = []
-        super().__init__(str(executable), env, "shared-loaded-proof",
-                         arguments=["app-server", "proxy", "--sock", socket_path])
+        self.serial = 0
+        self.notifications = 0
+        self.ws = observer_transport()(str(socket_path), uri="ws://localhost/rpc",
+            compression=None, proxy=None, open_timeout=10, close_timeout=2,
+            ping_interval=None, max_size=1024 * 1024, max_queue=16)
         try:
+            response = self.call("initialize", {"clientInfo": {
+                "name": "relay-read-only-proof", "version": "0"},
+                "capabilities": {"experimentalApi": True}})
+            self.home = response["result"].get("codexHome")
             matches = bool(self.home) and Path(self.home).resolve(strict=True) == Path(env["CODEX_HOME"]).resolve(strict=True)
-        except (OSError, TypeError):
-            matches = False
-        if not matches:
+            if not matches:
+                raise AssertionError("shared observer resolved a foreign home")
+            self.ws.send(json.dumps({"method": "initialized", "params": {}}))
+        except BaseException:
             self.close()
-            raise AssertionError("shared observer resolved a foreign home")
+            raise
 
     def call(self, method, params, timeout=25):
         if method not in {"initialize", "thread/loaded/list", "thread/turns/list"}:
             raise AssertionError("read-only shared proof cannot mutate or resume")
         self.calls.append(method)
-        response = super().call(method, params, timeout)
-        if "error" in response or "result" not in response:
-            raise AssertionError(f"shared proof RPC refused: {response}")
-        if method == "initialize":
-            self.home = response["result"].get("codexHome", "")
-        return response
+        self.serial += 1
+        self.ws.send(json.dumps({"id": self.serial, "method": method, "params": params}))
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            response = json.loads(self.ws.recv(timeout=max(.01, deadline - time.monotonic())))
+            if "method" in response and "id" in response:
+                raise AssertionError("read-only observer cannot answer native server requests")
+            if response.get("id") == self.serial:
+                if "error" in response or "result" not in response:
+                    raise AssertionError(f"shared proof RPC refused: {response}")
+                return response
+            self.notifications += 1
+            if self.notifications > 4096:
+                raise AssertionError("read-only observer notification bound exceeded")
+        raise TimeoutError("read-only shared RPC response missing")
+
+    def close(self):
+        self.ws.close()
+        if self.ws.socket.fileno() != -1:
+            raise RuntimeError("shared observer socket remains open")
 
     def loaded(self):
         response = self.call("thread/loaded/list", {"limit": 256})["result"]
@@ -129,6 +159,8 @@ def main():
     free = shutil.disk_usage("/private/tmp").free
     if args.mode == "shared" and free < 4 * 1024 ** 3:
         raise RuntimeError(f"shared lab preflight requires 4 GiB free; observed {free} bytes; no runtime launched")
+    if args.mode == "shared":
+        observer_transport()  # refuse before runtime/package installation if unavailable
     root = Path(tempfile.mkdtemp(prefix="relay-native-tui-lab-", dir="/private/tmp"))
     env = environment(root)
     registry = CallbackRegistry(root / "admission", env["CODEX_HOME"])
@@ -137,6 +169,7 @@ def main():
     callback.chmod(0o700)
     result = {"root": str(root), "harness_pid": os.getpid(), "mode": args.mode, "checks": [], "full_parity": False,
               "inference_fixture": "holding" if args.holding_provider else "unreachable",
+              "interrupt_ui_action": "Escape (native interrupt binding)",
               "binding_phases": {}, "shared_loaded_proof": [], "shared_turn_states": []}
     terminals = []
     observer = None
@@ -213,7 +246,7 @@ def main():
 
     def interrupt_foreground(bindings, after, indices):
         for i in indices:
-            os.write(terminals[i]["fd"], b"\x03")
+            os.write(terminals[i]["fd"], b"\x1b")
         check("exact interrupted foreground turns complete before navigation",
               lambda: completed_foreground(events(), bindings, after))
         if provider:
@@ -257,7 +290,10 @@ def main():
                     raise AssertionError("shared daemon reports unexpected exact foreground turn status")
     def command_all(text):
         for terminal in terminals:
-            os.write(terminal["fd"], text.encode())
+            # Explicit terminal paste avoids native burst heuristics consuming
+            # the following Enter as a newline after a busy resume transition.
+            # Submit exactly once; the structured turn oracle remains mandatory.
+            os.write(terminal["fd"], b"\x1b[200~" + text.encode() + b"\x1b[201~")
         pump(.5)
         for terminal in terminals:
             os.write(terminal["fd"], b"\r")
@@ -398,7 +434,7 @@ def main():
                 observer.close()
             except BaseException as cleanup_error:
                 cleanup_failure("read-only observer", cleanup_error)
-            result["shared_observer_cleanup_exit"] = observer.child.returncode
+            result["shared_observer_socket_closed"] = observer.ws.socket.fileno() == -1
         for i, terminal in enumerate(terminals):
             child = terminal["child"]
             try:

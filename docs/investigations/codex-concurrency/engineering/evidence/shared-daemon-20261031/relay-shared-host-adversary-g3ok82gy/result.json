@@ -1,0 +1,569 @@
+{
+  "root": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+  "scope": "REAL_NATIVE_UNIX_HOST_EXTERNAL_FENCE_COUNTEREXAMPLE",
+  "full_parity": false,
+  "native_host_enforcement": false,
+  "checks": [
+    "exact pinned research executable",
+    "A foreground drains while B progresses",
+    "detached A writes after native turn completion",
+    "cooperating stale owner refused",
+    "independent raw native peer bypasses external fenced epoch",
+    "forged quiescence cannot release ownership",
+    "committed exact identity recovers without native replay",
+    "global service generation rejects B old admission: scoped recovery missing",
+    "B existing execution survives service restart",
+    "detached A writes after exact owned host death"
+  ],
+  "sha256": "dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e",
+  "native_pid": 89227,
+  "bindings": [
+    {
+      "thread": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+      "epoch": "14184d3af97341f7977c98ade246cdfe",
+      "sequence": 1,
+      "intent": "a2adc0a90b5b4250bbb1e4ff74273f5f"
+    },
+    {
+      "thread": "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7",
+      "epoch": "ef73279ab2d240f8a8ee27994c68621f",
+      "sequence": 1,
+      "intent": "01aaa0ad6d69453b883b298053c403d2"
+    }
+  ],
+  "receipt": {
+    "kind": "TURN_DRAIN_ONLY",
+    "thread": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+    "turns": [
+      "01a192c8-2e8a-76f0-8f0b-62bc9b0705fd"
+    ],
+    "execution_quiescent": false,
+    "host_generation": "01d9e4e6ceac49f9833defa43e78866e",
+    "epoch": "14184d3af97341f7977c98ade246cdfe"
+  },
+  "status": "COUNTEREXAMPLES_CONFIRMED_NOT_PARITY",
+  "registry": {
+    "owners": [
+      [
+        "01a192c8-2e56-78b1-b20c-b025432e9c67",
+        "02a857c422f0410ca2ebad67aeed5663",
+        "14184d3af97341f7977c98ade246cdfe",
+        "UNKNOWN"
+      ],
+      [
+        "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7",
+        "cc098e630b894dae845f8b475231175d",
+        "ef73279ab2d240f8a8ee27994c68621f",
+        "ACTIVE"
+      ]
+    ],
+    "intents": [
+      [
+        "a2adc0a90b5b4250bbb1e4ff74273f5f",
+        "02a857c422f0410ca2ebad67aeed5663",
+        "thread/start",
+        "BOUND",
+        "01a192c8-2e56-78b1-b20c-b025432e9c67"
+      ],
+      [
+        "01aaa0ad6d69453b883b298053c403d2",
+        "cc098e630b894dae845f8b475231175d",
+        "thread/start",
+        "BOUND",
+        "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7"
+      ]
+    ]
+  },
+  "controller_methods": [
+    {
+      "method": "initialize",
+      "thread": null
+    },
+    {
+      "method": "thread/start",
+      "thread": null
+    },
+    {
+      "method": "thread/start",
+      "thread": null
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a192c8-2e56-78b1-b20c-b025432e9c67"
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7"
+    },
+    {
+      "method": "thread/turns/list",
+      "thread": "01a192c8-2e56-78b1-b20c-b025432e9c67"
+    },
+    {
+      "method": "turn/interrupt",
+      "thread": "01a192c8-2e56-78b1-b20c-b025432e9c67"
+    },
+    {
+      "method": "thread/turns/list",
+      "thread": "01a192c8-2e56-78b1-b20c-b025432e9c67"
+    }
+  ],
+  "controller_events": [
+    {
+      "method": "remoteControl/status/changed",
+      "params": {
+        "status": "disabled",
+        "serverName": "Kefass-MacBook-Air.local",
+        "installationId": "e17aadd2-c50e-4800-b125-81ea71ea8dff",
+        "environmentId": null
+      },
+      "emittedAtMs": 1793463955012
+    },
+    {
+      "method": "thread/started",
+      "params": {
+        "thread": {
+          "id": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+          "environments": [
+            {
+              "environmentId": "local",
+              "cwd": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+              "runtimeWorkspaceRoots": [
+                "/private/tmp/relay-shared-host-adversary-g3ok82gy"
+              ]
+            }
+          ],
+          "extra": null,
+          "sessionId": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+          "forkedFromId": null,
+          "parentThreadId": null,
+          "preview": "",
+          "ephemeral": false,
+          "section": null,
+          "sectionEnteredAt": null,
+          "projectId": null,
+          "historyMode": "paginated",
+          "modelProvider": "research",
+          "model": "research-model",
+          "reasoningEffort": null,
+          "createdAt": 1793463955,
+          "updatedAt": 1793463955,
+          "recencyAt": 1793463955,
+          "status": {
+            "type": "idle"
+          },
+          "path": "/private/tmp/relay-shared-host-adversary-g3ok82gy/codex/sessions/2026/10/31/rollout-2026-10-31T18-25-55-01a192c8-2e56-78b1-b20c-b025432e9c67.jsonl",
+          "cwd": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+          "cliVersion": "0.166.0",
+          "originator": "relay-host-adversary",
+          "source": "vscode",
+          "canAcceptDirectInput": true,
+          "threadSource": null,
+          "agentNickname": null,
+          "agentRole": null,
+          "gitInfo": null,
+          "name": null,
+          "daybreakEnabled": null,
+          "turns": []
+        }
+      },
+      "emittedAtMs": 1793463955059
+    },
+    {
+      "method": "thread/started",
+      "params": {
+        "thread": {
+          "id": "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7",
+          "environments": [
+            {
+              "environmentId": "local",
+              "cwd": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+              "runtimeWorkspaceRoots": [
+                "/private/tmp/relay-shared-host-adversary-g3ok82gy"
+              ]
+            }
+          ],
+          "extra": null,
+          "sessionId": "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7",
+          "forkedFromId": null,
+          "parentThreadId": null,
+          "preview": "",
+          "ephemeral": false,
+          "section": null,
+          "sectionEnteredAt": null,
+          "projectId": null,
+          "historyMode": "paginated",
+          "modelProvider": "research",
+          "model": "research-model",
+          "reasoningEffort": null,
+          "createdAt": 1793463955,
+          "updatedAt": 1793463955,
+          "recencyAt": 1793463955,
+          "status": {
+            "type": "idle"
+          },
+          "path": "/private/tmp/relay-shared-host-adversary-g3ok82gy/codex/sessions/2026/10/31/rollout-2026-10-31T18-25-55-01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7.jsonl",
+          "cwd": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+          "cliVersion": "0.166.0",
+          "originator": "relay-host-adversary",
+          "source": "vscode",
+          "canAcceptDirectInput": true,
+          "threadSource": null,
+          "agentNickname": null,
+          "agentRole": null,
+          "gitInfo": null,
+          "name": null,
+          "daybreakEnabled": null,
+          "turns": []
+        }
+      },
+      "emittedAtMs": 1793463955077
+    },
+    {
+      "method": "thread/status/changed",
+      "params": {
+        "threadId": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+        "status": {
+          "type": "active",
+          "activeFlags": []
+        }
+      },
+      "emittedAtMs": 1793463955105
+    },
+    {
+      "method": "turn/started",
+      "params": {
+        "threadId": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+        "turn": {
+          "id": "01a192c8-2e8a-76f0-8f0b-62bc9b0705fd",
+          "rootTurnId": "01a192c8-2e8a-76f0-8f0b-62bc9b0705fd",
+          "items": [],
+          "itemsView": "notLoaded",
+          "status": "inProgress",
+          "error": null,
+          "startedAt": 1793463955,
+          "completedAt": null,
+          "durationMs": null
+        }
+      },
+      "emittedAtMs": 1793463955105
+    },
+    {
+      "method": "thread/status/changed",
+      "params": {
+        "threadId": "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7",
+        "status": {
+          "type": "active",
+          "activeFlags": []
+        }
+      },
+      "emittedAtMs": 1793463955107
+    },
+    {
+      "method": "turn/started",
+      "params": {
+        "threadId": "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7",
+        "turn": {
+          "id": "01a192c8-2e8d-7493-b0a0-c0c769784250",
+          "rootTurnId": "01a192c8-2e8d-7493-b0a0-c0c769784250",
+          "items": [],
+          "itemsView": "notLoaded",
+          "status": "inProgress",
+          "error": null,
+          "startedAt": 1793463955,
+          "completedAt": null,
+          "durationMs": null
+        }
+      },
+      "emittedAtMs": 1793463955108
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "commandExecution",
+          "id": "741d5293-dd81-407a-945b-89b314f9da4d",
+          "pluginId": null,
+          "scriptPath": null,
+          "command": "/bin/zsh -lc '/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python /private/tmp/relay-shared-host-adversary-g3ok82gy/effect.py /private/tmp/relay-shared-host-adversary-g3ok82gy/B'",
+          "cwd": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+          "processId": null,
+          "source": "userShell",
+          "status": "inProgress",
+          "commandActions": [
+            {
+              "type": "unknown",
+              "command": "/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python /private/tmp/relay-shared-host-adversary-g3ok82gy/effect.py /private/tmp/relay-shared-host-adversary-g3ok82gy/B"
+            }
+          ],
+          "aggregatedOutput": null,
+          "exitCode": null,
+          "durationMs": null,
+          "startedAtMs": 1793463955102,
+          "completedAtMs": null
+        },
+        "threadId": "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7",
+        "turnId": "01a192c8-2e8d-7493-b0a0-c0c769784250",
+        "startedAtMs": 1793463955102
+      },
+      "emittedAtMs": 1793463955113
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "commandExecution",
+          "id": "ba2a9cb3-8d23-43ac-b102-d4903e3f3f2d",
+          "pluginId": null,
+          "scriptPath": null,
+          "command": "/bin/zsh -lc '/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python /private/tmp/relay-shared-host-adversary-g3ok82gy/effect.py /private/tmp/relay-shared-host-adversary-g3ok82gy/A /private/tmp/relay-shared-host-adversary-g3ok82gy/A-detached'",
+          "cwd": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+          "processId": null,
+          "source": "userShell",
+          "status": "inProgress",
+          "commandActions": [
+            {
+              "type": "unknown",
+              "command": "/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python /private/tmp/relay-shared-host-adversary-g3ok82gy/effect.py /private/tmp/relay-shared-host-adversary-g3ok82gy/A /private/tmp/relay-shared-host-adversary-g3ok82gy/A-detached"
+            }
+          ],
+          "aggregatedOutput": null,
+          "exitCode": null,
+          "durationMs": null,
+          "startedAtMs": 1793463955102,
+          "completedAtMs": null
+        },
+        "threadId": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+        "turnId": "01a192c8-2e8a-76f0-8f0b-62bc9b0705fd",
+        "startedAtMs": 1793463955102
+      },
+      "emittedAtMs": 1793463955113
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "commandExecution",
+          "id": "ba2a9cb3-8d23-43ac-b102-d4903e3f3f2d",
+          "pluginId": null,
+          "scriptPath": null,
+          "command": "/bin/zsh -lc '/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python /private/tmp/relay-shared-host-adversary-g3ok82gy/effect.py /private/tmp/relay-shared-host-adversary-g3ok82gy/A /private/tmp/relay-shared-host-adversary-g3ok82gy/A-detached'",
+          "cwd": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+          "processId": null,
+          "source": "userShell",
+          "status": "failed",
+          "commandActions": [
+            {
+              "type": "unknown",
+              "command": "/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python /private/tmp/relay-shared-host-adversary-g3ok82gy/effect.py /private/tmp/relay-shared-host-adversary-g3ok82gy/A /private/tmp/relay-shared-host-adversary-g3ok82gy/A-detached"
+            }
+          ],
+          "aggregatedOutput": "command aborted by user",
+          "exitCode": -1,
+          "durationMs": 0,
+          "startedAtMs": 1793463955102,
+          "completedAtMs": 1793463955236
+        },
+        "threadId": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+        "turnId": "01a192c8-2e8a-76f0-8f0b-62bc9b0705fd",
+        "completedAtMs": 1793463955236
+      },
+      "emittedAtMs": 1793463955238
+    },
+    {
+      "method": "thread/status/changed",
+      "params": {
+        "threadId": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+        "status": {
+          "type": "idle"
+        }
+      },
+      "emittedAtMs": 1793463955243
+    },
+    {
+      "method": "turn/completed",
+      "params": {
+        "threadId": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+        "turn": {
+          "id": "01a192c8-2e8a-76f0-8f0b-62bc9b0705fd",
+          "rootTurnId": "01a192c8-2e8a-76f0-8f0b-62bc9b0705fd",
+          "items": [],
+          "itemsView": "notLoaded",
+          "status": "interrupted",
+          "error": null,
+          "startedAt": 1793463955,
+          "completedAt": 1793463955,
+          "durationMs": 156
+        }
+      },
+      "emittedAtMs": 1793463955243
+    }
+  ],
+  "outsider_methods": [
+    {
+      "method": "initialize",
+      "thread": null
+    },
+    {
+      "method": "thread/resume",
+      "thread": "01a192c8-2e56-78b1-b20c-b025432e9c67"
+    },
+    {
+      "method": "thread/shellCommand",
+      "thread": "01a192c8-2e56-78b1-b20c-b025432e9c67"
+    }
+  ],
+  "outsider_events": [
+    {
+      "method": "remoteControl/status/changed",
+      "params": {
+        "status": "disabled",
+        "serverName": "Kefass-MacBook-Air.local",
+        "installationId": "e17aadd2-c50e-4800-b125-81ea71ea8dff",
+        "environmentId": null
+      },
+      "emittedAtMs": 1793463955014
+    },
+    {
+      "method": "thread/started",
+      "params": {
+        "thread": {
+          "id": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+          "environments": [
+            {
+              "environmentId": "local",
+              "cwd": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+              "runtimeWorkspaceRoots": [
+                "/private/tmp/relay-shared-host-adversary-g3ok82gy"
+              ]
+            }
+          ],
+          "extra": null,
+          "sessionId": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+          "forkedFromId": null,
+          "parentThreadId": null,
+          "preview": "",
+          "ephemeral": false,
+          "section": null,
+          "sectionEnteredAt": null,
+          "projectId": null,
+          "historyMode": "paginated",
+          "modelProvider": "research",
+          "model": "research-model",
+          "reasoningEffort": null,
+          "createdAt": 1793463955,
+          "updatedAt": 1793463955,
+          "recencyAt": 1793463955,
+          "status": {
+            "type": "idle"
+          },
+          "path": "/private/tmp/relay-shared-host-adversary-g3ok82gy/codex/sessions/2026/10/31/rollout-2026-10-31T18-25-55-01a192c8-2e56-78b1-b20c-b025432e9c67.jsonl",
+          "cwd": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+          "cliVersion": "0.166.0",
+          "originator": "relay-host-adversary",
+          "source": "vscode",
+          "canAcceptDirectInput": true,
+          "threadSource": null,
+          "agentNickname": null,
+          "agentRole": null,
+          "gitInfo": null,
+          "name": null,
+          "daybreakEnabled": null,
+          "turns": []
+        }
+      },
+      "emittedAtMs": 1793463955059
+    },
+    {
+      "method": "thread/started",
+      "params": {
+        "thread": {
+          "id": "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7",
+          "environments": [
+            {
+              "environmentId": "local",
+              "cwd": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+              "runtimeWorkspaceRoots": [
+                "/private/tmp/relay-shared-host-adversary-g3ok82gy"
+              ]
+            }
+          ],
+          "extra": null,
+          "sessionId": "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7",
+          "forkedFromId": null,
+          "parentThreadId": null,
+          "preview": "",
+          "ephemeral": false,
+          "section": null,
+          "sectionEnteredAt": null,
+          "projectId": null,
+          "historyMode": "paginated",
+          "modelProvider": "research",
+          "model": "research-model",
+          "reasoningEffort": null,
+          "createdAt": 1793463955,
+          "updatedAt": 1793463955,
+          "recencyAt": 1793463955,
+          "status": {
+            "type": "idle"
+          },
+          "path": "/private/tmp/relay-shared-host-adversary-g3ok82gy/codex/sessions/2026/10/31/rollout-2026-10-31T18-25-55-01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7.jsonl",
+          "cwd": "/private/tmp/relay-shared-host-adversary-g3ok82gy",
+          "cliVersion": "0.166.0",
+          "originator": "relay-host-adversary",
+          "source": "vscode",
+          "canAcceptDirectInput": true,
+          "threadSource": null,
+          "agentNickname": null,
+          "agentRole": null,
+          "gitInfo": null,
+          "name": null,
+          "daybreakEnabled": null,
+          "turns": []
+        }
+      },
+      "emittedAtMs": 1793463955077
+    },
+    {
+      "method": "thread/status/changed",
+      "params": {
+        "threadId": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+        "status": {
+          "type": "active",
+          "activeFlags": []
+        }
+      },
+      "emittedAtMs": 1793463955105
+    },
+    {
+      "method": "thread/status/changed",
+      "params": {
+        "threadId": "01a192c8-2e7d-77e3-bfaa-f1ea1f6487e7",
+        "status": {
+          "type": "active",
+          "activeFlags": []
+        }
+      },
+      "emittedAtMs": 1793463955107
+    },
+    {
+      "method": "thread/status/changed",
+      "params": {
+        "threadId": "01a192c8-2e56-78b1-b20c-b025432e9c67",
+        "status": {
+          "type": "idle"
+        }
+      },
+      "emittedAtMs": 1793463955243
+    },
+    {
+      "method": "thread/goal/cleared",
+      "params": {
+        "threadId": "01a192c8-2e56-78b1-b20c-b025432e9c67"
+      },
+      "emittedAtMs": 1793463955428
+    }
+  ],
+  "native_exit": -9,
+  "socket_quiet_after_cleanup": true
+}

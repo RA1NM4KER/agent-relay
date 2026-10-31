@@ -1,0 +1,102 @@
+[
+  {
+    "path": "result.json",
+    "bytes": 86378,
+    "sha256": "561e674a1555e24f25233dac970c9a41ddc4252d04f8d3a257ba45869c6117dd"
+  },
+  {
+    "path": "progress.json",
+    "bytes": 34086,
+    "sha256": "0f9a5b3adf864e9ca0b9ff9ed9a521cb1036238e7e85fbc1879609839802e11f"
+  },
+  {
+    "path": "provider.events.jsonl",
+    "bytes": 13937,
+    "sha256": "a2838f9dda760d2f996ed1cb471170fff03b6af0d2e14e0000addd554233fc8e"
+  },
+  {
+    "path": "pane-5.terminal",
+    "bytes": 30069,
+    "sha256": "f588e493b755a2aa41624676655a74f31549b2b111c223b4507344ca07126823"
+  },
+  {
+    "path": "pane-4.terminal",
+    "bytes": 30503,
+    "sha256": "d37c9551d3642453c39929195124863540d39ce11d140b5d3e5eec748a48d982"
+  },
+  {
+    "path": "pane-2.terminal",
+    "bytes": 30276,
+    "sha256": "ee75f7f6b4da640467fa85e0e0f3debbb0d9eacd34519f6d63ee7200d86e84bb"
+  },
+  {
+    "path": "pane-3.terminal",
+    "bytes": 30627,
+    "sha256": "bb9b97dec94b36aefcfeeece82649481ae0b9ffd06e4179717db9e4e628e7abf"
+  },
+  {
+    "path": "pane-6.terminal",
+    "bytes": 30499,
+    "sha256": "042360eded960cc8cf6486b77480b29fa4a36bd9ab338eca1c51ec22503b8b5c"
+  },
+  {
+    "path": "pane-7.terminal",
+    "bytes": 30952,
+    "sha256": "aa50d3ef5209f7d1c6bb2a4b214896b6e08bf2d6c64b156b4fcfedc8161bc1e6"
+  },
+  {
+    "path": "pane-1.terminal",
+    "bytes": 30398,
+    "sha256": "283a8126255e7af67f27468016a6cfae0d8d401353c0fb8f14d82817c6c173ee"
+  },
+  {
+    "path": "pane-0.terminal",
+    "bytes": 30138,
+    "sha256": "401dd96954760a630cbf4ae860253976b5734c761dd95451b1f2dbfdd44da083"
+  },
+  {
+    "path": "admission/pane-2-82292.events.jsonl",
+    "bytes": 2113,
+    "sha256": "758ed90170b7b524ac07bd48d48e48f687eb467f032b6651f17b989cb15e70ea"
+  },
+  {
+    "path": "admission/pane-4-82294.events.jsonl",
+    "bytes": 2113,
+    "sha256": "c96508b7582d91658f55e02979b5ef7e8ccf7e51ff2e72c90c112962e075c7d8"
+  },
+  {
+    "path": "admission/pane-0-82289.events.jsonl",
+    "bytes": 2113,
+    "sha256": "499c6817e1c2c842c437e57c5edd30b708caff45c98c54bae09a0fa22d207f0b"
+  },
+  {
+    "path": "admission/pane-6-82296.events.jsonl",
+    "bytes": 2113,
+    "sha256": "172e0f73a539bafa1e410fd2b54708d4cf311b0fe7cee1db6b17170a542a3e7f"
+  },
+  {
+    "path": "admission/pane-5-82295.events.jsonl",
+    "bytes": 2113,
+    "sha256": "ddde209ad5d47e2e8a04e8b8d1c075dff8890904bfcb69d7fd009c2102b957b3"
+  },
+  {
+    "path": "admission/pane-7-82297.events.jsonl",
+    "bytes": 2113,
+    "sha256": "9b619d845a7fe0afa3163f1e4b73491a6f22300b925823c70b2984e235dedf67"
+  },
+  {
+    "path": "admission/pane-3-82293.events.jsonl",
+    "bytes": 2113,
+    "sha256": "7310a72bda5fbc25ece58fb6a9a64353ef2e6e42a2854e642b50b534432b34ec"
+  },
+  {
+    "path": "admission/pane-1-82291.events.jsonl",
+    "bytes": 2113,
+    "sha256": "9e1c35e0cf1bd71b2e1f9a57f0d8dc1aacfb5f4c6033ed5ec66e9ecc0a91b84f"
+  },
+  {
+    "path": "codex/app-server-daemon/daemon.stderr.log",
+    "bytes": 7858,
+    "sha256": "e3cfb2a6d4d3b9ed4b024ace4477371791b52c03b207f7a36ce26b184e2eb170"
+  }
+]

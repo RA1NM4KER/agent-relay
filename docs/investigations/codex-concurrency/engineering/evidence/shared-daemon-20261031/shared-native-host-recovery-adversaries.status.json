@@ -1,0 +1,20 @@
+{
+  "stage": "shared-native-host-recovery-adversaries",
+  "argv": [
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/engineering/shared_host_adversary.py",
+    "--codex",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/research-package/bin/codex"
+  ],
+  "started": 1793463954.099901,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 3967483904,
+  "pid": 89200,
+  "exit_code": 0,
+  "elapsed_s": 14.057297229766846,
+  "free_after": 3963138048
+}

@@ -1,0 +1,20 @@
+{
+  "stage": "websocket-observer-venv",
+  "argv": [
+    "python3",
+    "-m",
+    "venv",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer"
+  ],
+  "started": 1793461740.466034,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 6438731776,
+  "pid": 28716,
+  "exit_code": 0,
+  "elapsed_s": 2.007737159729004,
+  "free_after": 6424731648
+}

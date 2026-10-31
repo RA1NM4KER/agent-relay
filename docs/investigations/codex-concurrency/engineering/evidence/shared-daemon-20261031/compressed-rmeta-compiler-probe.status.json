@@ -1,0 +1,31 @@
+{
+  "stage": "compressed-rmeta-compiler-probe",
+  "argv": [
+    "rustc",
+    "--edition=2024",
+    "--crate-name",
+    "relay_compression_probe",
+    "--crate-type",
+    "lib",
+    "--emit",
+    "metadata",
+    "-L",
+    "dependency=/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/deps",
+    "--extern",
+    "codex_app_server_protocol=/private/tmp/relay-native-build-20261030-9fw2zv7w/compression-artifact-probe/libcodex_app_server_protocol-d658199b625b5908.rmeta",
+    "-o",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/compression-artifact-probe/probe-rmeta.rmeta",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/compression-artifact-probe/probe.rs"
+  ],
+  "started": 1793460940.2723908,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 3727495168,
+  "pid": 4699,
+  "exit_code": 0,
+  "elapsed_s": 4.012047290802002,
+  "free_after": 3725774848
+}

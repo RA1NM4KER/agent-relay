@@ -1,0 +1,18 @@
+{
+  "stage": "native-websocket-read-observer-smoke",
+  "argv": [
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/read_observer_smoke.py"
+  ],
+  "started": 1793462002.137273,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 6421135360,
+  "pid": 35572,
+  "exit_code": 0,
+  "elapsed_s": 12.031041145324707,
+  "free_after": 6420713472
+}

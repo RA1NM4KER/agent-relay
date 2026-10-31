@@ -1,0 +1,10 @@
+{
+  "root": "/private/tmp/relay-compression-probe-lnq_34if",
+  "exit_code": 0,
+  "stderr": "",
+  "mapped_hash_matches": true,
+  "logical_bytes": 11468800,
+  "source_allocated": 11468800,
+  "compressed_allocated": 94208,
+  "flags": 32
+}

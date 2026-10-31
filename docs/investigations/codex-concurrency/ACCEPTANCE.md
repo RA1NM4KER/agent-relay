@@ -1,5 +1,79 @@
 # Acceptance matrix and proof obligations
 
+## Shared-daemon follow-up from 19d3c29 (2026-10-31)
+
+The user approved the proposed Playwright cache cleanup. Three inactive caches
+were removed (758 MiB); chromium-1248 was retained because NotificationCenter
+still maps a resource from it. Lossless APFS compression reclaimed 3.56 GiB from
+2,723 inactive native dependency artifacts with per-file decoded SHA256,
+permissions and timestamp verification. Required compiled artifacts remain
+available; two stopped lab package copies were retained as verified APFS clones.
+Free space reached approximately 7 GiB. The 4 GiB entry gate and 1.5 GiB runtime
+reserve remain unchanged. No native rebuild or repeated toolchain download ran.
+
+Actual shared validation exposed two harness mistakes, retained as failures:
+`app-server proxy --sock` is a raw byte bridge, while native Unix transport uses
+WebSocket framing; Ctrl-C opens the shared task-exit menu rather than directly
+interrupting. The observer now uses pinned websockets 15.0.1 over Unix, only for
+initialize/loaded-root/turn-status reads. A real empty-daemon smoke test passes,
+including mutation refusal and cleanup. Escape supplies the native interrupt.
+
+The first Escape run passes 16 checks but fails to submit its third prompt after
+resume; all evidence is retained. Explicit bracketed paste avoids the pinned
+composer's Enter-as-newline burst heuristic. The final fresh shared run
+`relay-native-tui-lab-zqnciiy7` passes all **26 narrow checks** against the actual
+managed daemon: eight simultaneous native TUIs, exact in-memory ownership roots,
+concurrent held response turns, interruption/disconnect, `/new`, `/fork`, exact
+original-root resume, and A cancellation/frontend death while seven exact native
+streams continue. All foreground statuses come from that daemon, not persisted
+history or embedded fallback. This uses a local synthetic Responses provider,
+not credentialed inference or tool/approval parity.
+
+Cleanup exits zero, all frontend processes exit, the daemon PID is absent and its
+socket refuses connections. **The native stop command forces shutdown after its
+60-second grace period** while synthetic ephemeral helper requests are still
+held. This is successful owned-process cleanup, NOT graceful drain or executor
+quiescence proof. Shell snapshot validation and local MCP session-delete errors
+in daemon stderr are retained as unresolved diagnostics; no native fix is claimed.
+
+A separate pinned native Unix-host adversary uses two independent WebSocket
+connections. The external contract fence refuses cooperating stale writes, but a
+raw peer resumes the same root and executes a write anyway. A detached setsid
+child continues effects after exact turn completion AND host SIGKILL. Forged
+quiescence cannot release reservations. Reopening the contract service recovers
+committed identity without replay, while its global generation also rejects B's
+old admission: scoped recovery remains missing, even though B's existing command
+continues. These are confirmed counterexamples, never parity passes.
+
+The containment adversary records BLOCKED with exit 2 on this macOS host: its
+candidate requires Linux plus explicit delegated research cgroups. No process-group
+kill, quiet file, caller boolean or dead daemon is substituted for containment.
+No handoff/ownership transfer is safe to validate until executor authority exists.
+
+All failed runtimes cleaned up their eight frontends and owned managed daemon;
+PID absence, refused socket connections and provider closure are recorded.
+Evidence: `engineering/evidence/shared-daemon-20261031/`. All 27 feasibility Python
+tests pass. Native host-wide fencing, descendant quiescence, transfer/recovery,
+credentialed inference and full zero-regression acceptance remain unproven.
+Production Relay, ProfileSessionLock, installed binaries and credentials remain
+untouched. Earlier preflight/capacity statements below are historical.
+
+
+## Current shared acceptance boundary
+
+| Requirement | Evidence / status |
+| --- | --- |
+| Eight native TUIs on one actual shared daemon | O: 26 checks, exact binary, loaded roots and native foreground statuses. |
+| Concurrent turns, new/fork/resume and exact identity | O: synthetic local Responses requests; no credentialed inference. |
+| A cancellation/frontend death leaves B–H progressing | O: exact request identity plus increasing provider heartbeats and native inProgress states. |
+| Owned runtime cleanup | O: frontend exits, daemon PID absent and socket refused; native daemon stop escalates after 60 seconds. |
+| Host fence resists independent raw native peer | F: outsider resume and shell command write after external fence. |
+| Turn completion or host death establishes quiescence | F: detached setsid effects survive both. |
+| Scoped recovery preserves neighbors' admission | U/F: external contract restart uses a global generation; B old admission is refused. |
+| Executor containment candidate | B: requires a delegated Linux environment unavailable on this Mac. |
+| Verified ownership transfer and recovery | U: transfer refused; reservations retained. |
+| Real provider, tool/approval and existing supported functionality parity | U: previous baseline defects remain, no full-green workspace claim. |
+
 ## Shared preflight follow-up from 45670f2
 
 Shared validation is still blocked below 4 GiB; additional test-browser cache

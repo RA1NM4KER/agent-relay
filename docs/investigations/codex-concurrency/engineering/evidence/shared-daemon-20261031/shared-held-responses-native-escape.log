@@ -1,0 +1,1636 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-j2t4xjw9",
+  "harness_pid": 58876,
+  "mode": "shared",
+  "checks": [
+    "eight initial native selections acknowledged before any prompt",
+    "exact foreground bindings loaded in actual shared daemon: initial",
+    "eight exact foreground native starts observed",
+    "eight exact foreground response streams open concurrently",
+    "exact interrupted foreground turns complete before navigation",
+    "interruption disconnects exact held foreground responses",
+    "eight native new selections before their prompts",
+    "exact foreground bindings loaded in actual shared daemon: new",
+    "eight exact foreground native starts observed",
+    "eight exact foreground response streams open concurrently",
+    "exact interrupted foreground turns complete before navigation",
+    "interruption disconnects exact held foreground responses",
+    "eight fork selections before new prompts",
+    "exact foreground bindings loaded in actual shared daemon: fork",
+    "eight native picker resumes bind exact original IDs",
+    "exact foreground bindings loaded in actual shared daemon: resume"
+  ],
+  "full_parity": false,
+  "inference_fixture": "holding",
+  "interrupt_ui_action": "Escape (native interrupt binding)",
+  "binding_phases": {
+    "initial": {
+      "pane-3": "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+      "pane-2": "01a192b8-c94c-75e1-a5b3-e50283df7819",
+      "pane-7": "01a192b8-c965-7033-a618-bc64e355973a",
+      "pane-4": "01a192b8-c913-7423-a01e-d045e1aff598",
+      "pane-5": "01a192b8-c982-7363-bf2a-4b647a57dffa",
+      "pane-6": "01a192b8-c99d-7023-8193-d9aecca35e9e",
+      "pane-1": "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+      "pane-0": "01a192b8-c9d5-7012-88c9-9b7f008ffdfd"
+    },
+    "new": {
+      "pane-5": "01a192b8-dc44-7442-ac63-40db85622523",
+      "pane-1": "01a192b8-dc79-78a2-8ba6-0e17a16c20b7",
+      "pane-7": "01a192b8-dc92-7282-b399-211d6b1b0a47",
+      "pane-0": "01a192b8-dcb4-7252-88f8-e7b0bf7693dd",
+      "pane-2": "01a192b8-dc2d-7e61-b8a1-1db32d1f80c0",
+      "pane-3": "01a192b8-dc5c-76d1-8b05-c9c5bea37aee",
+      "pane-6": "01a192b8-dcd7-7a03-957b-621a7fd7cbbc",
+      "pane-4": "01a192b8-dcf1-73c2-8145-a5f82bdee302"
+    },
+    "fork": {
+      "pane-2": "01a192b8-f8ae-7280-8345-a16259ba8808",
+      "pane-6": "01a192b8-f8dc-7210-889c-576d941c8cbc",
+      "pane-3": "01a192b8-f9a0-7950-9423-8bc6dba054f0",
+      "pane-4": "01a192b8-f974-76f3-9e06-1ef634689c2a",
+      "pane-7": "01a192b8-f915-7bd1-addb-f9c0c2e3e5c6",
+      "pane-1": "01a192b8-f947-7501-898f-e8d0c0a43cf1",
+      "pane-5": "01a192b8-f9cf-7912-a10b-4e1032051a18",
+      "pane-0": "01a192b8-fa14-7e81-a0e4-ff60e14679a6"
+    },
+    "resume": {
+      "pane-3": "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+      "pane-2": "01a192b8-c94c-75e1-a5b3-e50283df7819",
+      "pane-7": "01a192b8-c965-7033-a618-bc64e355973a",
+      "pane-4": "01a192b8-c913-7423-a01e-d045e1aff598",
+      "pane-5": "01a192b8-c982-7363-bf2a-4b647a57dffa",
+      "pane-6": "01a192b8-c99d-7023-8193-d9aecca35e9e",
+      "pane-1": "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+      "pane-0": "01a192b8-c9d5-7012-88c9-9b7f008ffdfd"
+    }
+  },
+  "shared_loaded_proof": [
+    {
+      "phase": "initial",
+      "expected": {
+        "pane-3": "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+        "pane-2": "01a192b8-c94c-75e1-a5b3-e50283df7819",
+        "pane-7": "01a192b8-c965-7033-a618-bc64e355973a",
+        "pane-4": "01a192b8-c913-7423-a01e-d045e1aff598",
+        "pane-5": "01a192b8-c982-7363-bf2a-4b647a57dffa",
+        "pane-6": "01a192b8-c99d-7023-8193-d9aecca35e9e",
+        "pane-1": "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+        "pane-0": "01a192b8-c9d5-7012-88c9-9b7f008ffdfd"
+      },
+      "loaded": [
+        "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+        "01a192b8-c913-7423-a01e-d045e1aff598",
+        "01a192b8-c94c-75e1-a5b3-e50283df7819",
+        "01a192b8-c965-7033-a618-bc64e355973a",
+        "01a192b8-c982-7363-bf2a-4b647a57dffa",
+        "01a192b8-c99d-7023-8193-d9aecca35e9e",
+        "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+        "01a192b8-c9d5-7012-88c9-9b7f008ffdfd"
+      ]
+    },
+    {
+      "phase": "new",
+      "expected": {
+        "pane-5": "01a192b8-dc44-7442-ac63-40db85622523",
+        "pane-1": "01a192b8-dc79-78a2-8ba6-0e17a16c20b7",
+        "pane-7": "01a192b8-dc92-7282-b399-211d6b1b0a47",
+        "pane-0": "01a192b8-dcb4-7252-88f8-e7b0bf7693dd",
+        "pane-2": "01a192b8-dc2d-7e61-b8a1-1db32d1f80c0",
+        "pane-3": "01a192b8-dc5c-76d1-8b05-c9c5bea37aee",
+        "pane-6": "01a192b8-dcd7-7a03-957b-621a7fd7cbbc",
+        "pane-4": "01a192b8-dcf1-73c2-8145-a5f82bdee302"
+      },
+      "loaded": [
+        "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+        "01a192b8-c913-7423-a01e-d045e1aff598",
+        "01a192b8-c94c-75e1-a5b3-e50283df7819",
+        "01a192b8-c965-7033-a618-bc64e355973a",
+        "01a192b8-c982-7363-bf2a-4b647a57dffa",
+        "01a192b8-c99d-7023-8193-d9aecca35e9e",
+        "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+        "01a192b8-c9d5-7012-88c9-9b7f008ffdfd",
+        "01a192b8-ce55-7da3-8ace-0d68a9f53368",
+        "01a192b8-ce84-7580-80f4-b8545a957bbf",
+        "01a192b8-ceab-70b3-b332-84e9579d279d",
+        "01a192b8-ced5-7ec0-9bef-fdf496b19dc2",
+        "01a192b8-ceff-7e51-bec7-142495b9348e",
+        "01a192b8-cf27-7520-a6fc-ac2a0d2f68c7",
+        "01a192b8-cf4f-78c3-8192-5369560e3583",
+        "01a192b8-cf79-7730-800e-50fb26586397",
+        "01a192b8-dc2d-7e61-b8a1-1db32d1f80c0",
+        "01a192b8-dc44-7442-ac63-40db85622523",
+        "01a192b8-dc5c-76d1-8b05-c9c5bea37aee",
+        "01a192b8-dc79-78a2-8ba6-0e17a16c20b7",
+        "01a192b8-dc92-7282-b399-211d6b1b0a47",
+        "01a192b8-dcb4-7252-88f8-e7b0bf7693dd",
+        "01a192b8-dcd7-7a03-957b-621a7fd7cbbc",
+        "01a192b8-dcf1-73c2-8145-a5f82bdee302"
+      ]
+    },
+    {
+      "phase": "fork",
+      "expected": {
+        "pane-2": "01a192b8-f8ae-7280-8345-a16259ba8808",
+        "pane-6": "01a192b8-f8dc-7210-889c-576d941c8cbc",
+        "pane-3": "01a192b8-f9a0-7950-9423-8bc6dba054f0",
+        "pane-4": "01a192b8-f974-76f3-9e06-1ef634689c2a",
+        "pane-7": "01a192b8-f915-7bd1-addb-f9c0c2e3e5c6",
+        "pane-1": "01a192b8-f947-7501-898f-e8d0c0a43cf1",
+        "pane-5": "01a192b8-f9cf-7912-a10b-4e1032051a18",
+        "pane-0": "01a192b8-fa14-7e81-a0e4-ff60e14679a6"
+      },
+      "loaded": [
+        "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+        "01a192b8-c913-7423-a01e-d045e1aff598",
+        "01a192b8-c94c-75e1-a5b3-e50283df7819",
+        "01a192b8-c965-7033-a618-bc64e355973a",
+        "01a192b8-c982-7363-bf2a-4b647a57dffa",
+        "01a192b8-c99d-7023-8193-d9aecca35e9e",
+        "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+        "01a192b8-c9d5-7012-88c9-9b7f008ffdfd",
+        "01a192b8-ce55-7da3-8ace-0d68a9f53368",
+        "01a192b8-ce84-7580-80f4-b8545a957bbf",
+        "01a192b8-ceab-70b3-b332-84e9579d279d",
+        "01a192b8-ced5-7ec0-9bef-fdf496b19dc2",
+        "01a192b8-ceff-7e51-bec7-142495b9348e",
+        "01a192b8-cf27-7520-a6fc-ac2a0d2f68c7",
+        "01a192b8-cf4f-78c3-8192-5369560e3583",
+        "01a192b8-cf79-7730-800e-50fb26586397",
+        "01a192b8-dc2d-7e61-b8a1-1db32d1f80c0",
+        "01a192b8-dc44-7442-ac63-40db85622523",
+        "01a192b8-dc5c-76d1-8b05-c9c5bea37aee",
+        "01a192b8-dc79-78a2-8ba6-0e17a16c20b7",
+        "01a192b8-dc92-7282-b399-211d6b1b0a47",
+        "01a192b8-dcb4-7252-88f8-e7b0bf7693dd",
+        "01a192b8-dcd7-7a03-957b-621a7fd7cbbc",
+        "01a192b8-dcf1-73c2-8145-a5f82bdee302",
+        "01a192b8-eaa0-7aa1-8fd3-66aaacf14f82",
+        "01a192b8-eaf5-7f01-9e5e-603f3a2ec215",
+        "01a192b8-eb21-7e80-970a-773e6652e841",
+        "01a192b8-eb49-7852-86f6-cf7707d6bba4",
+        "01a192b8-eb70-7bf2-8772-c8a4147e9721",
+        "01a192b8-eb99-73e1-8ae5-dce4bc79afab",
+        "01a192b8-ebc1-7c91-847b-9e03e2b63c02",
+        "01a192b8-ebea-7a42-a092-ac56eebd6344",
+        "01a192b8-f8ae-7280-8345-a16259ba8808",
+        "01a192b8-f8dc-7210-889c-576d941c8cbc",
+        "01a192b8-f915-7bd1-addb-f9c0c2e3e5c6",
+        "01a192b8-f947-7501-898f-e8d0c0a43cf1",
+        "01a192b8-f974-76f3-9e06-1ef634689c2a",
+        "01a192b8-f9a0-7950-9423-8bc6dba054f0",
+        "01a192b8-f9cf-7912-a10b-4e1032051a18",
+        "01a192b8-fa14-7e81-a0e4-ff60e14679a6"
+      ]
+    },
+    {
+      "phase": "resume",
+      "expected": {
+        "pane-3": "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+        "pane-2": "01a192b8-c94c-75e1-a5b3-e50283df7819",
+        "pane-7": "01a192b8-c965-7033-a618-bc64e355973a",
+        "pane-4": "01a192b8-c913-7423-a01e-d045e1aff598",
+        "pane-5": "01a192b8-c982-7363-bf2a-4b647a57dffa",
+        "pane-6": "01a192b8-c99d-7023-8193-d9aecca35e9e",
+        "pane-1": "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+        "pane-0": "01a192b8-c9d5-7012-88c9-9b7f008ffdfd"
+      },
+      "loaded": [
+        "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+        "01a192b8-c913-7423-a01e-d045e1aff598",
+        "01a192b8-c94c-75e1-a5b3-e50283df7819",
+        "01a192b8-c965-7033-a618-bc64e355973a",
+        "01a192b8-c982-7363-bf2a-4b647a57dffa",
+        "01a192b8-c99d-7023-8193-d9aecca35e9e",
+        "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+        "01a192b8-c9d5-7012-88c9-9b7f008ffdfd",
+        "01a192b8-ce55-7da3-8ace-0d68a9f53368",
+        "01a192b8-ce84-7580-80f4-b8545a957bbf",
+        "01a192b8-ceab-70b3-b332-84e9579d279d",
+        "01a192b8-ced5-7ec0-9bef-fdf496b19dc2",
+        "01a192b8-ceff-7e51-bec7-142495b9348e",
+        "01a192b8-cf27-7520-a6fc-ac2a0d2f68c7",
+        "01a192b8-cf4f-78c3-8192-5369560e3583",
+        "01a192b8-cf79-7730-800e-50fb26586397",
+        "01a192b8-dc2d-7e61-b8a1-1db32d1f80c0",
+        "01a192b8-dc44-7442-ac63-40db85622523",
+        "01a192b8-dc5c-76d1-8b05-c9c5bea37aee",
+        "01a192b8-dc79-78a2-8ba6-0e17a16c20b7",
+        "01a192b8-dc92-7282-b399-211d6b1b0a47",
+        "01a192b8-dcb4-7252-88f8-e7b0bf7693dd",
+        "01a192b8-dcd7-7a03-957b-621a7fd7cbbc",
+        "01a192b8-dcf1-73c2-8145-a5f82bdee302",
+        "01a192b8-eaa0-7aa1-8fd3-66aaacf14f82",
+        "01a192b8-eaf5-7f01-9e5e-603f3a2ec215",
+        "01a192b8-eb21-7e80-970a-773e6652e841",
+        "01a192b8-eb49-7852-86f6-cf7707d6bba4",
+        "01a192b8-eb70-7bf2-8772-c8a4147e9721",
+        "01a192b8-eb99-73e1-8ae5-dce4bc79afab",
+        "01a192b8-ebc1-7c91-847b-9e03e2b63c02",
+        "01a192b8-ebea-7a42-a092-ac56eebd6344",
+        "01a192b8-f8ae-7280-8345-a16259ba8808",
+        "01a192b8-f8dc-7210-889c-576d941c8cbc",
+        "01a192b8-f915-7bd1-addb-f9c0c2e3e5c6",
+        "01a192b8-f947-7501-898f-e8d0c0a43cf1",
+        "01a192b8-f974-76f3-9e06-1ef634689c2a",
+        "01a192b8-f9a0-7950-9423-8bc6dba054f0",
+        "01a192b8-f9cf-7912-a10b-4e1032051a18",
+        "01a192b8-fa14-7e81-a0e4-ff60e14679a6"
+      ]
+    }
+  ],
+  "shared_turn_states": [
+    {
+      "owner": "pane-3",
+      "thread": "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+      "expected_turns": [
+        "01a192b8-cd1e-70e1-9fc5-679f6ace6dec"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-cd1e-70e1-9fc5-679f6ace6dec": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-2",
+      "thread": "01a192b8-c94c-75e1-a5b3-e50283df7819",
+      "expected_turns": [
+        "01a192b8-cd1b-7451-b049-3e5469a37377"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-cd1b-7451-b049-3e5469a37377": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-7",
+      "thread": "01a192b8-c965-7033-a618-bc64e355973a",
+      "expected_turns": [
+        "01a192b8-cd1b-7451-b049-3e68fb01814f"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-cd1b-7451-b049-3e68fb01814f": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-4",
+      "thread": "01a192b8-c913-7423-a01e-d045e1aff598",
+      "expected_turns": [
+        "01a192b8-cd1c-7633-98e1-7efa4bfabdeb"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-cd1c-7633-98e1-7efa4bfabdeb": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-5",
+      "thread": "01a192b8-c982-7363-bf2a-4b647a57dffa",
+      "expected_turns": [
+        "01a192b8-cd1a-7ae3-8bb7-6b0fcac63877"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-cd1a-7ae3-8bb7-6b0fcac63877": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-6",
+      "thread": "01a192b8-c99d-7023-8193-d9aecca35e9e",
+      "expected_turns": [
+        "01a192b8-cd19-73f0-95aa-23dbeef51e33"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-cd19-73f0-95aa-23dbeef51e33": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-1",
+      "thread": "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+      "expected_turns": [
+        "01a192b8-cd18-77e1-8803-8fe4e64ad9ea"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-cd18-77e1-8803-8fe4e64ad9ea": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-0",
+      "thread": "01a192b8-c9d5-7012-88c9-9b7f008ffdfd",
+      "expected_turns": [
+        "01a192b8-cd18-77e1-8803-8fd49eac2e2a"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-cd18-77e1-8803-8fd49eac2e2a": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-3",
+      "thread": "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+      "expected_turns": [
+        "01a192b8-cd1e-70e1-9fc5-679f6ace6dec"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-cd1e-70e1-9fc5-679f6ace6dec": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-2",
+      "thread": "01a192b8-c94c-75e1-a5b3-e50283df7819",
+      "expected_turns": [
+        "01a192b8-cd1b-7451-b049-3e5469a37377"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-cd1b-7451-b049-3e5469a37377": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-7",
+      "thread": "01a192b8-c965-7033-a618-bc64e355973a",
+      "expected_turns": [
+        "01a192b8-cd1b-7451-b049-3e68fb01814f"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-cd1b-7451-b049-3e68fb01814f": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-4",
+      "thread": "01a192b8-c913-7423-a01e-d045e1aff598",
+      "expected_turns": [
+        "01a192b8-cd1c-7633-98e1-7efa4bfabdeb"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-cd1c-7633-98e1-7efa4bfabdeb": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-5",
+      "thread": "01a192b8-c982-7363-bf2a-4b647a57dffa",
+      "expected_turns": [
+        "01a192b8-cd1a-7ae3-8bb7-6b0fcac63877"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-cd1a-7ae3-8bb7-6b0fcac63877": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-6",
+      "thread": "01a192b8-c99d-7023-8193-d9aecca35e9e",
+      "expected_turns": [
+        "01a192b8-cd19-73f0-95aa-23dbeef51e33"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-cd19-73f0-95aa-23dbeef51e33": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-1",
+      "thread": "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+      "expected_turns": [
+        "01a192b8-cd18-77e1-8803-8fe4e64ad9ea"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-cd18-77e1-8803-8fe4e64ad9ea": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-0",
+      "thread": "01a192b8-c9d5-7012-88c9-9b7f008ffdfd",
+      "expected_turns": [
+        "01a192b8-cd18-77e1-8803-8fd49eac2e2a"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-cd18-77e1-8803-8fd49eac2e2a": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-5",
+      "thread": "01a192b8-dc44-7442-ac63-40db85622523",
+      "expected_turns": [
+        "01a192b8-e9d3-7a10-ade2-78e0dec2a4ce"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-e9d3-7a10-ade2-78e0dec2a4ce": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-1",
+      "thread": "01a192b8-dc79-78a2-8ba6-0e17a16c20b7",
+      "expected_turns": [
+        "01a192b8-e9c2-7e41-8cf0-1f3fdf531708"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-e9c2-7e41-8cf0-1f3fdf531708": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-7",
+      "thread": "01a192b8-dc92-7282-b399-211d6b1b0a47",
+      "expected_turns": [
+        "01a192b8-e9c9-77d3-8849-8b1a59287374"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-e9c9-77d3-8849-8b1a59287374": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-0",
+      "thread": "01a192b8-dcb4-7252-88f8-e7b0bf7693dd",
+      "expected_turns": [
+        "01a192b8-e9d3-7a10-ade2-78f497739fa9"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-e9d3-7a10-ade2-78f497739fa9": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-2",
+      "thread": "01a192b8-dc2d-7e61-b8a1-1db32d1f80c0",
+      "expected_turns": [
+        "01a192b8-e9c2-7e41-8cf0-1f28f957752a"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-e9c2-7e41-8cf0-1f28f957752a": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-3",
+      "thread": "01a192b8-dc5c-76d1-8b05-c9c5bea37aee",
+      "expected_turns": [
+        "01a192b8-e9be-79e3-99e8-83c40b22e473"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-e9be-79e3-99e8-83c40b22e473": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-6",
+      "thread": "01a192b8-dcd7-7a03-957b-621a7fd7cbbc",
+      "expected_turns": [
+        "01a192b8-e9c1-7a02-a5c5-08d01fbe8dfa"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-e9c1-7a02-a5c5-08d01fbe8dfa": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-4",
+      "thread": "01a192b8-dcf1-73c2-8145-a5f82bdee302",
+      "expected_turns": [
+        "01a192b8-e9c4-7062-88ab-385018d1c025"
+      ],
+      "expected_status": "inProgress",
+      "states": {
+        "01a192b8-e9c4-7062-88ab-385018d1c025": "inProgress"
+      }
+    },
+    {
+      "owner": "pane-5",
+      "thread": "01a192b8-dc44-7442-ac63-40db85622523",
+      "expected_turns": [
+        "01a192b8-e9d3-7a10-ade2-78e0dec2a4ce"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-e9d3-7a10-ade2-78e0dec2a4ce": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-1",
+      "thread": "01a192b8-dc79-78a2-8ba6-0e17a16c20b7",
+      "expected_turns": [
+        "01a192b8-e9c2-7e41-8cf0-1f3fdf531708"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-e9c2-7e41-8cf0-1f3fdf531708": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-7",
+      "thread": "01a192b8-dc92-7282-b399-211d6b1b0a47",
+      "expected_turns": [
+        "01a192b8-e9c9-77d3-8849-8b1a59287374"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-e9c9-77d3-8849-8b1a59287374": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-0",
+      "thread": "01a192b8-dcb4-7252-88f8-e7b0bf7693dd",
+      "expected_turns": [
+        "01a192b8-e9d3-7a10-ade2-78f497739fa9"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-e9d3-7a10-ade2-78f497739fa9": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-2",
+      "thread": "01a192b8-dc2d-7e61-b8a1-1db32d1f80c0",
+      "expected_turns": [
+        "01a192b8-e9c2-7e41-8cf0-1f28f957752a"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-e9c2-7e41-8cf0-1f28f957752a": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-3",
+      "thread": "01a192b8-dc5c-76d1-8b05-c9c5bea37aee",
+      "expected_turns": [
+        "01a192b8-e9be-79e3-99e8-83c40b22e473"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-e9be-79e3-99e8-83c40b22e473": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-6",
+      "thread": "01a192b8-dcd7-7a03-957b-621a7fd7cbbc",
+      "expected_turns": [
+        "01a192b8-e9c1-7a02-a5c5-08d01fbe8dfa"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-e9c1-7a02-a5c5-08d01fbe8dfa": "interrupted"
+      }
+    },
+    {
+      "owner": "pane-4",
+      "thread": "01a192b8-dcf1-73c2-8145-a5f82bdee302",
+      "expected_turns": [
+        "01a192b8-e9c4-7062-88ab-385018d1c025"
+      ],
+      "expected_status": "interrupted",
+      "states": {
+        "01a192b8-e9c4-7062-88ab-385018d1c025": "interrupted"
+      }
+    }
+  ],
+  "provider_url": "http://127.0.0.1:54732/v1",
+  "daemon_start": {
+    "exit_code": 0,
+    "stdout": "{\"status\":\"started\",\"backend\":\"pid\",\"pid\":60711,\"managedCodexPath\":\"/private/tmp/relay-native-tui-lab-j2t4xjw9/codex/packages/app-server-daemon/current/bin/codex\",\"managedCodexVersion\":\"0.166.0\",\"socketPath\":\"/private/tmp/relay-native-tui-lab-j2t4xjw9/codex/app-server-control/app-server-control.sock\",\"cliVersion\":\"0.166.0\",\"appServerVersion\":\"0.166.0\"}\n",
+    "stderr": "Installing daemon from CLI version 0.166.0-relay-research into /private/tmp/relay-native-tui-lab-j2t4xjw9/codex/packages/app-server-daemon...\n{\"timestampMs\":1793462943152,\"processPid\":58908,\"stage\":\"process_spawn\",\"outcome\":\"succeeded\",\"elapsedMs\":5,\"failure\":null}\n{\"timestampMs\":1793462943165,\"processPid\":58908,\"event\":\"process_spawned\",\"details\":{\"pid\":60711}}\n{\"timestampMs\":1793462943173,\"processPid\":58908,\"stage\":\"process_identity\",\"outcome\":\"succeeded\",\"elapsedMs\":6,\"failure\":null}\n{\"timestampMs\":1793462943179,\"processPid\":58908,\"stage\":\"pid_write\",\"outcome\":\"succeeded\",\"elapsedMs\":3,\"failure\":null}\n{\"timestampMs\":1793462943179,\"processPid\":58908,\"stage\":\"pid_publish\",\"outcome\":\"succeeded\",\"elapsedMs\":0,\"failure\":null}\n"
+  },
+  "daemon_binary_sha256": "dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e",
+  "daemon_pid": 60711,
+  "daemon_socket": "/private/tmp/relay-native-tui-lab-j2t4xjw9/codex/app-server-control/app-server-control.sock",
+  "frontend_pids": [
+    60761,
+    60762,
+    60763,
+    60764,
+    60765,
+    60766,
+    60767,
+    60768
+  ],
+  "exception": "AssertionError('eight exact foreground native starts observed')",
+  "native_turn_events": [
+    {
+      "client": "pane-0",
+      "pid": 60761,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-c9d5-7012-88c9-9b7f008ffdfd",
+      "turn": "01a192b8-cd18-77e1-8803-8fd49eac2e2a",
+      "sequence": 3
+    },
+    {
+      "client": "pane-0",
+      "pid": 60761,
+      "kind": "turn/started",
+      "thread": "01a192b8-c9d5-7012-88c9-9b7f008ffdfd",
+      "turn": "01a192b8-cd18-77e1-8803-8fd49eac2e2a",
+      "sequence": 4
+    },
+    {
+      "client": "pane-0",
+      "pid": 60761,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-ceff-7e51-bec7-142495b9348e",
+      "turn": "01a192b8-cfb6-7a51-a0aa-60ff51b95b75",
+      "sequence": 7
+    },
+    {
+      "client": "pane-0",
+      "pid": 60761,
+      "kind": "turn/started",
+      "thread": "01a192b8-ceff-7e51-bec7-142495b9348e",
+      "turn": "01a192b8-cfb6-7a51-a0aa-60ff51b95b75",
+      "sequence": 8
+    },
+    {
+      "client": "pane-0",
+      "pid": 60761,
+      "kind": "turn/completed",
+      "thread": "01a192b8-c9d5-7012-88c9-9b7f008ffdfd",
+      "turn": "01a192b8-cd18-77e1-8803-8fd49eac2e2a",
+      "sequence": 10
+    },
+    {
+      "client": "pane-0",
+      "pid": 60761,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-dcb4-7252-88f8-e7b0bf7693dd",
+      "turn": "01a192b8-e9d3-7a10-ade2-78f497739fa9",
+      "sequence": 15
+    },
+    {
+      "client": "pane-0",
+      "pid": 60761,
+      "kind": "turn/started",
+      "thread": "01a192b8-dcb4-7252-88f8-e7b0bf7693dd",
+      "turn": "01a192b8-e9d3-7a10-ade2-78f497739fa9",
+      "sequence": 16
+    },
+    {
+      "client": "pane-0",
+      "pid": 60761,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-ebea-7a42-a092-ac56eebd6344",
+      "turn": "01a192b8-ec48-7ef2-b780-04266a542954",
+      "sequence": 19
+    },
+    {
+      "client": "pane-0",
+      "pid": 60761,
+      "kind": "turn/started",
+      "thread": "01a192b8-ebea-7a42-a092-ac56eebd6344",
+      "turn": "01a192b8-ec48-7ef2-b780-04266a542954",
+      "sequence": 20
+    },
+    {
+      "client": "pane-0",
+      "pid": 60761,
+      "kind": "turn/completed",
+      "thread": "01a192b8-dcb4-7252-88f8-e7b0bf7693dd",
+      "turn": "01a192b8-e9d3-7a10-ade2-78f497739fa9",
+      "sequence": 22
+    },
+    {
+      "client": "pane-1",
+      "pid": 60762,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+      "turn": "01a192b8-cd18-77e1-8803-8fe4e64ad9ea",
+      "sequence": 3
+    },
+    {
+      "client": "pane-1",
+      "pid": 60762,
+      "kind": "turn/started",
+      "thread": "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+      "turn": "01a192b8-cd18-77e1-8803-8fe4e64ad9ea",
+      "sequence": 4
+    },
+    {
+      "client": "pane-1",
+      "pid": 60762,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-cf79-7730-800e-50fb26586397",
+      "turn": "01a192b8-cfda-7c22-9639-dee0f95356f2",
+      "sequence": 7
+    },
+    {
+      "client": "pane-1",
+      "pid": 60762,
+      "kind": "turn/started",
+      "thread": "01a192b8-cf79-7730-800e-50fb26586397",
+      "turn": "01a192b8-cfda-7c22-9639-dee0f95356f2",
+      "sequence": 8
+    },
+    {
+      "client": "pane-1",
+      "pid": 60762,
+      "kind": "turn/completed",
+      "thread": "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+      "turn": "01a192b8-cd18-77e1-8803-8fe4e64ad9ea",
+      "sequence": 10
+    },
+    {
+      "client": "pane-1",
+      "pid": 60762,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-dc79-78a2-8ba6-0e17a16c20b7",
+      "turn": "01a192b8-e9c2-7e41-8cf0-1f3fdf531708",
+      "sequence": 15
+    },
+    {
+      "client": "pane-1",
+      "pid": 60762,
+      "kind": "turn/started",
+      "thread": "01a192b8-dc79-78a2-8ba6-0e17a16c20b7",
+      "turn": "01a192b8-e9c2-7e41-8cf0-1f3fdf531708",
+      "sequence": 16
+    },
+    {
+      "client": "pane-1",
+      "pid": 60762,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-eaa0-7aa1-8fd3-66aaacf14f82",
+      "turn": "01a192b8-eb22-71a1-b28d-fa5cbecf5590",
+      "sequence": 19
+    },
+    {
+      "client": "pane-1",
+      "pid": 60762,
+      "kind": "turn/started",
+      "thread": "01a192b8-eaa0-7aa1-8fd3-66aaacf14f82",
+      "turn": "01a192b8-eb22-71a1-b28d-fa5cbecf5590",
+      "sequence": 20
+    },
+    {
+      "client": "pane-1",
+      "pid": 60762,
+      "kind": "turn/completed",
+      "thread": "01a192b8-dc79-78a2-8ba6-0e17a16c20b7",
+      "turn": "01a192b8-e9c2-7e41-8cf0-1f3fdf531708",
+      "sequence": 22
+    },
+    {
+      "client": "pane-2",
+      "pid": 60763,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-c94c-75e1-a5b3-e50283df7819",
+      "turn": "01a192b8-cd1b-7451-b049-3e5469a37377",
+      "sequence": 3
+    },
+    {
+      "client": "pane-2",
+      "pid": 60763,
+      "kind": "turn/started",
+      "thread": "01a192b8-c94c-75e1-a5b3-e50283df7819",
+      "turn": "01a192b8-cd1b-7451-b049-3e5469a37377",
+      "sequence": 4
+    },
+    {
+      "client": "pane-2",
+      "pid": 60763,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-ced5-7ec0-9bef-fdf496b19dc2",
+      "turn": "01a192b8-cfa9-7612-9f03-463c2723da74",
+      "sequence": 7
+    },
+    {
+      "client": "pane-2",
+      "pid": 60763,
+      "kind": "turn/started",
+      "thread": "01a192b8-ced5-7ec0-9bef-fdf496b19dc2",
+      "turn": "01a192b8-cfa9-7612-9f03-463c2723da74",
+      "sequence": 8
+    },
+    {
+      "client": "pane-2",
+      "pid": 60763,
+      "kind": "turn/completed",
+      "thread": "01a192b8-c94c-75e1-a5b3-e50283df7819",
+      "turn": "01a192b8-cd1b-7451-b049-3e5469a37377",
+      "sequence": 10
+    },
+    {
+      "client": "pane-2",
+      "pid": 60763,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-dc2d-7e61-b8a1-1db32d1f80c0",
+      "turn": "01a192b8-e9c2-7e41-8cf0-1f28f957752a",
+      "sequence": 15
+    },
+    {
+      "client": "pane-2",
+      "pid": 60763,
+      "kind": "turn/started",
+      "thread": "01a192b8-dc2d-7e61-b8a1-1db32d1f80c0",
+      "turn": "01a192b8-e9c2-7e41-8cf0-1f28f957752a",
+      "sequence": 16
+    },
+    {
+      "client": "pane-2",
+      "pid": 60763,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-eb99-73e1-8ae5-dce4bc79afab",
+      "turn": "01a192b8-ec1a-7052-b6da-53c022bd570f",
+      "sequence": 19
+    },
+    {
+      "client": "pane-2",
+      "pid": 60763,
+      "kind": "turn/started",
+      "thread": "01a192b8-eb99-73e1-8ae5-dce4bc79afab",
+      "turn": "01a192b8-ec1a-7052-b6da-53c022bd570f",
+      "sequence": 20
+    },
+    {
+      "client": "pane-2",
+      "pid": 60763,
+      "kind": "turn/completed",
+      "thread": "01a192b8-dc2d-7e61-b8a1-1db32d1f80c0",
+      "turn": "01a192b8-e9c2-7e41-8cf0-1f28f957752a",
+      "sequence": 22
+    },
+    {
+      "client": "pane-3",
+      "pid": 60764,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+      "turn": "01a192b8-cd1e-70e1-9fc5-679f6ace6dec",
+      "sequence": 3
+    },
+    {
+      "client": "pane-3",
+      "pid": 60764,
+      "kind": "turn/started",
+      "thread": "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+      "turn": "01a192b8-cd1e-70e1-9fc5-679f6ace6dec",
+      "sequence": 4
+    },
+    {
+      "client": "pane-3",
+      "pid": 60764,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-cf27-7520-a6fc-ac2a0d2f68c7",
+      "turn": "01a192b8-cfb7-70c3-9a00-c88899bda992",
+      "sequence": 7
+    },
+    {
+      "client": "pane-3",
+      "pid": 60764,
+      "kind": "turn/started",
+      "thread": "01a192b8-cf27-7520-a6fc-ac2a0d2f68c7",
+      "turn": "01a192b8-cfb7-70c3-9a00-c88899bda992",
+      "sequence": 8
+    },
+    {
+      "client": "pane-3",
+      "pid": 60764,
+      "kind": "turn/completed",
+      "thread": "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+      "turn": "01a192b8-cd1e-70e1-9fc5-679f6ace6dec",
+      "sequence": 10
+    },
+    {
+      "client": "pane-3",
+      "pid": 60764,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-dc5c-76d1-8b05-c9c5bea37aee",
+      "turn": "01a192b8-e9be-79e3-99e8-83c40b22e473",
+      "sequence": 15
+    },
+    {
+      "client": "pane-3",
+      "pid": 60764,
+      "kind": "turn/started",
+      "thread": "01a192b8-dc5c-76d1-8b05-c9c5bea37aee",
+      "turn": "01a192b8-e9be-79e3-99e8-83c40b22e473",
+      "sequence": 16
+    },
+    {
+      "client": "pane-3",
+      "pid": 60764,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-eb70-7bf2-8772-c8a4147e9721",
+      "turn": "01a192b8-ec19-7082-ba6b-03a20aa53434",
+      "sequence": 19
+    },
+    {
+      "client": "pane-3",
+      "pid": 60764,
+      "kind": "turn/started",
+      "thread": "01a192b8-eb70-7bf2-8772-c8a4147e9721",
+      "turn": "01a192b8-ec19-7082-ba6b-03a20aa53434",
+      "sequence": 20
+    },
+    {
+      "client": "pane-3",
+      "pid": 60764,
+      "kind": "turn/completed",
+      "thread": "01a192b8-dc5c-76d1-8b05-c9c5bea37aee",
+      "turn": "01a192b8-e9be-79e3-99e8-83c40b22e473",
+      "sequence": 22
+    },
+    {
+      "client": "pane-4",
+      "pid": 60765,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-c913-7423-a01e-d045e1aff598",
+      "turn": "01a192b8-cd1c-7633-98e1-7efa4bfabdeb",
+      "sequence": 3
+    },
+    {
+      "client": "pane-4",
+      "pid": 60765,
+      "kind": "turn/started",
+      "thread": "01a192b8-c913-7423-a01e-d045e1aff598",
+      "turn": "01a192b8-cd1c-7633-98e1-7efa4bfabdeb",
+      "sequence": 4
+    },
+    {
+      "client": "pane-4",
+      "pid": 60765,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-cf4f-78c3-8192-5369560e3583",
+      "turn": "01a192b8-cfc9-78d2-b991-2564e02d028c",
+      "sequence": 7
+    },
+    {
+      "client": "pane-4",
+      "pid": 60765,
+      "kind": "turn/started",
+      "thread": "01a192b8-cf4f-78c3-8192-5369560e3583",
+      "turn": "01a192b8-cfc9-78d2-b991-2564e02d028c",
+      "sequence": 8
+    },
+    {
+      "client": "pane-4",
+      "pid": 60765,
+      "kind": "turn/completed",
+      "thread": "01a192b8-c913-7423-a01e-d045e1aff598",
+      "turn": "01a192b8-cd1c-7633-98e1-7efa4bfabdeb",
+      "sequence": 10
+    },
+    {
+      "client": "pane-4",
+      "pid": 60765,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-dcf1-73c2-8145-a5f82bdee302",
+      "turn": "01a192b8-e9c4-7062-88ab-385018d1c025",
+      "sequence": 15
+    },
+    {
+      "client": "pane-4",
+      "pid": 60765,
+      "kind": "turn/started",
+      "thread": "01a192b8-dcf1-73c2-8145-a5f82bdee302",
+      "turn": "01a192b8-e9c4-7062-88ab-385018d1c025",
+      "sequence": 16
+    },
+    {
+      "client": "pane-4",
+      "pid": 60765,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-eb49-7852-86f6-cf7707d6bba4",
+      "turn": "01a192b8-ec17-74c2-a606-2c2dc40b6be2",
+      "sequence": 19
+    },
+    {
+      "client": "pane-4",
+      "pid": 60765,
+      "kind": "turn/started",
+      "thread": "01a192b8-eb49-7852-86f6-cf7707d6bba4",
+      "turn": "01a192b8-ec17-74c2-a606-2c2dc40b6be2",
+      "sequence": 20
+    },
+    {
+      "client": "pane-4",
+      "pid": 60765,
+      "kind": "turn/completed",
+      "thread": "01a192b8-dcf1-73c2-8145-a5f82bdee302",
+      "turn": "01a192b8-e9c4-7062-88ab-385018d1c025",
+      "sequence": 22
+    },
+    {
+      "client": "pane-5",
+      "pid": 60766,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-c982-7363-bf2a-4b647a57dffa",
+      "turn": "01a192b8-cd1a-7ae3-8bb7-6b0fcac63877",
+      "sequence": 3
+    },
+    {
+      "client": "pane-5",
+      "pid": 60766,
+      "kind": "turn/started",
+      "thread": "01a192b8-c982-7363-bf2a-4b647a57dffa",
+      "turn": "01a192b8-cd1a-7ae3-8bb7-6b0fcac63877",
+      "sequence": 4
+    },
+    {
+      "client": "pane-5",
+      "pid": 60766,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-ce55-7da3-8ace-0d68a9f53368",
+      "turn": "01a192b8-cfa8-7ab0-a82e-dfa9383af002",
+      "sequence": 7
+    },
+    {
+      "client": "pane-5",
+      "pid": 60766,
+      "kind": "turn/started",
+      "thread": "01a192b8-ce55-7da3-8ace-0d68a9f53368",
+      "turn": "01a192b8-cfa8-7ab0-a82e-dfa9383af002",
+      "sequence": 8
+    },
+    {
+      "client": "pane-5",
+      "pid": 60766,
+      "kind": "turn/completed",
+      "thread": "01a192b8-c982-7363-bf2a-4b647a57dffa",
+      "turn": "01a192b8-cd1a-7ae3-8bb7-6b0fcac63877",
+      "sequence": 10
+    },
+    {
+      "client": "pane-5",
+      "pid": 60766,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-dc44-7442-ac63-40db85622523",
+      "turn": "01a192b8-e9d3-7a10-ade2-78e0dec2a4ce",
+      "sequence": 15
+    },
+    {
+      "client": "pane-5",
+      "pid": 60766,
+      "kind": "turn/started",
+      "thread": "01a192b8-dc44-7442-ac63-40db85622523",
+      "turn": "01a192b8-e9d3-7a10-ade2-78e0dec2a4ce",
+      "sequence": 16
+    },
+    {
+      "client": "pane-5",
+      "pid": 60766,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-ebc1-7c91-847b-9e03e2b63c02",
+      "turn": "01a192b8-ec1f-7060-b387-5d673e14372f",
+      "sequence": 19
+    },
+    {
+      "client": "pane-5",
+      "pid": 60766,
+      "kind": "turn/started",
+      "thread": "01a192b8-ebc1-7c91-847b-9e03e2b63c02",
+      "turn": "01a192b8-ec1f-7060-b387-5d673e14372f",
+      "sequence": 20
+    },
+    {
+      "client": "pane-5",
+      "pid": 60766,
+      "kind": "turn/completed",
+      "thread": "01a192b8-dc44-7442-ac63-40db85622523",
+      "turn": "01a192b8-e9d3-7a10-ade2-78e0dec2a4ce",
+      "sequence": 22
+    },
+    {
+      "client": "pane-6",
+      "pid": 60767,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-c99d-7023-8193-d9aecca35e9e",
+      "turn": "01a192b8-cd19-73f0-95aa-23dbeef51e33",
+      "sequence": 3
+    },
+    {
+      "client": "pane-6",
+      "pid": 60767,
+      "kind": "turn/started",
+      "thread": "01a192b8-c99d-7023-8193-d9aecca35e9e",
+      "turn": "01a192b8-cd19-73f0-95aa-23dbeef51e33",
+      "sequence": 4
+    },
+    {
+      "client": "pane-6",
+      "pid": 60767,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-ceab-70b3-b332-84e9579d279d",
+      "turn": "01a192b8-cfa9-7612-9f03-464e771efe7f",
+      "sequence": 7
+    },
+    {
+      "client": "pane-6",
+      "pid": 60767,
+      "kind": "turn/started",
+      "thread": "01a192b8-ceab-70b3-b332-84e9579d279d",
+      "turn": "01a192b8-cfa9-7612-9f03-464e771efe7f",
+      "sequence": 8
+    },
+    {
+      "client": "pane-6",
+      "pid": 60767,
+      "kind": "turn/completed",
+      "thread": "01a192b8-c99d-7023-8193-d9aecca35e9e",
+      "turn": "01a192b8-cd19-73f0-95aa-23dbeef51e33",
+      "sequence": 10
+    },
+    {
+      "client": "pane-6",
+      "pid": 60767,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-dcd7-7a03-957b-621a7fd7cbbc",
+      "turn": "01a192b8-e9c1-7a02-a5c5-08d01fbe8dfa",
+      "sequence": 15
+    },
+    {
+      "client": "pane-6",
+      "pid": 60767,
+      "kind": "turn/started",
+      "thread": "01a192b8-dcd7-7a03-957b-621a7fd7cbbc",
+      "turn": "01a192b8-e9c1-7a02-a5c5-08d01fbe8dfa",
+      "sequence": 16
+    },
+    {
+      "client": "pane-6",
+      "pid": 60767,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-eb21-7e80-970a-773e6652e841",
+      "turn": "01a192b8-ec16-7f91-861f-12842579faa0",
+      "sequence": 19
+    },
+    {
+      "client": "pane-6",
+      "pid": 60767,
+      "kind": "turn/started",
+      "thread": "01a192b8-eb21-7e80-970a-773e6652e841",
+      "turn": "01a192b8-ec16-7f91-861f-12842579faa0",
+      "sequence": 20
+    },
+    {
+      "client": "pane-6",
+      "pid": 60767,
+      "kind": "turn/completed",
+      "thread": "01a192b8-dcd7-7a03-957b-621a7fd7cbbc",
+      "turn": "01a192b8-e9c1-7a02-a5c5-08d01fbe8dfa",
+      "sequence": 22
+    },
+    {
+      "client": "pane-7",
+      "pid": 60768,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-c965-7033-a618-bc64e355973a",
+      "turn": "01a192b8-cd1b-7451-b049-3e68fb01814f",
+      "sequence": 3
+    },
+    {
+      "client": "pane-7",
+      "pid": 60768,
+      "kind": "turn/started",
+      "thread": "01a192b8-c965-7033-a618-bc64e355973a",
+      "turn": "01a192b8-cd1b-7451-b049-3e68fb01814f",
+      "sequence": 4
+    },
+    {
+      "client": "pane-7",
+      "pid": 60768,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-ce84-7580-80f4-b8545a957bbf",
+      "turn": "01a192b8-cfa7-7763-8574-0b3ae6408484",
+      "sequence": 7
+    },
+    {
+      "client": "pane-7",
+      "pid": 60768,
+      "kind": "turn/started",
+      "thread": "01a192b8-ce84-7580-80f4-b8545a957bbf",
+      "turn": "01a192b8-cfa7-7763-8574-0b3ae6408484",
+      "sequence": 8
+    },
+    {
+      "client": "pane-7",
+      "pid": 60768,
+      "kind": "turn/completed",
+      "thread": "01a192b8-c965-7033-a618-bc64e355973a",
+      "turn": "01a192b8-cd1b-7451-b049-3e68fb01814f",
+      "sequence": 10
+    },
+    {
+      "client": "pane-7",
+      "pid": 60768,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-dc92-7282-b399-211d6b1b0a47",
+      "turn": "01a192b8-e9c9-77d3-8849-8b1a59287374",
+      "sequence": 15
+    },
+    {
+      "client": "pane-7",
+      "pid": 60768,
+      "kind": "turn/started",
+      "thread": "01a192b8-dc92-7282-b399-211d6b1b0a47",
+      "turn": "01a192b8-e9c9-77d3-8849-8b1a59287374",
+      "sequence": 16
+    },
+    {
+      "client": "pane-7",
+      "pid": 60768,
+      "kind": "turn/accepted",
+      "thread": "01a192b8-eaf5-7f01-9e5e-603f3a2ec215",
+      "turn": "01a192b8-ec17-74c2-a606-2c36d463edac",
+      "sequence": 19
+    },
+    {
+      "client": "pane-7",
+      "pid": 60768,
+      "kind": "turn/started",
+      "thread": "01a192b8-eaf5-7f01-9e5e-603f3a2ec215",
+      "turn": "01a192b8-ec17-74c2-a606-2c36d463edac",
+      "sequence": 20
+    },
+    {
+      "client": "pane-7",
+      "pid": 60768,
+      "kind": "turn/completed",
+      "thread": "01a192b8-dc92-7282-b399-211d6b1b0a47",
+      "turn": "01a192b8-e9c9-77d3-8849-8b1a59287374",
+      "sequence": 22
+    }
+  ],
+  "shared_observer_methods": [
+    "initialize",
+    "thread/loaded/list",
+    "thread/loaded/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/loaded/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/loaded/list",
+    "thread/loaded/list"
+  ],
+  "shared_observer_socket_closed": true,
+  "frontend_cleanup": [
+    {
+      "client": "pane-0",
+      "pid": 60761,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-1",
+      "pid": 60762,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-2",
+      "pid": 60763,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-3",
+      "pid": 60764,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-4",
+      "pid": 60765,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-5",
+      "pid": 60766,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-6",
+      "pid": 60767,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-7",
+      "pid": 60768,
+      "exit_code": -15
+    }
+  ],
+  "isolated_daemon_cleanup_exit": 0,
+  "isolated_daemon_cleanup_stdout": "{\"status\":\"stopped\",\"backend\":\"pid\",\"managedCodexPath\":\"/private/tmp/relay-native-tui-lab-j2t4xjw9/codex/packages/app-server-daemon/current/bin/codex\",\"managedCodexVersion\":\"0.166.0\",\"socketPath\":\"/private/tmp/relay-native-tui-lab-j2t4xjw9/codex/app-server-control/app-server-control.sock\",\"cliVersion\":\"0.166.0\"}\n",
+  "isolated_daemon_cleanup_stderr": "{\"timestampMs\":1793462979780,\"processPid\":62419,\"event\":\"shutdown_requested\",\"details\":{\"pid\":60711}}\n{\"timestampMs\":1793463039801,\"processPid\":62419,\"event\":\"shutdown_forced\",\"details\":{\"pid\":60711}}\n",
+  "daemon_pid_absent_after_cleanup": true,
+  "daemon_socket_quiet_after_cleanup": true,
+  "provider_requests": [
+    {
+      "request": 0,
+      "thread": "01a192b8-c94c-75e1-a5b3-e50283df7819",
+      "state": "closed",
+      "opened": 146058.929499708,
+      "heartbeats": 28,
+      "closed": 146061.769136916,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 1,
+      "thread": "01a192b8-c9d5-7012-88c9-9b7f008ffdfd",
+      "state": "closed",
+      "opened": 146058.936069666,
+      "heartbeats": 28,
+      "closed": 146061.777345333,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 2,
+      "thread": "01a192b8-c965-7033-a618-bc64e355973a",
+      "state": "closed",
+      "opened": 146058.940537333,
+      "heartbeats": 28,
+      "closed": 146061.776140958,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 3,
+      "thread": "01a192b8-c99d-7023-8193-d9aecca35e9e",
+      "state": "closed",
+      "opened": 146058.946731041,
+      "heartbeats": 28,
+      "closed": 146061.771771958,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 4,
+      "thread": "01a192b8-c982-7363-bf2a-4b647a57dffa",
+      "state": "closed",
+      "opened": 146058.952333125,
+      "heartbeats": 28,
+      "closed": 146061.770101166,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 5,
+      "thread": "01a192b8-c897-7fe1-9257-425c4d9c24ce",
+      "state": "closed",
+      "opened": 146058.958725333,
+      "heartbeats": 28,
+      "closed": 146061.780297583,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 6,
+      "thread": "01a192b8-c913-7423-a01e-d045e1aff598",
+      "state": "closed",
+      "opened": 146058.958969333,
+      "heartbeats": 28,
+      "closed": 146061.771074583,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 7,
+      "thread": "01a192b8-c9bb-7c23-bc24-8cef268a60c4",
+      "state": "closed",
+      "opened": 146058.974804083,
+      "heartbeats": 28,
+      "closed": 146061.77193725,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 8,
+      "thread": "01a192b8-ced5-7ec0-9bef-fdf496b19dc2",
+      "state": "closed",
+      "opened": 146059.424952083,
+      "heartbeats": 868,
+      "closed": 146149.519400708,
+      "reason": "expired"
+    },
+    {
+      "request": 9,
+      "thread": "01a192b8-ceab-70b3-b332-84e9579d279d",
+      "state": "closed",
+      "opened": 146059.431502,
+      "heartbeats": 868,
+      "closed": 146149.470621125,
+      "reason": "expired"
+    },
+    {
+      "request": 10,
+      "thread": "01a192b8-ce84-7580-80f4-b8545a957bbf",
+      "state": "closed",
+      "opened": 146059.432113708,
+      "heartbeats": 869,
+      "closed": 146149.519477208,
+      "reason": "expired"
+    },
+    {
+      "request": 11,
+      "thread": "01a192b8-cf27-7520-a6fc-ac2a0d2f68c7",
+      "state": "closed",
+      "opened": 146059.435049958,
+      "heartbeats": 869,
+      "closed": 146149.538543458,
+      "reason": "expired"
+    },
+    {
+      "request": 12,
+      "thread": "01a192b8-ce55-7da3-8ace-0d68a9f53368",
+      "state": "closed",
+      "opened": 146059.4442635,
+      "heartbeats": 869,
+      "closed": 146149.500748416,
+      "reason": "expired"
+    },
+    {
+      "request": 13,
+      "thread": "01a192b8-ceff-7e51-bec7-142495b9348e",
+      "state": "closed",
+      "opened": 146059.4488175,
+      "heartbeats": 869,
+      "closed": 146149.475632375,
+      "reason": "expired"
+    },
+    {
+      "request": 14,
+      "thread": "01a192b8-cf4f-78c3-8192-5369560e3583",
+      "state": "closed",
+      "opened": 146059.45383875,
+      "heartbeats": 869,
+      "closed": 146149.492743458,
+      "reason": "expired"
+    },
+    {
+      "request": 15,
+      "thread": "01a192b8-cf79-7730-800e-50fb26586397",
+      "state": "closed",
+      "opened": 146059.468266,
+      "heartbeats": 869,
+      "closed": 146149.564217875,
+      "reason": "expired"
+    },
+    {
+      "request": 16,
+      "thread": "01a192b8-dc79-78a2-8ba6-0e17a16c20b7",
+      "state": "closed",
+      "opened": 146066.257865166,
+      "heartbeats": 28,
+      "closed": 146069.130718208,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 17,
+      "thread": "01a192b8-dcf1-73c2-8145-a5f82bdee302",
+      "state": "closed",
+      "opened": 146066.259138041,
+      "heartbeats": 28,
+      "closed": 146069.132064458,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 18,
+      "thread": "01a192b8-dcb4-7252-88f8-e7b0bf7693dd",
+      "state": "closed",
+      "opened": 146066.266643541,
+      "heartbeats": 28,
+      "closed": 146069.125636166,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 19,
+      "thread": "01a192b8-dc2d-7e61-b8a1-1db32d1f80c0",
+      "state": "closed",
+      "opened": 146066.266895833,
+      "heartbeats": 28,
+      "closed": 146069.129122125,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 20,
+      "thread": "01a192b8-dcd7-7a03-957b-621a7fd7cbbc",
+      "state": "closed",
+      "opened": 146066.278738333,
+      "heartbeats": 28,
+      "closed": 146069.126770875,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 21,
+      "thread": "01a192b8-dc92-7282-b399-211d6b1b0a47",
+      "state": "closed",
+      "opened": 146066.285355083,
+      "heartbeats": 28,
+      "closed": 146069.133653291,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 22,
+      "thread": "01a192b8-dc5c-76d1-8b05-c9c5bea37aee",
+      "state": "closed",
+      "opened": 146066.289684166,
+      "heartbeats": 28,
+      "closed": 146069.128676125,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 23,
+      "thread": "01a192b8-dc44-7442-ac63-40db85622523",
+      "state": "closed",
+      "opened": 146066.29918525,
+      "heartbeats": 28,
+      "closed": 146069.128343625,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 24,
+      "thread": "01a192b8-eaa0-7aa1-8fd3-66aaacf14f82",
+      "state": "closed",
+      "opened": 146066.452592333,
+      "heartbeats": 820,
+      "closed": 146151.481527958,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 25,
+      "thread": "01a192b8-eb49-7852-86f6-cf7707d6bba4",
+      "state": "closed",
+      "opened": 146066.707126708,
+      "heartbeats": 817,
+      "closed": 146151.48167325,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 26,
+      "thread": "01a192b8-eaf5-7f01-9e5e-603f3a2ec215",
+      "state": "closed",
+      "opened": 146066.710102375,
+      "heartbeats": 818,
+      "closed": 146151.481476291,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 27,
+      "thread": "01a192b8-eb99-73e1-8ae5-dce4bc79afab",
+      "state": "closed",
+      "opened": 146066.713303583,
+      "heartbeats": 818,
+      "closed": 146151.481601875,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 28,
+      "thread": "01a192b8-ebc1-7c91-847b-9e03e2b63c02",
+      "state": "closed",
+      "opened": 146066.714468166,
+      "heartbeats": 819,
+      "closed": 146151.481645708,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 29,
+      "thread": "01a192b8-eb21-7e80-970a-773e6652e841",
+      "state": "closed",
+      "opened": 146066.714558291,
+      "heartbeats": 819,
+      "closed": 146151.481417375,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 30,
+      "thread": "01a192b8-eb70-7bf2-8772-c8a4147e9721",
+      "state": "closed",
+      "opened": 146066.718019833,
+      "heartbeats": 818,
+      "closed": 146151.4815075,
+      "reason": "peer_disconnect"
+    },
+    {
+      "request": 31,
+      "thread": "01a192b8-ebea-7a42-a092-ac56eebd6344",
+      "state": "closed",
+      "opened": 146066.746693708,
+      "heartbeats": 818,
+      "closed": 146151.481241666,
+      "reason": "peer_disconnect"
+    }
+  ]
+}

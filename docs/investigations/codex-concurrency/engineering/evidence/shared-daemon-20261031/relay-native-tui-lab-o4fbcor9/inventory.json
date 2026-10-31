@@ -1,0 +1,27 @@
+[
+  {
+    "path": "result.json",
+    "bytes": 2703,
+    "sha256": "f2141a1a2c186db0bf2484843e3ee13cdfc062c666498d22c249cc306f8d545d"
+  },
+  {
+    "path": "progress.json",
+    "bytes": 1821,
+    "sha256": "1f1ec22d95dd71d2cd2ca6031abbe917251ea81b07b6316a5eb95e5fa9a5266a"
+  },
+  {
+    "path": "observer-smoke.json",
+    "bytes": 1909,
+    "sha256": "415c3c6f06e5b52b728ec298e4342338e1e9ddd952bfa47c979e2431e3786bd9"
+  },
+  {
+    "path": "provider.events.jsonl",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "codex/app-server-daemon/daemon.stderr.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

@@ -1,0 +1,64 @@
+[
+  {
+    "root": "/private/tmp/relay-native-tui-lab-j2t4xjw9",
+    "free_before": 3956748288,
+    "files": [
+      {
+        "path": "codex-path/rg",
+        "sha256": "db94328a1765b7d5fd4ee6a94442ebf24a78d1fce246fe3219b578561ab3dfc1",
+        "logical_bytes_preserved": 4030432,
+        "mtime_preserved": true
+      },
+      {
+        "path": "bin/codex",
+        "sha256": "dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e",
+        "logical_bytes_preserved": 601895632,
+        "mtime_preserved": true
+      },
+      {
+        "path": "bin/codex-exec-server",
+        "sha256": "5ec762d5c3e7a0f2d5772effe63c83a0e60a2ff7815c62a3d03b13b10fb929d9",
+        "logical_bytes_preserved": 201707280,
+        "mtime_preserved": true
+      },
+      {
+        "path": "bin/codex-code-mode-host",
+        "sha256": "3ee9be0bf438df5c94ed834a55bbc5de58af003269f7b5d978c3e5cf0fa419d4",
+        "logical_bytes_preserved": 142450528,
+        "mtime_preserved": true
+      }
+    ],
+    "free_after": 4907520000
+  },
+  {
+    "root": "/private/tmp/relay-native-tui-lab-zqnciiy7",
+    "free_before": 4907520000,
+    "files": [
+      {
+        "path": "codex-path/rg",
+        "sha256": "db94328a1765b7d5fd4ee6a94442ebf24a78d1fce246fe3219b578561ab3dfc1",
+        "logical_bytes_preserved": 4030432,
+        "mtime_preserved": true
+      },
+      {
+        "path": "bin/codex",
+        "sha256": "dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e",
+        "logical_bytes_preserved": 601895632,
+        "mtime_preserved": true
+      },
+      {
+        "path": "bin/codex-exec-server",
+        "sha256": "5ec762d5c3e7a0f2d5772effe63c83a0e60a2ff7815c62a3d03b13b10fb929d9",
+        "logical_bytes_preserved": 201707280,
+        "mtime_preserved": true
+      },
+      {
+        "path": "bin/codex-code-mode-host",
+        "sha256": "3ee9be0bf438df5c94ed834a55bbc5de58af003269f7b5d978c3e5cf0fa419d4",
+        "logical_bytes_preserved": 142450528,
+        "mtime_preserved": true
+      }
+    ],
+    "free_after": 5858664448
+  }
+]
