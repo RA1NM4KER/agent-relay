@@ -1,0 +1,36 @@
+{
+  "root": "/private/tmp/relay-native-authority-lmi9t3tg",
+  "scope": "ACTUAL_NATIVE_AUTHORITY_NOT_FULL_PARITY",
+  "checks": [
+    "unmediated native creation refused",
+    "alternative native exec cannot open a second protected host"
+  ],
+  "full_parity": false,
+  "execution_quiescent": false,
+  "binary_sha256": "504a67f632d0a2b3f1a5ca7fe77f1572c90d522f126bec9a0d88d1f8474c0523",
+  "native_pids": [
+    3594
+  ],
+  "controller_receipts": [
+    {
+      "controller": "A",
+      "owner": "e52df6695f6e592bd590dc523d3a84f12d694a410b4ad6b4ea46f010720ff468",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a1933e-2977-7e41-910f-71128ff4912d"
+    },
+    {
+      "controller": "B",
+      "owner": "b5c4f0bbe776750922ec7458ba212bb9ed2e984618cd99083108398075d7d70c",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a1933e-2977-7e41-910f-71128ff4912d"
+    }
+  ],
+  "exception": "Refused('{\"code\": -32600, \"message\": \"native spawn requires owned intent or exact parent\"}')",
+  "host_cleanup": [
+    {
+      "pid": 3594,
+      "exit_code": 0
+    }
+  ],
+  "socket_quiet_after_cleanup": true
+}

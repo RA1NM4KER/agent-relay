@@ -1,0 +1,12 @@
+{
+  "containmentProven" : false,
+  "hostCPUs" : 8,
+  "hostMemoryBytes" : 8589934592,
+  "maximumCPUs" : 64,
+  "maximumMemoryBytes" : 8589934592,
+  "minimumCPUs" : 1,
+  "minimumMemoryBytes" : 4194304,
+  "scope" : "READ_ONLY_VIRTUALIZATION_CAPABILITY",
+  "supported" : true,
+  "vmStarted" : false
+}

@@ -1,0 +1,19 @@
+error: failed to get `aws-config` as a dependency of package `codex-aws-auth v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/aws-auth)`
+
+Caused by:
+  failed to load source for dependency `aws-config`
+
+Caused by:
+  unable to update registry `crates-io`
+
+Caused by:
+  failed to update replaced source registry `crates-io`
+
+Caused by:
+  failed to load checksum `.cargo-checksum.json` of serde_json v1.0.151
+
+Caused by:
+  failed to read `/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.151/.cargo-checksum.json`
+
+Caused by:
+  No such file or directory (os error 2)

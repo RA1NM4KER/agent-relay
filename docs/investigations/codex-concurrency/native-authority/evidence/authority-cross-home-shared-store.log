@@ -1,0 +1,94 @@
+{
+  "root": "/private/tmp/relay-cross-home-qqtwlbdn",
+  "sourceRoot": "/private/tmp/relay-native-authority-pmq_c45y",
+  "sourceThread": "01a1936e-36c4-7661-bce2-a12533063b05",
+  "rollout": "/private/tmp/relay-native-authority-pmq_c45y/codex/sessions/2026/10/31/rollout-2026-10-31T21-27-16-01a1936e-36c4-7661-bce2-a12533063b05.jsonl",
+  "handoffPermitted": false,
+  "fullParity": false,
+  "sharedNativeStore": true,
+  "boundaryBypassed": true,
+  "nativeReply": {
+    "thread": {
+      "id": "01a1936e-36c4-7661-bce2-a12533063b05",
+      "environments": [
+        {
+          "environmentId": "local",
+          "cwd": "/private/tmp/relay-cross-home-qqtwlbdn",
+          "runtimeWorkspaceRoots": [
+            "/private/tmp/relay-cross-home-qqtwlbdn"
+          ]
+        }
+      ],
+      "extra": null,
+      "sessionId": "01a1936e-36c4-7661-bce2-a12533063b05",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "research",
+      "model": "research-model",
+      "reasoningEffort": null,
+      "createdAt": 1793474836,
+      "updatedAt": 1793475096,
+      "recencyAt": 1793474836,
+      "status": {
+        "type": "idle"
+      },
+      "path": "/private/tmp/relay-native-authority-pmq_c45y/codex/sessions/2026/10/31/rollout-2026-10-31T21-27-16-01a1936e-36c4-7661-bce2-a12533063b05.jsonl",
+      "cwd": "/private/tmp/relay-cross-home-qqtwlbdn",
+      "cliVersion": "0.166.0",
+      "originator": "relay-host-adversary",
+      "source": "vscode",
+      "canAcceptDirectInput": true,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": null,
+      "daybreakEnabled": null,
+      "turns": []
+    },
+    "model": "research-model",
+    "modelProvider": "research",
+    "serviceTier": null,
+    "disabledPluginIds": [],
+    "cwd": "/private/tmp/relay-cross-home-qqtwlbdn",
+    "runtimeWorkspaceRoots": [
+      "/private/tmp/relay-cross-home-qqtwlbdn"
+    ],
+    "instructionSources": [],
+    "approvalPolicy": "on-request",
+    "approvalsReviewer": "user",
+    "sandbox": {
+      "type": "readOnly",
+      "networkAccess": false
+    },
+    "activePermissionProfile": {
+      "id": ":read-only",
+      "extends": null
+    },
+    "reasoningEffort": null,
+    "collaborationMode": {
+      "mode": "default",
+      "settings": {
+        "model": "research-model",
+        "reasoning_effort": null,
+        "developer_instructions": null
+      }
+    },
+    "multiAgentMode": "explicitRequestOnly",
+    "initialTurnsPage": null,
+    "turnsBackwardsCursor": null,
+    "itemsBackwardsCursor": null
+  },
+  "rejected": false,
+  "cleanup": {
+    "pid": 94115,
+    "exitCode": 0,
+    "socketQuiet": true
+  }
+}

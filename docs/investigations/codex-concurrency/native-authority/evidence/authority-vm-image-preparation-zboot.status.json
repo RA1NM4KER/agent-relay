@@ -1,0 +1,18 @@
+{
+  "stage": "authority-vm-image-preparation-zboot",
+  "argv": [
+    "python3",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/prepare_vm.py"
+  ],
+  "started": 1793472432.6914718,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 3547856896,
+  "pid": 23282,
+  "exit_code": 0,
+  "elapsed_s": 2.008132219314575,
+  "free_after": 3512467456
+}

@@ -1,0 +1,5 @@
+Reading additional input from stdin...
+2026-10-31T18:33:59.646584Z TRACE codex_app_server::message_processor: app-server typed request connection_id=ConnectionId(0) request_id=Integer(0)
+2026-10-31T18:33:59.661825Z  INFO codex_app_server::message_processor: <- typed notification: Initialized
+2026-10-31T18:33:59.663356Z TRACE codex_app_server::message_processor: app-server typed request connection_id=ConnectionId(0) request_id=Integer(1)
+Error: thread/start: thread/start failed: native authority proof required (code -32600)

@@ -1,0 +1,23 @@
+{
+  "stage": "authority-native-app-server-check",
+  "argv": [
+    "cargo",
+    "check",
+    "-p",
+    "codex-app-server",
+    "--bin",
+    "codex-app-server",
+    "--offline"
+  ],
+  "started": 1793465378.036205,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 8038481920,
+  "pid": 27086,
+  "exit_code": 101,
+  "elapsed_s": 2.009650945663452,
+  "free_after": 8037969920
+}

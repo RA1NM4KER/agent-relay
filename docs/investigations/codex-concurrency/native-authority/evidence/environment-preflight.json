@@ -1,0 +1,11 @@
+{
+  "freeBytes": 2619174912,
+  "sharedEntryMinimumBytes": 4294967296,
+  "runtimeReserveBytes": 1610612736,
+  "externalPhysicalDiskCount": 0,
+  "extraDiskDeletionAuthorized": false,
+  "linuxNativeAuthorityBuildAvailable": false,
+  "vmExperimentHasPersistentStorage": false,
+  "fullParity": false,
+  "initialDiskutilProbe": "argument order rejected, corrected read-only probe succeeded"
+}

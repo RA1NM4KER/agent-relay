@@ -1,0 +1,18 @@
+RELAY_GUEST A escaped_naive_cgroup
+RELAY_GUEST A detached 1
+RELAY_GUEST A detached 2
+RELAY_GUEST A detached 3
+RELAY_GUEST A detached 4
+RELAY_GUEST A cgroup_kill_requested
+RELAY_GUEST A foreground 1
+RELAY_GUEST A detached 5
+RELAY_GUEST A foreground 2
+RELAY_GUEST A detached 6
+RELAY_GUEST A foreground 3
+RELAY_GUEST A detached 7
+RELAY_GUEST A foreground 4
+RELAY_GUEST A detached 8
+RELAY_GUEST A foreground 5
+RELAY_GUEST A detached 9
+RELAY_GUEST A foreground 6
+RELAY_GUEST A detached 10

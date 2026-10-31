@@ -1,0 +1,62 @@
+{
+  "root": "/var/folders/j5/kknrxsqx5hv7cgl6s_mp2v840000gn/T/relay-kernel-realms-npjo_ev9",
+  "checks": [
+    "two independent VZ kernels running",
+    "distinct host-generated realm identities",
+    "A privileged detached guest survives naive cgroup kill",
+    "A has no external execution or filesystem devices",
+    "B privileged detached guest survives naive cgroup kill",
+    "B has no external execution or filesystem devices",
+    "forced exact-VM A stop completes with trusted VZ stopped state",
+    "B detached execution continues after A kernel stop",
+    "A console remains closed after exact manager exit (supporting evidence only)",
+    "B independently stops with trusted VZ stopped state"
+  ],
+  "nativeExecutionIntegrated": false,
+  "handoffPermitted": false,
+  "passed": true,
+  "cleanup": {
+    "A": {
+      "pid": 80556,
+      "exitCode": 0,
+      "state": {
+        "admissionClosed": true,
+        "handoffPermitted": false,
+        "label": "A",
+        "managerPID": 80556,
+        "nativeExecutionIntegrated": false,
+        "networkDevices": 0,
+        "realmID": "2B2E6D3A-E247-4A7A-9945-AE26F6CD20FA",
+        "scope": "KERNEL_REALM_WITHOUT_EXTERNAL_CAPABILITIES",
+        "sharedDirectories": 0,
+        "socketDevices": 0,
+        "status": "STOPPED",
+        "storageDevices": 0,
+        "ticks": 14,
+        "vmRunning": false,
+        "vmStopped": true
+      }
+    },
+    "B": {
+      "pid": 80557,
+      "exitCode": 0,
+      "state": {
+        "admissionClosed": true,
+        "handoffPermitted": false,
+        "label": "B",
+        "managerPID": 80557,
+        "nativeExecutionIntegrated": false,
+        "networkDevices": 0,
+        "realmID": "9FDBDF43-87F4-453B-9B70-6B763482367B",
+        "scope": "KERNEL_REALM_WITHOUT_EXTERNAL_CAPABILITIES",
+        "sharedDirectories": 0,
+        "socketDevices": 0,
+        "status": "STOPPED",
+        "storageDevices": 0,
+        "ticks": 22,
+        "vmRunning": false,
+        "vmStopped": true
+      }
+    }
+  }
+}

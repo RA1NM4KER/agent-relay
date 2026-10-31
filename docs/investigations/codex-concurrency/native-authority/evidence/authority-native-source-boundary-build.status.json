@@ -1,0 +1,25 @@
+{
+  "stage": "authority-native-source-boundary-build",
+  "argv": [
+    "python3",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/authority_native_cargo.py",
+    "build",
+    "-p",
+    "codex-cli",
+    "-p",
+    "codex-app-server",
+    "--bin",
+    "codex-app-server"
+  ],
+  "started": 1793475135.2035809,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2632937472,
+  "pid": 95175,
+  "exit_code": 0,
+  "elapsed_s": 172.68365001678467,
+  "free_after": 2634350592
+}

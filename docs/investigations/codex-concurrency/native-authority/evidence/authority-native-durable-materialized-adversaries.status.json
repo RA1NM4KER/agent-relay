@@ -1,0 +1,22 @@
+{
+  "stage": "authority-native-durable-materialized-adversaries",
+  "argv": [
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/check_native.py",
+    "--app-server",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex-app-server",
+    "--codex",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex"
+  ],
+  "started": 1793474828.365673,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2625859584,
+  "pid": 86696,
+  "exit_code": 0,
+  "elapsed_s": 10.03896689414978,
+  "free_after": 2601721856
+}

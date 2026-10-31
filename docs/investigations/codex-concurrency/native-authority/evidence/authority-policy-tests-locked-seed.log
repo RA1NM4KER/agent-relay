@@ -1,0 +1,9 @@
+    Blocking waiting for file lock on package cache
+error: no matching package found
+searched package name: `wasip2`
+perhaps you meant:      wasite, bzip2 or hash32
+location searched: directory source `/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/registry/src/index.crates.io-1949cf8c6b5b557f` (which is replacing registry `crates-io`)
+required by package `getrandom v0.4.2`
+    ... which satisfies dependency `getrandom = ">=0.3.0, <0.5"` (locked to 0.4.2) of package `tempfile v3.27.0`
+    ... which satisfies dependency `tempfile = "=3.27.0"` (locked to 3.27.0) of package `relay-native-authority-research v0.1.0 (/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority)`
+As a reminder, you're using offline mode (--offline) which can sometimes cause surprising resolution failures, if this error is too confusing you may wish to retry without `--offline`.

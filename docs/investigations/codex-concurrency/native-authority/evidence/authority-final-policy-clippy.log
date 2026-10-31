@@ -1,0 +1,17 @@
+    Checking getrandom v0.3.4
+    Checking uuid v1.20.0
+    Checking relay-native-authority-research v0.1.0 (/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority)
+error: this boolean expression can be simplified
+   --> host_authority.rs:503:16
+    |
+503 |               if !controller.active
+    |  ________________^
+504 | |                 && !(matches!(method, "turn/interrupt" | "thread/unsubscribe")
+505 | |                     || matches!(command, Some("status" | "revoke" | "operationStatus")))
+    | |________________________________________________________________________________________^ help: try: `!(controller.active || matches!(method, "turn/interrupt" | "thread/unsubscribe") || matches!(command, Some("status" | "revoke" | "operationStatus")))`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#nonminimal_bool
+    = note: `-D clippy::nonminimal-bool` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::nonminimal_bool)]`
+
+error: could not compile `relay-native-authority-research` (lib) due to 1 previous error

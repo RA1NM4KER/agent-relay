@@ -1,0 +1,21 @@
+{
+  "stage": "authority-macos-virtualization-capability",
+  "argv": [
+    "xcrun",
+    "swift",
+    "-module-cache-path",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/swift-module-cache",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/virtualization_probe.swift"
+  ],
+  "started": 1793470534.7199318,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2631303168,
+  "pid": 72132,
+  "exit_code": 0,
+  "elapsed_s": 52.13278317451477,
+  "free_after": 3443531776
+}

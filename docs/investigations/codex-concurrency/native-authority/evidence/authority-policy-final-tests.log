@@ -1,0 +1,22 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling relay-native-authority-research v0.1.0 (/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority)
+    Finished `test` profile [unoptimized] target(s) in 2m 13s
+     Running unittests lib.rs (/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/deps/relay_native_authority_research-a2e735a247b9e730)
+
+running 7 tests
+test host_authority::tests::unresolved_creation_never_replays_and_second_host_cannot_start ... ok
+test host_authority::tests::persistence_failure_poison_is_sticky ... ok
+test host_authority::tests::request_identity_cannot_be_reused_to_bypass_typed_admission ... ok
+test host_authority::tests::committed_replay_survives_host_restart_without_execution ... ok
+test host_authority::tests::ephemeral_intent_requires_parent_and_revokes_with_it ... ok
+test host_authority::tests::foreign_unmediated_unknown_and_fenced_paths_refuse ... ok
+test host_authority::tests::queued_recheck_and_internal_descendants_follow_exact_root ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+   Doc-tests relay_native_authority_research
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,30 @@
+{
+  "root": "/var/folders/j5/kknrxsqx5hv7cgl6s_mp2v840000gn/T/relay-kernel-crash-ymsl_1pc",
+  "handoffPermitted": false,
+  "nativeExecutionIntegrated": false,
+  "quiescence": "UNKNOWN",
+  "passed": true,
+  "lastTrustedState": {
+    "admissionClosed": false,
+    "handoffPermitted": false,
+    "label": "A",
+    "managerPID": 86366,
+    "nativeExecutionIntegrated": false,
+    "networkDevices": 0,
+    "realmID": "EECE8D97-6D55-488F-ADDA-977503C63E88",
+    "scope": "KERNEL_REALM_WITHOUT_EXTERNAL_CAPABILITIES",
+    "sharedDirectories": 0,
+    "socketDevices": 0,
+    "status": "RUNNING",
+    "storageDevices": 0,
+    "ticks": 14,
+    "vmRunning": true,
+    "vmStopped": false
+  },
+  "reason": "manager died before trusted kernel stop acknowledgement; retain ownership reservation",
+  "cleanup": {
+    "pid": 86366,
+    "exitCode": -9,
+    "kernelQuiescenceProven": false
+  }
+}

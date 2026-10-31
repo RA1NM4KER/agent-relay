@@ -1,0 +1,28 @@
+{
+  "stage": "authority-native-retained-source-check",
+  "argv": [
+    "cargo",
+    "check",
+    "-p",
+    "codex-app-server",
+    "--bin",
+    "codex-app-server",
+    "--locked",
+    "--offline",
+    "--config",
+    "source.crates-io.replace-with=\"retained-lab\"",
+    "--config",
+    "source.retained-lab.directory=\"/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/registry/src/index.crates.io-1949cf8c6b5b557f\""
+  ],
+  "started": 1793465484.8627808,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 8024096768,
+  "pid": 29966,
+  "exit_code": 101,
+  "elapsed_s": 2.008723020553589,
+  "free_after": 8023744512
+}

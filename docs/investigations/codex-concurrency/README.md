@@ -1,5 +1,12 @@
 # Concurrent Codex sessions: investigation and decision record
 
+Research update from 60217b7: a native authority prototype passes 47 real native
+adversarial checks plus two cross-home/store refusals; 14 Rust policy tests pass.
+A RAM-only two-kernel VZ containment experiment passes 10 checks. Complete native
+execution containment, protected TUI integration, safe handoff and full parity
+remain unproven. See [the current continuation](CONTINUATION.md) and
+[the native authority work log](native-authority/WORK_LOG.md). Production locks remain.
+
 ## Shared-daemon follow-up from 19d3c29 (2026-10-31)
 
 The user approved the proposed Playwright cache cleanup. Three inactive caches

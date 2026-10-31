@@ -1,5 +1,78 @@
 # Continuation checkpoint
 
+## Native authority and kernel-realm increment from 60217b7 (2026-10-31)
+
+Research-only native changes now place durable admission inside the app-server
+and core execution boundary for classified operations. Enrollment, stable scoped
+supervisor recovery, rotating single-connection controller leases, host generations,
+actual native creation IDs, queue rechecks and fsync-before-forward/result-before-
+reply ordering are implemented. Revocation fences the entire logical owner,
+including its other roots, ephemeral children and fresh `/new` attempts. Transfer
+always refuses with `executionQuiescent:false` and `handoffPermitted:false`.
+
+The actual native raw-peer suite passes **47 narrow checks**, including actual
+SIGKILL after durable intent before forwarding, lost creation replies, exact
+committed replay without native execution, scoped B recovery, native B command
+after A fencing, stale/foreign/raw peers and unknown RPC refusal. A strengthened
+case proves an untouched empty conversation remains natively resumable after a
+lost creation reply and host death. The first attempt exposed that native
+ThreadPreparation only flushes; normal protected creation now uses actual native
+Persist plus Flush before authority commit. Ephemeral persistence stays unchanged.
+
+Further adversarial testing reproduced a cross-home bypass: a separate broker
+could select the fenced original UUID by setting `sqlite_home` to the enrolled
+store. A different-home explicit-path probe without shared native storage refused
+only because history was absent; that incidental refusal is NOT ownership proof.
+Native store/history source checks and refusal of unenrolled relocated stores
+now pass direct and symlink-store native rejection tests. The final actual server
+also passes the full 47-check native regression, 14 policy tests, Clippy with
+warnings denied and formatting. All experiment failures and cleanup remain retained.
+
+A bounded local Apple Virtualization experiment boots a pinned Alpine 3.22.7
+arm64 kernel. Two independent VM realms pass **10 lifecycle/isolation checks**:
+privileged detached guest work escapes a naive cgroup; exact forced VM A stop
+establishes VZ stopped state while B's detached work continues; B then stops
+independently. A manager-SIGKILL test retains **UNKNOWN**, never a quiescence
+receipt. No disks, shared directories, network or VSOCK devices are exposed.
+This is RAM-only kernel-realm evidence, not native execution containment or
+macOS command parity. Native execution remains outside those realms.
+
+The previous eight-shared-TUI 26-check concurrency feasibility result is retained
+and was not rerun. Protected TUI capability plumbing, all autonomous/queued/core
+paths, actual approvals, complete executor sinks, remote execution, host I/O
+drain, OS isolation of the supervisor, safe handoff and real-world parity remain
+unproven. Unknown native mutation routes and unsupported protected storage layouts
+fail closed. Production ProfileSessionLock and production Relay remain unchanged.
+
+See [native-authority/WORK_LOG.md](native-authority/WORK_LOG.md),
+[protocol decisions](native-authority/PROTOCOL_DECISIONS.md),
+[execution audit](native-authority/EXECUTION_INVENTORY.md),
+[containment limits](native-authority/CONTAINMENT.md), and
+[native evidence](native-authority/evidence/). Earlier claims that no VM was run
+or no native gate was implemented are historical, not the current narrow result.
+Full parity remains false. No merge, release, installed binary or credential change.
+
+
+## Next work after the native-authority increment
+
+Read the native-authority work log, protocol decisions, execution audit, final
+manifest and indexed evidence first. Reuse the exact retained lab and source
+cache; do not repeat completed concurrency feasibility, toolchain downloads or
+baseline builds. The final authority server is a different binary from the
+preserved baseline package. apply_native.py is a pin-checked reproduction tool,
+not a command to run twice on the already modified checkout.
+
+Remaining engineering is immutable session/epoch/realm propagation, autonomous
+and queued admission, real approval races and executor integration. Kernel-only
+VM evidence does not permit handoff. No privileged system provisioning is in
+scope without explicit approval. Do not weaken production locks or change native
+macOS execution semantics silently. The current Mac has about 2.44 GiB free and
+no external physical disk; the shared harness still requires at least 4 GiB.
+Additional source/evidence/required artifact deletion is not authorized. Obtain
+safe disposable capacity before a Linux native build or integrated shared suite.
+The present guest image has no persistent disk, network or native Linux Codex
+build; it is an intentionally narrow containment experiment.
+
 ## Shared-daemon follow-up from 19d3c29 (2026-10-31)
 
 The user approved the proposed Playwright cache cleanup. Three inactive caches

@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/private/tmp/relay-native-build-20261030-9fw2zv7w/resolve_retained_sources.py", line 38, in <module>
+    else:raise RuntimeError('bounded resolver iteration limit')
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: bounded resolver iteration limit

@@ -1,0 +1,469 @@
+diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
+index 2936c01..e7ee386 100644
+--- a/codex-rs/app-server-protocol/src/protocol/common.rs
++++ b/codex-rs/app-server-protocol/src/protocol/common.rs
+@@ -340,9 +340,16 @@ macro_rules! client_request_definitions {
+         pub enum ClientResponsePayload {
+             $( $variant($response), )*
+             InterruptConversation(v1::InterruptConversationResponse),
++            RelayAuthority(serde_json::Value),
+         }
+ 
+         impl ClientResponsePayload {
++            pub fn relay_decode(method: &str, value: serde_json::Value) -> std::result::Result<Self, serde_json::Error> {
++                match method {
++                    $( $wire => serde_json::from_value(value).map(Self::$variant), )*
++                    _ => Ok(Self::RelayAuthority(value)),
++                }
++            }
+             pub fn into_client_response(self, request_id: RequestId) -> Option<ClientResponse> {
+                 match self {
+                     $(
+@@ -353,7 +360,7 @@ macro_rules! client_request_definitions {
+                             })
+                         }
+                     )*
+-                    Self::InterruptConversation(_) => None,
++                    Self::InterruptConversation(_) | Self::RelayAuthority(_) => None,
+                 }
+             }
+ 
+diff --git a/codex-rs/app-server/src/lib.rs b/codex-rs/app-server/src/lib.rs
+index b3aa3b9..7d0f039 100644
+--- a/codex-rs/app-server/src/lib.rs
++++ b/codex-rs/app-server/src/lib.rs
+@@ -140,6 +140,7 @@ mod otel_config;
+ mod otel_reloader;
+ mod outgoing_message;
+ mod plugin_config_reload;
++mod relay_authority;
+ mod request_processors;
+ mod request_serialization;
+ mod server_request_error;
+diff --git a/codex-rs/app-server/src/message_processor.rs b/codex-rs/app-server/src/message_processor.rs
+index 417165a..1630c9b 100644
+--- a/codex-rs/app-server/src/message_processor.rs
++++ b/codex-rs/app-server/src/message_processor.rs
+@@ -306,6 +306,10 @@ impl MessageProcessor {
+             remote_control_handle,
+             plugin_startup_tasks,
+         } = args;
++        crate::relay_authority::install(
++            &config.codex_home,
++            &config.sqlite_config().state_db_path(),
++        );
+         // Startup credential reads must not open a browser before initialize selects the policy.
+         let gateway_login_control =
+             codex_login::GatewayLoginControl::for_runtime(&auth_manager.runtime_config());
+@@ -655,10 +659,99 @@ impl MessageProcessor {
+     pub(crate) async fn process_request(
+         self: &Arc<Self>,
+         connection_id: ConnectionId,
+-        request: JSONRPCRequest,
++        mut request: JSONRPCRequest,
+         transport: &AppServerTransport,
+         session: Arc<ConnectionSessionState>,
+     ) {
++        let authority_key = crate::relay_authority::key(connection_id.0, &request.id);
++        let authority = crate::relay_authority::current();
++        let admitted = match authority {
++            Ok(Some(host)) => {
++                let proof = request
++                    .params
++                    .as_mut()
++                    .and_then(serde_json::Value::as_object_mut)
++                    .and_then(|params| params.remove("_relay"));
++                if request.method != "initialize" && !session.initialized() {
++                    Err("Not initialized".to_string())
++                } else if !host.classified(&request.method) {
++                    Err("unclassified native operation refused".to_string())
++                } else {
++                    let canonical = if request.method == "relay/authority" {
++                        Ok(request.params.clone().unwrap_or(serde_json::Value::Null))
++                    } else {
++                        ClientRequest::try_from(request.clone())
++                            .map_err(|e| e.to_string())
++                            .and_then(|typed| {
++                                serde_json::to_value(typed).map_err(|e| e.to_string())
++                            })
++                            .map(|value| {
++                                value
++                                    .get("params")
++                                    .cloned()
++                                    .unwrap_or(serde_json::Value::Null)
++                            })
++                    };
++                    let outcome = canonical.and_then(|params| {
++                        host.admit(
++                            connection_id.0,
++                            &authority_key,
++                            &request.method,
++                            &params,
++                            proof.as_ref(),
++                        )
++                    });
++                    // Research fault injection: a trusted debug-host setting only.
++                    // The intent is fsynced, no native request has been forwarded,
++                    // and no authority mutex is held during this bounded pause.
++                    #[cfg(debug_assertions)]
++                    if let Ok(token) = std::env::var("RELAY_AUTHORITY_TEST_HOLD_TOKEN")
++                        && proof
++                            .as_ref()
++                            .and_then(|p| p.get("token"))
++                            .and_then(serde_json::Value::as_str)
++                            == Some(token.as_str())
++                        && matches!(&outcome, Ok(crate::relay_authority::Admission::Execute))
++                    {
++                        tokio::time::sleep(Duration::from_secs(5)).await;
++                    }
++                    outcome
++                }
++            }
++            Ok(None) => Ok(crate::relay_authority::Admission::Execute),
++            Err(error) => Err(error),
++        };
++        match admitted {
++            Ok(crate::relay_authority::Admission::Execute) => {}
++            Ok(crate::relay_authority::Admission::Reply(value)) => {
++                let response = ClientResponsePayload::relay_decode(&request.method, value);
++                let id = ConnectionRequestId {
++                    connection_id,
++                    request_id: request.id,
++                };
++                match response {
++                    Ok(response) => self.outgoing.send_response_as(id, response).await,
++                    Err(_) => {
++                        self.outgoing
++                            .send_error(id, invalid_request("authority replay schema mismatch"))
++                            .await
++                    }
++                }
++                return;
++            }
++            Err(error) => {
++                self.outgoing
++                    .send_error(
++                        ConnectionRequestId {
++                            connection_id,
++                            request_id: request.id,
++                        },
++                        invalid_request(format!("RELAY_NATIVE_AUTHORITY: {error}")),
++                    )
++                    .await;
++                return;
++            }
++        }
+         let request_method = request.method.as_str();
+         tracing::trace!(
+             ?connection_id,
+@@ -972,6 +1065,31 @@ impl MessageProcessor {
+         request_context: RequestContext,
+     ) -> Result<(), JSONRPCErrorError> {
+         let connection_id = connection_request_id.connection_id;
++        if let Some(host) = crate::relay_authority::current().map_err(invalid_request)? {
++            let key =
++                crate::relay_authority::key(connection_id.0, &connection_request_id.request_id);
++            // Raw transport has already created the durable intent. Typed callers
++            // without that intent must pass the same admission boundary.
++            let value =
++                serde_json::to_value(&codex_request).map_err(|e| invalid_request(e.to_string()))?;
++            if !host
++                .prepared(
++                    &key,
++                    codex_request.method_name(),
++                    value.get("params").unwrap_or(&serde_json::Value::Null),
++                )
++                .map_err(invalid_request)?
++            {
++                host.admit(
++                    connection_id.0,
++                    &key,
++                    codex_request.method_name(),
++                    value.get("params").unwrap_or(&serde_json::Value::Null),
++                    None,
++                )
++                .map_err(invalid_request)?;
++            }
++        }
+         if let ClientRequest::Initialize { request_id, params } = codex_request {
+             let connection_initialized = self
+                 .initialize_processor
+@@ -1062,6 +1180,19 @@ impl MessageProcessor {
+             rpc_gate,
+             async move {
+                 let _turn_admission = turn_admission;
++                let authority_key =
++                    crate::relay_authority::key(connection_id.0, &connection_request_id.request_id);
++                let check = crate::relay_authority::current().and_then(|host| match host {
++                    Some(host) => host.recheck(&authority_key),
++                    None => Ok(()),
++                });
++                if let Err(error) = check {
++                    processor
++                        .outgoing
++                        .send_error(error_request_id, invalid_request(error))
++                        .await;
++                    return;
++                }
+                 // Runtime changes already admitted before drain finish normally. Turn work
+                 // still waiting in serialization must observe the newly closed gate.
+                 if recheck_turn_admission && let Err(error) = processor.turn_admission.admit() {
+@@ -1073,8 +1204,9 @@ impl MessageProcessor {
+                     session.app_server_client_name().unwrap_or("none"),
+                 );
+                 // Keep queued requests small to avoid large stack temporaries during construction.
+-                let result = originator
+-                    .scope(Box::pin(
++                let result = codex_core::relay_authority::scope(
++                    authority_key,
++                    originator.scope(Box::pin(
+                         processor_for_request.handle_initialized_client_request(
+                             connection_request_id,
+                             codex_request,
+@@ -1082,8 +1214,9 @@ impl MessageProcessor {
+                             session,
+                             event_stream_ready,
+                         ),
+-                    ))
+-                    .await;
++                    )),
++                )
++                .await;
+                 if let Err(error) = result {
+                     processor.outgoing.send_error(error_request_id, error).await;
+                 }
+diff --git a/codex-rs/app-server/src/outgoing_message.rs b/codex-rs/app-server/src/outgoing_message.rs
+index 35f5027..4c6516f 100644
+--- a/codex-rs/app-server/src/outgoing_message.rs
++++ b/codex-rs/app-server/src/outgoing_message.rs
+@@ -356,7 +356,13 @@ impl OutgoingMessageSender {
+     }
+ 
+     fn next_request_id(&self) -> RequestId {
+-        RequestId::Integer(self.next_server_request_id.fetch_add(1, Ordering::Relaxed))
++        let serial = self.next_server_request_id.fetch_add(1, Ordering::Relaxed);
++        if let Ok(Some(host)) = crate::relay_authority::current() {
++            // An old approval ID must not alias a new request after host restart.
++            RequestId::String(format!("{}:{serial}", host.generation()))
++        } else {
++            RequestId::Integer(serial)
++        }
+     }
+ 
+     pub(crate) async fn send_request_to_connections(
+@@ -502,6 +508,21 @@ impl OutgoingMessageSender {
+         id: RequestId,
+         result: Result,
+     ) {
++        if let Ok(Some(host)) = crate::relay_authority::current() {
++            let callbacks = self.request_id_to_callback.lock().await;
++            let thread = callbacks
++                .get(&id)
++                .and_then(|entry| entry.thread_id)
++                .map(|id| id.to_string());
++            if host
++                .response_allowed(connection_id.0, thread.as_deref())
++                .is_err()
++            {
++                return;
++            }
++        } else if crate::relay_authority::current().is_err() {
++            return;
++        }
+         let entry = self.take_connection_callback(connection_id, &id).await;
+ 
+         match entry {
+@@ -532,6 +553,21 @@ impl OutgoingMessageSender {
+         id: RequestId,
+         error: JSONRPCErrorError,
+     ) {
++        if let Ok(Some(host)) = crate::relay_authority::current() {
++            let callbacks = self.request_id_to_callback.lock().await;
++            let thread = callbacks
++                .get(&id)
++                .and_then(|entry| entry.thread_id)
++                .map(|id| id.to_string());
++            if host
++                .response_allowed(connection_id.0, thread.as_deref())
++                .is_err()
++            {
++                return;
++            }
++        } else if crate::relay_authority::current().is_err() {
++            return;
++        }
+         let entry = self.take_connection_callback(connection_id, &id).await;
+ 
+         match entry {
+@@ -735,6 +771,29 @@ impl OutgoingMessageSender {
+         response: ClientResponsePayload,
+         thread_originator: Option<String>,
+     ) {
++        if let Err(error) = crate::relay_authority::current().and_then(|host| match host {
++            Some(host) => serde_json::to_value(&response)
++                .map_err(|e| e.to_string())
++                .and_then(|value| {
++                    host.complete(
++                        &crate::relay_authority::key(
++                            request_id.connection_id.0,
++                            &request_id.request_id,
++                        ),
++                        &response
++                            .clone()
++                            .into_client_response(request_id.request_id.clone())
++                            .map(|response| response.method())
++                            .unwrap_or_else(|| "relay/authority".into()),
++                        value,
++                    )
++                }),
++            None => Ok(()),
++        }) {
++            self.send_error(request_id, crate::error_code::invalid_request(error))
++                .await;
++            return;
++        }
+         let connection_id = request_id.connection_id;
+         let request_id_for_analytics = request_id.request_id.clone();
+         match thread_originator {
+diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
+index 1ef252d..a321b6c 100644
+--- a/codex-rs/app-server/src/request_processors/thread_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
+@@ -1337,6 +1337,8 @@ impl ThreadRequestProcessor {
+         let initial_config_warnings = Arc::clone(&self.initial_config_warnings);
+         let outgoing = Arc::clone(&listener_task_context.outgoing);
+         let error_request_id = request_id.clone();
++        let authority_key =
++            crate::relay_authority::key(request_id.connection_id.0, &request_id.request_id);
+         let thread_start_task = async move {
+             if let Err(error) = Self::thread_start_task(
+                 listener_task_context,
+@@ -1368,7 +1370,10 @@ impl ThreadRequestProcessor {
+             }
+         };
+         self.background_tasks
+-            .spawn(thread_start_task.instrument(request_context.span()))
++            .spawn(
++                codex_core::relay_authority::scope(authority_key, thread_start_task)
++                    .instrument(request_context.span()),
++            )
+             .await
+             .map_err(|_| internal_error("thread startup task stopped before completing"))?;
+         Ok(())
+@@ -1671,6 +1676,19 @@ impl ThreadRequestProcessor {
+                 otel.name = "app_server.thread_start.config_snapshot",
+             ))
+             .await;
++        // Protected normal creation must checkpoint native initialization before
++        // its durable authority reply can commit. This uses the native store,
++        // creates no synthetic turn, and leaves ephemeral helpers unchanged.
++        if crate::relay_authority::current()
++            .map_err(internal_error)?
++            .is_some()
++            && !config_snapshot.ephemeral
++        {
++            thread
++                .checkpoint_authority_creation()
++                .await
++                .map_err(|error| internal_error(error.to_string()))?;
++        }
+         let mut thread = build_thread_from_snapshot(
+             thread_id,
+             session_configured.session_id.to_string(),
+diff --git a/codex-rs/core/src/codex_thread.rs b/codex-rs/core/src/codex_thread.rs
+index 968d331..04091f7 100644
+--- a/codex-rs/core/src/codex_thread.rs
++++ b/codex-rs/core/src/codex_thread.rs
+@@ -428,6 +428,14 @@ impl CodexThread {
+             .await
+     }
+ 
++    #[doc(hidden)]
++    pub async fn checkpoint_authority_creation(&self) -> std::io::Result<()> {
++        self.session
++            .try_ensure_rollout_materialized(PersistContext::Standard)
++            .await?;
++        self.session.flush_rollout().await
++    }
++
+     #[doc(hidden)]
+     pub async fn ensure_rollout_materialized(&self) {
+         self.session
+diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
+index 61400a1..b74f5e8 100644
+--- a/codex-rs/core/src/lib.rs
++++ b/codex-rs/core/src/lib.rs
+@@ -150,6 +150,7 @@ pub use client::X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER;
+ pub use codex_protocol::config_types::ModelProviderAuthInfo;
+ mod event_mapping;
+ pub use codex_prompts as review_prompts;
++pub mod relay_authority;
+ mod thread_manager;
+ mod thread_spawn;
+ pub use agent::host::HostThreadSpawnReservation;
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index b56485d..3859778 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -1655,6 +1655,7 @@ impl ThreadManager {
+         &self,
+         rollout_path: PathBuf,
+     ) -> CodexResult<InitialHistory> {
++        crate::relay_authority::require_source(&rollout_path).map_err(CodexErr::InvalidRequest)?;
+         let requested_rollout_path = rollout_path.clone();
+         let stored_thread = self
+             .state
+@@ -2244,6 +2245,17 @@ impl ThreadManagerState {
+ 
+     /// Spawn a new thread with optional history and register it with the manager.
+     async fn spawn_thread(&self, mut request: ThreadSpawnRequest) -> CodexResult<NewThread> {
++        crate::relay_authority::require_host(&request.options.config.codex_home)
++            .map_err(CodexErr::InvalidRequest)?;
++        crate::relay_authority::require_source(
++            &request.options.config.sqlite_config().state_db_path(),
++        )
++        .map_err(CodexErr::InvalidRequest)?;
++        if let InitialHistory::Resumed(history) = &request.options.initial_history
++            && let Some(path) = &history.rollout_path
++        {
++            crate::relay_authority::require_source(path).map_err(CodexErr::InvalidRequest)?;
++        }
+         let cancellation = request
+             .options
+             .config
+@@ -2539,6 +2551,22 @@ impl ThreadManagerState {
+         } else {
+             codex_sandboxing::WindowsSandboxProxySettingsMode::Reconcile
+         };
++        if config.codex_home.join("relay-authority-v1").exists() {
++            let id = match &initial_history {
++                InitialHistory::Resumed(resumed) => resumed.conversation_id,
++                _ => *reserved_thread_id
++                    .get_or_insert_with(|| agent_control.runtime().generate_thread_id()),
++            };
++            crate::relay_authority::register(
++                &config.codex_home,
++                &id.to_string(),
++                parent_thread_id
++                    .as_ref()
++                    .map(ToString::to_string)
++                    .as_deref(),
++            )
++            .map_err(CodexErr::InvalidRequest)?;
++        }
+         let spawn_result = Session::spawn(SessionSpawnArgs {
+             attached_thread,
+             startup,
+diff --git a/codex-rs/core/src/tools/router.rs b/codex-rs/core/src/tools/router.rs
+index 36fbfe4..df62940 100644
+--- a/codex-rs/core/src/tools/router.rs
++++ b/codex-rs/core/src/tools/router.rs
+@@ -366,6 +366,8 @@ impl ToolRouter {
+         source: ToolCallSource,
+         call_state: Option<Arc<ToolCallState>>,
+     ) -> Result<AnyToolResult, FunctionCallError> {
++        crate::relay_authority::check(&session.thread_id().to_string())
++            .map_err(FunctionCallError::RespondToModel)?;
+         let ToolCall {
+             tool_name,
+             call_id,

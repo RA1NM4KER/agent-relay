@@ -1,0 +1,27 @@
+   Compiling relay-native-authority-research v0.1.0 (/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority)
+    Finished `test` profile [unoptimized] target(s) in 3.05s
+     Running unittests lib.rs (/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/deps/relay_native_authority_research-1e1528adcc2b79b9)
+
+running 13 tests
+test host_authority::tests::mismatched_native_response_never_commits_another_binding ... ok
+test host_authority::tests::alternate_history_selection_cannot_override_authorized_thread ... ok
+test host_authority::tests::persistence_failure_poison_is_sticky ... ok
+test host_authority::tests::fork_admitted_before_revoke_cannot_register_new_authority_after_it ... ok
+test host_authority::tests::committed_replay_survives_host_restart_without_execution ... ok
+test host_authority::tests::ephemeral_intent_requires_parent_and_revokes_with_it ... ok
+test host_authority::tests::profile_identity_and_policy_changes_fail_closed ... ok
+test host_authority::tests::enrollment_and_owner_fence_prevent_fresh_conversation_escape ... ok
+test host_authority::tests::foreign_unmediated_unknown_and_fenced_paths_refuse ... ok
+test host_authority::tests::unresolved_creation_never_replays_and_second_host_cannot_start ... ok
+test host_authority::tests::request_identity_cannot_be_reused_to_bypass_typed_admission ... ok
+test host_authority::tests::queued_recheck_and_internal_descendants_follow_exact_root ... ok
+test host_authority::tests::supervisor_rotation_fences_old_connection_and_pending_intent_only ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+   Doc-tests relay_native_authority_research
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

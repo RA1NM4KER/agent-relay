@@ -1,0 +1,20 @@
+{
+  "stage": "authority-controller-final-format",
+  "argv": [
+    "cargo",
+    "fmt",
+    "--manifest-path",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/Cargo.toml"
+  ],
+  "started": 1793469525.968382,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 5928337408,
+  "pid": 43383,
+  "exit_code": 0,
+  "elapsed_s": 2.0093021392822266,
+  "free_after": 5926854656
+}

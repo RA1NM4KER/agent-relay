@@ -1,0 +1,16 @@
+{
+  "root": "/private/tmp/relay-cross-home-hnfg4iuf",
+  "sourceRoot": "/private/tmp/relay-native-authority-pmq_c45y",
+  "sourceThread": "01a1936e-36c4-7661-bce2-a12533063b05",
+  "rollout": "/private/tmp/relay-native-authority-pmq_c45y/codex/sessions/2026/10/31/rollout-2026-10-31T21-27-16-01a1936e-36c4-7661-bce2-a12533063b05.jsonl",
+  "handoffPermitted": false,
+  "fullParity": false,
+  "rejected": true,
+  "rejection": "{\"code\": -32600, \"message\": \"no rollout found for thread id 01a1936e-36c4-7661-bce2-a12533063b05\"}",
+  "boundaryBypassed": false,
+  "cleanup": {
+    "pid": 92736,
+    "exitCode": 0,
+    "socketQuiet": true
+  }
+}

@@ -15,6 +15,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import re
 
 
 def digest(path):
@@ -28,18 +29,24 @@ def digest(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--lab", type=Path, required=True)
+    parser.add_argument("--run-id", default="")
     args = parser.parse_args()
     lab = args.lab.resolve(strict=True)
     if lab.parent != Path("/private/tmp") or not lab.name.startswith("relay-native-build-"):
         raise ValueError("expected the disposable native-build lab")
-    binary = lab / "target/debug/codex"
+    # Identify the lab by its preserved verified baseline package. The mutable
+    # debug CLI may now contain a newer, explicitly authorized native experiment.
+    binary = lab / "target/research-package/bin/codex"
     expected = "dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e"
     if digest(binary) != expected:
         raise ValueError("unexpected native build; review before compacting its cache")
     cache = lab / "target/debug/deps"
-    work = lab / "cache-compaction-work"
+    if args.run_id and not re.fullmatch(r"[a-zA-Z0-9-]+", args.run_id):
+        raise ValueError("invalid distinct compaction run ID")
+    suffix = "-" + args.run_id if args.run_id else ""
+    work = lab / f"cache-compaction{suffix}-work"
     work.mkdir(exist_ok=False)
-    journal = lab / "cache-compaction.jsonl"
+    journal = lab / f"cache-compaction{suffix}.jsonl"
     summary = {"free_before": shutil.disk_usage(lab).free, "files": 0,
                "allocated_bytes_saved": 0, "decoded_bytes_preserved": True}
 
@@ -105,7 +112,7 @@ def main():
     if digest(binary) != expected:
         raise RuntimeError("native executable changed unexpectedly")
     summary["free_after"] = shutil.disk_usage(lab).free
-    (lab / "cache-compaction-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    (lab / f"cache-compaction{suffix}-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, indent=2))
 
 

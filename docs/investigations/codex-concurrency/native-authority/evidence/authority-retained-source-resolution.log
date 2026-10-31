@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/private/tmp/relay-native-build-20261030-9fw2zv7w/resolve_retained_sources.py", line 15, in <module>
+    if not match:raise RuntimeError(p.stderr)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: error: no matching package found
+searched package name: `curl`
+perhaps you meant:      url, clru, crc, ...
+location searched: directory source `/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/registry/src/index.crates.io-1949cf8c6b5b557f` (which is replacing registry `crates-io`)
+required by package `codex-http-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/http-client)`
+As a reminder, you're using offline mode (--offline) which can sometimes cause surprising resolution failures, if this error is too confusing you may wish to retry without `--offline`.
+

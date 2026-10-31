@@ -1,0 +1,11 @@
+error: no matching package named `id-arena` found
+location searched: directory source `/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/registry/src/index.crates.io-1949cf8c6b5b557f` (which is replacing registry `crates-io`)
+required by package `wit-parser v0.244.0`
+    ... which satisfies dependency `wit-parser = "^0.244.0"` (locked to 0.244.0) of package `wit-bindgen-core v0.51.0`
+    ... which satisfies dependency `wit-bindgen-core = "^0.51.0"` (locked to 0.51.0) of package `wit-bindgen-rust-macro v0.51.0`
+    ... which satisfies dependency `wit-bindgen-rust-macro = "^0.51.0"` (locked to 0.51.0) of package `wit-bindgen v0.51.0`
+    ... which satisfies dependency `wit-bindgen = "^0.51.0"` (locked to 0.51.0) of package `wasip2 v1.0.2+wasi-0.2.9`
+    ... which satisfies dependency `wasip2 = "^1"` (locked to 1.0.2+wasi-0.2.9) of package `getrandom v0.3.4`
+    ... which satisfies dependency `getrandom = "^0.3"` (locked to 0.3.4) of package `uuid v1.20.0`
+    ... which satisfies dependency `uuid = "^1"` (locked to 1.20.0) of package `codex-code-mode-host v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/code-mode-host)`
+As a reminder, you're using offline mode (--offline) which can sometimes cause surprising resolution failures, if this error is too confusing you may wish to retry without `--offline`.

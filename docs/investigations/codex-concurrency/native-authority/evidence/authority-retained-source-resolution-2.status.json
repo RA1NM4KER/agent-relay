@@ -1,0 +1,18 @@
+{
+  "stage": "authority-retained-source-resolution-2",
+  "argv": [
+    "python3",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/resolve_retained_sources.py"
+  ],
+  "started": 1793465597.195352,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 8017362944,
+  "pid": 33172,
+  "exit_code": 1,
+  "elapsed_s": 106.20701694488525,
+  "free_after": 6582046720
+}

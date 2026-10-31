@@ -1,0 +1,18 @@
+{
+  "stage": "authority-vm-image-preparation",
+  "argv": [
+    "python3",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/prepare_vm.py"
+  ],
+  "started": 1793471777.296534,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2644967424,
+  "pid": 6018,
+  "exit_code": 1,
+  "elapsed_s": 10.02550196647644,
+  "free_after": 2542583808
+}

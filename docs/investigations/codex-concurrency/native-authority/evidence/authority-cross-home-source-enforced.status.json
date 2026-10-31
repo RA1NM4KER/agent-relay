@@ -1,0 +1,23 @@
+{
+  "stage": "authority-cross-home-source-enforced",
+  "argv": [
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/check_cross_home.py",
+    "--app-server",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex-app-server",
+    "--source-root",
+    "/private/tmp/relay-native-authority-pmq_c45y",
+    "--share-store"
+  ],
+  "started": 1793475331.9264371,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2627321856,
+  "pid": 731,
+  "exit_code": 0,
+  "elapsed_s": 18.076923847198486,
+  "free_after": 2620768256
+}

@@ -1,0 +1,36 @@
+    Blocking waiting for file lock on package cache
+   Compiling typenum v1.20.0
+   Compiling generic-array v0.14.7
+   Compiling syn v2.0.117
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.228
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling serde v1.0.228
+   Compiling serde_json v1.0.149
+   Compiling digest v0.10.7
+   Compiling cpufeatures v0.2.17
+   Compiling serde_derive v1.0.228
+   Compiling tokio-macros v2.7.0
+   Compiling memchr v2.8.1
+   Compiling sha2 v0.10.9
+   Compiling tokio v1.52.3
+   Compiling relay-native-authority-research v0.1.0 (/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority)
+    Finished `test` profile [unoptimized] target(s) in 17.37s
+     Running unittests lib.rs (/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/deps/relay_native_authority_research-a2e735a247b9e730)
+
+running 5 tests
+test host_authority::tests::unresolved_creation_never_replays_and_second_host_cannot_start ... ok
+test host_authority::tests::persistence_failure_poison_is_sticky ... ok
+test host_authority::tests::committed_replay_survives_host_restart_without_execution ... ok
+test host_authority::tests::foreign_unmediated_unknown_and_fenced_paths_refuse ... ok
+test host_authority::tests::queued_recheck_and_internal_descendants_follow_exact_root ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+
+   Doc-tests relay_native_authority_research
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

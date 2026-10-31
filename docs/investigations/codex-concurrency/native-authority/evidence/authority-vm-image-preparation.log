@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/prepare_vm.py", line 118, in <module>
+    iso,provenance=media();outputs=extract(iso);outputs.append(append_init())
+                                   ~~~~~~~^^^^^
+  File "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/prepare_vm.py", line 92, in extract
+    if (ROOT/'kernel').read_bytes()[56:60]!=b'ARMd':raise ValueError('expected raw ARM64 kernel image')
+                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: expected raw ARM64 kernel image

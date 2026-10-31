@@ -1,0 +1,807 @@
+    Checking libc v0.2.186
+    Checking serde_core v1.0.228
+    Checking serde v1.0.228
+    Checking memchr v2.8.1
+    Checking smallvec v1.15.1
+    Checking zeroize v1.8.2
+    Checking scopeguard v1.2.0
+    Checking lock_api v0.4.14
+    Checking parking_lot_core v0.9.12
+    Checking parking_lot v0.12.5
+    Checking getrandom v0.2.17
+    Checking log v0.4.34
+    Checking portable-atomic v1.13.1
+    Checking typenum v1.20.0
+    Checking critical-section v1.2.0
+    Checking once_cell v1.21.4
+    Checking bitflags v2.13.1
+    Checking errno v0.3.14
+    Checking subtle v2.6.1
+    Checking bytes v1.12.1
+    Checking rand_core v0.6.4
+    Checking generic-array v0.14.7
+    Checking futures-core v0.3.34
+    Checking crypto-common v0.1.7
+    Checking stable_deref_trait v1.2.1
+    Checking equivalent v1.0.2
+    Checking signal-hook-registry v1.4.8
+    Checking socket2 v0.6.3
+    Checking regex-syntax v0.8.8
+    Checking aho-corasick v1.1.4
+    Checking mio v1.2.0
+    Checking tokio v1.52.3
+    Checking regex-automata v0.4.13
+    Checking const-oid v0.9.6
+    Checking thiserror v2.0.18
+    Checking allocator-api2 v0.2.21
+    Checking futures-sink v0.3.34
+    Checking block-buffer v0.10.4
+    Checking tracing-core v0.1.36
+    Checking foldhash v0.2.0
+    Checking digest v0.10.7
+    Checking slab v0.4.12
+    Checking tracing v0.1.44
+    Checking futures-channel v0.3.34
+    Checking futures-task v0.3.34
+    Checking futures-io v0.3.34
+    Checking futures-util v0.3.34
+    Checking hashbrown v0.17.1
+    Checking fastrand v2.5.0
+    Checking serde_json v1.0.149
+    Checking num-traits v0.2.19
+    Checking getrandom v0.3.4
+    Checking http v1.4.0
+    Checking percent-encoding v2.3.2
+    Checking cpufeatures v0.2.17
+    Checking http-body v1.0.1
+    Checking zerofrom v0.1.6
+    Checking core-foundation-sys v0.8.7
+    Checking rand_core v0.10.1
+    Checking yoke v0.8.2
+    Checking fnv v1.0.7
+    Checking getrandom v0.4.2
+    Checking zerovec v0.11.6
+    Checking base64 v0.22.1
+    Checking indexmap v2.14.0
+    Checking powerfmt v0.2.0
+    Checking deranged v0.5.5
+    Checking num_threads v0.1.7
+    Checking time-core v0.1.8
+    Checking num-conv v0.2.0
+    Checking time v0.3.47
+    Checking tinystr v0.8.3
+    Checking http-body-util v0.1.3
+    Checking tokio-util v0.7.18
+    Checking either v1.15.0
+    Checking zerocopy v0.8.37
+    Checking sha2 v0.10.9
+    Checking writeable v0.6.2
+    Checking ipnet v2.11.0
+    Checking form_urlencoded v1.2.2
+    Checking bstr v1.12.1
+    Checking sync_wrapper v1.0.2
+    Checking untrusted v0.9.0
+    Checking litemap v0.8.1
+    Checking icu_locale_core v2.2.0
+    Checking ring v0.17.14
+    Checking potential_utf v0.1.4
+    Checking ppv-lite86 v0.2.21
+    Checking zerotrie v0.2.4
+    Checking utf8_iter v1.0.4
+    Checking icu_collections v2.2.0
+    Checking icu_provider v2.2.0
+    Checking rustix v1.1.4
+    Checking aws-lc-sys v0.45.0
+    Checking rustls-pki-types v1.14.0
+    Checking untrusted v0.7.1
+    Checking tinyvec_macros v0.1.1
+    Checking sha1_smol v1.0.1
+    Checking httpdate v1.0.3
+    Checking uuid v1.20.0
+    Checking tinyvec v1.10.0
+    Checking aws-lc-rs v1.18.1
+    Checking security-framework-sys v2.15.0
+    Checking ryu v1.0.22
+    Checking gix-error v0.5.0
+    Checking icu_normalizer_data v2.2.0
+    Checking icu_properties_data v2.2.0
+    Checking byteorder v1.5.0
+    Checking icu_properties v2.2.0
+    Checking icu_normalizer v2.2.0
+    Checking httparse v1.10.1
+    Checking rustls-webpki v0.103.16
+    Checking num-integer v0.1.46
+    Checking rustls v0.23.46
+    Checking idna_adapter v1.2.1
+    Checking atomic-waker v1.1.2
+    Checking try-lock v0.2.5
+    Checking want v0.3.1
+    Checking idna v1.1.0
+    Checking crossbeam-utils v0.8.21
+    Checking core-foundation v0.9.4
+    Checking core-foundation v0.10.1
+    Checking security-framework v3.5.1
+    Checking h2 v0.4.19
+    Checking rand_core v0.9.5
+    Checking futures-executor v0.3.34
+    Checking tower-service v0.3.3
+    Checking mime v0.3.17
+    Checking rand_chacha v0.9.0
+    Checking url v2.5.8
+    Checking rand v0.9.3
+    Checking system-configuration-sys v0.6.0
+    Checking unicode-normalization v0.1.25
+    Checking system-configuration v0.7.0
+    Checking hyper v1.11.1
+    Checking prodash v31.0.1
+    Checking gix-utils v0.5.0
+    Checking hyper-util v0.1.20
+    Checking rustls-native-certs v0.8.3
+    Checking tokio-rustls v0.26.4
+    Checking tower-layer v0.3.3
+    Checking tempfile v3.27.0
+    Checking regex v1.12.3
+    Checking psl-types v2.0.11
+    Checking tower v0.5.3
+    Checking futures v0.3.34
+    Checking webpki-roots v1.0.10
+    Checking lazy_static v1.5.0
+    Checking gix-validate v0.13.0
+    Checking hex v0.4.3
+    Checking hmac v0.12.1
+    Checking http v0.2.12
+    Checking outref v0.5.2
+    Checking vsimd v0.8.0
+    Checking base64-simd v0.8.0
+    Checking http-body v0.4.6
+    Checking crossbeam-epoch v0.9.20
+    Checking bytes-utils v0.1.4
+    Checking gix-trace v0.3.0
+    Checking pin-utils v0.1.0
+    Checking aws-smithy-types v1.4.7
+    Checking hyper-rustls v0.27.7
+    Checking itertools v0.14.0
+    Checking nibble_vec v0.1.0
+    Checking bytemuck v1.25.0
+    Checking ahash v0.8.12
+    Checking gix-path v0.14.0
+    Checking aws-smithy-async v1.2.14
+    Checking iri-string v0.7.10
+    Checking unicase v2.9.0
+    Checking aws-smithy-runtime-api v1.12.0
+    Checking const_format v0.2.35
+    Checking wildcard v0.3.0
+    Checking spin v0.9.8
+    Checking nom v8.0.0
+    Checking smol_str v0.3.5
+    Checking dyn-clone v1.0.20
+    Checking rama-utils v0.3.0-alpha.4
+    Checking flume v0.12.0
+    Checking mime_guess v2.0.5
+    Checking num-bigint v0.4.6
+    Checking tokio-graceful v0.2.2
+    Checking hashbrown v0.16.1
+    Checking asynk-strim v0.1.5
+    Checking regex-lite v0.1.8
+    Checking data-encoding v2.10.0
+    Checking option-ext v0.2.0
+    Checking rama-error v0.3.0-alpha.4
+    Checking rama-core v0.3.0-alpha.4
+    Checking dirs-sys v0.5.0
+    Checking crc32fast v1.5.0
+    Checking security-framework v2.11.1
+    Checking iana-time-zone v0.1.65
+    Checking tokio-stream v0.1.18
+    Checking endian-type v0.2.0
+    Checking radix_trie v0.3.0
+    Checking chrono v0.4.43
+    Checking native-tls v0.2.14
+    Checking schemars v0.8.22
+    Checking dirs v6.0.0
+    Checking rama-http-types v0.3.0-alpha.4
+    Checking zstd-sys v2.0.16+zstd.1.5.7
+    Checking psl v2.1.184
+    Checking sha1 v0.10.6
+    Checking opentelemetry v0.31.0
+    Checking md5 v0.8.0
+    Checking simd-adler32 v0.3.8
+    Checking rama-net v0.3.0-alpha.4
+    Checking zstd-safe v7.2.4
+    Checking tokio-native-tls v0.3.1
+    Checking cookie v0.18.1
+    Checking ts-rs v11.1.0
+    Checking tower-http v0.6.8
+    Checking crossbeam-deque v0.8.6
+    Checking anyhow v1.0.103
+    Checking publicsuffix v2.3.0
+    Checking encoding_rs v0.8.35
+    Checking minimal-lexical v0.2.1
+    Checking dunce v1.0.5
+    Checking codex-utils-absolute-path v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/absolute-path)
+    Checking nom v7.1.3
+    Checking cookie_store v0.22.1
+    Checking hyper-tls v0.6.0
+    Checking zstd v0.13.3
+    Checking aws-credential-types v1.2.11
+    Checking aws-smithy-http v0.62.6
+    Checking sharded-slab v0.1.7
+    Checking serde_urlencoded v0.7.1
+    Checking tracing-serde v0.2.0
+    Checking tracing-log v0.2.0
+    Checking matchers v0.2.0
+    Checking thread_local v1.1.9
+    Checking utf8parse v0.2.2
+    Checking nu-ansi-term v0.50.3
+    Checking adler2 v2.0.1
+    Checking crc-catalog v2.4.0
+    Checking crc v3.4.0
+    Checking miniz_oxide v0.8.9
+    Checking tracing-subscriber v0.3.22
+    Checking reqwest v0.12.28
+    Checking rayon-core v1.13.0
+    Checking crossbeam-channel v0.5.15
+    Checking chacha20 v0.10.2
+    Checking zlib-rs v0.5.5
+    Checking flate2 v1.1.8
+    Checking ref-cast v1.0.25
+    Checking rand v0.10.1
+    Checking aws-sigv4 v1.3.7
+    Checking env_filter v1.0.0
+    Checking bumpalo v3.19.1
+    Checking env_logger v0.11.9
+    Checking anstyle-parse v0.2.7
+    Checking rusticata-macros v4.1.0
+    Checking hash32 v0.2.1
+    Checking arrayvec v0.7.6
+    Checking is_terminal_polyfill v1.70.2
+    Checking constant_time_eq v0.3.1
+    Checking anstyle-query v1.1.5
+    Checking link-section v0.17.2
+    Checking atomic v0.5.3
+    Checking unicode-segmentation v1.12.0
+    Checking bit-vec v0.8.0
+    Checking colorchoice v1.0.4
+    Checking anstyle v1.0.13
+    Checking tagptr v0.2.0
+    Checking moka v0.12.13
+    Checking anstream v0.6.21
+    Checking bit-set v0.8.0
+    Checking lock_free_hashtable v0.1.4
+    Checking ctor v1.0.6
+    Checking asn1-rs v0.7.1
+    Checking heapless v0.7.17
+    Checking hickory-proto v0.25.2
+    Checking quickcheck v1.1.0
+    Checking typeid v1.0.3
+    Checking codex-utils-rustls-provider v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/rustls-provider)
+    Checking terminal_size v0.4.3
+    Checking cobs v0.3.0
+    Checking arrayref v0.3.9
+    Checking hashbrown v0.14.5
+    Checking strsim v0.11.1
+    Checking clap_lex v1.0.0
+    Checking urlencoding v2.1.3
+    Checking unicode-width v0.1.14
+    Checking resolv-conf v0.7.6
+    Checking hickory-resolver v0.25.2
+    Checking clap_builder v4.5.58
+    Checking dashmap v6.1.0
+    Checking blake3 v1.8.2
+    Checking strong_hash v0.1.0
+    Checking allocative v0.3.6
+    Checking postcard v1.1.3
+    Checking nix v0.28.0
+    Checking erased-serde v0.4.10
+    Checking sorted_vector_map v0.2.1
+    Checking static_interner v0.1.2
+    Checking fancy-regex v0.16.2
+    Checking dupe v0.9.1
+    Checking tracing-opentelemetry v0.32.1
+    Checking fxhash v0.2.1
+    Checking pem v3.0.6
+    Checking triomphe v0.1.15
+    Checking csv-core v0.1.13
+    Checking bitflags v1.3.2
+    Checking inventory v0.3.24
+    Checking sequence_trie v0.3.6
+    Checking static_assertions v1.1.0
+    Checking take_mut v0.2.2
+    Checking pagable v0.4.1
+    Checking fluent-uri v0.1.4
+    Checking csv v1.4.0
+    Checking clap v4.5.58
+    Checking codex-http-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/http-client)
+    Checking memoffset v0.9.1
+    Checking rama-http-headers v0.3.0-alpha.4
+    Checking oid-registry v0.8.1
+    Checking rama-dns v0.3.0-alpha.4
+    Checking der-parser v10.0.0
+    Checking serde_html_form v0.3.2
+    Checking matchit v0.9.1
+    Checking http-range-header v0.4.2
+    Checking endian-type v0.1.2
+    Checking radix_trie v0.2.1
+    Checking rama-http v0.3.0-alpha.4
+    Checking x509-parser v0.18.1
+    Checking rama-tcp v0.3.0-alpha.4
+    Checking derive_more v1.0.0
+    Checking logos v0.15.1
+    Checking lsp-types v0.97.0
+    Checking starlark_map v0.14.2
+    Checking annotate-snippets v0.9.2
+    Checking codex-utils-home-dir v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/home-dir)
+    Checking fdeflate v0.3.7
+    Checking tokio-test v0.4.5
+    Checking gix-url v0.40.0
+    Checking fd-lock v4.0.4
+    Checking globset v0.4.18
+    Checking yasna v0.6.0
+    Checking pxfm v0.1.27
+    Checking color_quant v1.1.0
+    Checking byteorder-lite v0.1.0
+    Checking quick-error v2.0.1
+    Checking zune-core v0.5.1
+    Checking home v0.5.12
+    Checking indenter v0.3.4
+    Checking weezl v0.1.12
+    Checking gif v0.14.1
+    Checking display_container v0.9.0
+    Checking rustyline v14.0.0
+    Checking zune-jpeg v0.5.12
+    Checking image-webp v0.2.4
+    Checking moxcms v0.7.11
+    Checking rcgen v0.14.9
+    Checking rama-http-core v0.3.0-alpha.4
+    Checking png v0.18.0
+    Checking starlark_syntax v0.14.2
+    Checking debugserver-types v0.5.0
+    Checking icu_locale_data v2.2.0
+    Checking textwrap v0.11.0
+    Checking rama-udp v0.3.0-alpha.4
+    Checking rama-unix v0.3.0-alpha.4
+    Checking lru v0.18.2
+    Checking erased-serde v0.3.31
+    Checking strsim v0.10.0
+    Checking maplit v1.0.2
+    Checking cmp_any v0.8.1
+    Checking starlark v0.14.2
+    Checking codex-utils-cache v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/cache)
+    Checking rama-http-backend v0.3.0-alpha.4
+    Checking rama-socks5 v0.3.0-alpha.4
+    Checking icu_locale v2.2.0
+    Checking serde_with v3.17.0
+    Checking image v0.25.9
+    Checking rama-tls-rustls v0.3.0-alpha.4
+    Checking icu_decimal_data v2.2.0
+    Checking codex-utils-path-uri v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/path-uri)
+    Checking rand_regex v0.18.1
+    Checking fixed_decimal v0.7.2
+    Checking multimap v0.10.1
+    Checking serde_ignored v0.1.14
+    Checking shlex v1.3.0
+    Checking codex-execpolicy v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/execpolicy)
+    Checking codex-network-proxy v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/network-proxy)
+    Checking icu_decimal v2.2.0
+    Checking derive_more v2.1.1
+    Checking strum v0.27.2
+    Checking codex-utils-image v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/image)
+    Checking codex-extension-items v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/items)
+    Checking chardetng v0.1.17
+    Checking codex-utils-redacted-string v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/redacted-string)
+    Checking codex-utils-string v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/string)
+    Checking codex-async-utils v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/async-utils)
+    Checking quick-xml v0.41.0
+    Checking wildmatch v2.6.1
+    Checking sys-locale v0.3.2
+    Checking codex-protocol v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/protocol)
+    Checking same-file v1.0.6
+    Checking hash32 v0.3.1
+    Checking heapless v0.8.0
+    Checking faster-hex v0.10.1
+    Checking walkdir v2.5.0
+    Checking sha1dc v0.1.5
+    Checking gix-hash v0.28.0
+    Checking jiff-core v0.1.1
+    Checking jiff v0.2.38
+    Checking gix-date v0.18.0
+    Checking gix-actor v0.44.0
+    Checking gix-hashtable v0.18.0
+    Checking gix-parallel v0.50.0
+    Checking gix-object v0.66.0
+    Checking memmap2 v0.9.11
+    Checking gix-fs v0.24.0
+    Checking thiserror v1.0.69
+    Checking concurrent-queue v2.5.0
+    Checking parking v2.2.1
+    Checking objc2-encode v4.1.0
+    Checking objc2 v0.6.3
+    Checking event-listener v5.4.1
+    Checking pin-project v1.1.10
+    Checking inout v0.1.4
+    Checking cipher v0.4.4
+    Checking objc2-core-foundation v0.3.2
+    Checking gix-tempfile v26.0.0
+    Checking hyper-timeout v0.5.2
+    Checking gix-chunk v0.10.0
+    Checking headers-core v0.3.0
+    Checking nonempty v0.12.0
+    Checking headers v0.4.1
+    Checking tonic v0.14.3
+    Checking gix-lock v26.0.0
+    Checking block2 v0.6.2
+    Checking prost v0.14.3
+    Checking eventsource-stream v0.2.3
+    Checking universal-hash v0.5.1
+    Checking utf-8 v0.7.6
+    Checking base64ct v1.8.3
+    Checking opaque-debug v0.3.1
+    Checking pem-rfc7468 v0.7.0
+    Checking tungstenite v0.27.0 (https://github.com/openai-oss-forks/tungstenite-rs?rev=4fffad30fe373adbdcffab9545e9e9bf4f2fc19f#4fffad30)
+    Checking codex-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/codex-client)
+    Checking tonic-prost v0.14.3
+    Checking objc2-foundation v0.3.2
+    Checking filedescriptor v0.8.3
+    Checking gix-quote v0.10.0
+    Checking gix-sec v0.16.0
+    Checking serial2 v0.2.33
+    Checking downcast-rs v1.2.1
+    Checking shell-words v1.1.1
+    Checking portable-pty v0.9.0
+    Checking tokio-tungstenite v0.28.0 (https://github.com/openai-oss-forks/tokio-tungstenite?rev=0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186#0e5b2d73)
+    Checking der v0.7.10
+    Checking gix-ref v0.69.0
+    Checking gix-commitgraph v0.41.0
+    Checking arc-swap v1.9.0
+    Checking rand_chacha v0.3.1
+    Checking zlib-rs v0.6.3
+    Checking gix-zlib v0.3.0
+    Checking rand v0.8.6
+    Checking gix-revwalk v0.37.0
+    Checking spki v0.7.3
+    Checking codex-utils-pty v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/pty)
+    Checking gix-command v0.12.0
+    Checking event-listener-strategy v0.5.4
+    Checking gix-packetline v0.24.0
+    Checking codex-file-system v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/file-system)
+    Checking clru v0.6.3
+    Checking aead v0.5.2
+    Checking hybrid-array v0.4.12
+    Checking codex-utils-process v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/process)
+    Checking gix-pack v0.76.0
+    Checking gix-transport v0.61.0
+    Checking async-channel v2.5.0
+    Checking pkcs8 v0.10.2
+    Checking codex-websocket-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/websocket-client)
+    Checking gix-shallow v0.15.0
+    Checking gix-glob v0.29.0
+    Checking opentelemetry_sdk v0.31.0
+    Checking gix-config-value v0.21.0
+    Checking gethostname v1.1.0
+    Checking const-hex v1.17.0
+    Checking unicode-bom v2.0.3
+    Checking gix-config v0.62.0
+    Checking gix-protocol v0.67.0
+    Checking opentelemetry-proto v0.31.0
+    Checking codex-api v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/codex-api)
+    Checking nix v0.30.1
+    Checking gix-odb v0.86.0
+    Checking gix-traverse v0.63.0
+    Checking gix-revision v0.51.0
+    Checking gix-discover v0.57.0
+    Checking gix-diff v0.69.0
+    Checking gix-refspec v0.47.0
+    Checking opentelemetry-http v0.31.0
+    Checking serde_path_to_error v0.1.20
+    Checking opentelemetry-otlp v0.31.0
+    Checking gix v0.89.0
+    Checking os_info v3.14.0
+    Checking curve25519-dalek v4.1.3
+    Checking crypto-common v0.2.2
+    Checking polyval v0.6.2
+    Checking opentelemetry-appender-tracing v0.31.1
+    Checking similar v2.7.0
+    Checking opentelemetry-semantic-conventions v0.31.0
+    Checking codex-utils-stream-parser v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/stream-parser)
+    Checking codex-otel v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/otel)
+    Checking codex-git-utils v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/git-utils)
+    Checking ghash v0.5.1
+    Checking ctr v0.9.2
+    Checking aes v0.8.4
+    Checking signature v2.2.0
+    Checking ff v0.13.1
+    Checking base16ct v0.2.0
+    Checking winnow v1.0.4
+    Checking cmov v0.5.3
+    Checking ctutils v0.4.5
+    Checking toml_parser v1.1.3+spec-1.1.0
+    Checking sec1 v0.7.3
+    Checking group v0.13.0
+    Checking aes-gcm v0.10.3
+    Checking block-buffer v0.12.0
+    Checking hkdf v0.12.4
+    Checking keccak v0.1.6
+    Checking crypto-bigint v0.5.5
+    Checking toml_datetime v0.7.5+spec-1.1.0
+    Checking winnow v0.7.14
+    Checking toml_writer v1.0.6+spec-1.1.0
+    Checking const-oid v0.10.2
+    Checking digest v0.11.3
+    Checking elliptic-curve v0.13.8
+    Checking sha3 v0.10.9
+    Checking kem v0.3.0-pre.0
+    Checking hybrid-array v0.2.3
+    Checking serde_spanned v1.0.4
+    Checking toml v0.9.11+spec-1.1.0
+    Checking ml-kem v0.2.3
+    Checking x25519-dalek v2.0.1
+    Checking codex-utils-path v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/path-utils)
+    Checking rfc6979 v0.4.0
+    Checking unic-langid-impl v0.9.6
+    Checking cpufeatures v0.3.0
+    Checking unic-langid v0.9.6
+    Checking ecdsa v0.16.9
+    Checking primeorder v0.13.6
+    Checking poly1305 v0.8.0
+    Checking p256 v0.13.2
+    Checking tree-sitter-language v0.1.7
+    Checking simple_asn1 v0.6.4
+    Checking rustc-hash v2.1.1
+    Checking type-map v0.5.1
+    Checking jsonwebtoken v9.3.1
+    Checking sha2 v0.11.0
+    Checking codex-features v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/features)
+    Checking toml_edit v0.24.0+spec-1.1.0
+    Checking codex-model-provider-info v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/model-provider-info)
+    Checking salsa20 v0.10.2
+    Checking dns-lookup v3.0.1
+    Checking env_home v0.1.0
+    Checking which v8.0.0
+    Checking codex-config v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/config)
+    Checking intl-memoizer v0.5.3
+    Checking intl_pluralrules v7.0.2
+    Checking fluent-langneg v0.13.1
+    Checking chacha20 v0.9.1
+    Checking fluent-syntax v0.12.0
+    Checking self_cell v1.2.2
+    Checking streaming-iterator v0.1.9
+    Checking tree-sitter v0.25.10
+    Checking fluent-bundle v0.16.0
+    Checking chacha20poly1305 v0.10.1
+    Checking tree-sitter-powershell v0.26.4
+    Checking tree-sitter-bash v0.25.1
+    Checking rust-embed-utils v8.11.0
+    Checking semver v1.0.27
+    Checking windows-targets v0.52.6
+    Checking windows-result v0.2.0
+    Checking rust-embed v8.11.0
+    Checking codex-shell-command v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/shell-command)
+    Checking hpke v0.12.0
+    Checking fluent v0.17.0
+    Checking pbkdf2 v0.12.2
+    Checking cookie-factory v0.3.3
+    Checking secrecy v0.10.3
+    Checking bech32 v0.11.1
+    Checking io_tee v0.1.1
+    Checking age-core v0.12.0
+    Checking scrypt v0.11.0
+    Checking i18n-embed v0.16.0
+    Checking windows-strings v0.1.0
+    Checking codex-install-context v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/install-context)
+    Checking keyring v3.6.3
+    Checking windows-core v0.58.0
+    Checking codex-keyring-store v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/keyring-store)
+    Checking age v0.12.1
+    Checking dirs-sys-next v0.1.2
+    Checking dirs-next v2.0.0
+    Checking codex-secrets v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/secrets)
+    Checking nix v0.29.0
+    Checking flatbuffers v25.12.19
+    Checking windows v0.58.0
+    Checking unicode-general-category v1.1.0
+    Checking codex-history v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/history)
+    Checking codex-utils-output-truncation v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/output-truncation)
+    Checking tracing-appender v0.2.4
+    Checking hashlink v0.11.0
+    Checking crossbeam-queue v0.3.12
+    Checking futures-intrusive v0.5.0
+    Checking unsafe-libyaml v0.2.11
+    Checking cidr v0.3.2
+    Checking glob v0.3.3
+    Checking widestring v1.2.1
+    Checking mxc-sdk v1.0.0 (https://github.com/microsoft/mxc?rev=b21120168d70befe12356411423266bfef168446#b2112016)
+    Checking codex-windows-sandbox v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/windows-sandbox-rs)
+    Checking serde_yaml v0.9.34+deprecated
+    Checking include_dir v0.7.4
+    Checking sqlx-core v0.9.0
+    Checking libsqlite3-sys v0.37.0
+    Checking crypto_secretbox v0.1.1
+    Checking ed25519 v2.2.3
+    Checking objc2-app-kit v0.3.2
+    Checking atoi v2.0.0
+    Checking blake2 v0.10.6
+    Checking notify-types v2.1.0
+    Checking fsevent-sys v4.1.0
+    Checking chunked_transfer v1.5.0
+    Checking ascii v1.1.0
+    Checking tiny_http v0.12.0
+    Checking notify v8.2.0
+    Checking crypto_box v0.9.1
+    Checking sqlx-sqlite v0.9.0
+    Checking thiserror-no-std v2.0.2
+    Checking webbrowser v1.2.4
+    Checking ed25519-dalek v2.2.0
+    Checking codex-skills v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/skills)
+    Checking codex-mxc-sandbox v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/mxc-sandbox)
+    Checking aws-smithy-http-client v1.1.12
+    Checking aws-smithy-observability v0.1.5
+    Checking axum-core v0.5.6
+    Checking codex-uds v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/uds)
+    Checking matchit v0.8.4
+    Checking codex-utils-template v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/template)
+    Checking axum v0.8.8
+    Checking codex-sandboxing v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/sandboxing)
+    Checking aws-smithy-runtime v1.9.5
+    Checking codex-exec-server-protocol v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/exec-server-protocol)
+    Checking codex-agent-identity v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/agent-identity)
+    Checking clatter v2.2.0
+    Checking aws-types v1.3.11
+    Checking sqlx v0.9.0
+    Checking codex-file-watcher v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/file-watcher)
+    Checking codex-build-info v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/build-info)
+    Checking codex-core-plugin-common v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/core-plugin-common)
+    Checking codex-websocket-auth v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/websocket-auth)
+    Checking codex-workload-identity v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/workload-identity)
+    Checking codex-terminal-detection v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/terminal-detection)
+    Checking file-id v0.2.3
+    Checking codex-state v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/state)
+    Checking codex-login v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/login)
+    Checking codex-exec-server v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/exec-server)
+    Checking aws-runtime v1.5.17
+    Checking nucleo-matcher v0.3.1 (https://github.com/helix-editor/nucleo.git?rev=4253de9faabb4e5c6d81d946a5e35a90f87347ee#4253de9f)
+    Checking rayon v1.11.0
+    Checking aws-smithy-json v0.61.9
+    Checking nucleo v0.5.0 (https://github.com/helix-editor/nucleo.git?rev=4253de9faabb4e5c6d81d946a5e35a90f87347ee#4253de9f)
+    Checking ignore v0.4.25
+    Checking codex-file-search v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/file-search)
+    Checking nix v0.31.3
+    Checking inout v0.2.2
+    Checking debugid v0.8.0
+    Checking xmlparser v0.13.6
+    Checking aws-smithy-xml v0.60.13
+    Checking sentry-types v0.46.1
+    Checking schemars v1.2.1
+    Checking cipher v0.5.2
+    Checking process-wrap v10.0.0
+    Checking codex-rollout v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/rollout)
+    Checking bzip2-sys v0.1.13+1.0.8
+    Checking hmac v0.13.0
+    Checking oauth2 v5.0.0
+    Checking codex-context-fragments v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/context-fragments)
+    Checking aws-smithy-query v0.60.9
+    Checking reqwest v0.13.4
+    Checking sse-stream v0.2.5
+    Checking libbz2-rs-sys v0.2.5
+    Checking base64 v0.23.0
+    Checking cpubits v0.1.1
+    Checking aes v0.9.3
+    Checking rmcp v3.5.1 (https://github.com/modelcontextprotocol/rust-sdk?rev=98a54789b80110ad210495c4ad845c89e1980471#98a54789)
+    Checking bzip2 v0.6.1
+    Checking aws-sdk-sts v1.95.0
+    Checking codex-guardian-context v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/guardian-context)
+    Checking pbkdf2 v0.13.0
+    Checking sentry-core v0.46.1
+    Checking aws-sdk-signin v1.2.0
+    Checking aws-sdk-ssooidc v1.93.0
+    Checking aws-sdk-sso v1.91.0
+    Checking codex-utils-plugins v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/plugins)
+    Checking lzma-rust2 v0.21.0
+    Checking sha1 v0.11.0
+    Checking zopfli v0.8.3
+    Checking filetime v0.2.27
+    Checking typed-path v0.12.3
+    Checking deflate64 v0.1.10
+    Checking constant_time_eq v0.4.2
+    Checking codex-collaboration-mode-templates v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/collaboration-mode-templates)
+    Checking codex-prompts v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/prompts)
+    Checking zip v9.0.0
+    Checking tar v0.4.45
+    Checking codex-plugin v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/plugin)
+    Checking aws-config v1.8.12
+    Checking sentry v0.46.1
+    Checking codex-feedback v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/feedback)
+    Checking codex-aws-auth v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/aws-auth)
+    Checking codex-models-manager v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/models-manager)
+    Checking codex-runtime-agent-instance v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/runtime-agent-instance)
+    Checking codex-response-debug-context v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/response-debug-context)
+    Checking codex-model-provider v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/model-provider)
+    Checking codex-code-mode-protocol v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/code-mode-protocol)
+    Checking codex-code-mode v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/code-mode)
+    Checking codex-connectors v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/connectors)
+    Checking codex-attachment-store v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/attachment-store)
+    Checking jsonptr v0.7.1
+    Checking codex-tools v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/tools)
+    Checking codex-rmcp-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/rmcp-client)
+    Checking codex-diagnostics v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/diagnostics)
+    Checking codex-mcp v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/codex-mcp)
+    Checking num-complex v0.4.6
+    Checking symphonia-core v0.6.0
+    Checking symphonia-metadata v0.6.0
+    Checking codex-extension-api v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/extension-api)
+    Checking codex-app-server-protocol v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/app-server-protocol)
+    Checking symphonia-common v0.6.0
+    Checking codex-analytics v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/analytics)
+    Checking caseless v0.2.2
+    Checking foldhash v0.1.5
+    Checking extended v0.1.0
+    Checking symphonia-format-riff v0.6.0
+    Checking hashbrown v0.15.5
+    Checking codex-message-board v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/message-board)
+    Checking symphonia-format-ogg v0.6.0
+    Checking symphonia-format-isomp4 v0.6.0
+    Checking symphonia-format-mkv v0.6.0
+    Checking symphonia-bundle-mp3 v0.6.0
+    Checking codex-hooks v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/hooks)
+    Checking web-time v1.1.0
+    Checking cached_proc_macro_types v0.1.1
+    Checking cached v0.56.0
+    Checking codex-core-plugins v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/core-plugins)
+    Checking symphonia v0.6.0
+    Checking stop-words v0.9.0
+    Checking pulldown-cmark v0.10.3
+    Checking codex-apply-patch v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/apply-patch)
+    Checking rust-stemmers v1.2.0
+    Checking codex-utils-critical-path v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/critical-path)
+    Checking deunicode v1.6.2
+    Checking bm25 v2.3.2
+    Checking codex-direct-tool-timing v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/direct-tool-timing)
+    Checking codex-thread-store v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/thread-store)
+    Checking codex-utils-audio v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/audio)
+    Checking codex-agent-message-board-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/agent-message-board)
+    Checking codex-agent-message-board-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/agent-message-board-client)
+    Checking codex-skills-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/skills)
+    Checking codex-guardian-reviewer v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/guardian-reviewer)
+    Checking codex-rollout-trace v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/rollout-trace)
+    Checking codex-agent-graph-store v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/agent-graph-store)
+    Checking codex-memories-read v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/memories/read)
+    Checking codex-agent-roles v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/agent-roles)
+    Checking codex-utils-git-discovery v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/git-discovery)
+    Checking whoami v1.6.1
+    Checking codex-utils-head-tail-buffer v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/head-tail-buffer)
+    Checking codex-core v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/core)
+    Checking codex-backend-openapi-models v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/codex-backend-openapi-models)
+    Checking is_ci v1.2.0
+    Checking codex-backend-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/backend-client)
+    Checking is-terminal v0.4.17
+    Checking supports-color v2.1.0
+    Checking supports-color v3.0.2
+    Checking owo-colors v4.3.0
+    Checking signal-hook v0.3.18
+    Checking objc2-security v0.3.2
+    Checking objc2-local-authentication v0.3.2
+    Checking codex-app-server-transport v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/app-server-transport)
+    Checking codex-linux-sandbox v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/linux-sandbox)
+    Checking codex-memories-write v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/memories/write)
+    Checking codex-connectors-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/connectors)
+    Checking codex-utils-cli v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/cli)
+    Checking linkify v0.11.0
+    Checking dotenvy v0.15.7
+    Checking codex-arg0 v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/arg0)
+    Checking codex-external-agent-migration v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/external-agent-migration)
+    Checking codex-chatgpt v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/chatgpt)
+    Checking codex-mcp-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/mcp)
+    Checking codex-app-server-daemon v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/app-server-daemon)
+    Checking codex-user-verification v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/user-verification)
+    Checking codex-git-attribution v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/git-attribution)
+    Checking codex-cloud-config v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/cloud-config)
+    Checking codex-goal-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/goal)
+    Checking codex-history-notes-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/history-notes)
+    Checking codex-memories-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/memories)
+    Checking codex-web-search-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/web-search)
+    Checking codex-guardian-v2 v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/guardian-v2)
+    Checking codex-image-generation-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/image-generation)
+    Checking codex-queue-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/queue)
+    Checking codex-multi-env-copy-file v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/multi-env-copy-file)
+    Checking codex-home v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/codex-home)
+    Checking codex-utils-json-to-toml v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/json-to-toml)
+    Checking codex-app-server v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/app-server)
+    Finished `dev` profile [unoptimized] target(s) in 5m 49s

@@ -1,0 +1,35 @@
+{
+  "root": "/private/tmp/relay-native-authority-yq6h8w3b",
+  "scope": "ACTUAL_NATIVE_AUTHORITY_NOT_FULL_PARITY",
+  "checks": [
+    "unmediated native creation refused"
+  ],
+  "full_parity": false,
+  "execution_quiescent": false,
+  "binary_sha256": "504a67f632d0a2b3f1a5ca7fe77f1572c90d522f126bec9a0d88d1f8474c0523",
+  "native_pids": [
+    91973
+  ],
+  "controller_receipts": [
+    {
+      "controller": "A",
+      "owner": "114bb5e4af0997cbe630aa4181aa9287e7466541979622256ad21fb9078cb577",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a19337-af06-7c50-a4e4-2b9d7f33bcdd"
+    },
+    {
+      "controller": "B",
+      "owner": "2535904cc36ba931b664d909a9e3e51a0a015105c0a55f3f6d95a331b46c4744",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a19337-af06-7c50-a4e4-2b9d7f33bcdd"
+    }
+  ],
+  "exception": "TimeoutExpired(['/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex', 'exec', '--skip-git-repo-check', '-C', '/private/tmp/relay-native-authority-yq6h8w3b', 'Must refuse protected native execution.'], 30)",
+  "host_cleanup": [
+    {
+      "pid": 91973,
+      "exit_code": 0
+    }
+  ],
+  "socket_quiet_after_cleanup": true
+}

@@ -1,0 +1,3 @@
+    Blocking waiting for file lock on package cache
+    Checking relay-native-authority-research v0.1.0 (/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority)
+    Finished `dev` profile [unoptimized] target(s) in 1.25s

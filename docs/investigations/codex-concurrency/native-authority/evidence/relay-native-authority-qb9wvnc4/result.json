@@ -1,0 +1,122 @@
+{
+  "root": "/private/tmp/relay-native-authority-qb9wvnc4",
+  "scope": "ACTUAL_NATIVE_AUTHORITY_NOT_FULL_PARITY",
+  "checks": [
+    "unmediated native creation refused",
+    "raw client cannot invent supervisor enrollment",
+    "alternative native exec cannot open a second protected host",
+    "two independent native owner bindings",
+    "second live connection cannot reuse A controller lease",
+    "retired A lease cannot drive its native root",
+    "supervisor recovery retains exact A native root",
+    "actual ephemeral native child inherits A exact authority root",
+    "native path selection cannot override owned ID: thread/resume",
+    "native path selection cannot override owned ID: thread/fork",
+    "raw native thread/resume refused",
+    "foreign native thread/resume refused",
+    "raw native thread/fork refused",
+    "foreign native thread/fork refused",
+    "raw native turn/start refused",
+    "foreign native turn/start refused",
+    "raw native turn/steer refused",
+    "foreign native turn/steer refused",
+    "raw native thread/shellCommand refused",
+    "foreign native thread/shellCommand refused",
+    "unclassified alternate execution process/spawn refused",
+    "unclassified alternate execution command/exec refused",
+    "unclassified alternate execution fs/writeFile refused",
+    "unclassified alternate execution thread/queue/start refused",
+    "unclassified alternate execution thread/realtime/start refused",
+    "unclassified alternate execution review/start refused",
+    "durable native revoke never claims quiescence",
+    "forged executor receipt cannot advance native handoff",
+    "fenced owner cannot resume its native root",
+    "fenced parent also fences its native ephemeral child",
+    "owner revoke fences its other native conversation",
+    "fenced controller cannot escape through native new",
+    "fenced owner cannot execute native command",
+    "native B executes after A fence",
+    "exact owned native host crash leaves endpoint quiet",
+    "supervisor capabilities retained privately before forwarding",
+    "native operation status reports committed lost reply",
+    "A remains fenced after actual native host restart",
+    "lost native reply recovers exact committed identity",
+    "lost-reply retry creates no additional native root"
+  ],
+  "full_parity": false,
+  "execution_quiescent": false,
+  "binary_sha256": "308cc7a1b03dc75977e9ca65c7e045611772c1771e8c858f1284dad005f800f1",
+  "native_pids": [
+    79884,
+    80148
+  ],
+  "controller_receipts": [
+    {
+      "controller": "A",
+      "owner": "9094017ba81dfdf08d9481f08d91ba806e08de0c222825ec10fda8812ed0f155",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a1936a-8ba9-75a0-925f-36be9cbfae03",
+      "accepting": true
+    },
+    {
+      "controller": "B",
+      "owner": "36b7497fdba18738808a73fc550ae536d2cf6c14bf5e270c2109c09fa153bdae",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a1936a-8ba9-75a0-925f-36be9cbfae03",
+      "accepting": true
+    },
+    {
+      "controller": "A",
+      "owner": "9094017ba81dfdf08d9481f08d91ba806e08de0c222825ec10fda8812ed0f155",
+      "controllerGeneration": 2,
+      "hostGeneration": "01a1936a-8ba9-75a0-925f-36be9cbfae03",
+      "accepting": true
+    },
+    {
+      "controller": "C",
+      "owner": "a0eb7603dc9b8134aa5473562b14ea0ddb1aac0cae65ceb4132cfc87530a2789",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a1936a-8ba9-75a0-925f-36be9cbfae03",
+      "accepting": true
+    },
+    {
+      "controller": "A",
+      "owner": "9094017ba81dfdf08d9481f08d91ba806e08de0c222825ec10fda8812ed0f155",
+      "controllerGeneration": 3,
+      "hostGeneration": "01a1936a-919d-7a73-8338-e74ae2b5bbc5",
+      "accepting": false
+    },
+    {
+      "controller": "B",
+      "owner": "36b7497fdba18738808a73fc550ae536d2cf6c14bf5e270c2109c09fa153bdae",
+      "controllerGeneration": 2,
+      "hostGeneration": "01a1936a-919d-7a73-8338-e74ae2b5bbc5",
+      "accepting": true
+    },
+    {
+      "controller": "C",
+      "owner": "a0eb7603dc9b8134aa5473562b14ea0ddb1aac0cae65ceb4132cfc87530a2789",
+      "controllerGeneration": 2,
+      "hostGeneration": "01a1936a-919d-7a73-8338-e74ae2b5bbc5",
+      "accepting": true
+    }
+  ],
+  "bindings": {
+    "A": "01a1936a-8fc8-7693-85cc-42345b8aced4",
+    "B": "01a1936a-900c-7511-a40f-54c69e56ca55",
+    "other_A": "01a1936a-90b7-7cb0-b858-0444ec42c953",
+    "helper_A": "01a1936a-9072-7c52-8751-cf43f0b263fb"
+  },
+  "host_cleanup": [
+    {
+      "pid": 79884,
+      "exit_code": -9
+    },
+    {
+      "pid": 80148,
+      "exit_code": 0
+    }
+  ],
+  "exception": "Refused('{\"code\": -32600, \"message\": \"no rollout found for thread id 01a1936a-9152-7181-9058-111d58c096eb\"}')",
+  "socket_quiet_after_cleanup": true
+}

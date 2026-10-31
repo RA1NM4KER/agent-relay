@@ -1,0 +1,25 @@
+{
+  "stage": "authority-feasibility-regression",
+  "argv": [
+    "python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility",
+    "-p",
+    "test_*.py",
+    "-v"
+  ],
+  "started": 1793474907.0028858,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2727108608,
+  "pid": 88950,
+  "exit_code": 0,
+  "elapsed_s": 4.013689041137695,
+  "free_after": 2707976192
+}

@@ -1,0 +1,42 @@
+{
+  "nativePin": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+  "rust": "1.95.0",
+  "authorityJournalVersion": 3,
+  "patchAppliesToPin": true,
+  "patchCheckRoot": "/var/folders/j5/kknrxsqx5hv7cgl6s_mp2v840000gn/T/relay-authority-final-patch-vth6jhn7",
+  "fullParity": false,
+  "handoffPermitted": false,
+  "sourceSHA256": {
+    "app-server/src/lib.rs": "4b29b565d42ee37763971e1e05e3741501741b90d6d9bb994eb9c74f1e0ba3ed",
+    "app-server/src/message_processor.rs": "4de88fdc0b9563b978962c8ceded83e8c804abe34ead4b55318898ae8f455f01",
+    "app-server/src/outgoing_message.rs": "ced09d5e24bfdb650b8ae7902f27189a78c3ee0018a0f06acc90f55f2be014e1",
+    "app-server/src/request_processors/thread_processor.rs": "0ab0b79d9e9b260d5c82dcdba097e3826f88f550106ebd8289f8719cc8ff5e04",
+    "app-server-protocol/src/protocol/common.rs": "6b6c27b7f34f3b0558dff649e688c00ed656e4fb693de0e236a56fe2724eb561",
+    "core/src/lib.rs": "e25425d36ec8275c41f64f95afa151b253512613a703e2f65483b4fecc58f40f",
+    "core/src/codex_thread.rs": "8fca46f46407a28bf39f7c36deb0767d780e43c01bf3d294979d386acecfa6b1",
+    "core/src/thread_manager.rs": "8739439c2fa3e316c6d9d31309cc5c1e29f5c606f420dd57097e3182fba79e3e",
+    "core/src/tools/router.rs": "2f3bc8d980df31cfd168e08887ec2ab8a482e958e0d65e05a316b2fac391de1c",
+    "app-server/src/relay_authority.rs": "79e99ea94a8c113f10e7854f9045214171394a2854169234c97eadcc9007c24f",
+    "core/src/relay_authority.rs": "b6008970444f134362df6aab2b755e4004de35bcbbc1f1479110ad6d400855cd"
+  },
+  "patchSHA256": "59ec70846a388bbc2f658b238d1d3697d180f060b3be8f094a703ad3b7e4d2bf",
+  "binaries": {
+    "finalAuthorityServer": {
+      "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex-app-server",
+      "sha256": "7a17eaad6fd97b7d23e50531906024318edfce5efb4059533ae4a82242461c19"
+    },
+    "earlierAuthorityCliSecondHostProbeOnly": {
+      "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex",
+      "sha256": "24c154fba839f848a59b1200678b1b6bb40975d5161ba5abe76c50e5ea083861"
+    },
+    "preservedSharedBaselineCli": {
+      "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/research-package/bin/codex",
+      "sha256": "dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e"
+    },
+    "vmManager": {
+      "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-realm",
+      "sha256": "a505deb62d198bb234f80f2b5d82daff241390a79df45427d8548747c8184617"
+    }
+  },
+  "nativeCargoLockSHA256": "360ea1e0ec391255ffc153a73548be524aa5d50c3476f247631cec184c21d4cb"
+}

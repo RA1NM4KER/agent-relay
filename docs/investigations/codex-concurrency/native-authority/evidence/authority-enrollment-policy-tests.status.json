@@ -1,0 +1,25 @@
+{
+  "stage": "authority-enrollment-policy-tests",
+  "argv": [
+    "cargo",
+    "test",
+    "--manifest-path",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/Cargo.toml",
+    "--offline",
+    "--config",
+    "source.crates-io.replace-with=\"retained-lab\"",
+    "--config",
+    "source.retained-lab.directory=\"/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/registry/src/index.crates.io-1949cf8c6b5b557f\""
+  ],
+  "started": 1793472633.305556,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 3599171584,
+  "pid": 28508,
+  "exit_code": 0,
+  "elapsed_s": 6.017898797988892,
+  "free_after": 3596578816
+}

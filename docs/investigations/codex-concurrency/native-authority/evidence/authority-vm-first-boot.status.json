@@ -1,0 +1,21 @@
+{
+  "stage": "authority-vm-first-boot",
+  "argv": [
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-realm",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-images/kernel",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-images/realm-initramfs",
+    "A",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-first-boot-state.json"
+  ],
+  "started": 1793474228.683688,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2734600192,
+  "pid": 70451,
+  "exit_code": 0,
+  "elapsed_s": 12.036960124969482,
+  "free_after": 2808344576
+}

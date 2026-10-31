@@ -1,0 +1,7 @@
+test_close_waits_for_admitted_operation_before_releasing_service_lock (test_host_contract.ContractTests.test_close_waits_for_admitted_operation_before_releasing_service_lock) ... ok
+test_same_token_concurrent_retry_forwards_once (test_host_contract.ContractTests.test_same_token_concurrent_retry_forwards_once) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.052s
+
+OK

@@ -1,0 +1,18 @@
+{
+  "stage": "authority-alternative-exec-diagnostic",
+  "argv": [
+    "python3",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/diagnose_authority_exec.py"
+  ],
+  "started": 1793471638.549515,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 3728527360,
+  "pid": 2311,
+  "exit_code": 0,
+  "elapsed_s": 2.008359909057617,
+  "free_after": 3727364096
+}

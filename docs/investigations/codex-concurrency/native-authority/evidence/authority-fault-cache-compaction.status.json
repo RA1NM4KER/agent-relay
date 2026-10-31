@@ -1,0 +1,22 @@
+{
+  "stage": "authority-fault-cache-compaction",
+  "argv": [
+    "python3",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/engineering/compact_build_cache.py",
+    "--lab",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w",
+    "--run-id",
+    "authority-fault-20261031"
+  ],
+  "started": 1793471016.999134,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 3448111104,
+  "pid": 85138,
+  "exit_code": 0,
+  "elapsed_s": 14.037065982818604,
+  "free_after": 3843424256
+}

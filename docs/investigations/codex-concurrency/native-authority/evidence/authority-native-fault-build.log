@@ -1,0 +1,7 @@
+   Compiling codex-app-server v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/app-server)
+   Compiling codex-app-server-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/app-server-client)
+   Compiling codex-tui v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/tui)
+   Compiling codex-cloud-tasks v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/cloud-tasks)
+   Compiling codex-exec v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/exec)
+   Compiling codex-exec-server-cli v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/exec-server-cli)
+   Compiling codex-cli v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/cli)

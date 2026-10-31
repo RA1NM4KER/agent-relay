@@ -1,0 +1,53 @@
+{
+  "root": "/private/tmp/relay-native-authority-b38g58oh",
+  "scope": "ACTUAL_NATIVE_AUTHORITY_NOT_FULL_PARITY",
+  "checks": [
+    "unmediated native creation refused",
+    "raw client cannot invent supervisor enrollment",
+    "alternative native exec cannot open a second protected host",
+    "two independent native owner bindings",
+    "second live connection cannot reuse A controller lease",
+    "retired A lease cannot drive its native root"
+  ],
+  "full_parity": false,
+  "execution_quiescent": false,
+  "binary_sha256": "1b7237f676efa65ca1a754404039fad4adc617e8613b8522607e1bd21d3b1a64",
+  "native_pids": [
+    54185
+  ],
+  "controller_receipts": [
+    {
+      "controller": "A",
+      "owner": "2dd7f79e5932747b4567ddfe978243374ccf998883724afe34efc1f0dcd48f4d",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a1935b-9472-77c3-adab-dd4afbe2b0ca",
+      "accepting": true
+    },
+    {
+      "controller": "B",
+      "owner": "7eb68a8d92826f95ac98ceff0f6341b5fac75cd8974ae00cb037bd1777afcbad",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a1935b-9472-77c3-adab-dd4afbe2b0ca",
+      "accepting": true
+    },
+    {
+      "controller": "A",
+      "owner": "2dd7f79e5932747b4567ddfe978243374ccf998883724afe34efc1f0dcd48f4d",
+      "controllerGeneration": 2,
+      "hostGeneration": "01a1935b-9472-77c3-adab-dd4afbe2b0ca",
+      "accepting": true
+    }
+  ],
+  "bindings": {
+    "A": "01a1935b-988e-7bf0-8613-b77463a39bd7",
+    "B": "01a1935b-98ca-7ee2-b2a0-3b18b11abd9d"
+  },
+  "exception": "Refused('{\"code\": -32600, \"message\": \"no rollout found for thread id 01a1935b-988e-7bf0-8613-b77463a39bd7\"}')",
+  "host_cleanup": [
+    {
+      "pid": 54185,
+      "exit_code": 0
+    }
+  ],
+  "socket_quiet_after_cleanup": true
+}

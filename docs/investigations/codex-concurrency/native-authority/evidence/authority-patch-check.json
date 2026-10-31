@@ -1,0 +1,17 @@
+{
+  "base": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+  "root": "/var/folders/j5/kknrxsqx5hv7cgl6s_mp2v840000gn/T/relay-authority-patch-check-0wj286vq",
+  "files": [
+    "codex-rs/app-server-protocol/src/protocol/common.rs",
+    "codex-rs/app-server/src/lib.rs",
+    "codex-rs/app-server/src/message_processor.rs",
+    "codex-rs/app-server/src/outgoing_message.rs",
+    "codex-rs/app-server/src/request_processors/thread_processor.rs",
+    "codex-rs/core/src/codex_thread.rs",
+    "codex-rs/core/src/lib.rs",
+    "codex-rs/core/src/thread_manager.rs",
+    "codex-rs/core/src/tools/router.rs"
+  ],
+  "patchSHA256": "381751074fdbfc5e49ff0f256a7bb7767c3b64550757fae1cc0eff0a5b8dd6e5",
+  "appliesToPinnedSource": true
+}

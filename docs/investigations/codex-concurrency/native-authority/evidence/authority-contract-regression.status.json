@@ -1,0 +1,25 @@
+{
+  "stage": "authority-contract-regression",
+  "argv": [
+    "python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/engineering",
+    "-p",
+    "test_host_contract.py",
+    "-v"
+  ],
+  "started": 1793474908.1157382,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2723766272,
+  "pid": 88982,
+  "exit_code": 0,
+  "elapsed_s": 2.0078070163726807,
+  "free_after": 2711322624
+}

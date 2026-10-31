@@ -1,0 +1,25 @@
+{
+  "stage": "authority-native-enrollment-build",
+  "argv": [
+    "python3",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/authority_native_cargo.py",
+    "build",
+    "-p",
+    "codex-cli",
+    "-p",
+    "codex-app-server",
+    "--bin",
+    "codex-app-server"
+  ],
+  "started": 1793473322.9390259,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 3571666944,
+  "pid": 46688,
+  "exit_code": 0,
+  "elapsed_s": 154.6559281349182,
+  "free_after": 2811666432
+}

@@ -1,0 +1,32 @@
+{
+  "scope": "DISPOSABLE_GUEST_PREPARATION_NOT_CONTAINMENT_PROOF",
+  "media": {
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64/alpine-virt-3.22.7-aarch64.iso",
+    "checksum_url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64/alpine-virt-3.22.7-aarch64.iso.sha256",
+    "sha256": "3e37f238f6317ef56a12f4cff5c4265f99d25785945f777b19d41b35a7fabbc7",
+    "bytes": 80644096,
+    "reused": true,
+    "verification": "publisher SHA256 over HTTPS; detached signature not verified"
+  },
+  "outputs": [
+    {
+      "name": "kernel",
+      "bytes": 34734080,
+      "sha256": "42a15047f7cfc785e008b43f48c090f6340f34ead8446d7568126bb5cb9bc9f1"
+    },
+    {
+      "name": "base-initramfs",
+      "bytes": 9710184,
+      "sha256": "aee79b02c16c87fb0b6180a4d652d51b0115d2f2c8a69c20f8e917ff602fe26e"
+    },
+    {
+      "name": "realm-initramfs",
+      "bytes": 9710891,
+      "sha256": "a106730cf509d7013e8e997f9b359b8f0031d9cf1dc94535644ceb065e105e40",
+      "guest_init_sha256": "bf744785c408492c2afe59a2e72b160580b21e0dfa1dd3a4e890e0ab338fcb69"
+    }
+  ],
+  "host_files_shared": false,
+  "network_enabled": false,
+  "vm_started": false
+}

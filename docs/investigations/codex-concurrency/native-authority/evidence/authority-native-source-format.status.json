@@ -1,0 +1,27 @@
+{
+  "stage": "authority-native-source-format",
+  "argv": [
+    "rustfmt",
+    "--edition",
+    "2024",
+    "--config",
+    "skip_children=true",
+    "app-server/src/message_processor.rs",
+    "app-server/src/outgoing_message.rs",
+    "app-server/src/relay_authority.rs",
+    "core/src/relay_authority.rs",
+    "core/src/thread_manager.rs",
+    "core/src/tools/router.rs"
+  ],
+  "started": 1793469535.855272,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 5925158912,
+  "pid": 43650,
+  "exit_code": 0,
+  "elapsed_s": 2.0090529918670654,
+  "free_after": 5928800256
+}
