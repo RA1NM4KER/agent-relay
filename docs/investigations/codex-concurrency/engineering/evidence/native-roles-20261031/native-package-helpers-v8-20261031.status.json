@@ -1,0 +1,18 @@
+{
+  "stage": "native-package-helpers-v8-20261031",
+  "argv": [
+    "python3",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/build_research_helpers.py"
+  ],
+  "started": 1793431047.4549959,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 3552284672,
+  "pid": 76651,
+  "exit_code": 0,
+  "elapsed_s": 126.34945726394653,
+  "free_after": 2691399680
+}

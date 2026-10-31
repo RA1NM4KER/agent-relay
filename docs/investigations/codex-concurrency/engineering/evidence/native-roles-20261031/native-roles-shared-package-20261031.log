@@ -1,0 +1,9 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-_w_buifl",
+  "mode": "shared",
+  "checks": [],
+  "full_parity": false,
+  "exception": "TimeoutExpired(['/private/tmp/relay-native-build-20261030-9fw2zv7w/target/research-package/bin/codex', 'app-server', 'daemon', 'start'], 90)",
+  "native_turn_events": [],
+  "isolated_daemon_cleanup_exit": 0
+}

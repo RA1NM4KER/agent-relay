@@ -1,5 +1,13 @@
 # Concurrent Codex sessions: investigation and decision record
 
+**2026-10-31 native role repair:** the pinned CLI rebuild passes. Eight rebuilt
+embedded TUIs pass nine narrow gates, including foreground turn completion,
+`/new`, `/fork`, exact picker resume and surviving neighbor frontends. The complete lab package builds; its shared daemon starts and eight TUIs bind
+exact roots, but the disk-reserve guard stops the suite. Full shared validation
+remains disk-blocked; the harness now passes an actual SIGTERM cleanup check.
+[CONTINUATION.md](CONTINUATION.md) records the current result. Earlier failures
+below remain historical evidence. No production change or full-parity claim.
+
 **First rebuilt native run:** cache cleanup unblocked full CLI linking. Eight
 embedded source-built TUIs report initial selections, but /new fails on the
 prototype's background-root/cancellation handling. NATIVE_BUILD.md retains this

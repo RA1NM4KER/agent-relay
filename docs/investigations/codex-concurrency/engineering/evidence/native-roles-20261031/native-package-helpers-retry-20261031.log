@@ -1,0 +1,437 @@
+   Compiling zeroize v1.8.2
+   Compiling generic-array v0.14.7
+   Compiling crypto-common v0.1.7
+   Compiling jobserver v0.1.34
+   Compiling cc v1.2.55
+   Compiling mio v1.2.0
+   Compiling tokio v1.52.3
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling serde_json v1.0.149
+   Compiling writeable v0.6.2
+   Compiling tokio-util v0.7.18
+   Compiling zerocopy v0.8.37
+   Compiling potential_utf v0.1.4
+   Compiling icu_locale_core v2.2.0
+   Compiling zerotrie v0.2.4
+   Compiling cmake v0.1.57
+   Compiling aws-lc-sys v0.45.0
+   Compiling sha2 v0.10.9
+   Compiling ring v0.17.14
+   Compiling icu_provider v2.2.0
+   Compiling icu_collections v2.2.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling aws-lc-rs v1.18.1
+   Compiling rustix v1.1.4
+   Compiling rustls-pki-types v1.14.0
+   Compiling rustls v0.23.46
+   Compiling rustls-webpki v0.103.16
+   Compiling icu_properties v2.2.0
+   Compiling icu_normalizer v2.2.0
+   Compiling rand_chacha v0.9.0
+   Compiling idna_adapter v1.2.1
+   Compiling idna v1.1.0
+   Compiling rand v0.9.3
+   Compiling h2 v0.4.19
+   Compiling url v2.5.8
+   Compiling hyper v1.11.1
+   Compiling hyper-util v0.1.20
+   Compiling rustls-native-certs v0.8.3
+   Compiling tokio-rustls v0.26.4
+   Compiling tower v0.5.3
+   Compiling tempfile v3.27.0
+   Compiling webpki-roots v1.0.10
+   Compiling hmac v0.12.1
+   Compiling hyper-rustls v0.27.7
+   Compiling sha1 v0.10.6
+   Compiling ahash v0.8.12
+   Compiling aws-smithy-async v1.2.14
+   Compiling aws-smithy-runtime-api v1.12.0
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling rama-utils v0.3.0-alpha.4
+   Compiling tokio-graceful v0.2.2
+   Compiling rama-core v0.3.0-alpha.4
+   Compiling tokio-stream v0.1.18
+   Compiling zstd-safe v7.2.4
+   Compiling native-tls v0.2.14
+   Compiling schemars v0.8.22
+   Compiling rama-http-types v0.3.0-alpha.4
+   Compiling rama-net v0.3.0-alpha.4
+   Compiling tokio-native-tls v0.3.1
+   Compiling ts-rs v11.1.0
+   Compiling tower-http v0.6.8
+   Compiling publicsuffix v2.3.0
+   Compiling cookie_store v0.22.1
+   Compiling codex-utils-absolute-path v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/absolute-path)
+   Compiling hyper-tls v0.6.0
+   Compiling zstd v0.13.3
+   Compiling aws-credential-types v1.2.11
+   Compiling aws-smithy-http v0.62.6
+   Compiling tracing-subscriber v0.3.22
+   Compiling reqwest v0.12.28
+   Compiling aws-sigv4 v1.3.7
+   Compiling blake3 v1.8.2
+   Compiling arrayvec v0.7.6
+   Compiling hickory-proto v0.25.2
+   Compiling codex-utils-rustls-provider v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/rustls-provider)
+   Compiling terminal_size v0.4.3
+   Compiling hickory-resolver v0.25.2
+   Compiling clap_builder v4.5.58
+   Compiling icu_locale v2.2.0
+   Compiling tracing-opentelemetry v0.32.1
+   Compiling pagable v0.4.1
+   Compiling clap v4.5.58
+   Compiling codex-http-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/http-client)
+   Compiling rama-http-headers v0.3.0-alpha.4
+   Compiling rama-dns v0.3.0-alpha.4
+   Compiling rama-http v0.3.0-alpha.4
+   Compiling x509-parser v0.18.1
+   Compiling rama-tcp v0.3.0-alpha.4
+   Compiling starlark_map v0.14.2
+   Compiling lsp-types v0.97.0
+   Compiling codex-utils-home-dir v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/home-dir)
+   Compiling tokio-test v0.4.5
+   Compiling fd-lock v4.0.4
+   Compiling rcgen v0.14.9
+   Compiling rustyline v14.0.0
+   Compiling rama-http-core v0.3.0-alpha.4
+   Compiling starlark_syntax v0.14.2
+   Compiling debugserver-types v0.5.0
+   Compiling rama-unix v0.3.0-alpha.4
+   Compiling rama-udp v0.3.0-alpha.4
+   Compiling starlark v0.14.2
+   Compiling codex-utils-cache v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/cache)
+   Compiling rama-socks5 v0.3.0-alpha.4
+   Compiling rama-http-backend v0.3.0-alpha.4
+   Compiling image v0.25.9
+   Compiling rama-tls-rustls v0.3.0-alpha.4
+   Compiling codex-utils-path-uri v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/path-uri)
+   Compiling derive_more-impl v2.1.1
+   Compiling rand_regex v0.18.1
+   Compiling fixed_decimal v0.7.2
+   Compiling codex-network-proxy v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/network-proxy)
+   Compiling codex-execpolicy v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/execpolicy)
+   Compiling icu_decimal v2.2.0
+   Compiling derive_more v2.1.1
+   Compiling codex-utils-image v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/image)
+   Compiling codex-extension-items v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/items)
+   Compiling codex-utils-redacted-string v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/redacted-string)
+   Compiling codex-utils-string v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/string)
+   Compiling codex-async-utils v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/async-utils)
+   Compiling codex-protocol v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/protocol)
+   Compiling headers v0.4.1
+   Compiling tungstenite v0.27.0 (https://github.com/openai-oss-forks/tungstenite-rs?rev=4fffad30fe373adbdcffab9545e9e9bf4f2fc19f#4fffad30)
+   Compiling tokio-tungstenite v0.28.0 (https://github.com/openai-oss-forks/tokio-tungstenite?rev=0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186#0e5b2d73)
+   Compiling axum v0.8.8
+   Compiling hyper-timeout v0.5.2
+   Compiling tonic v0.14.3
+   Compiling objc2-core-foundation v0.3.2
+   Compiling inout v0.1.4
+   Compiling cipher v0.4.4
+   Compiling tonic-prost v0.14.3
+   Compiling codex-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/codex-client)
+   Compiling objc2-foundation v0.3.2
+   Compiling codex-utils-pty v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/pty)
+   Compiling gix-tempfile v26.0.0
+   Compiling gix-lock v26.0.0
+   Compiling universal-hash v0.5.1
+   Compiling der v0.7.10
+   Compiling gix-ref v0.69.0
+   Compiling codex-websocket-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/websocket-client)
+   Compiling opentelemetry_sdk v0.31.0
+   Compiling gethostname v1.1.0
+   Compiling rand_chacha v0.3.1
+   Compiling opentelemetry-proto v0.31.0
+   Compiling rand v0.8.6
+   Compiling codex-api v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/codex-api)
+   Compiling spki v0.7.3
+   Compiling codex-file-system v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/file-system)
+   Compiling opentelemetry-http v0.31.0
+   Compiling aead v0.5.2
+   Compiling opentelemetry-otlp v0.31.0
+   Compiling os_info v3.14.0
+   Compiling pkcs8 v0.10.2
+   Compiling gix-shallow v0.15.0
+   Compiling opentelemetry-appender-tracing v0.31.1
+   Compiling codex-otel v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/otel)
+   Compiling gix-config v0.62.0
+   Compiling gix-protocol v0.67.0
+   Compiling gix-odb v0.86.0
+   Compiling gix-discover v0.57.0
+   Compiling gix v0.89.0
+   Compiling curve25519-dalek v4.1.3
+   Compiling polyval v0.6.2
+   Compiling codex-git-utils v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/git-utils)
+   Compiling ghash v0.5.1
+   Compiling aes v0.8.4
+   Compiling ctr v0.9.2
+   Compiling parking_lot_core v0.9.12
+   Compiling signature v2.2.0
+   Compiling sec1 v0.7.3
+   Compiling parking_lot v0.12.5
+   Compiling aes-gcm v0.10.3
+   Compiling block-buffer v0.12.0
+   Compiling hkdf v0.12.4
+   Compiling crypto-bigint v0.5.5
+   Compiling elliptic-curve v0.13.8
+   Compiling sha3 v0.10.9
+   Compiling digest v0.11.3
+   Compiling kem v0.3.0-pre.0
+   Compiling ml-kem v0.2.3
+   Compiling x25519-dalek v2.0.1
+   Compiling codex-utils-path v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/path-utils)
+   Compiling rfc6979 v0.4.0
+   Compiling ecdsa v0.16.9
+   Compiling primeorder v0.13.6
+   Compiling rust-embed-utils v8.11.0
+   Compiling poly1305 v0.8.0
+   Compiling rust-embed-impl v8.11.0
+   Compiling p256 v0.13.2
+   Compiling jsonwebtoken v9.3.1
+   Compiling codex-features v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/features)
+   Compiling sha2 v0.11.0
+   Compiling codex-model-provider-info v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/model-provider-info)
+   Compiling salsa20 v0.10.2
+   Compiling tree-sitter v0.25.10
+   Compiling tree-sitter-powershell v0.26.4
+   Compiling tree-sitter-bash v0.25.1
+   Compiling which v8.0.0
+   Compiling codex-config v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/config)
+   Compiling chacha20 v0.9.1
+   Compiling prettyplease v0.2.37
+   Compiling chacha20poly1305 v0.10.1
+   Compiling rust-embed v8.11.0
+   Compiling errno v0.3.14
+   Compiling i18n-embed v0.16.0
+   Compiling codex-shell-command v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/shell-command)
+   Compiling hpke v0.12.0
+   Compiling getrandom v0.3.4
+   Compiling pbkdf2 v0.12.2
+   Compiling secrecy v0.10.3
+   Compiling age-core v0.12.0
+   Compiling scrypt v0.11.0
+   Compiling uuid v1.20.0
+   Compiling i18n-embed-fl v0.10.1
+   Compiling codex-install-context v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/install-context)
+   Compiling libsqlite3-sys v0.37.0
+   Compiling mxc-sdk v1.0.0 (https://github.com/microsoft/mxc?rev=b21120168d70befe12356411423266bfef168446#b2112016)
+   Compiling age v0.12.1
+   Compiling codex-secrets v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/secrets)
+   Compiling futures-intrusive v0.5.0
+   Compiling codex-history v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/history)
+   Compiling codex-utils-output-truncation v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/output-truncation)
+   Compiling tracing-appender v0.2.4
+   Compiling sqlx-core v0.9.0
+   Compiling codex-windows-sandbox v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/windows-sandbox-rs)
+   Compiling crypto_secretbox v0.1.1
+   Compiling ed25519 v2.2.3
+   Compiling objc2-app-kit v0.3.2
+   Compiling blake2 v0.10.6
+   Compiling crypto_box v0.9.1
+   Compiling sqlx-sqlite v0.9.0
+   Compiling webbrowser v1.2.4
+   Compiling ed25519-dalek v2.2.0
+   Compiling codex-mxc-sandbox v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/mxc-sandbox)
+   Compiling codex-skills v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/skills)
+   Compiling sqlx-macros-core v0.9.0
+   Compiling getrandom v0.4.2
+   Compiling aws-smithy-observability v0.1.5
+   Compiling aws-smithy-http-client v1.1.12
+   Compiling codex-uds v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/uds)
+   Compiling codex-sandboxing v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/sandboxing)
+   Compiling aws-smithy-runtime v1.9.5
+   Compiling sqlx-macros v0.9.0
+   Compiling codex-exec-server-protocol v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/exec-server-protocol)
+   Compiling codex-agent-identity v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/agent-identity)
+   Compiling clatter v2.2.0
+   Compiling aws-types v1.3.11
+   Compiling sqlx v0.9.0
+   Compiling codex-file-watcher v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/file-watcher)
+   Compiling codex-build-info v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/build-info)
+   Compiling codex-core-plugin-common v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/core-plugin-common)
+   Compiling codex-websocket-auth v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/websocket-auth)
+   Compiling codex-workload-identity v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/workload-identity)
+   Compiling prost-build v0.14.3
+   Compiling codex-state v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/state)
+   Compiling codex-login v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/login)
+   Compiling codex-exec-server v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/exec-server)
+   Compiling aws-runtime v1.5.17
+   Compiling tonic-build v0.14.3
+   Compiling tonic-prost-build v0.14.3
+   Compiling bzip2-sys v0.1.13+1.0.8
+   Compiling codex-file-search v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/file-search)
+   Compiling codex-code-mode-protocol v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/code-mode-protocol)
+   Compiling sentry-types v0.46.1
+   Compiling schemars v1.2.1
+   Compiling process-wrap v10.0.0
+   Compiling codex-rollout v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/rollout)
+   Compiling hmac v0.13.0
+   Compiling oauth2 v5.0.0
+   Compiling codex-context-fragments v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/context-fragments)
+   Compiling reqwest v0.13.4
+   Compiling rmcp v3.5.1 (https://github.com/modelcontextprotocol/rust-sdk?rev=98a54789b80110ad210495c4ad845c89e1980471#98a54789)
+   Compiling bzip2 v0.6.1
+   Compiling aws-sdk-sts v1.95.0
+   Compiling codex-guardian-context v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/guardian-context)
+   Compiling pbkdf2 v0.13.0
+   Compiling sentry-core v0.46.1
+   Compiling aws-sdk-ssooidc v1.93.0
+   Compiling aws-sdk-signin v1.2.0
+   Compiling aws-sdk-sso v1.91.0
+   Compiling codex-utils-plugins v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/plugins)
+   Compiling lzma-rust2 v0.21.0
+   Compiling sha1 v0.11.0
+   Compiling zip v9.0.0
+   Compiling codex-prompts v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/prompts)
+   Compiling codex-plugin v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/plugin)
+   Compiling aws-config v1.8.12
+   Compiling sentry v0.46.1
+   Compiling codex-feedback v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/feedback)
+   Compiling codex-aws-auth v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/aws-auth)
+   Compiling codex-models-manager v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/models-manager)
+   Compiling codex-runtime-agent-instance v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/runtime-agent-instance)
+   Compiling codex-response-debug-context v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/response-debug-context)
+   Compiling codex-model-provider v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/model-provider)
+   Compiling codex-connectors v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/connectors)
+   Compiling codex-code-mode v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/code-mode)
+   Compiling codex-tools v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/tools)
+   Compiling codex-rmcp-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/rmcp-client)
+   Compiling codex-mcp v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/codex-mcp)
+   Compiling codex-extension-api v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/extension-api)
+   Compiling codex-app-server-protocol v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/app-server-protocol)
+   Compiling codex-analytics v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/analytics)
+   Compiling pulldown-cmark v0.10.3
+   Compiling codex-message-board v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/message-board)
+   Compiling codex-hooks v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/hooks)
+   Compiling cached v0.56.0
+   Compiling codex-core-plugins v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/core-plugins)
+   Compiling codex-apply-patch v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/apply-patch)
+   Compiling bm25 v2.3.2
+   Compiling codex-thread-store v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/thread-store)
+   Compiling codex-utils-audio v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/audio)
+   Compiling codex-agent-message-board-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/agent-message-board)
+   Compiling codex-agent-message-board-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/agent-message-board-client)
+   Compiling codex-guardian-reviewer v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/guardian-reviewer)
+   Compiling codex-skills-extension v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/ext/skills)
+   Compiling codex-rollout-trace v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/rollout-trace)
+   Compiling codex-agent-graph-store v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/agent-graph-store)
+   Compiling codex-memories-read v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/memories/read)
+   Compiling codex-agent-roles v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/agent-roles)
+   Compiling codex-utils-git-discovery v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/utils/git-discovery)
+   Compiling codex-core v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/core)
+   Compiling libm v0.2.16
+   Compiling core_maths v0.1.1
+   Compiling clang-sys v1.8.1
+   Compiling calendrical_calculations v0.2.4
+   Compiling icu_calendar_data v2.2.0
+   Compiling rustix v0.38.44
+   Compiling codex-backend-openapi-models v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/codex-backend-openapi-models)
+   Compiling nom v7.1.3
+   Compiling resb v0.1.2
+   Compiling libloading v0.8.9
+   Compiling bindgen v0.72.1
+   Compiling zoneinfo64 v0.3.0
+   Compiling cexpr v0.6.0
+   Compiling codex-backend-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/backend-client)
+   Compiling itertools v0.13.0
+   Compiling strck v1.0.0
+   Compiling diplomat_core v0.15.0
+   Compiling which v6.0.3
+   Compiling icu_calendar v2.2.1
+   Compiling timezone_provider v0.2.3
+   Compiling miniz_oxide v0.8.9
+   Compiling gzip-header v1.0.0
+   Compiling fslock v0.2.1
+   Compiling ixdtf v0.6.4
+   Compiling temporal_rs v0.2.3
+   Compiling v8 v152.2.0 (https://github.com/seanh-oai/rusty_v8.git?rev=350c5a859a9b3c84ab8701b3ad51e3b7699b30c0#350c5a85)
+   Compiling diplomat v0.15.0
+   Compiling objc2-security v0.3.2
+   Compiling diplomat-runtime v0.15.1
+   Compiling temporal_capi v0.2.3
+   Compiling objc2-local-authentication v0.3.2
+   Compiling codex-app-server-transport v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/app-server-transport)
+error: failed to run custom build command for `v8 v152.2.0 (https://github.com/seanh-oai/rusty_v8.git?rev=350c5a859a9b3c84ab8701b3ad51e3b7699b30c0#350c5a85)`
+
+Caused by:
+  process didn't exit successfully: `/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/build/v8-e9585098580455c0/build-script-build` (exit status: 101)
+  --- stdout
+  cargo:rerun-if-changed=.gn
+  cargo:rerun-if-changed=BUILD.gn
+  cargo:rerun-if-changed=src/binding.cc
+  cargo:rerun-if-env-changed=CCACHE
+  cargo:rerun-if-env-changed=CLANG_BASE_PATH
+  cargo:rerun-if-env-changed=CXXSTDLIB
+  cargo:rerun-if-env-changed=DENO_TRYBUILD
+  cargo:rerun-if-env-changed=DOCS_RS
+  cargo:rerun-if-env-changed=GN
+  cargo:rerun-if-env-changed=GN_ARGS
+  cargo:rerun-if-env-changed=HOST
+  cargo:rerun-if-env-changed=LIBCLANG_PATH
+  cargo:rerun-if-env-changed=NINJA
+  cargo:rerun-if-env-changed=OUT_DIR
+  cargo:rerun-if-env-changed=RUSTY_V8_ARCHIVE
+  cargo:rerun-if-env-changed=RUSTY_V8_ARCHIVE_SHA256
+  cargo:rerun-if-env-changed=RUSTY_V8_BINDGEN_RESOURCE_DIR
+  cargo:rerun-if-env-changed=RUSTY_V8_GLIBC_PREFIX
+  cargo:rerun-if-env-changed=RUSTY_V8_MIRROR
+  cargo:rerun-if-env-changed=RUSTY_V8_MIRROR_TAG
+  cargo:rerun-if-env-changed=RUSTY_V8_MIRROR_FALLBACK
+  cargo:rerun-if-env-changed=RUSTY_V8_MUSL_SYSROOT
+  cargo:rerun-if-env-changed=RUSTY_V8_SKIP_DOWNLOAD
+  cargo:rerun-if-env-changed=RUSTY_V8_SRC_BINDING_PATH
+  cargo:rerun-if-env-changed=RUSTY_V8_SRC_BINDING_URL
+  cargo:rerun-if-env-changed=SCCACHE
+  cargo:rerun-if-env-changed=V8_FORCE_DEBUG
+  cargo:rerun-if-env-changed=V8_FROM_SOURCE
+  cargo:rerun-if-env-changed=PYTHON
+  cargo:rerun-if-env-changed=DISABLE_CLANG
+  cargo:rerun-if-env-changed=EXTRA_GN_ARGS
+  cargo:rerun-if-env-changed=PRINT_GN_ARGS
+  cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS
+  cargo:rustc-link-lib=static=rusty_v8
+  lockfile: "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/build/v8.fslock"
+  Trying to fetch from https://github.com/denoland/rusty_v8/releases/download/v152.2.0/src_binding_ptrcomp_sandbox_release_aarch64-apple-darwin.rs
+  Looking for download in '"/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/.rusty_v8/v152_2_0_src_binding_ptrcomp_sandbox_release_aarch64_apple_darwin_rs"'
+  Looking for download in '"/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/.rusty_v8/https___github_com_denoland_rusty_v8_releases_download_v152_2_0_src_binding_ptrcomp_sandbox_release_aarch64_apple_darwin_rs"'
+  Downloading https://github.com/denoland/rusty_v8/releases/download/v152.2.0/src_binding_ptrcomp_sandbox_release_aarch64-apple-darwin.rs
+  Trying with Python...
+  Downloading https://github.com/denoland/rusty_v8/releases/download/v152.2.0/src_binding_ptrcomp_sandbox_release_aarch64-apple-darwin.rs...
+  HTTP Error 404: Not Found
+  Python downloader failed, trying with curl.
+  Failed to fetch from https://github.com/denoland/rusty_v8/releases/download/v152.2.0/src_binding_ptrcomp_sandbox_release_aarch64-apple-darwin.rs: no downloader (deno, python, curl) could fetch the URL
+
+  --- stderr
+  Traceback (most recent call last):
+    File "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/./tools/download_file.py", line 63, in <module>
+      sys.exit(main())
+               ~~~~^^
+    File "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/./tools/download_file.py", line 58, in main
+      DownloadUrl(args.url, f)
+      ~~~~~~~~~~~^^^^^^^^^^^^^
+    File "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/./tools/download_file.py", line 44, in DownloadUrl
+      raise e
+    File "/private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/./tools/download_file.py", line 28, in DownloadUrl
+      response = urlopen(url)
+    File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 187, in urlopen
+      return opener.open(url, data, timeout)
+             ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+    File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 493, in open
+      response = meth(req, response)
+    File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 602, in http_response
+      response = self.parent.error(
+          'http', request, response, code, msg, hdrs)
+    File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 531, in error
+      return self._call_chain(*args)
+             ~~~~~~~~~~~~~~~~^^^^^^^
+    File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 464, in _call_chain
+      result = func(*args)
+    File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 611, in http_error_default
+      raise HTTPError(req.full_url, code, msg, hdrs, fp)
+  urllib.error.HTTPError: HTTP Error 404: Not Found
+
+  thread 'main' (4956850) panicked at /private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/build.rs:1814:9:
+  Failed to fetch the V8 prebuilt artifact /private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/cargo/git/checkouts/rusty_v8-1c356b58a53d1d98/350c5a8/gen/src_binding_ptrcomp_sandbox_release_aarch64-apple-darwin.rs. Tried:
+  - https://github.com/denoland/rusty_v8/releases/download/v152.2.0/src_binding_ptrcomp_sandbox_release_aarch64-apple-darwin.rs: no downloader (deno, python, curl) could fetch the URL
+  If no prebuilt artifact is published for your target or version, compile V8 from source by setting V8_FROM_SOURCE=1. You can also point the build at an artifact via RUSTY_V8_ARCHIVE (static lib), a binding via RUSTY_V8_SRC_BINDING_URL or RUSTY_V8_SRC_BINDING_PATH (src binding only), a mirror via RUSTY_V8_MIRROR, or another release tag via RUSTY_V8_MIRROR_TAG.
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

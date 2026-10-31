@@ -1,3 +1,5 @@
+// The request-only probe does not consume the TUI event stream.
+#[allow(dead_code)]
 #[path = "../../native_bridge.rs"]
 mod native_bridge;
 use serde_json::{Value, json};
@@ -12,7 +14,7 @@ fn main() -> io::Result<()> {
         .filter(|v| v.as_str() != "-")
         .map(String::as_str);
     if method == "selection" {
-        native_bridge::selection(None, thread.unwrap())?;
+        native_bridge::selection(thread, thread.unwrap())?;
         println!("{}", json!({"phase":"selected"}));
         return Ok(());
     }
@@ -29,6 +31,7 @@ fn main() -> io::Result<()> {
     ticket.complete(
         response["outcome"].as_str().unwrap_or("unknown"),
         response["thread"].as_str(),
+        response["ephemeral"].as_bool(),
     )?;
     println!("{}", json!({"phase":"committed"}));
     Ok(())

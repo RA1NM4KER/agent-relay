@@ -1,0 +1,7 @@
+   Compiling zmij v1.0.23
+   Compiling serde_core v1.0.229
+   Compiling serde_json v1.0.151
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling relay-native-bridge-probe v0.0.0 (/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/bridge-probe)
+    Finished `release` profile [optimized] target(s) in 7.71s

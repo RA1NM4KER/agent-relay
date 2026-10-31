@@ -1,0 +1,22 @@
+{
+  "stage": "roles-relay-format-all-20261031",
+  "argv": [
+    "cargo",
+    "fmt",
+    "--manifest-path",
+    "/private/tmp/agent-relay-native-validation/Cargo.toml",
+    "--all",
+    "--check"
+  ],
+  "started": 1793431974.448693,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2720452608,
+  "pid": 2220,
+  "exit_code": 0,
+  "elapsed_s": 2.008026123046875,
+  "free_after": 2720440320
+}

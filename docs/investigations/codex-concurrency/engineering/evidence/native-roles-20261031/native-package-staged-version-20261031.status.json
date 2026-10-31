@@ -1,0 +1,19 @@
+{
+  "stage": "native-package-staged-version-20261031",
+  "argv": [
+    "python3",
+    "-c",
+    "import subprocess,time,json; p=\"/private/tmp/relay-native-tui-lab-_w_buifl/codex/packages/app-server-daemon/releases/.staging.Wldeuu/bin/codex\"; t=time.monotonic(); r=subprocess.run([p,\"--version\"],capture_output=True,text=True,timeout=45); print(json.dumps({\"elapsed_s\":time.monotonic()-t,\"exit_code\":r.returncode,\"stdout\":r.stdout,\"stderr\":r.stderr})); raise SystemExit(r.returncode)"
+  ],
+  "started": 1793431384.554317,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 1913090048,
+  "pid": 85813,
+  "exit_code": 0,
+  "elapsed_s": 2.008013963699341,
+  "free_after": 1913073664
+}

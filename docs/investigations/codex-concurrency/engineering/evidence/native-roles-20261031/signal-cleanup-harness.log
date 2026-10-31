@@ -1,0 +1,8 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-ghqw1gjq",
+  "mode": "embedded",
+  "checks": [],
+  "full_parity": false,
+  "exception": "InterruptedError('lab received SIGTERM; preserving evidence and cleaning up')",
+  "native_turn_events": []
+}

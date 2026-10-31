@@ -1,0 +1,15 @@
+{
+  "root": "/private/tmp/relay-bridge-feasibility-qbzmmqtw",
+  "checks": [
+    "eight callbacks reserve exact real native threads before granting frontend continuation",
+    "cross-client conflict is denied before native resume",
+    "unclassified native mutation refuses rather than bypasses gate",
+    "display state is separate from write ownership",
+    "crashed frontend leaves durable unresolved creation",
+    "neighbor existing conversation still accepts a native command after A crash",
+    "unresolved creation blocks new adoption instead of guessing orphan identity",
+    "no provider polling"
+  ],
+  "exception": null,
+  "full_parity": false
+}

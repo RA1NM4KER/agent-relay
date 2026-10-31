@@ -16,6 +16,7 @@ EXPECTED = {
     "codex-rs/tui/src/lib.rs": "1b0b08cb3a87b088fa21b61ef8fbb3626b93f114",
     "codex-rs/tui/src/app/thread_routing.rs": "e4ecae0ec92756ab19ad65dcb11779acb64794d6",
     "codex-rs/tui/src/app/reconnect.rs": "91dde41810f519d67c706762cd94dac0e4ed97e4",
+    "codex-rs/tui/src/app/session_lifecycle.rs": "c7dc18d544a064d4bc684b0a54e3e86be76731f6",
 }
 
 
@@ -58,10 +59,13 @@ def main():
     }'''.replace("KIND", kind)
         new = '''    pub async fn request(&self, request: ClientRequest) -> IoResult<RequestResult> {
         let method = request.method_name();
-        let mut ticket = if relay_research::requires_gate(method)? {
-            let identity = serde_json::to_value(&request).map_err(IoError::other)?;
-            Some(relay_research::Ticket::begin(method,
-                identity.get("params").and_then(|p| p.get("threadId")).and_then(|v| v.as_str()))?)
+        let identity = if relay_research::requires_gate(method)? {
+            Some(serde_json::to_value(&request).map_err(IoError::other)?)
+        } else { None };
+        let request_thread = identity.as_ref().and_then(|v| v.get("params"))
+            .and_then(|p| p.get("threadId")).and_then(|v| v.as_str());
+        let mut ticket = if identity.is_some() {
+            Some(relay_research::Ticket::begin(method, request_thread)?)
         } else { None };
         // Forward the original typed request unchanged. No permission translation.
         let response = match self {
@@ -72,17 +76,55 @@ def main():
         if let Some(ticket) = ticket.as_mut() {
             let value = response.as_ref().ok().and_then(|r| r.as_ref().ok());
             let thread = value.and_then(|v| v.get("thread")).and_then(|v| v.get("id")).and_then(|v| v.as_str());
-            ticket.complete(if value.is_some() { "ok" } else { "unknown" }, thread)?;
+            let ephemeral = value.and_then(|v| v.get("thread"))
+                .and_then(|v| v.get("ephemeral")).and_then(|v| v.as_bool());
+            ticket.complete(if value.is_some() { "ok" } else { "unknown" }, thread, ephemeral)?;
+            if method == "turn/start" {
+                if let (Some(thread), Some(turn)) = (request_thread,
+                    value.and_then(|v| v.get("turn")).and_then(|v| v.get("id")).and_then(|v| v.as_str())) {
+                    relay_research::record_turn("turn/accepted", thread, turn)?;
+                }
+            }
         }
         response
     }'''.replace("KIND", kind)
         text = once(text, old, new)
+    text = once(text, """    pub async fn next_event(&mut self) -> Option<AppServerEvent> {
+        match self {
+            Self::InProcess(client) => client.next_event().await.map(Into::into),
+            Self::Remote(client) => client.next_event().await,
+            Self::Cloud(client) => client.next_event().await,
+        }
+    }""", """    pub async fn next_event(&mut self) -> Option<AppServerEvent> {
+        let event = match self {
+            Self::InProcess(client) => client.next_event().await.map(Into::into),
+            Self::Remote(client) => client.next_event().await,
+            Self::Cloud(client) => client.next_event().await,
+        };
+        let observation = match &event {
+            Some(AppServerEvent::ServerNotification(notification)) => match notification.as_ref() {
+                ServerNotification::TurnStarted(params) =>
+                    relay_research::record_turn("turn/started", &params.thread_id, &params.turn.id),
+                ServerNotification::TurnCompleted(params) =>
+                    relay_research::record_turn("turn/completed", &params.thread_id, &params.turn.id),
+                _ => Ok(()),
+            },
+            Some(AppServerEvent::Lagged { .. } | AppServerEvent::Disconnected { .. }) | None =>
+                relay_research::coverage_lost(),
+            _ => Ok(()),
+        };
+        if let Err(error) = observation {
+            tracing::error!(%error, "research turn observation unavailable; mutations refuse");
+        }
+        event
+    }""")
     updated[path] = text
     path = "codex-rs/tui/src/lib.rs"
     updated[path] = once(updated[path], ") -> std::io::Result<AppExitInfo> {\n    system_motion::initialize().await;",
         ") -> std::io::Result<AppExitInfo> {\n    codex_app_server_client::relay_research::enable_from_env()?;\n    system_motion::initialize().await;")
     for path, variable in [("codex-rs/tui/src/app/thread_routing.rs", "thread_id"),
-                           ("codex-rs/tui/src/app/reconnect.rs", "id")]:
+                           ("codex-rs/tui/src/app/reconnect.rs", "id"),
+                           ("codex-rs/tui/src/app/session_lifecycle.rs", "thread_id")]:
         anchor = f"self.active_thread_id = Some({variable});"
         report = f'''{anchor}
         if let Err(error) = codex_app_server_client::relay_research::selection(

@@ -1,0 +1,24 @@
+{
+  "stage": "roles-probe-release-20261031",
+  "argv": [
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
+    "--manifest-path",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/bridge-probe/Cargo.toml",
+    "--target-dir",
+    "/private/tmp/relay-codex-feasibility/target"
+  ],
+  "started": 1793428799.189,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 5382230016,
+  "pid": 61008,
+  "exit_code": 0,
+  "elapsed_s": 8.021346092224121,
+  "free_after": 5299404800
+}

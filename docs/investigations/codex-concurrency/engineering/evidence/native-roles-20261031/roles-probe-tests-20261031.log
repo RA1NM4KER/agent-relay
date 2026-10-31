@@ -1,0 +1,42 @@
+ Downloading crates ...
+  Downloaded zmij v1.0.23
+  Downloaded itoa v1.0.18
+  Downloaded serde_core v1.0.229
+  Downloaded serde_json v1.0.151
+  Downloaded memchr v2.8.3
+   Compiling zmij v1.0.23
+   Compiling serde_core v1.0.229
+   Compiling serde_json v1.0.151
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling relay-native-bridge-probe v0.0.0 (/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/bridge-probe)
+warning: static `EVENTS` is never used
+  --> src/../../native_bridge.rs:97:8
+   |
+97 | static EVENTS: OnceLock<Mutex<Option<File>>> = OnceLock::new();
+   |        ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `record_turn` is never used
+   --> src/../../native_bridge.rs:101:8
+    |
+101 | pub fn record_turn(kind: &str, thread: &str, turn: &str) -> io::Result<()> {
+    |        ^^^^^^^^^^^
+
+warning: function `coverage_lost` is never used
+   --> src/../../native_bridge.rs:149:8
+    |
+149 | pub fn coverage_lost() -> io::Result<()> {
+    |        ^^^^^^^^^^^^^
+
+warning: `relay-native-bridge-probe` (bin "relay-native-bridge-probe" test) generated 3 warnings
+    Finished `test` profile [unoptimized] target(s) in 6.25s
+     Running unittests src/main.rs (/private/tmp/relay-codex-feasibility/target/debug/deps/relay_native_bridge_probe-f28f4775c7f06cc2)
+
+running 2 tests
+test native_bridge::policy_tests::failure_keeps_owned_cleanup_gated_and_writes_closed ... ok
+test native_bridge::policy_tests::metadata_inventory_does_not_allow_mutations_or_change_ordinary_clients ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

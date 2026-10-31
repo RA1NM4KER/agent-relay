@@ -1,0 +1,18 @@
+{
+  "stage": "native-package-assemble-20261031",
+  "argv": [
+    "python3",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/assemble_research_package.py"
+  ],
+  "started": 1793431204.201843,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2680500224,
+  "pid": 80947,
+  "exit_code": 0,
+  "elapsed_s": 6.01972508430481,
+  "free_after": 2680348672
+}

@@ -1,5 +1,19 @@
 # Acceptance matrix and proof obligations
 
+## Latest native evidence (2026-10-31)
+
+The role/cancellation repair is built into the pinned native CLI. Eight actual
+embedded TUIs pass nine narrow identity/navigation/foreground-interruption/crash
+checks. Twenty-two Python obligations and two Rust policy tests pass; the
+standalone bridge passes Clippy with warnings denied and research Rust formatting.
+The complete native lab package now builds. Its shared daemon starts and eight
+TUIs bind exact roots, then the disk-reserve guard stops the incomplete suite.
+Shared validation remains disk-blocked. See [CONTINUATION.md](CONTINUATION.md) and
+`engineering/evidence/native-roles-20261031/` for current results and preserved
+failures. Earlier “not built/run” and failed embedded `/new` statements below are
+historical. Full native host enforcement, executor quiescence, successful Relay
+handoff and zero regressions remain unproven; production locks remain unchanged.
+
 This is a release gate, not a list of assertions already satisfied. See README.md for the exact
 evidence boundary. **There is no implemented concurrent Relay design to certify.**
 
@@ -32,8 +46,8 @@ an external native capability. An O/H/S does not imply the proposed implementati
 | ID | Scenario and required outcome | Verification method / decisive oracle | Evidence now |
 | --- | --- | --- | --- |
 | C01 | Two Relay Codex launches, same home/project, distinct roots, both supervised | Real native TUIs; independent structured IDs, leases, active epochs and events; no guessed mapping | O native embedded TUIs; U end-to-end Relay concurrency |
-| C02 | Same home, different projects | Same as C01; no global profile refusal and no cross-project adoption | O native stdio runs; U Relay |
-| C03 | 8/32 panes and simultaneous startup | Native client registry, one controller per thread, bounded startup/resource use | U; B live Herdr in this environment |
+| C02 | Same home, different projects | Same as C01; no global profile refusal and no cross-project adoption | O native stdio and eight embedded TUIs across two fresh projects; U Relay |
+| C03 | 8/32 panes and simultaneous startup | Native client registry, one controller per thread, bounded startup/resource use | O eight rebuilt embedded TUIs; U 32/live Herdr |
 | C04 | Concurrent first-ever home initialization | All launches succeed, or one bounded maintenance gate serializes provider migration before user work | F naive 0.166.0 starts: 7/20 endpoints failed; fix U |
 | C05 | Different native threads run simultaneously | Real per-thread turns/actions continue; A interrupt leaves B progress unchanged | O real shell actions in one server; U model/subagents |
 | C06 | Same native thread, different projects | Atomic global reservation permits one controller; no duplicate lease or unverified frontend | S project-only Relay registry inadequate; O native separate-process writer conflict; U shared-daemon controller fence |

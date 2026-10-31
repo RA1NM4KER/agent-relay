@@ -1,8 +1,48 @@
 # Pinned native build continuation, 2026-10-30
 
+## Latest native evidence (2026-10-31)
+
+The role/cancellation repair is built into the pinned native CLI. Eight actual
+embedded TUIs pass nine narrow identity/navigation/foreground-interruption/crash
+checks. Twenty-two Python obligations and two Rust policy tests pass; the
+standalone bridge passes Clippy with warnings denied and research Rust formatting.
+The complete native lab package now builds. Its shared daemon starts and eight
+TUIs bind exact roots, then the disk-reserve guard stops the incomplete suite.
+Shared validation remains disk-blocked. See [CONTINUATION.md](CONTINUATION.md) and
+`engineering/evidence/native-roles-20261031/` for current results and preserved
+failures. Earlier “not built/run” and failed embedded `/new` statements below are
+historical. Full native host enforcement, executor quiescence, successful Relay
+handoff and zero regressions remain unproven; production locks remain unchanged.
+
 This increment continues `aa96aea`; it does not restart the architecture study.
 Production Relay, ProfileSessionLock, installed binaries, real provider homes,
 and live Herdr panes remain unchanged. Full parity remains unproven.
+
+## Complete disposable daemon package
+
+The bare debug CLI cannot start a managed daemon: native `prepare_install.rs`
+requires a complete package. Build the real `codex-code-mode-host` and
+`codex-exec-server-cli` binaries; the executor binary is named `codex-exec-server`.
+The first package-name mistake and generic V8 download failure are retained.
+Generic Cargo invokes the fork's default denoland V8 URL, which returns 404.
+The pinned repository's `codex_package.v8.resolve_codex_v8_cargo_env` supplies the
+Codex release artifacts after checking their manifest against the SHA256 trust
+anchor in `third_party/v8/`. That path succeeds without dependency/pin changes.
+
+Lab helpers and reproducible command scripts are archived in the latest evidence
+directory. Run them from the existing lab root through `run_stage.py`; they keep
+Rust, Cargo, downloads and HOME isolated. Upstream package construction and
+validation are used, with only executable copying replaced by macOS APFS clones
+(independent inodes, exact hash checks) to conserve physical storage. The native
+runtime/validator is unchanged. The copied ripgrep is an existing local executable,
+not source-built here; its hash is recorded. No provider data is copied.
+
+The package lives at `target/research-package` inside the lab. Its manifest is
+explicitly `0.166.0-relay-research`, so native initial-start policy does not follow
+the production update channel; the actual CLI still reports `0.166.0`. The staged
+CLI hash exactly matches the successful embedded binary. The shared harness now
+requires an isolated managed daemon PID/socket and matching executable hash before
+launching the eight normal TUIs, with no injected remote/permission flags.
 
 ## Storage recovery and first native runtime attempt
 
@@ -212,3 +252,29 @@ Raw logs and unified patches are saved as deterministic `.gz` records;
 compressed-records.json supplies their
 uncompressed SHA-256 values. Source/evidence integrity is preserved without
 rewriting raw diff context or installer output to satisfy text whitespace checks.
+
+## Shared runtime and reserve-guard outcome
+
+The package's staged CLI passes --version (first run 22.0s); the timed-out native
+installer's copied CLI subsequently passes in 0.35s. The 90-second native package
+preparation attempt is retained. A one-second sample of the next attempt shows
+`prepare_from_package -> package_tree -> blake3` before daemon launch. The bounded
+180-second attempt starts an exact rebuilt managed daemon and eight shared TUIs,
+then the 1.5-GiB guard sends SIGTERM after 110.3s. No full shared suite passes.
+Recovered SQLite/event evidence is explicitly partial; no original successful
+result/check list is fabricated. Two reservations become UNKNOWN, fourteen remain
+ACTIVE. They are not released or reused.
+
+Native stop then times out at 60s. The exact owned daemon PID, recorded process
+start time and full isolated executable path are verified before SIGTERM. No lab
+processes remain. This is laboratory cleanup, not an executor-quiescence receipt.
+The harness now routes SIGTERM through evidence/cleanup and fails on native daemon
+cleanup errors, using a bounded 180s debug-stop window. An actual eight-TUI injected
+SIGTERM confirms cleanup with zero surviving frontends; shared cleanup with that
+new window is still unverified.
+
+Only completed crate-download archives and hash-verified duplicate failed/stopped
+lab package caches were removed. The APFS-cloned validated package and compiled
+artifacts remain. Before the next fresh shared run, provide at least 4 GiB free;
+about 2.5 GiB remains after cleanup. Do not use another reserve-stopping retry as
+proof or erase the failure evidence to reclaim space.

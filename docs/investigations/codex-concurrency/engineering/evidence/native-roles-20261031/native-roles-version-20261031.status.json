@@ -1,0 +1,18 @@
+{
+  "stage": "native-roles-version-20261031",
+  "argv": [
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex",
+    "--version"
+  ],
+  "started": 1793428486.977844,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 6070067200,
+  "pid": 43271,
+  "exit_code": 0,
+  "elapsed_s": 12.0362868309021,
+  "free_after": 6068670464
+}

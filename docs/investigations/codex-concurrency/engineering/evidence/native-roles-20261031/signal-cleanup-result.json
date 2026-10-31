@@ -1,0 +1,9 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-ghqw1gjq",
+  "status": "PASSED",
+  "signal": "SIGTERM after eight native bindings",
+  "harness_exit": 1,
+  "exception": "InterruptedError('lab received SIGTERM; preserving evidence and cleaning up')",
+  "remaining_exact_frontends": [],
+  "full_parity": false
+}

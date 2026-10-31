@@ -56,7 +56,7 @@ def main():
                 return prepared
             reply = native.call(method, params)
             thread = reply.get("thread", {}).get("id")
-            process.stdin.write(json.dumps({"outcome": "ok", "thread": thread}) + "\n")
+            process.stdin.write(json.dumps({"outcome": "ok", "thread": thread, "ephemeral": reply.get("thread", {}).get("ephemeral")}) + "\n")
             process.stdin.flush()
             committed = process.stdout.readline()
             process.wait(timeout=3)

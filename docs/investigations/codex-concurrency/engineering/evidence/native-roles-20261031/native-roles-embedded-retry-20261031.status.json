@@ -1,0 +1,22 @@
+{
+  "stage": "native-roles-embedded-retry-20261031",
+  "argv": [
+    "python3",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/native_tui_lab.py",
+    "--codex",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex",
+    "--mode",
+    "embedded"
+  ],
+  "started": 1793428518.713517,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 6063362048,
+  "pid": 44154,
+  "exit_code": 0,
+  "elapsed_s": 24.047242164611816,
+  "free_after": 5948899328
+}

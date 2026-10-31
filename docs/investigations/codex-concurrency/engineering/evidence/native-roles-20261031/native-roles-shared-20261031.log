@@ -1,0 +1,8 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-55if2j12",
+  "mode": "shared",
+  "checks": [],
+  "full_parity": false,
+  "exception": "AssertionError('eight initial native selections acknowledged before any prompt')",
+  "isolated_daemon_cleanup_exit": 0
+}

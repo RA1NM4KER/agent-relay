@@ -1,0 +1,28 @@
+ Downloading crates ...
+  Downloaded calendrical_calculations v0.2.4
+  Downloaded strck v1.0.0
+  Downloaded gzip-header v1.0.0
+  Downloaded core_maths v0.1.1
+  Downloaded fslock v0.2.1
+  Downloaded icu_calendar_data v2.2.0
+  Downloaded diplomat-runtime v0.15.1
+  Downloaded libloading v0.8.9
+  Downloaded which v6.0.3
+  Downloaded diplomat v0.15.0
+  Downloaded cexpr v0.6.0
+  Downloaded ixdtf v0.6.4
+  Downloaded clang-sys v1.8.1
+  Downloaded zoneinfo64 v0.3.0
+  Downloaded temporal_capi v0.2.3
+  Downloaded timezone_provider v0.2.3
+  Downloaded resb v0.1.2
+  Downloaded itertools v0.13.0
+  Downloaded temporal_rs v0.2.3
+  Downloaded diplomat_core v0.15.0
+  Downloaded bindgen v0.72.1
+  Downloaded rustix v0.38.44
+  Downloaded icu_calendar v2.2.1
+  Downloaded deno_core_icudata v0.78.0
+error: no bin target named `codex-exec-server` in `codex-code-mode-host`, ... packages
+help: available bin in `codex-exec-server-cli` package:
+    codex-exec-server

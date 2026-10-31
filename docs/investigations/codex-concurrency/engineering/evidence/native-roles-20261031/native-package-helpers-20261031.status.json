@@ -1,0 +1,27 @@
+{
+  "stage": "native-package-helpers-20261031",
+  "argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "-p",
+    "codex-code-mode-host",
+    "--bin",
+    "codex-code-mode-host",
+    "-p",
+    "codex-exec-server",
+    "--bin",
+    "codex-exec-server"
+  ],
+  "started": 1793428603.191031,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 5944455168,
+  "pid": 47181,
+  "exit_code": 101,
+  "elapsed_s": 4.013631105422974,
+  "free_after": 5901074432
+}

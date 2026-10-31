@@ -1,0 +1,7 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-hbi4uv6a",
+  "mode": "embedded",
+  "checks": [],
+  "full_parity": false,
+  "exception": "OperationalError('no such table: native_views')"
+}

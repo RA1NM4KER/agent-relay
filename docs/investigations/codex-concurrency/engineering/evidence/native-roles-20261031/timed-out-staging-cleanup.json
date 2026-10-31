@@ -1,0 +1,11 @@
+{
+  "path": "/private/tmp/relay-native-tui-lab-_w_buifl/codex/packages/app-server-daemon/releases/.staging.Wldeuu",
+  "sha256": {
+    "codex-package.json": "d78bc9b8788f1ac9b889a02467dd07ae36d4a42dc119921509bf14dfadba6233",
+    "codex-path/rg": "db94328a1765b7d5fd4ee6a94442ebf24a78d1fce246fe3219b578561ab3dfc1",
+    "bin/codex": "dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e",
+    "bin/codex-exec-server": "5ec762d5c3e7a0f2d5772effe63c83a0e60a2ff7815c62a3d03b13b10fb929d9",
+    "bin/codex-code-mode-host": "3ee9be0bf438df5c94ed834a55bbc5de58af003269f7b5d978c3e5cf0fa419d4"
+  },
+  "reason": "Timed-out disposable package cache; exact duplicates of preserved validated package; no daemon PID and no native root reservations"
+}

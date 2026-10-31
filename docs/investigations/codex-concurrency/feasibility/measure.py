@@ -44,8 +44,9 @@ def worker(mode):
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
                 assert json.loads(child.stdout.readline())["phase"] == "prepared"
-                thread = native.call("thread/start", params)["thread"]["id"]
-                child.stdin.write(json.dumps({"outcome": "ok", "thread": thread}) + "\n")
+                native_thread = native.call("thread/start", params)["thread"]
+                thread = native_thread["id"]
+                child.stdin.write(json.dumps({"outcome": "ok", "thread": thread, "ephemeral": native_thread["ephemeral"]}) + "\n")
                 child.stdin.flush()
                 assert json.loads(child.stdout.readline())["phase"] == "committed"
                 child.wait(timeout=3)

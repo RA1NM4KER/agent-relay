@@ -1,0 +1,10 @@
+{
+  "RUSTY_V8_ARCHIVE": {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/v8-cache/rusty-v8-152.2.0-aarch64-apple-darwin/librusty_v8_ptrcomp_sandbox_release_aarch64-apple-darwin.a.gz",
+    "sha256": "feab9ae0384bebaa99c1d000654462c9d42123d587185c7876aaeef7d76ff749"
+  },
+  "RUSTY_V8_SRC_BINDING_PATH": {
+    "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/v8-cache/rusty-v8-152.2.0-aarch64-apple-darwin/src_binding_ptrcomp_sandbox_release_aarch64-apple-darwin.rs",
+    "sha256": "b9d5652ebca515eb2bf4c2ee4a6551b2567117b5aa720f430d2032616dd7e3b5"
+  }
+}

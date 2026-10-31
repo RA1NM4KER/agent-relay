@@ -1,0 +1,23 @@
+{
+  "stage": "native-roles-build-20261031",
+  "argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "-p",
+    "codex-cli",
+    "--bin",
+    "codex"
+  ],
+  "started": 1793428364.287889,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 7158280192,
+  "pid": 39742,
+  "exit_code": 101,
+  "elapsed_s": 8.02307391166687,
+  "free_after": 7161393152
+}

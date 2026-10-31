@@ -95,3 +95,18 @@ remaining monotonic deadline; only kill/reap after a real timeout. Add a
 deterministic child that closes its terminal before a delayed successful exit,
 and a child that never exits, so both normal exit and the real deadline remain
 covered. Do not mask nonzero exits or weaken output/color assertions.
+
+## Research lab follow-up: interrupted harness cleanup (2026-10-31)
+
+The shared native lab reached eight exact bindings, then its external disk guard
+sent SIGTERM. The harness had no SIGTERM handler, so it skipped its result/cleanup
+finally block. Frontend PTYs closed, but the isolated shared daemon survived.
+Native stop timed out at 60s; cleanup verified that daemon's PID, start time and
+exact disposable executable path before terminating it. No reservation was
+released and no executor-quiescence receipt is asserted.
+
+The harness now handles SIGTERM through evidence/cleanup and makes daemon cleanup
+failure fail the run. An actual eight-TUI SIGTERM test passes with zero surviving
+frontends. The new bounded 180s shared cleanup window is unverified. The native
+shared suite remains disk-blocked; this is a lab defect/limit, not evidence that
+production Relay was changed or that its regressions are resolved.

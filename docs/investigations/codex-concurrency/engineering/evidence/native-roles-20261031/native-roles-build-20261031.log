@@ -1,0 +1,53 @@
+   Compiling codex-app-server-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/app-server-client)
+error[E0277]: `std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>` cannot be sent between threads safely
+   --> app-server-client/src/relay_research.rs:121:25
+    |
+121 |           let mut guard = EVENTS
+    |  _________________________^
+122 | |             .get_or_init(|| Mutex::new(None))
+123 | |             .lock()
+124 | |             .map_err(io::Error::other)?;
+    | |______________________________________^ `std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>` cannot be sent between threads safely
+    |
+    = help: within `PoisonError<std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>>`, the trait `std::marker::Send` is not implemented for `std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>`
+note: required because it appears within the type `PoisonError<std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>>`
+   --> /private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/rustup/toolchains/1.95.0-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/sync/poison.rs:197:12
+    |
+197 | pub struct PoisonError<T> {
+    |            ^^^^^^^^^^^
+    = note: required for `Box<(dyn StdError + std::marker::Send + std::marker::Sync + 'static)>` to implement `From<PoisonError<std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>>>`
+    = note: required for `PoisonError<std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>>` to implement `Into<Box<(dyn StdError + std::marker::Send + std::marker::Sync + 'static)>>`
+note: required by a bound in `std::io::Error::other`
+   --> /private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/rustup/toolchains/1.95.0-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/error.rs:605:12
+    |
+603 |     pub fn other<E>(error: E) -> Error
+    |            ----- required by a bound in this associated function
+604 |     where
+605 |         E: Into<Box<dyn error::Error + Send + Sync>>,
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Error::other`
+
+error[E0277]: `std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>` cannot be sent between threads safely
+   --> app-server-client/src/relay_research.rs:124:22
+    |
+124 |             .map_err(io::Error::other)?;
+    |                      ^^^^^^^^^^^^^^^^ `std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>` cannot be sent between threads safely
+    |
+    = help: within `PoisonError<std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>>`, the trait `std::marker::Send` is not implemented for `std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>`
+note: required because it appears within the type `PoisonError<std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>>`
+   --> /private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/rustup/toolchains/1.95.0-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/sync/poison.rs:197:12
+    |
+197 | pub struct PoisonError<T> {
+    |            ^^^^^^^^^^^
+    = note: required for `Box<(dyn StdError + std::marker::Send + std::marker::Sync + 'static)>` to implement `From<PoisonError<std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>>>`
+    = note: required for `PoisonError<std::sync::MutexGuard<'_, std::option::Option<std::fs::File>>>` to implement `Into<Box<(dyn StdError + std::marker::Send + std::marker::Sync + 'static)>>`
+note: required by a bound in `std::io::Error::other`
+   --> /private/tmp/relay-native-build-20261030-9fw2zv7w/tooling/rustup/toolchains/1.95.0-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/error.rs:605:12
+    |
+603 |     pub fn other<E>(error: E) -> Error
+    |            ----- required by a bound in this associated function
+604 |     where
+605 |         E: Into<Box<dyn error::Error + Send + Sync>>,
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Error::other`
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `codex-app-server-client` (lib) due to 2 previous errors

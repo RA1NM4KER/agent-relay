@@ -1,0 +1,15 @@
+{
+  "production_rust_changed": false,
+  "full_workspace_clippy_tests_rerun": false,
+  "previous_baseline_failures_retained": true,
+  "lab_processes_remaining": [],
+  "full_parity": false,
+  "embedded_narrow_checks": 9,
+  "shared_suite": "DISK_BLOCKED_AFTER_EIGHT_BINDINGS",
+  "python_tests": 22,
+  "rust_policy_tests": 2,
+  "signal_cleanup": "PASSED",
+  "probe_clippy": "PASSED_WITH_WARNINGS_DENIED",
+  "workspace_format": "PASSED_WITH_ALL",
+  "free_bytes": 2720616448
+}

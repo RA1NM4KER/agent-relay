@@ -1,0 +1,23 @@
+{
+  "stage": "native-roles-build-retry-20261031",
+  "argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "-p",
+    "codex-cli",
+    "--bin",
+    "codex"
+  ],
+  "started": 1793428380.380509,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 7160692736,
+  "pid": 40211,
+  "exit_code": 0,
+  "elapsed_s": 104.26026916503906,
+  "free_after": 6070333440
+}

@@ -1,0 +1,22 @@
+{
+  "stage": "roles-format-check-20261031",
+  "argv": [
+    "rustfmt",
+    "--check",
+    "--edition",
+    "2024",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/native_bridge.rs",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/bridge-probe/src/main.rs"
+  ],
+  "started": 1793428429.536521,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 6178607104,
+  "pid": 41638,
+  "exit_code": 0,
+  "elapsed_s": 2.0090720653533936,
+  "free_after": 6170779648
+}

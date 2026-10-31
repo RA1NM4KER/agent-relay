@@ -2,6 +2,60 @@
 
 Date: 2026-10-30. This is a research/engineering branch, not a release.
 
+## Native role/cancellation follow-up (2026-10-31)
+
+The previous embedded `/new` blocker is repaired in the disposable prototype.
+Native lifecycle responses now bind immutable ephemeral roles separately from
+primary/display identity. Ordinary writes require the acknowledged primary;
+owned ephemeral helpers keep their own identity. Quarantined/fenced owners may
+request interruption/unsubscription only for their existing exact reservations;
+normal writes remain refused. Metadata inventories are explicitly classified.
+Selection and native view updates commit together. The loaded-selection path is
+also instrumented. None of this adds native host epochs or executor containment.
+
+The updated pinned CLI builds with isolated Rust 1.95.0 and --locked. SHA256:
+`dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e`.
+Twenty-two Python obligations, two Rust policy tests, standalone probe Clippy
+with denied warnings and research Rust formatting pass. Native source generation
+matches all six built files. The first logger compiler error and a harness
+schema-initialization race are preserved alongside the successful corrections.
+
+Eight rebuilt embedded TUIs now pass all nine narrow checks: initial exact IDs,
+foreground starts and completed interruptions, `/new`, second completed turns,
+`/fork`, exact native picker resumes and seven surviving frontends after A dies.
+The observer uses the original client event stream; no second resume writer is
+created. Forty reservations remain ACTIVE (24 ordinary, 16 native ephemeral).
+Native turn completion is not proof that detached executors have stopped.
+
+The complete lab package now builds, including real pinned code-mode/executor
+helpers and checksum-verified Codex V8 artifacts. The bare CLI package-layout
+failure, default V8 URL 404, and a 90-second install timeout are preserved. A
+sample confirms debug package hashing dominates preparation. With a bounded
+180-second installation window, the managed daemon starts and eight actual shared
+TUIs report exact bindings, but the 1.5-GiB reserve guard terminates the harness
+before the suite completes. This is DISK-BLOCKED, not a shared-suite pass.
+
+The guard exposed missing SIGTERM cleanup in the harness. It now preserves partial
+evidence and enters cleanup; a real eight-TUI SIGTERM test passes with no surviving
+frontends. Cleanup errors also fail a run. The interrupted shared daemon's native
+stop timed out at 60 seconds; only that exact lab PID/start-time/executable was
+terminated, with no reservation release or handoff claim. No lab processes remain.
+Verified duplicate package caches and completed crate-download archives were
+removed under the existing cache-cleanup authorization; source, toolchain, built
+binaries, validated package and evidence remain. About 2.5 GiB free remains.
+
+Next: provide at least 4 GiB free for a fresh shared run (native debug installation
+materializes another roughly 0.9 GiB package plus runtime state). Do not keep
+retrying against the reserve, substitute dummy/installed helpers, inject remote
+flags, reuse uncertain bindings or accept embedded fallback as shared proof.
+Evidence: `engineering/evidence/native-roles-20261031/`.
+Production remains untouched. Full parity, zero regressions, host enforcement,
+executor quiescence, quota handoff and credentialed/Herdr coverage are unproven;
+all earlier counterexamples and baseline failures remain applicable. Production
+Rust sources are unchanged. Full workspace Clippy/tests are not rerun in this
+increment after cache recovery; the earlier documented baseline failures (including
+D3) remain unresolved, and no fresh full-workspace certification is claimed.
+
 ## Storage recovery and linked native TUI follow-up
 
 User-authorized cache cleanup reclaimed about 6 GiB while preserving this lab's

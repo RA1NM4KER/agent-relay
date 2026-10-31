@@ -1,0 +1,6 @@
+   Compiling codex-app-server-client v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/app-server-client)
+   Compiling codex-tui v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/tui)
+   Compiling codex-cloud-tasks v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/cloud-tasks)
+   Compiling codex-exec v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/exec)
+   Compiling codex-cli v0.166.0 (/private/tmp/relay-native-build-20261030-9fw2zv7w/codex/codex-rs/cli)
+    Finished `dev` profile [unoptimized] target(s) in 1m 42s

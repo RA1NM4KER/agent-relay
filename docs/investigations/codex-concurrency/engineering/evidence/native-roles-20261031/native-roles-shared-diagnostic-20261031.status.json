@@ -1,0 +1,23 @@
+{
+  "stage": "native-roles-shared-diagnostic-20261031",
+  "argv": [
+    "python3",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/native_tui_lab.py",
+    "--codex",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/research-package/bin/codex",
+    "--mode",
+    "shared"
+  ],
+  "started": 1793431468.173759,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2878259200,
+  "pid": 87957,
+  "stopped_for_disk_reserve": true,
+  "exit_code": -15,
+  "elapsed_s": 110.25963687896729,
+  "free_after": 1604526080
+}

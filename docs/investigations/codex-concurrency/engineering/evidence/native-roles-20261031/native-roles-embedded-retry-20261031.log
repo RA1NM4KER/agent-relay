@@ -1,0 +1,658 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-3c4izet_",
+  "mode": "embedded",
+  "checks": [
+    "eight initial native selections acknowledged before any prompt",
+    "eight exact foreground native starts observed",
+    "eight exact foreground turns complete before navigation",
+    "eight native new selections before their prompts",
+    "eight exact foreground native starts observed",
+    "eight exact foreground turns complete before navigation",
+    "eight fork selections before new prompts",
+    "eight native picker resumes bind exact original IDs",
+    "seven native frontends remain alive after A crash"
+  ],
+  "full_parity": false,
+  "native_turn_events": [
+    {
+      "client": "pane-0",
+      "pid": 44188,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-8153-7382-bbbe-cf5b3e087694",
+      "turn": "01a190ab-843b-75e0-a1db-6b5d53b82fdb",
+      "sequence": 3
+    },
+    {
+      "client": "pane-0",
+      "pid": 44188,
+      "kind": "turn/started",
+      "thread": "01a190ab-8153-7382-bbbe-cf5b3e087694",
+      "turn": "01a190ab-843b-75e0-a1db-6b5d53b82fdb",
+      "sequence": 4
+    },
+    {
+      "client": "pane-0",
+      "pid": 44188,
+      "kind": "turn/started",
+      "thread": "01a190ab-85aa-7510-b0eb-f76738578044",
+      "turn": "01a190ab-8697-7773-a848-ce5fe2dc3532",
+      "sequence": 7
+    },
+    {
+      "client": "pane-0",
+      "pid": 44188,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-85aa-7510-b0eb-f76738578044",
+      "turn": "01a190ab-8697-7773-a848-ce5fe2dc3532",
+      "sequence": 8
+    },
+    {
+      "client": "pane-0",
+      "pid": 44188,
+      "kind": "turn/completed",
+      "thread": "01a190ab-8153-7382-bbbe-cf5b3e087694",
+      "turn": "01a190ab-843b-75e0-a1db-6b5d53b82fdb",
+      "sequence": 10
+    },
+    {
+      "client": "pane-0",
+      "pid": 44188,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-9388-78f1-bb29-ede3737e4bc9",
+      "turn": "01a190ab-a0b8-71f3-9b59-b094c7ab1afb",
+      "sequence": 15
+    },
+    {
+      "client": "pane-0",
+      "pid": 44188,
+      "kind": "turn/started",
+      "thread": "01a190ab-9388-78f1-bb29-ede3737e4bc9",
+      "turn": "01a190ab-a0b8-71f3-9b59-b094c7ab1afb",
+      "sequence": 16
+    },
+    {
+      "client": "pane-0",
+      "pid": 44188,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-a204-7e83-8254-deb679adf0ca",
+      "turn": "01a190ab-a31f-73b0-8f62-86c2d4fb5bf5",
+      "sequence": 19
+    },
+    {
+      "client": "pane-0",
+      "pid": 44188,
+      "kind": "turn/started",
+      "thread": "01a190ab-a204-7e83-8254-deb679adf0ca",
+      "turn": "01a190ab-a31f-73b0-8f62-86c2d4fb5bf5",
+      "sequence": 20
+    },
+    {
+      "client": "pane-0",
+      "pid": 44188,
+      "kind": "turn/completed",
+      "thread": "01a190ab-9388-78f1-bb29-ede3737e4bc9",
+      "turn": "01a190ab-a0b8-71f3-9b59-b094c7ab1afb",
+      "sequence": 22
+    },
+    {
+      "client": "pane-1",
+      "pid": 44189,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-8101-7bc2-bb82-0a1886181c38",
+      "turn": "01a190ab-843b-74c3-9cc7-d123c897705b",
+      "sequence": 3
+    },
+    {
+      "client": "pane-1",
+      "pid": 44189,
+      "kind": "turn/started",
+      "thread": "01a190ab-8101-7bc2-bb82-0a1886181c38",
+      "turn": "01a190ab-843b-74c3-9cc7-d123c897705b",
+      "sequence": 4
+    },
+    {
+      "client": "pane-1",
+      "pid": 44189,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-8669-7bc1-bf8a-85169306fc00",
+      "turn": "01a190ab-86ca-7902-9ab3-d591c9c86695",
+      "sequence": 7
+    },
+    {
+      "client": "pane-1",
+      "pid": 44189,
+      "kind": "turn/started",
+      "thread": "01a190ab-8669-7bc1-bf8a-85169306fc00",
+      "turn": "01a190ab-86ca-7902-9ab3-d591c9c86695",
+      "sequence": 8
+    },
+    {
+      "client": "pane-1",
+      "pid": 44189,
+      "kind": "turn/completed",
+      "thread": "01a190ab-8101-7bc2-bb82-0a1886181c38",
+      "turn": "01a190ab-843b-74c3-9cc7-d123c897705b",
+      "sequence": 10
+    },
+    {
+      "client": "pane-1",
+      "pid": 44189,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-9321-7c92-8828-4fa454497230",
+      "turn": "01a190ab-a0bb-79f3-bc24-d05789fbfd5c",
+      "sequence": 15
+    },
+    {
+      "client": "pane-1",
+      "pid": 44189,
+      "kind": "turn/started",
+      "thread": "01a190ab-9321-7c92-8828-4fa454497230",
+      "turn": "01a190ab-a0bb-79f3-bc24-d05789fbfd5c",
+      "sequence": 16
+    },
+    {
+      "client": "pane-1",
+      "pid": 44189,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-a255-7f11-bc27-966d2f5c5ef8",
+      "turn": "01a190ab-a321-7151-ba5f-8f4fda28f365",
+      "sequence": 19
+    },
+    {
+      "client": "pane-1",
+      "pid": 44189,
+      "kind": "turn/started",
+      "thread": "01a190ab-a255-7f11-bc27-966d2f5c5ef8",
+      "turn": "01a190ab-a321-7151-ba5f-8f4fda28f365",
+      "sequence": 20
+    },
+    {
+      "client": "pane-1",
+      "pid": 44189,
+      "kind": "turn/completed",
+      "thread": "01a190ab-9321-7c92-8828-4fa454497230",
+      "turn": "01a190ab-a0bb-79f3-bc24-d05789fbfd5c",
+      "sequence": 22
+    },
+    {
+      "client": "pane-2",
+      "pid": 44190,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-80ab-7231-87e8-86703f04e9e9",
+      "turn": "01a190ab-843d-71f3-af0a-85d94800ae1d",
+      "sequence": 3
+    },
+    {
+      "client": "pane-2",
+      "pid": 44190,
+      "kind": "turn/started",
+      "thread": "01a190ab-80ab-7231-87e8-86703f04e9e9",
+      "turn": "01a190ab-843d-71f3-af0a-85d94800ae1d",
+      "sequence": 4
+    },
+    {
+      "client": "pane-2",
+      "pid": 44190,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-8545-7613-8294-373d5213f58c",
+      "turn": "01a190ab-8648-72d1-8194-b6b3ffeb6f6d",
+      "sequence": 7
+    },
+    {
+      "client": "pane-2",
+      "pid": 44190,
+      "kind": "turn/started",
+      "thread": "01a190ab-8545-7613-8294-373d5213f58c",
+      "turn": "01a190ab-8648-72d1-8194-b6b3ffeb6f6d",
+      "sequence": 8
+    },
+    {
+      "client": "pane-2",
+      "pid": 44190,
+      "kind": "turn/completed",
+      "thread": "01a190ab-80ab-7231-87e8-86703f04e9e9",
+      "turn": "01a190ab-843d-71f3-af0a-85d94800ae1d",
+      "sequence": 10
+    },
+    {
+      "client": "pane-2",
+      "pid": 44190,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-9355-70e1-abaa-1c4e7f83c98c",
+      "turn": "01a190ab-a0b6-7310-8319-f64ed100bb23",
+      "sequence": 15
+    },
+    {
+      "client": "pane-2",
+      "pid": 44190,
+      "kind": "turn/started",
+      "thread": "01a190ab-9355-70e1-abaa-1c4e7f83c98c",
+      "turn": "01a190ab-a0b6-7310-8319-f64ed100bb23",
+      "sequence": 16
+    },
+    {
+      "client": "pane-2",
+      "pid": 44190,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-a22a-7531-bebe-3418dc071509",
+      "turn": "01a190ab-a31f-7fb3-93d0-0212a087a799",
+      "sequence": 19
+    },
+    {
+      "client": "pane-2",
+      "pid": 44190,
+      "kind": "turn/started",
+      "thread": "01a190ab-a22a-7531-bebe-3418dc071509",
+      "turn": "01a190ab-a31f-7fb3-93d0-0212a087a799",
+      "sequence": 20
+    },
+    {
+      "client": "pane-2",
+      "pid": 44190,
+      "kind": "turn/completed",
+      "thread": "01a190ab-9355-70e1-abaa-1c4e7f83c98c",
+      "turn": "01a190ab-a0b6-7310-8319-f64ed100bb23",
+      "sequence": 22
+    },
+    {
+      "client": "pane-3",
+      "pid": 44191,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-80e6-7712-a60c-0fe022929edf",
+      "turn": "01a190ab-8440-7a02-b1be-724104c877f1",
+      "sequence": 3
+    },
+    {
+      "client": "pane-3",
+      "pid": 44191,
+      "kind": "turn/started",
+      "thread": "01a190ab-80e6-7712-a60c-0fe022929edf",
+      "turn": "01a190ab-8440-7a02-b1be-724104c877f1",
+      "sequence": 4
+    },
+    {
+      "client": "pane-3",
+      "pid": 44191,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-8581-74b1-9239-93be54b714d4",
+      "turn": "01a190ab-866a-7472-98db-f4d547420cb2",
+      "sequence": 7
+    },
+    {
+      "client": "pane-3",
+      "pid": 44191,
+      "kind": "turn/started",
+      "thread": "01a190ab-8581-74b1-9239-93be54b714d4",
+      "turn": "01a190ab-866a-7472-98db-f4d547420cb2",
+      "sequence": 8
+    },
+    {
+      "client": "pane-3",
+      "pid": 44191,
+      "kind": "turn/completed",
+      "thread": "01a190ab-80e6-7712-a60c-0fe022929edf",
+      "turn": "01a190ab-8440-7a02-b1be-724104c877f1",
+      "sequence": 10
+    },
+    {
+      "client": "pane-3",
+      "pid": 44191,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-92e2-7881-a264-e779716dc4fb",
+      "turn": "01a190ab-a0b7-7963-9d76-667a38f9f570",
+      "sequence": 15
+    },
+    {
+      "client": "pane-3",
+      "pid": 44191,
+      "kind": "turn/started",
+      "thread": "01a190ab-92e2-7881-a264-e779716dc4fb",
+      "turn": "01a190ab-a0b7-7963-9d76-667a38f9f570",
+      "sequence": 16
+    },
+    {
+      "client": "pane-3",
+      "pid": 44191,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-a2cb-7e31-9d00-a9769ce76fd0",
+      "turn": "01a190ab-a339-7762-bfaf-6f6fbd045b49",
+      "sequence": 19
+    },
+    {
+      "client": "pane-3",
+      "pid": 44191,
+      "kind": "turn/started",
+      "thread": "01a190ab-a2cb-7e31-9d00-a9769ce76fd0",
+      "turn": "01a190ab-a339-7762-bfaf-6f6fbd045b49",
+      "sequence": 20
+    },
+    {
+      "client": "pane-3",
+      "pid": 44191,
+      "kind": "turn/completed",
+      "thread": "01a190ab-92e2-7881-a264-e779716dc4fb",
+      "turn": "01a190ab-a0b7-7963-9d76-667a38f9f570",
+      "sequence": 22
+    },
+    {
+      "client": "pane-4",
+      "pid": 44192,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-80c5-75f0-ba5b-d8c0092f2a73",
+      "turn": "01a190ab-843b-7ae1-95a0-2dfabfb4ed6f",
+      "sequence": 3
+    },
+    {
+      "client": "pane-4",
+      "pid": 44192,
+      "kind": "turn/started",
+      "thread": "01a190ab-80c5-75f0-ba5b-d8c0092f2a73",
+      "turn": "01a190ab-843b-7ae1-95a0-2dfabfb4ed6f",
+      "sequence": 4
+    },
+    {
+      "client": "pane-4",
+      "pid": 44192,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-85d1-7fb0-b673-71da93245b40",
+      "turn": "01a190ab-8695-7ff1-a2eb-379a65ad0ba3",
+      "sequence": 7
+    },
+    {
+      "client": "pane-4",
+      "pid": 44192,
+      "kind": "turn/started",
+      "thread": "01a190ab-85d1-7fb0-b673-71da93245b40",
+      "turn": "01a190ab-8695-7ff1-a2eb-379a65ad0ba3",
+      "sequence": 8
+    },
+    {
+      "client": "pane-4",
+      "pid": 44192,
+      "kind": "turn/completed",
+      "thread": "01a190ab-80c5-75f0-ba5b-d8c0092f2a73",
+      "turn": "01a190ab-843b-7ae1-95a0-2dfabfb4ed6f",
+      "sequence": 10
+    },
+    {
+      "client": "pane-4",
+      "pid": 44192,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-9370-7851-8194-5b2c74e69dad",
+      "turn": "01a190ab-a0b4-7000-8fa7-45310e43996b",
+      "sequence": 15
+    },
+    {
+      "client": "pane-4",
+      "pid": 44192,
+      "kind": "turn/started",
+      "thread": "01a190ab-9370-7851-8194-5b2c74e69dad",
+      "turn": "01a190ab-a0b4-7000-8fa7-45310e43996b",
+      "sequence": 16
+    },
+    {
+      "client": "pane-4",
+      "pid": 44192,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-a1ce-7243-9393-94de68a2bb66",
+      "turn": "01a190ab-a336-7650-a044-1bffa6ebbf27",
+      "sequence": 19
+    },
+    {
+      "client": "pane-4",
+      "pid": 44192,
+      "kind": "turn/started",
+      "thread": "01a190ab-a1ce-7243-9393-94de68a2bb66",
+      "turn": "01a190ab-a336-7650-a044-1bffa6ebbf27",
+      "sequence": 20
+    },
+    {
+      "client": "pane-4",
+      "pid": 44192,
+      "kind": "turn/completed",
+      "thread": "01a190ab-9370-7851-8194-5b2c74e69dad",
+      "turn": "01a190ab-a0b4-7000-8fa7-45310e43996b",
+      "sequence": 22
+    },
+    {
+      "client": "pane-5",
+      "pid": 44193,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-8043-7113-8034-440fb3ea47d6",
+      "turn": "01a190ab-843d-7ff1-96e6-624256fa6a22",
+      "sequence": 3
+    },
+    {
+      "client": "pane-5",
+      "pid": 44193,
+      "kind": "turn/started",
+      "thread": "01a190ab-8043-7113-8034-440fb3ea47d6",
+      "turn": "01a190ab-843d-7ff1-96e6-624256fa6a22",
+      "sequence": 4
+    },
+    {
+      "client": "pane-5",
+      "pid": 44193,
+      "kind": "turn/started",
+      "thread": "01a190ab-85f7-7fd1-b4c9-e2f4dada1fd7",
+      "turn": "01a190ab-8698-7001-b6d7-16f6f96d9bcd",
+      "sequence": 7
+    },
+    {
+      "client": "pane-5",
+      "pid": 44193,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-85f7-7fd1-b4c9-e2f4dada1fd7",
+      "turn": "01a190ab-8698-7001-b6d7-16f6f96d9bcd",
+      "sequence": 8
+    },
+    {
+      "client": "pane-5",
+      "pid": 44193,
+      "kind": "turn/completed",
+      "thread": "01a190ab-8043-7113-8034-440fb3ea47d6",
+      "turn": "01a190ab-843d-7ff1-96e6-624256fa6a22",
+      "sequence": 10
+    },
+    {
+      "client": "pane-5",
+      "pid": 44193,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-92f7-7ae0-9062-3a9022141efc",
+      "turn": "01a190ab-a0cf-74e2-880a-6eea782ffb8c",
+      "sequence": 15
+    },
+    {
+      "client": "pane-5",
+      "pid": 44193,
+      "kind": "turn/started",
+      "thread": "01a190ab-92f7-7ae0-9062-3a9022141efc",
+      "turn": "01a190ab-a0cf-74e2-880a-6eea782ffb8c",
+      "sequence": 16
+    },
+    {
+      "client": "pane-5",
+      "pid": 44193,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-a2f5-7a63-bfcb-2df6eec571e9",
+      "turn": "01a190ab-a377-7cf2-8f0b-f37e3f36f203",
+      "sequence": 19
+    },
+    {
+      "client": "pane-5",
+      "pid": 44193,
+      "kind": "turn/started",
+      "thread": "01a190ab-a2f5-7a63-bfcb-2df6eec571e9",
+      "turn": "01a190ab-a377-7cf2-8f0b-f37e3f36f203",
+      "sequence": 20
+    },
+    {
+      "client": "pane-5",
+      "pid": 44193,
+      "kind": "turn/completed",
+      "thread": "01a190ab-92f7-7ae0-9062-3a9022141efc",
+      "turn": "01a190ab-a0cf-74e2-880a-6eea782ffb8c",
+      "sequence": 22
+    },
+    {
+      "client": "pane-6",
+      "pid": 44194,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-8122-7ee2-94a7-029bc81e5dc0",
+      "turn": "01a190ab-843e-78b2-9384-1987393e7195",
+      "sequence": 3
+    },
+    {
+      "client": "pane-6",
+      "pid": 44194,
+      "kind": "turn/started",
+      "thread": "01a190ab-8122-7ee2-94a7-029bc81e5dc0",
+      "turn": "01a190ab-843e-78b2-9384-1987393e7195",
+      "sequence": 4
+    },
+    {
+      "client": "pane-6",
+      "pid": 44194,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-861e-7f92-852a-4e0ab4ca6218",
+      "turn": "01a190ab-8698-78a2-8836-600a2f756ea3",
+      "sequence": 7
+    },
+    {
+      "client": "pane-6",
+      "pid": 44194,
+      "kind": "turn/started",
+      "thread": "01a190ab-861e-7f92-852a-4e0ab4ca6218",
+      "turn": "01a190ab-8698-78a2-8836-600a2f756ea3",
+      "sequence": 8
+    },
+    {
+      "client": "pane-6",
+      "pid": 44194,
+      "kind": "turn/completed",
+      "thread": "01a190ab-8122-7ee2-94a7-029bc81e5dc0",
+      "turn": "01a190ab-843e-78b2-9384-1987393e7195",
+      "sequence": 10
+    },
+    {
+      "client": "pane-6",
+      "pid": 44194,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-9339-7a53-9241-8568d8fe5323",
+      "turn": "01a190ab-a0d9-7513-80ea-16d2f55cc881",
+      "sequence": 15
+    },
+    {
+      "client": "pane-6",
+      "pid": 44194,
+      "kind": "turn/started",
+      "thread": "01a190ab-9339-7a53-9241-8568d8fe5323",
+      "turn": "01a190ab-a0d9-7513-80ea-16d2f55cc881",
+      "sequence": 16
+    },
+    {
+      "client": "pane-6",
+      "pid": 44194,
+      "kind": "turn/started",
+      "thread": "01a190ab-a2a4-7c20-a3e4-bff7e34c8ec8",
+      "turn": "01a190ab-a33a-78f1-a2d2-c1082782ba2b",
+      "sequence": 19
+    },
+    {
+      "client": "pane-6",
+      "pid": 44194,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-a2a4-7c20-a3e4-bff7e34c8ec8",
+      "turn": "01a190ab-a33a-78f1-a2d2-c1082782ba2b",
+      "sequence": 20
+    },
+    {
+      "client": "pane-6",
+      "pid": 44194,
+      "kind": "turn/completed",
+      "thread": "01a190ab-9339-7a53-9241-8568d8fe5323",
+      "turn": "01a190ab-a0d9-7513-80ea-16d2f55cc881",
+      "sequence": 22
+    },
+    {
+      "client": "pane-7",
+      "pid": 44195,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-8139-7a73-8db6-7b40fb77194a",
+      "turn": "01a190ab-8443-7f11-b8f8-57fe7715f0b2",
+      "sequence": 3
+    },
+    {
+      "client": "pane-7",
+      "pid": 44195,
+      "kind": "turn/started",
+      "thread": "01a190ab-8139-7a73-8db6-7b40fb77194a",
+      "turn": "01a190ab-8443-7f11-b8f8-57fe7715f0b2",
+      "sequence": 4
+    },
+    {
+      "client": "pane-7",
+      "pid": 44195,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-8646-7ed3-a55d-793cced37e3d",
+      "turn": "01a190ab-86b4-7b03-85c6-75f1c5051898",
+      "sequence": 7
+    },
+    {
+      "client": "pane-7",
+      "pid": 44195,
+      "kind": "turn/started",
+      "thread": "01a190ab-8646-7ed3-a55d-793cced37e3d",
+      "turn": "01a190ab-86b4-7b03-85c6-75f1c5051898",
+      "sequence": 8
+    },
+    {
+      "client": "pane-7",
+      "pid": 44195,
+      "kind": "turn/completed",
+      "thread": "01a190ab-8139-7a73-8db6-7b40fb77194a",
+      "turn": "01a190ab-8443-7f11-b8f8-57fe7715f0b2",
+      "sequence": 10
+    },
+    {
+      "client": "pane-7",
+      "pid": 44195,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-9309-7c71-9bf5-06e86d6276ae",
+      "turn": "01a190ab-a0b7-7ee0-b780-46fd82d040d7",
+      "sequence": 15
+    },
+    {
+      "client": "pane-7",
+      "pid": 44195,
+      "kind": "turn/started",
+      "thread": "01a190ab-9309-7c71-9bf5-06e86d6276ae",
+      "turn": "01a190ab-a0b7-7ee0-b780-46fd82d040d7",
+      "sequence": 16
+    },
+    {
+      "client": "pane-7",
+      "pid": 44195,
+      "kind": "turn/started",
+      "thread": "01a190ab-a27c-7b42-b70c-595aa8959c09",
+      "turn": "01a190ab-a345-7270-86d1-b70dff61d4c6",
+      "sequence": 19
+    },
+    {
+      "client": "pane-7",
+      "pid": 44195,
+      "kind": "turn/accepted",
+      "thread": "01a190ab-a27c-7b42-b70c-595aa8959c09",
+      "turn": "01a190ab-a345-7270-86d1-b70dff61d4c6",
+      "sequence": 20
+    },
+    {
+      "client": "pane-7",
+      "pid": 44195,
+      "kind": "turn/completed",
+      "thread": "01a190ab-9309-7c71-9bf5-06e86d6276ae",
+      "turn": "01a190ab-a0b7-7ee0-b780-46fd82d040d7",
+      "sequence": 22
+    }
+  ]
+}

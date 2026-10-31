@@ -1,0 +1,18 @@
+{
+  "stage": "native-signal-cleanup-20261031",
+  "argv": [
+    "python3",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/check_signal_cleanup.py"
+  ],
+  "started": 1793431822.1337721,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2756964352,
+  "pid": 97634,
+  "exit_code": 0,
+  "elapsed_s": 4.013099908828735,
+  "free_after": 2752741376
+}

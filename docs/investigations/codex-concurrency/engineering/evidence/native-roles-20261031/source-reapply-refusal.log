@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/patch_native.py", line 149, in <module>
+    main()
+    ~~~~^^
+  File "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/patch_native.py", line 47, in main
+    raise ValueError(f"not the pinned original source: {path}")
+ValueError: not the pinned original source: codex-rs/app-server-client/src/lib.rs

@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import os,runpy; os.environ["PATH"]="/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug:"+os.environ["PATH"]; runpy.run_path("/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/run_bridge.py",run_name="__main__")
+                                                                                                                              ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen runpy>", line 287, in run_path
+  File "<frozen runpy>", line 98, in _run_module_code
+  File "<frozen runpy>", line 88, in _run_code
+  File "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/run_bridge.py", line 16, in <module>
+    from controller import NativeRPC, Registry, Refused
+ModuleNotFoundError: No module named 'controller'
