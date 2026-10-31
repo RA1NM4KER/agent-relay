@@ -1,5 +1,78 @@
 # Continuation checkpoint
 
+## Shared validation preflight from 45670f2 (2026-10-31)
+
+Reviewed the requested documents and reverified all 57 indexed native-role evidence
+files, the six built source files, CLI/package hashes and normalized dependency
+lock. No source/toolchain downloads or native rebuilds were repeated. Production
+Relay, ProfileSessionLock, installed binaries and credentials remain untouched.
+
+Removed 212 MiB of allocated inactive Homebrew API/Bootsnap, npm npx and pnpm dlx
+cache entries under existing authorization, after process/open-file checks. Their
+exact local-only inventory remains in the original workspace checkpoints. Free
+space still fluctuates around 3.8 GiB, below the 4 GiB entry requirement. Approval
+is pending for approximately 1.07 GiB of inactive Playwright test-browser caches;
+those files have NOT been deleted. No external physical volume is attached. A
+same-disk sparse image adds no capacity, and a 4 GiB RAM volume is unsuitable on
+this 8 GiB machine with roughly 3.3 GiB swap already used. No other cleanup or
+volume creation was attempted.
+
+The harness now refuses shared startup below 4 GiB, before launching any native
+runtime. That actual precondition rejection is retained. The original 1.5 GiB
+reserve and SIGTERM cleanup remain. **No new shared suite was executed or passed.**
+The read-only shared proof and new shared cleanup readbacks remain unvalidated
+against a running daemon until capacity is available.
+
+Prepared stronger shared oracles without rebuilding Codex:
+
+- A supported `app-server proxy --sock` connection issues only initialize,
+  `thread/loaded/list` and `thread/turns/list`. Exact foreground roots must be in
+  that daemon's in-memory manager, and accepted turns must report inProgress /
+  interrupted. This rejects silent embedded fallback without a second resume
+  writer. It is test observation, not host-wide admission or peer authentication.
+- An opt-in loopback HoldingProvider supplies valid Responses SSE and keeps
+  requests open. Native `thread-id` headers identify requests; bodies and other
+  headers are discarded. Native TUIs must have eight simultaneous exact streams,
+  interrupt A while B–H progress, kill A's idle frontend while B–H remain active,
+  then interrupt those seven. No model tools or credentialed inference is used.
+- Progress snapshots, bounded terminal/event records, frontend exit codes and
+  native cleanup stdout/stderr are retained. A stale Unix socket inode is not
+  treated as a live daemon: cleanup uses PID absence and connection refusal.
+  Binary hashes stream through bounded buffers to avoid allocating the entire
+  574 MiB debug executable on this memory-constrained host.
+- Evidence-write failures cannot skip later process cleanup. Native SIGTERM
+  regression passes with eight frontends. A second actual eight-frontend probe
+  injects ENOSPC on every terminal evidence write; all eight still exit, and
+  every injected failure is recorded. These are cleanup checks, not shared proof.
+
+Validation: 27 Python checks pass, including eight real loopback fixture clients,
+expiry/stale-disconnect negatives, read-only RPC refusal and stale-socket cases.
+The actual pinned native stdio fixture check reports one exact turn interrupted
+and its HTTP stream disconnected; execution_quiescent remains false. Its initial
+caller used both an explicit interrupt and the old drain helper, issuing a second
+interrupt that timed out. That failed result is retained unchanged; the corrected
+single-interrupt check passes. Duplicate-interrupt behavior remains a separate
+unresolved research concern, not a claimed provider fix. The initial ENOSPC test
+launcher also failed before runtime due to a missing Python module path; both
+that failure and the corrected passing run are retained.
+
+Evidence: `engineering/evidence/native-shared-preflight-20261031/`. Full workspace
+Rust checks were not rerun: production Rust and native binaries are unchanged,
+and prior baseline failures remain outstanding. Full parity remains unproven.
+
+Next authorized runtime step, ONLY after at least 4 GiB is confirmed (prefer
+6–8 GiB), using a NEW stage name and a fresh isolated home:
+
+```sh
+python3 /private/tmp/relay-native-build-20261030-9fw2zv7w/run_stage.py shared-held-responses-after-capacity python3 /private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/native_tui_lab.py --codex /private/tmp/relay-native-build-20261030-9fw2zv7w/target/research-package/bin/codex --mode shared --holding-provider
+```
+
+Do not rebuild/download the existing package or lower either disk gate. Do not
+use the stdio/cleanup checks as eight shared native TUIs. Host-wide native fencing,
+execution-tree containment, quiescence, scoped transfer/recovery and real-world
+acceptance remain release blockers; earlier bypass/descendant counterexamples
+still apply. Production ProfileSessionLock stays in place.
+
 Date: 2026-10-30. This is a research/engineering branch, not a release.
 
 ## Native role/cancellation follow-up (2026-10-31)

@@ -1,5 +1,22 @@
 # Acceptance matrix and proof obligations
 
+## Shared preflight follow-up from 45670f2
+
+Shared validation is still blocked below 4 GiB; additional test-browser cache
+removal awaits explicit approval. No new shared suite passes. The pinned package
+and native sources/hashes remain unchanged, and all 57 prior native-role evidence
+files reverify. A loopback held-response fixture passes actual native stdio
+cancellation, and 27 Python checks pass. Native eight-frontend SIGTERM and injected
+terminal-write ENOSPC cleanup checks pass. These do not certify shared mode.
+
+The prepared shared harness now verifies in-memory daemon roots and exact native
+turn statuses over a restricted read-only proxy, holds eight real response streams
+for cancellation/neighbor-progress checks, retains incremental evidence, and
+cleans up before terminal evidence writes. Shared execution of these additions is
+unverified. See [CONTINUATION.md](CONTINUATION.md) and
+`engineering/evidence/native-shared-preflight-20261031/` for failures, limits and
+the exact resume command. Full parity and production safety requirements remain.
+
 ## Latest native evidence (2026-10-31)
 
 The role/cancellation repair is built into the pinned native CLI. Eight actual
@@ -247,3 +264,18 @@ quiescence guarantee is upgraded. NATIVE_BUILD.md retains exact diagnosis and
 engineering/evidence/native-tui-20261030/ preserves both the initial cold-version
 timeout and the subsequent selection-gate failure. No features were disabled to
 make these tests pass. Full parity remains NOT DEMONSTRATED.
+
+## Shared preflight evidence boundary after 45670f2
+
+| Area | Observed now | Still unverified |
+| --- | --- | --- |
+| Shared startup/resource gate | Real below-4-GiB invocation refuses before runtime; 1.5-GiB guard retained | Complete shared suite after capacity approval |
+| Concurrent model streams | Eight HTTP fixture clients coexist; one disconnect preserves seven | Eight actual native TUIs using the held-response fixture |
+| Exact cancellation | Actual pinned native stdio turn reports interrupted and peer response disconnects | Shared-daemon TUI cancellation/neighbor progress; tools/subagents |
+| Backend identity | In-memory loaded-root / exact-turn-status oracles prepared; negative oracle tests pass | Actual shared proxy and all eight client bindings against one daemon |
+| SIGTERM/disk I/O | Two real eight-frontend cleanup probes pass, including injected ENOSPC terminal writes | Shared daemon cleanup/readback and actual full-disk/mixed-runtime recovery |
+| Host fencing/quiescence/handoff | No new guarantee; HTTP disconnect/turn drain explicitly not quiescence | All earlier native enforcement, descendant, handoff and recovery blockers |
+
+The initial duplicate-interrupt fixture failure and initial fault-launcher import
+failure remain retained. No earlier failed/ignored production baseline test is
+promoted by these results. Full parity remains NOT DEMONSTRATED.

@@ -1,0 +1,99 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-9k8a6km8",
+  "harness_pid": 57916,
+  "mode": "embedded",
+  "checks": [],
+  "full_parity": false,
+  "inference_fixture": "unreachable",
+  "binding_phases": {},
+  "shared_loaded_proof": [],
+  "shared_turn_states": [],
+  "frontend_pids": [
+    57936,
+    57937,
+    57938,
+    57939,
+    57940,
+    57941,
+    57942,
+    57943
+  ],
+  "exception": "InterruptedError('lab received SIGTERM; preserving evidence and cleaning up')",
+  "native_turn_events": [],
+  "frontend_cleanup": [
+    {
+      "client": "pane-0",
+      "pid": 57936,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-1",
+      "pid": 57937,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-2",
+      "pid": 57938,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-3",
+      "pid": 57939,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-4",
+      "pid": 57940,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-5",
+      "pid": 57941,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-6",
+      "pid": 57942,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-7",
+      "pid": 57943,
+      "exit_code": -15
+    }
+  ],
+  "cleanup_errors": [
+    {
+      "stage": "frontend 0 terminal evidence",
+      "error": "OSError(28, 'injected terminal evidence write failure')"
+    },
+    {
+      "stage": "frontend 1 terminal evidence",
+      "error": "OSError(28, 'injected terminal evidence write failure')"
+    },
+    {
+      "stage": "frontend 2 terminal evidence",
+      "error": "OSError(28, 'injected terminal evidence write failure')"
+    },
+    {
+      "stage": "frontend 3 terminal evidence",
+      "error": "OSError(28, 'injected terminal evidence write failure')"
+    },
+    {
+      "stage": "frontend 4 terminal evidence",
+      "error": "OSError(28, 'injected terminal evidence write failure')"
+    },
+    {
+      "stage": "frontend 5 terminal evidence",
+      "error": "OSError(28, 'injected terminal evidence write failure')"
+    },
+    {
+      "stage": "frontend 6 terminal evidence",
+      "error": "OSError(28, 'injected terminal evidence write failure')"
+    },
+    {
+      "stage": "frontend 7 terminal evidence",
+      "error": "OSError(28, 'injected terminal evidence write failure')"
+    }
+  ]
+}

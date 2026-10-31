@@ -1,0 +1,24 @@
+{
+  "root": "/private/tmp/relay-holding-native-_6mb0vbd",
+  "scope": "NATIVE_STDIO_FIXTURE_COMPATIBILITY",
+  "full_parity": false,
+  "exception": "Empty()",
+  "rpc_methods": [
+    "thread/start",
+    "turn/start",
+    "turn/interrupt",
+    "turn/interrupt"
+  ],
+  "native_cleanup_exit": 0,
+  "provider_requests": [
+    {
+      "request": 0,
+      "thread": "01a191f1-629d-72a3-85da-8260419c071f",
+      "state": "closed",
+      "opened": 133654.716348208,
+      "heartbeats": 1,
+      "closed": 133654.744650875,
+      "reason": "peer_disconnect"
+    }
+  ]
+}

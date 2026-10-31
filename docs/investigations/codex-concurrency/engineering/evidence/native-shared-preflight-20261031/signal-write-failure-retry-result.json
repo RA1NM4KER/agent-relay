@@ -1,0 +1,9 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-9k8a6km8",
+  "status": "PASSED",
+  "signal": "SIGTERM after eight native bindings plus injected ENOSPC on every terminal evidence write",
+  "harness_exit": 1,
+  "exception": "InterruptedError('lab received SIGTERM; preserving evidence and cleaning up')",
+  "remaining_exact_frontends": [],
+  "full_parity": false
+}

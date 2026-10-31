@@ -1,5 +1,11 @@
 # Concurrent Codex sessions: investigation and decision record
 
+**Continuation from 45670f2:** shared runtime remains blocked below the 4 GiB
+minimum; broader cache deletion awaits approval. No shared success is claimed.
+The existing native package is intact. Held-response native cancellation and
+cleanup regressions pass; the stronger shared proof harness is prepared but not
+shared-validated. [CONTINUATION.md](CONTINUATION.md) contains the current checkpoint.
+
 **2026-10-31 native role repair:** the pinned CLI rebuild passes. Eight rebuilt
 embedded TUIs pass nine narrow gates, including foreground turn completion,
 `/new`, `/fork`, exact picker resume and surviving neighbor frontends. The complete lab package builds; its shared daemon starts and eight TUIs bind

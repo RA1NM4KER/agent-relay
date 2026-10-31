@@ -1,0 +1,20 @@
+{
+  "stage": "holding-native-single-interrupt-followup",
+  "argv": [
+    "python3",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/check_holding_native.py",
+    "--codex",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex"
+  ],
+  "started": 1793449954.948164,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 3999207424,
+  "pid": 33365,
+  "exit_code": 0,
+  "elapsed_s": 2.007715940475464,
+  "free_after": 3995275264
+}

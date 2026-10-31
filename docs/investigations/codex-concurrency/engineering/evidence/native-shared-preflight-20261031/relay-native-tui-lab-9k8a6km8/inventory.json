@@ -1,0 +1,12 @@
+[
+  {
+    "path": "result.json",
+    "bytes": 4827,
+    "sha256": "5d6adf06ccb01121983a28384fa40532c1f327bb0d6485bb944370e71262a2df"
+  },
+  {
+    "path": "progress.json",
+    "bytes": 377,
+    "sha256": "65fc20ad5b20a46251cd1b8fd4b48721f102ae60ebd7da3df84dad57d7bf8f1b"
+  }
+]

@@ -1,0 +1,75 @@
+{
+  "upstream_commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+  "contracts": [
+    {
+      "path": "codex-rs/core/src/thread_manager.rs",
+      "git_blob": "b56485d7419e07ec28a5fbb20bfc7b22e7ada62a",
+      "lines": [
+        1826,
+        1835
+      ],
+      "purpose": "Loaded-thread IDs come from this process thread map, not persisted history",
+      "source_excerpt": "    pub(crate) async fn list_thread_ids(&self) -> Vec<ThreadId> {\n        self.threads\n            .read()\n            .await\n            .iter()\n            .filter_map(|(thread_id, thread)| {\n                (!thread.session_source.is_internal()).then_some(*thread_id)\n            })\n            .collect()\n    }"
+    },
+    {
+      "path": "codex-rs/app-server/src/request_processors/thread_processor.rs",
+      "git_blob": "1ef252dcbf47f9346a7539c39a7ca9a3807a290f",
+      "lines": [
+        3018,
+        3068
+      ],
+      "purpose": "Supported thread/loaded/list maps the current ThreadManager",
+      "source_excerpt": "    async fn thread_loaded_list_response_inner(\n        &self,\n        params: ThreadLoadedListParams,\n    ) -> Result<ThreadLoadedListResponse, JSONRPCErrorError> {\n        let ThreadLoadedListParams { cursor, limit } = params;\n        let mut data = Vec::new();\n        for thread_id in self.thread_manager.list_thread_ids().await {\n            if let Ok(thread) = self.thread_manager.get_thread(thread_id).await\n                && thread\n                    .thread_extension_data()\n                    .get::<SampleThread>()\n                    .is_none()\n            {\n                data.push(thread_id.to_string());\n            }\n        }\n\n        if data.is_empty() {\n            return Ok(ThreadLoadedListResponse {\n                data,\n                next_cursor: None,\n            });\n        }\n\n        data.sort();\n        let total = data.len();\n        let start = match cursor {\n            Some(cursor) => {\n                let cursor = match ThreadId::from_string(&cursor) {\n                    Ok(id) => id.to_string(),\n                    Err(_) => return Err(invalid_request(format!(\"invalid cursor: {cursor}\"))),\n                };\n                match data.binary_search(&cursor) {\n                    Ok(idx) => idx + 1,\n                    Err(idx) => idx,\n                }\n            }\n            None => 0,\n        };\n\n        let effective_limit = limit.unwrap_or(total as u32).max(1) as usize;\n        let end = start.saturating_add(effective_limit).min(total);\n        let page = data[start..end].to_vec();\n        let next_cursor = page.last().filter(|_| end < total).cloned();\n\n        Ok(ThreadLoadedListResponse {\n            data: page,\n            next_cursor,\n        })\n    }\n"
+    },
+    {
+      "path": "codex-rs/app-server/src/request_processors/thread_processor.rs",
+      "git_blob": "1ef252dcbf47f9346a7539c39a7ca9a3807a290f",
+      "lines": [
+        3370,
+        3395
+      ],
+      "purpose": "Turn-list combines persisted history with live in-memory turn status",
+      "source_excerpt": "        let items = self\n            .load_thread_turns_list_history(thread_uuid)\n            .await\n            .map_err(thread_read_view_error)?;\n        // This API optimizes network transfer by letting clients page through a\n        // thread's turns incrementally, but it still replays the entire rollout on\n        // every request. Rollback and compaction events can change earlier turns, so\n        // the server has to rebuild the full turn list until turn metadata is indexed\n        // separately.\n        let loaded_thread = self.thread_manager.get_thread(thread_uuid).await.ok();\n        let has_live_running_thread = match loaded_thread.as_ref() {\n            Some(thread) => matches!(thread.agent_status().await, AgentStatus::Running),\n            None => false,\n        };\n        let active_turn = if loaded_thread.is_some() {\n            // Persisted history may not yet include the currently running turn. The\n            // app-server listener has already projected live turn events into ThreadState,\n            // so merge that in-memory snapshot before paginating.\n            let thread_state = self.thread_state_manager.thread_state(thread_uuid).await;\n            let state = thread_state.lock().await;\n            state.active_turn_snapshot()\n        } else {\n            None\n        };\n        build_thread_turns_page_response(\n            &items,"
+    },
+    {
+      "path": "codex-rs/codex-api/src/requests/headers.rs",
+      "git_blob": "c5cede8ac63c8d7da8aafc6323795e24c98f8da2",
+      "lines": [
+        1,
+        13
+      ],
+      "purpose": "Supported native thread-id header is distinct from cache/session affinity",
+      "source_excerpt": "use codex_protocol::protocol::SessionSource;\nuse http::HeaderMap;\nuse http::HeaderValue;\n\npub fn build_session_headers(session_id: Option<String>, thread_id: Option<String>) -> HeaderMap {\n    let mut headers = HeaderMap::new();\n    if let Some(id) = session_id {\n        insert_header(&mut headers, \"session-id\", &id);\n    }\n    if let Some(id) = thread_id {\n        insert_header(&mut headers, \"thread-id\", &id);\n    }\n    headers"
+    },
+    {
+      "path": "codex-rs/core/src/client.rs",
+      "git_blob": "2ac9b931ffbcf47809d54c35569458003ccd7181",
+      "lines": [
+        1596,
+        1608
+      ],
+      "purpose": "Responses thread-id derives from actual native thread identity",
+      "source_excerpt": "        responses_metadata: &CodexResponsesMetadata,\n        compression: Compression,\n        use_responses_lite: bool,\n    ) -> ApiResponsesOptions {\n        ApiResponsesOptions {\n            session_id: Some(self.client.responses_session_id(responses_metadata)),\n            thread_id: Some(responses_metadata.thread_id.to_string()),\n            session_source: Some(self.client.state.session_source.clone()),\n            extra_headers: {\n                let mut headers = build_responses_headers(\n                    self.client.state.beta_features_header.as_deref(),\n                    Some(turn_state),\n                );"
+    },
+    {
+      "path": "codex-rs/cli/src/main.rs",
+      "git_blob": "8a578c38a7d3d6dae042b4ef623b7ba96122d6f0",
+      "lines": [
+        1474,
+        1484
+      ],
+      "purpose": "Supported app-server proxy forwards stdio to explicit Unix socket",
+      "source_excerpt": "                Some(AppServerSubcommand::Proxy(proxy_cli)) => {\n                    let socket_path = match proxy_cli.socket_path {\n                        Some(socket_path) => socket_path,\n                        None => {\n                            let codex_home = find_codex_home()?;\n                            codex_app_server::app_server_control_socket_path(&codex_home)?\n                        }\n                    };\n                    codex_stdio_to_uds::run(socket_path.as_path()).await?;\n                }\n                Some(AppServerSubcommand::GenerateTs(gen_cli)) => {"
+    },
+    {
+      "path": "codex-rs/app-server-protocol/src/protocol/v2/turn.rs",
+      "git_blob": "bf2444553ab39c8da4cca84ece98f0bd7fd36865",
+      "lines": [
+        29,
+        38
+      ],
+      "purpose": "Typed turn statuses include inProgress and interrupted",
+      "source_excerpt": "\n#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]\n#[serde(rename_all = \"camelCase\")]\n#[ts(export_to = \"v2/\")]\npub enum TurnStatus {\n    Completed,\n    Interrupted,\n    Failed,\n    InProgress,\n}"
+    }
+  ]
+}

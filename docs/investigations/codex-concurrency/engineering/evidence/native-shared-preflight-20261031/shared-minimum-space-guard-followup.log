@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/native_tui_lab.py", line 432, in <module>
+    main()
+    ~~~~^^
+  File "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/native_tui_lab.py", line 117, in main
+    raise RuntimeError(f"shared lab preflight requires 4 GiB free; observed {free} bytes; no runtime launched")
+RuntimeError: shared lab preflight requires 4 GiB free; observed 4123025408 bytes; no runtime launched

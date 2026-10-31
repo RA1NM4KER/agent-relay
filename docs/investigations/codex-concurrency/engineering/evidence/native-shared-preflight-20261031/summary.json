@@ -1,0 +1,22 @@
+{
+  "status": "BLOCKED_MINIMUM_SPACE_AND_PENDING_CACHE_APPROVAL",
+  "free_bytes": 4057600000,
+  "minimum_bytes": 4294967296,
+  "guard_reserve_bytes": 1610612736,
+  "further_deletions": false,
+  "shared_suite_executed": false,
+  "shared_proof_upgraded": false,
+  "native_fixture_single_interrupt": "PASSED",
+  "initial_fixture_double_interrupt": "FAILED_RETAINED",
+  "native_sigterm_cleanup": "PASSED",
+  "native_sigterm_plus_injected_terminal_enospc": "PASSED",
+  "initial_fault_launcher_import_error": "FAILED_BEFORE_RUNTIME_RETAINED",
+  "python_tests": 27,
+  "production_unchanged": true,
+  "full_parity": false,
+  "required_native_shared_observer_validation": "NOT_RUN",
+  "authorized_cache_removed_allocated_mib": 212.20703125,
+  "native_source_and_compiled_artifacts_unchanged": true,
+  "remaining_lab_processes": [],
+  "free_bytes_at_checkpoint": 4083146752
+}

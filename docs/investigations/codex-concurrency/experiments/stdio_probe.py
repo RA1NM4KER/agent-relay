@@ -41,13 +41,13 @@ enabled = false
 
 
 class Server:
-    def __init__(self, executable, env, name):
+    def __init__(self, executable, env, name, arguments=None):
         self.name = name
         self.events = []
         self.serial = 0
         self.responses = queue.Queue()
         self.stderr = []
-        self.child = subprocess.Popen([executable, "app-server"], env=env,
+        self.child = subprocess.Popen([executable, *(arguments if arguments is not None else ["app-server"])], env=env,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, bufsize=1, start_new_session=True, cwd=env["HOME"])
         def read():

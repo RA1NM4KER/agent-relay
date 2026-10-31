@@ -1,0 +1,17 @@
+[
+  {
+    "path": "result.json",
+    "bytes": 1341,
+    "sha256": "6b1866191aef6df3fa0fd40b62d065e2f7b9a44d8aac10c975d7285a8cfabe74"
+  },
+  {
+    "path": "provider.events.jsonl",
+    "bytes": 346,
+    "sha256": "d1e8738e27403651394e61722e84d6884d5186d1bb384d7775d0cc840ac0110b"
+  },
+  {
+    "path": "native.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

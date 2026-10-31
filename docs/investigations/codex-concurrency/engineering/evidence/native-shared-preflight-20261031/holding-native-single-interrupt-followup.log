@@ -1,0 +1,53 @@
+{
+  "root": "/private/tmp/relay-holding-native-dvk9b6ci",
+  "scope": "NATIVE_STDIO_FIXTURE_COMPATIBILITY",
+  "full_parity": false,
+  "thread": "01a191f2-9237-73c3-b67c-12b47632c636",
+  "turn": "01a191f2-92ef-7171-8760-2b8bed175413",
+  "interrupt_ack": {},
+  "status": "PASSED",
+  "turn_status": "interrupted",
+  "receipt": {
+    "kind": "TURN_DRAIN_ONLY",
+    "thread": "01a191f2-9237-73c3-b67c-12b47632c636",
+    "turns": [
+      "01a191f2-92ef-7171-8760-2b8bed175413"
+    ],
+    "execution_quiescent": false
+  },
+  "rpc_methods": [
+    "thread/start",
+    "turn/start",
+    "turn/interrupt"
+  ],
+  "turn_events": [
+    {
+      "method": "turn/started",
+      "thread": "01a191f2-9237-73c3-b67c-12b47632c636",
+      "turn": {
+        "id": "01a191f2-92ef-7171-8760-2b8bed175413",
+        "status": "inProgress"
+      }
+    },
+    {
+      "method": "turn/completed",
+      "thread": "01a191f2-9237-73c3-b67c-12b47632c636",
+      "turn": {
+        "id": "01a191f2-92ef-7171-8760-2b8bed175413",
+        "status": "interrupted"
+      }
+    }
+  ],
+  "native_cleanup_exit": 0,
+  "provider_requests": [
+    {
+      "request": 0,
+      "thread": "01a191f2-9237-73c3-b67c-12b47632c636",
+      "state": "closed",
+      "opened": 133732.447507666,
+      "heartbeats": 1,
+      "closed": 133732.459203583,
+      "reason": "peer_disconnect"
+    }
+  ]
+}

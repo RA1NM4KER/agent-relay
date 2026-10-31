@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/private/tmp/relay-native-build-20261030-9fw2zv7w/check_signal_write_failure.py", line 22, in <module>
+    if child.poll() is not None:raise AssertionError('native harness exited before signal check')
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: native harness exited before signal check

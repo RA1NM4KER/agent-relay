@@ -1,5 +1,22 @@
 # Pinned native build continuation, 2026-10-30
 
+## Shared preflight follow-up from 45670f2
+
+Shared validation is still blocked below 4 GiB; additional test-browser cache
+removal awaits explicit approval. No new shared suite passes. The pinned package
+and native sources/hashes remain unchanged, and all 57 prior native-role evidence
+files reverify. A loopback held-response fixture passes actual native stdio
+cancellation, and 27 Python checks pass. Native eight-frontend SIGTERM and injected
+terminal-write ENOSPC cleanup checks pass. These do not certify shared mode.
+
+The prepared shared harness now verifies in-memory daemon roots and exact native
+turn statuses over a restricted read-only proxy, holds eight real response streams
+for cancellation/neighbor-progress checks, retains incremental evidence, and
+cleans up before terminal evidence writes. Shared execution of these additions is
+unverified. See [CONTINUATION.md](CONTINUATION.md) and
+`engineering/evidence/native-shared-preflight-20261031/` for failures, limits and
+the exact resume command. Full parity and production safety requirements remain.
+
 ## Latest native evidence (2026-10-31)
 
 The role/cancellation repair is built into the pinned native CLI. Eight actual

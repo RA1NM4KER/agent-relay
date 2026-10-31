@@ -1,0 +1,23 @@
+{
+  "stage": "shared-minimum-space-guard-followup",
+  "argv": [
+    "python3",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/feasibility/native_tui_lab.py",
+    "--codex",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/research-package/bin/codex",
+    "--mode",
+    "shared",
+    "--holding-provider"
+  ],
+  "started": 1793450361.346178,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 4123045888,
+  "pid": 44094,
+  "exit_code": 1,
+  "elapsed_s": 2.0083818435668945,
+  "free_after": 4123164672
+}

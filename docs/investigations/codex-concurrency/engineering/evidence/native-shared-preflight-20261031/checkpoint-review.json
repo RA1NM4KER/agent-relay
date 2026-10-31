@@ -1,0 +1,9 @@
+{
+  "checkpoint": "45670f2234cef15612ffb5cc84daccf715daee27",
+  "verified_prior_archived_files": 57,
+  "native_source_and_binary_manifest_verified": true,
+  "package_manifest_verified": true,
+  "external_dependency_lock_unchanged": true,
+  "native_rebuilds": 0,
+  "new_dependency_downloads": 0
+}

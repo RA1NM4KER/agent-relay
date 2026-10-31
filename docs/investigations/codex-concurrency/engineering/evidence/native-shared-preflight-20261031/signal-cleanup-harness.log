@@ -1,0 +1,77 @@
+{
+  "root": "/private/tmp/relay-native-tui-lab-p8p5j60q",
+  "mode": "embedded",
+  "checks": [
+    "eight initial native selections acknowledged before any prompt"
+  ],
+  "full_parity": false,
+  "inference_fixture": "unreachable",
+  "binding_phases": {
+    "initial": {
+      "pane-1": "01a191fe-30d6-7181-829b-7cd357a5bdd6",
+      "pane-7": "01a191fe-3149-7230-856d-0ed1fcad6bac",
+      "pane-5": "01a191fe-315d-72d1-a779-0278910a305c",
+      "pane-0": "01a191fe-317f-7ea0-bfb3-dfb468b62a6a",
+      "pane-6": "01a191fe-31b0-79e3-a0e5-aea78d652236",
+      "pane-4": "01a191fe-3199-74b2-9be5-f5c5d2481724",
+      "pane-2": "01a191fe-31cb-7d11-9b68-57ca1523d401",
+      "pane-3": "01a191fe-31e7-7b62-85b0-4a20f1d06d1d"
+    }
+  },
+  "shared_loaded_proof": [],
+  "shared_turn_states": [],
+  "frontend_pids": [
+    53609,
+    53610,
+    53611,
+    53612,
+    53613,
+    53614,
+    53615,
+    53616
+  ],
+  "exception": "InterruptedError('lab received SIGTERM; preserving evidence and cleaning up')",
+  "native_turn_events": [],
+  "frontend_cleanup": [
+    {
+      "client": "pane-0",
+      "pid": 53609,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-1",
+      "pid": 53610,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-2",
+      "pid": 53611,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-3",
+      "pid": 53612,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-4",
+      "pid": 53613,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-5",
+      "pid": 53614,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-6",
+      "pid": 53615,
+      "exit_code": -15
+    },
+    {
+      "client": "pane-7",
+      "pid": 53616,
+      "exit_code": -15
+    }
+  ]
+}

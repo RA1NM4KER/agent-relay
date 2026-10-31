@@ -1,0 +1,18 @@
+{
+  "stage": "shared-preflight-enospc-cleanup-regression",
+  "argv": [
+    "python3",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/check_signal_write_failure.py"
+  ],
+  "started": 1793450817.9655418,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 4092891136,
+  "pid": 56409,
+  "exit_code": 1,
+  "elapsed_s": 2.007779121398926,
+  "free_after": 4092792832
+}
