@@ -1,0 +1,141 @@
+{
+  "root": "/private/tmp/relay-native-authority-5955czdh",
+  "scope": "ACTUAL_NATIVE_AUTHORITY_NOT_FULL_PARITY",
+  "checks": [
+    "unmediated native creation refused",
+    "raw client cannot invent supervisor enrollment",
+    "alternative native exec cannot open a second protected host",
+    "two independent native owner bindings",
+    "second live connection cannot reuse A controller lease",
+    "retired A lease cannot drive its native root",
+    "supervisor recovery retains exact A native root",
+    "actual ephemeral native child inherits A exact authority root",
+    "native path selection cannot override owned ID: thread/resume",
+    "native path selection cannot override owned ID: thread/fork",
+    "raw native thread/resume refused",
+    "foreign native thread/resume refused",
+    "raw native thread/fork refused",
+    "foreign native thread/fork refused",
+    "raw native turn/start refused",
+    "foreign native turn/start refused",
+    "raw native turn/steer refused",
+    "foreign native turn/steer refused",
+    "raw native thread/shellCommand refused",
+    "foreign native thread/shellCommand refused",
+    "unclassified alternate execution process/spawn refused",
+    "unclassified alternate execution command/exec refused",
+    "unclassified alternate execution fs/writeFile refused",
+    "unclassified alternate execution thread/queue/start refused",
+    "unclassified alternate execution thread/realtime/start refused",
+    "unclassified alternate execution review/start refused",
+    "durable native revoke never claims quiescence",
+    "forged executor receipt cannot advance native handoff",
+    "fenced owner cannot resume its native root",
+    "fenced parent also fences its native ephemeral child",
+    "owner revoke fences its other native conversation",
+    "fenced controller cannot escape through native new",
+    "fenced owner cannot execute native command",
+    "native B executes after A fence",
+    "exact owned native host crash leaves endpoint quiet",
+    "supervisor capabilities retained privately before forwarding",
+    "native operation status reports committed lost reply",
+    "A remains fenced after actual native host restart",
+    "lost native reply recovers exact committed identity",
+    "lost-reply retry creates no additional native root",
+    "lost creation reply retains a real native resumable empty conversation",
+    "durable token cannot substitute native creation parameters",
+    "B reconnects with same authority after host crash",
+    "actual native host killed after intent before execution",
+    "native crash recovery reports unresolved without guessing",
+    "unresolved native creation cannot replay execution",
+    "unresolved retry creates no native root"
+  ],
+  "full_parity": false,
+  "execution_quiescent": false,
+  "binary_sha256": "324607d14e973ff2e4cdf33b6ec41ca820c185cba7bf5d42c54c5d53183aca06",
+  "native_pids": [
+    3579,
+    3726,
+    3764
+  ],
+  "controller_receipts": [
+    {
+      "controller": "A",
+      "owner": "e7e33a0d1ce785dbdf8b8dd70664cd9cc7cf83999aca76e51545c937d8473df8",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a19833-8450-7502-809d-bcdc47bd2941",
+      "accepting": true
+    },
+    {
+      "controller": "B",
+      "owner": "f802382a0e53784081f4c2884232544f6543fc7cbbab9b2b755b91c37eb1e222",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a19833-8450-7502-809d-bcdc47bd2941",
+      "accepting": true
+    },
+    {
+      "controller": "A",
+      "owner": "e7e33a0d1ce785dbdf8b8dd70664cd9cc7cf83999aca76e51545c937d8473df8",
+      "controllerGeneration": 2,
+      "hostGeneration": "01a19833-8450-7502-809d-bcdc47bd2941",
+      "accepting": true
+    },
+    {
+      "controller": "C",
+      "owner": "14023882fed4c84be44000aff5332769878adef6f8e4066c1aaa588bd0f236d9",
+      "controllerGeneration": 1,
+      "hostGeneration": "01a19833-8450-7502-809d-bcdc47bd2941",
+      "accepting": true
+    },
+    {
+      "controller": "A",
+      "owner": "e7e33a0d1ce785dbdf8b8dd70664cd9cc7cf83999aca76e51545c937d8473df8",
+      "controllerGeneration": 3,
+      "hostGeneration": "01a19833-8a3d-7e62-ba00-aa8f284f9131",
+      "accepting": false
+    },
+    {
+      "controller": "B",
+      "owner": "f802382a0e53784081f4c2884232544f6543fc7cbbab9b2b755b91c37eb1e222",
+      "controllerGeneration": 2,
+      "hostGeneration": "01a19833-8a3d-7e62-ba00-aa8f284f9131",
+      "accepting": true
+    },
+    {
+      "controller": "C",
+      "owner": "14023882fed4c84be44000aff5332769878adef6f8e4066c1aaa588bd0f236d9",
+      "controllerGeneration": 2,
+      "hostGeneration": "01a19833-8a3d-7e62-ba00-aa8f284f9131",
+      "accepting": true
+    },
+    {
+      "controller": "B",
+      "owner": "f802382a0e53784081f4c2884232544f6543fc7cbbab9b2b755b91c37eb1e222",
+      "controllerGeneration": 3,
+      "hostGeneration": "01a19833-8b26-7512-95bc-c6c9967b3ad8",
+      "accepting": true
+    }
+  ],
+  "bindings": {
+    "A": "01a19833-8852-7c03-b087-cfb203694785",
+    "B": "01a19833-8898-7d50-8ea3-33d5833c3be6",
+    "other_A": "01a19833-8922-7c11-9a19-6918975ddaa4",
+    "helper_A": "01a19833-88e8-7c90-92ff-5e20019c7e51"
+  },
+  "host_cleanup": [
+    {
+      "pid": 3579,
+      "exit_code": -9
+    },
+    {
+      "pid": 3726,
+      "exit_code": -9
+    },
+    {
+      "pid": 3764,
+      "exit_code": 0
+    }
+  ],
+  "status": "NARROW_NATIVE_ADMISSION_CHECKS_PASSED_NOT_PARITY",
+  "socket_quiet_after_cleanup": true
+}

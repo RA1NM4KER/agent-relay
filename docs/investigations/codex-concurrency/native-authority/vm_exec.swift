@@ -19,6 +19,7 @@ final class Realm: NSObject, VZVirtualMachineDelegate {
     var finished = false
     var evidenceFailed = false
     var ticks = 0
+    var firstStopTick: Int?
     var status = "CONFIGURING"
 
     init(kernel: URL, ramdisk: URL, label: String, state: URL, fence: URL, script: URL, identity: String) throws {
@@ -92,7 +93,8 @@ final class Realm: NSObject, VZVirtualMachineDelegate {
         pulse.setEventHandler { [weak self] in
             guard let self = self, !self.finished else { return }
             self.ticks += 1
-            if FileManager.default.fileExists(atPath: self.fenceURL.path) { self.closed = true }
+            if FileManager.default.fileExists(atPath: self.fenceURL.path)
+                || FileManager.default.fileExists(atPath: self.stateURL.deletingLastPathComponent().appendingPathComponent("cancel").path) { self.closed = true }
             if self.closed { self.requestStop() }
             if self.ticks >= 200 { self.requestStop() }
             if self.ticks >= 260 {
@@ -113,7 +115,8 @@ final class Realm: NSObject, VZVirtualMachineDelegate {
                 self.started = true
                 self.status = "RUNNING"
                 self.persist()
-                if FileManager.default.fileExists(atPath: self.fenceURL.path) { self.closed = true }
+                if FileManager.default.fileExists(atPath: self.fenceURL.path)
+                || FileManager.default.fileExists(atPath: self.stateURL.deletingLastPathComponent().appendingPathComponent("cancel").path) { self.closed = true }
             if self.closed { self.requestStop() }
             case .failure(let error):
                 self.status = "START_FAILED"
@@ -127,6 +130,14 @@ final class Realm: NSObject, VZVirtualMachineDelegate {
         closed = true
         guard !finished, !stopCalled, let vm = machine else { return }
         status = "STOP_REQUESTED"
+        // Research fault injection, outside the guest: exercise a stop that
+        // takes longer than native Core's ordinary 100 ms interruption grace.
+        let delayURL = stateURL.deletingLastPathComponent().appendingPathComponent("test-stop-delay-ms")
+        if let text = try? String(contentsOf: delayURL, encoding: .utf8),
+           let delay = Int(text), delay > 0, delay <= 1000 {
+            if firstStopTick == nil { firstStopTick = ticks }
+            if ticks - (firstStopTick ?? ticks) < (delay + 99) / 100 { persist(); return }
+        }
         guard vm.canStop else {
             if !evidenceFailed { persist() }
             return

@@ -1,0 +1,24 @@
+{
+  "authorization": "User explicitly approved these exact paths and requested cleanup after Brave exits",
+  "freeBefore": 5723389952,
+  "paths": [
+    {
+      "path": "/Users/kefasmanda/Library/Caches/BraveSoftware/Brave-Browser/Default/Cache",
+      "existed": true,
+      "allocatedBefore": 793006080,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/kefasmanda/Library/Caches/BraveSoftware/Brave-Browser/Default/Code Cache",
+      "existed": true,
+      "allocatedBefore": 63598592,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/kefasmanda/Library/Caches/com.brave.Browser/org.sparkle-project.Sparkle/PersistentDownloads/DTp6zShMZ",
+      "existed": false,
+      "absentAfter": true
+    }
+  ],
+  "freeAfter": 6586413056
+}

@@ -1,0 +1,412 @@
+[
+  {
+    "method": "remoteControl/status/changed",
+    "params": {
+      "status": "disabled",
+      "serverName": "Kefass-MacBook-Air.local",
+      "installationId": "4634cc12-6b1c-4208-9834-bdd4467fd6a5",
+      "environmentId": null
+    },
+    "emittedAtMs": 1793553987617
+  },
+  {
+    "method": "thread/started",
+    "params": {
+      "thread": {
+        "id": "01a19825-f84a-7f00-8311-5bc1cce04955",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "/private/tmp/relay-native-executor-wq6jbn59",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-native-executor-wq6jbn59"
+            ]
+          }
+        ],
+        "extra": null,
+        "sessionId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "research",
+        "model": "research-model",
+        "reasoningEffort": null,
+        "createdAt": 1793553987,
+        "updatedAt": 1793553987,
+        "recencyAt": 1793553987,
+        "status": {
+          "type": "idle"
+        },
+        "path": "/private/tmp/relay-native-executor-wq6jbn59/codex/sessions/2026/11/01/rollout-2026-11-01T19-26-27-01a19825-f84a-7f00-8311-5bc1cce04955.jsonl",
+        "cwd": "/private/tmp/relay-native-executor-wq6jbn59",
+        "cliVersion": "0.166.0",
+        "originator": "relay-host-adversary",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": []
+      }
+    },
+    "emittedAtMs": 1793553987787
+  },
+  {
+    "method": "thread/started",
+    "params": {
+      "thread": {
+        "id": "01a19825-f8e4-7231-b774-013a99d2226f",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "/private/tmp/relay-native-executor-wq6jbn59",
+            "runtimeWorkspaceRoots": [
+              "/private/tmp/relay-native-executor-wq6jbn59"
+            ]
+          }
+        ],
+        "extra": null,
+        "sessionId": "01a19825-f8e4-7231-b774-013a99d2226f",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "research",
+        "model": "research-model",
+        "reasoningEffort": null,
+        "createdAt": 1793553987,
+        "updatedAt": 1793553987,
+        "recencyAt": 1793553987,
+        "status": {
+          "type": "idle"
+        },
+        "path": "/private/tmp/relay-native-executor-wq6jbn59/codex/sessions/2026/11/01/rollout-2026-11-01T19-26-27-01a19825-f8e4-7231-b774-013a99d2226f.jsonl",
+        "cwd": "/private/tmp/relay-native-executor-wq6jbn59",
+        "cliVersion": "0.166.0",
+        "originator": "relay-host-adversary",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": []
+      }
+    },
+    "emittedAtMs": 1793553987847
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "status": {
+        "type": "active",
+        "activeFlags": []
+      }
+    },
+    "emittedAtMs": 1793553989362
+  },
+  {
+    "method": "turn/started",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turn": {
+        "id": "01a19825-f914-7d42-8431-5fc94a960564",
+        "rootTurnId": "01a19825-f914-7d42-8431-5fc94a960564",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": 1793553987,
+        "completedAt": null,
+        "durationMs": null
+      }
+    },
+    "emittedAtMs": 1793553989363
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "type": "commandExecution",
+        "id": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+        "pluginId": null,
+        "scriptPath": null,
+        "command": "/bin/zsh -lc \"/bin/busybox cat /private/tmp/relay-native-executor-wq6jbn59/host-only-canary 2>/dev/null || echo HOST_CANARY_UNAVAILABLE; /bin/busybox mkdir -p /work; /bin/busybox setsid /bin/sh -c 'while :; do echo A >>/work/effects; echo REALM_A_EFFECT; /bin/busybox sleep .1; done' </dev/null & /bin/busybox sleep 15\"",
+        "cwd": "/private/tmp/relay-native-executor-wq6jbn59",
+        "processId": null,
+        "source": "userShell",
+        "status": "inProgress",
+        "commandActions": [
+          {
+            "type": "unknown",
+            "command": "/bin/busybox cat /private/tmp/relay-native-executor-wq6jbn59/host-only-canary 2>/dev/null || echo HOST_CANARY_UNAVAILABLE; /bin/busybox mkdir -p /work; /bin/busybox setsid /bin/sh -c 'while :; do echo A >>/work/effects; echo REALM_A_EFFECT; /bin/busybox sleep .1; done' </dev/null & /bin/busybox sleep 15"
+          }
+        ],
+        "aggregatedOutput": null,
+        "exitCode": null,
+        "durationMs": null,
+        "startedAtMs": 1793553989357,
+        "completedAtMs": null
+      },
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "startedAtMs": 1793553989357
+    },
+    "emittedAtMs": 1793553989382
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "HOST_CANARY_UNAVAILABLE\r\n"
+    },
+    "emittedAtMs": 1793553989777
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553989777
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553989883
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553989988
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT"
+    },
+    "emittedAtMs": 1793553990091
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "\r\n"
+    },
+    "emittedAtMs": 1793553990091
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553990194
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553990295
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553990401
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553990506
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553990611
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553990715
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT"
+    },
+    "emittedAtMs": 1793553990816
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "\r\n"
+    },
+    "emittedAtMs": 1793553990816
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a19825-f8e4-7231-b774-013a99d2226f",
+      "status": {
+        "type": "active",
+        "activeFlags": []
+      }
+    },
+    "emittedAtMs": 1793553990826
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553990921
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553991023
+  },
+  {
+    "method": "item/commandExecution/outputDelta",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "itemId": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+      "delta": "REALM_A_EFFECT\r\n"
+    },
+    "emittedAtMs": 1793553991127
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "commandExecution",
+        "id": "92bf5ecd-e97f-46ff-991d-344108af27b1",
+        "pluginId": null,
+        "scriptPath": null,
+        "command": "/bin/zsh -lc \"/bin/busybox cat /private/tmp/relay-native-executor-wq6jbn59/host-only-canary 2>/dev/null || echo HOST_CANARY_UNAVAILABLE; /bin/busybox mkdir -p /work; /bin/busybox setsid /bin/sh -c 'while :; do echo A >>/work/effects; echo REALM_A_EFFECT; /bin/busybox sleep .1; done' </dev/null & /bin/busybox sleep 15\"",
+        "cwd": "/private/tmp/relay-native-executor-wq6jbn59",
+        "processId": null,
+        "source": "userShell",
+        "status": "failed",
+        "commandActions": [
+          {
+            "type": "unknown",
+            "command": "/bin/busybox cat /private/tmp/relay-native-executor-wq6jbn59/host-only-canary 2>/dev/null || echo HOST_CANARY_UNAVAILABLE; /bin/busybox mkdir -p /work; /bin/busybox setsid /bin/sh -c 'while :; do echo A >>/work/effects; echo REALM_A_EFFECT; /bin/busybox sleep .1; done' </dev/null & /bin/busybox sleep 15"
+          }
+        ],
+        "aggregatedOutput": "command aborted by user",
+        "exitCode": -1,
+        "durationMs": 0,
+        "startedAtMs": 1793553989357,
+        "completedAtMs": 1793553991228
+      },
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turnId": "01a19825-f914-7d42-8431-5fc94a960564",
+      "completedAtMs": 1793553991228
+    },
+    "emittedAtMs": 1793553991239
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "status": {
+        "type": "idle"
+      }
+    },
+    "emittedAtMs": 1793553991260
+  },
+  {
+    "method": "turn/completed",
+    "params": {
+      "threadId": "01a19825-f84a-7f00-8311-5bc1cce04955",
+      "turn": {
+        "id": "01a19825-f914-7d42-8431-5fc94a960564",
+        "rootTurnId": "01a19825-f914-7d42-8431-5fc94a960564",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "interrupted",
+        "error": null,
+        "startedAt": 1793553987,
+        "completedAt": 1793553991,
+        "durationMs": 3363
+      }
+    },
+    "emittedAtMs": 1793553991260
+  }
+]

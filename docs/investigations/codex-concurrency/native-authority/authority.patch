@@ -401,8 +401,30 @@ index 61400a1..b74f5e8 100644
  mod thread_manager;
  mod thread_spawn;
  pub use agent::host::HostThreadSpawnReservation;
+diff --git a/codex-rs/core/src/tasks/mod.rs b/codex-rs/core/src/tasks/mod.rs
+index 2d2f7e6..ed61605 100644
+--- a/codex-rs/core/src/tasks/mod.rs
++++ b/codex-rs/core/src/tasks/mod.rs
+@@ -991,12 +991,15 @@ impl Session {
+             .turn_metadata_state
+             .cancel_git_enrichment_task();
+         let session_task = task.task;
++        let interruption_timeout =
++            crate::relay_authority::cancellation_grace(&self.thread_id().to_string())
++                .unwrap_or_else(|| Duration::from_millis(GRACEFULL_INTERRUPTION_TIMEOUT_MS));
+ 
+         select! {
+             _ = task.done.notified() => {
+             },
+-            _ = tokio::time::sleep(Duration::from_millis(GRACEFULL_INTERRUPTION_TIMEOUT_MS)) => {
+-                warn!("task {sub_id} didn't complete gracefully after {}ms", GRACEFULL_INTERRUPTION_TIMEOUT_MS);
++            _ = tokio::time::sleep(interruption_timeout) => {
++                warn!("task {sub_id} didn't complete gracefully after {}ms", interruption_timeout.as_millis());
+                 // Forced teardown can abort independently spawned tool dispatches
+                 // whose guards are destroyed later. Do not publish complete totals
+                 // for a dependency graph that has not settled.
 diff --git a/codex-rs/core/src/tasks/user_shell.rs b/codex-rs/core/src/tasks/user_shell.rs
-index f3915ed..ad4a00d 100644
+index f3915ed..c0d29c4 100644
 --- a/codex-rs/core/src/tasks/user_shell.rs
 +++ b/codex-rs/core/src/tasks/user_shell.rs
 @@ -108,6 +108,19 @@ pub(crate) async fn execute_user_shell_command(
@@ -454,7 +476,7 @@ index f3915ed..ad4a00d 100644
      let shell_snapshot_location = shell_snapshot.as_ref().map(|snapshot| snapshot.path());
      let shell_environment_policy = turn_environment.shell_environment_policy();
      let mut exec_env_map = create_env(shell_environment_policy, Some(session.thread_id));
-@@ -173,13 +190,21 @@ pub(crate) async fn execute_user_shell_command(
+@@ -173,13 +190,22 @@ pub(crate) async fn execute_user_shell_command(
      if exec_env_map.contains_key(PROXY_ACTIVE_ENV_KEY) {
          strip_managed_proxy_env(&mut exec_env_map);
      }
@@ -465,12 +487,13 @@ index f3915ed..ad4a00d 100644
 -        &shell_environment_policy.r#set,
 -        &mut exec_env_map,
 -    );
++    let realm_execution = realm_route.as_ref().map(|route| route.execution.clone());
 +    let exec_command = if let Some(route) = realm_route {
 +        // Explicit research enrollment: never evaluate the guest script on the
 +        // host, replay a host snapshot, or pass provider/profile environment.
 +        exec_env_map.clear();
 +        exec_env_map.insert("PATH".into(), "/usr/bin:/bin".into());
-+        route
++        route.command
 +    } else {
 +        prepare_user_shell_exec_command(
 +            &display_command,
@@ -483,6 +506,38 @@ index f3915ed..ad4a00d 100644
  
      let call_id = Uuid::new_v4().to_string();
      let raw_command = command;
+@@ -240,9 +266,28 @@ pub(crate) async fn execute_user_shell_command(
+         tx_event: session.get_tx_event(),
+     });
+ 
+-    let exec_result = execute_exec_request(exec_env, stdout_stream, /*after_spawn*/ None)
+-        .or_cancel(&cancellation_token)
+-        .await;
++    let execution = execute_exec_request(exec_env, stdout_stream, /*after_spawn*/ None);
++    let exec_result = if let Some(realm) = realm_execution {
++        // Dropping the execution future immediately may kill the manager before
++        // its kernel-stop acknowledgement. Keep it alive while the exact realm
++        // receives and drains a scoped cancellation request.
++        tokio::pin!(execution);
++        tokio::select! {
++            result = &mut execution => Ok(result),
++            _ = cancellation_token.cancelled() => {
++                let requested = crate::relay_authority::cancel_shell(&session.thread_id().to_string(), &realm);
++                if requested.is_ok() {
++                    let _ = tokio::time::timeout(Duration::from_secs(5), &mut execution).await;
++                }
++                if !crate::relay_authority::shell_stopped(&session.thread_id().to_string(), &realm).unwrap_or(false) {
++                    send_user_shell_error(&session, turn_context.as_ref(), "executor stop unproven; retain ownership and refuse handoff").await;
++                }
++                Err(CancelErr::Cancelled)
++            }
++        }
++    } else {
++        execution.or_cancel(&cancellation_token).await
++    };
+ 
+     match exec_result {
+         Err(CancelErr::Cancelled) => {
 diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
 index b56485d..3859778 100644
 --- a/codex-rs/core/src/thread_manager.rs

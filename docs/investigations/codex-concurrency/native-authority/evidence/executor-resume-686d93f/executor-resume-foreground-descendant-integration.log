@@ -1,0 +1,156 @@
+{
+  "root": "/private/tmp/relay-native-executor-f4qbpbaa",
+  "checks": [
+    "two real native shell requests launch distinct execution realms",
+    "A native identity matches trusted realm identity",
+    "A no host filesystem or external execution devices",
+    "B native identity matches trusted realm identity",
+    "B no host filesystem or external execution devices",
+    "foreground experiment observes exact native shell turn",
+    "native foreground completion has trusted whole-kernel stop",
+    "foreground exit closes realm despite detached guest child",
+    "native revoke does not manufacture full quiescence or handoff",
+    "exact A kernel remains stopped before owner reuse",
+    "B detached execution continues after A kernel stop",
+    "guest scripts cannot alter host-only research canary",
+    "fenced native A cannot launch another executor",
+    "B stops independently through its own native fence"
+  ],
+  "scope": "NATIVE_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+  "fullParity": false,
+  "handoffPermitted": false,
+  "nativeServerSHA256": "324607d14e973ff2e4cdf33b6ec41ca820c185cba7bf5d42c54c5d53183aca06",
+  "policy": {
+    "version": 1,
+    "profile_identity": "16777233:914611086",
+    "enrollment_sha256": "f2d6de0967a38b4987f1ddb539670db4b3d70e552e7e8028d7b04eeb34db1ea5",
+    "shell_realm": {
+      "manager": "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-exec",
+      "manager_sha256": "67b8b0d35e9453617cc398d2e1178685e9f2304e39cd7f2efc9ff6e89edd05d0",
+      "kernel": "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-images/kernel",
+      "kernel_sha256": "42a15047f7cfc785e008b43f48c090f6340f34ead8446d7568126bb5cb9bc9f1",
+      "initramfs": "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-images/executor-initramfs",
+      "initramfs_sha256": "01b42297754621a69cf42b161b32401cb4310c991cc9e989033fff5d6efd5242"
+    }
+  },
+  "configuredMemoryBytesPerRealm": 201326592,
+  "interruptExperiment": false,
+  "bindings": {
+    "A": "01a19837-dddf-71b0-b7c2-ce7fb0d02951",
+    "B": "01a19837-de30-71f3-a67a-89fa9fa5ba3c"
+  },
+  "bootAndNativeDispatchSeconds": 3.4409074160212185,
+  "runningRealms": {
+    "A": {
+      "admissionClosed": false,
+      "handoffPermitted": false,
+      "label": "01a19837-dddf-71b0-b7c2-ce7fb0d02951",
+      "managerPID": 11542,
+      "nativeExecutionIntegrated": true,
+      "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+      "networkDevices": 0,
+      "realmID": "01a19837-e3a3-7943-af00-d55a3eae0ad9",
+      "scope": "KERNEL_REALM_WITHOUT_EXTERNAL_CAPABILITIES",
+      "sharedDirectories": 0,
+      "socketDevices": 0,
+      "status": "RUNNING",
+      "storageDevices": 0,
+      "ticks": 17,
+      "vmRunning": true,
+      "vmStopped": false
+    },
+    "B": {
+      "admissionClosed": false,
+      "handoffPermitted": false,
+      "label": "01a19837-de30-71f3-a67a-89fa9fa5ba3c",
+      "managerPID": 11585,
+      "nativeExecutionIntegrated": true,
+      "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+      "networkDevices": 0,
+      "realmID": "01a19837-e91e-7ff0-89e8-2068f2b3f36e",
+      "scope": "KERNEL_REALM_WITHOUT_EXTERNAL_CAPABILITIES",
+      "sharedDirectories": 0,
+      "socketDevices": 0,
+      "status": "RUNNING",
+      "storageDevices": 0,
+      "ticks": 3,
+      "vmRunning": true,
+      "vmStopped": false
+    }
+  },
+  "managerRSSSample": "11542  11088\n11585  11856\n",
+  "passed": true,
+  "finalRealms": {
+    "01a19837-de30-71f3-a67a-89fa9fa5ba3c": {
+      "intent": {
+        "realmID": "01a19837-e91e-7ff0-89e8-2068f2b3f36e",
+        "thread": "01a19837-de30-71f3-a67a-89fa9fa5ba3c",
+        "root": "01a19837-de30-71f3-a67a-89fa9fa5ba3c",
+        "owner": "e3a86bf2814eb51f19375f801443ff15630c21e3b230c2f6d4c6b243cba8e7a6",
+        "epoch": 1,
+        "controllerGeneration": 1,
+        "hostGeneration": "01a19837-dd78-7da0-ab59-d5b2b786496f",
+        "scope": "USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "handoffPermitted": false
+      },
+      "state": {
+        "admissionClosed": true,
+        "handoffPermitted": false,
+        "label": "01a19837-de30-71f3-a67a-89fa9fa5ba3c",
+        "managerPID": 11585,
+        "nativeExecutionIntegrated": true,
+        "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "networkDevices": 0,
+        "realmID": "01a19837-e91e-7ff0-89e8-2068f2b3f36e",
+        "scope": "KERNEL_REALM_WITHOUT_EXTERNAL_CAPABILITIES",
+        "sharedDirectories": 0,
+        "socketDevices": 0,
+        "status": "STOPPED",
+        "storageDevices": 0,
+        "ticks": 55,
+        "vmRunning": false,
+        "vmStopped": true
+      }
+    },
+    "01a19837-dddf-71b0-b7c2-ce7fb0d02951": {
+      "intent": {
+        "realmID": "01a19837-e3a3-7943-af00-d55a3eae0ad9",
+        "thread": "01a19837-dddf-71b0-b7c2-ce7fb0d02951",
+        "root": "01a19837-dddf-71b0-b7c2-ce7fb0d02951",
+        "owner": "fc0df67e758f39c6019be8a6e26c498ee76bb82e0b0d7e4537e9bb8fa19ba3cd",
+        "epoch": 1,
+        "controllerGeneration": 1,
+        "hostGeneration": "01a19837-dd78-7da0-ab59-d5b2b786496f",
+        "scope": "USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "handoffPermitted": false
+      },
+      "state": {
+        "admissionClosed": true,
+        "handoffPermitted": false,
+        "label": "01a19837-dddf-71b0-b7c2-ce7fb0d02951",
+        "managerPID": 11542,
+        "nativeExecutionIntegrated": true,
+        "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "networkDevices": 0,
+        "realmID": "01a19837-e3a3-7943-af00-d55a3eae0ad9",
+        "scope": "KERNEL_REALM_WITHOUT_EXTERNAL_CAPABILITIES",
+        "sharedDirectories": 0,
+        "socketDevices": 0,
+        "status": "GUEST_STOPPED",
+        "storageDevices": 0,
+        "ticks": 64,
+        "vmRunning": false,
+        "vmStopped": true
+      }
+    }
+  },
+  "realmCleanupProven": true,
+  "unprovenRealmThreads": [],
+  "hostCleanup": {
+    "pid": 11461,
+    "exitCode": 0,
+    "socketQuiet": true
+  },
+  "managerProcessesRemaining": [],
+  "elapsedSeconds": 8.642538375017466
+}

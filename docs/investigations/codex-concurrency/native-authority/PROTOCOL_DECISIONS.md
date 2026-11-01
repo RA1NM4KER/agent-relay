@@ -51,3 +51,13 @@ caught this omission. Empty-thread startup also needs an actual native Persist
 barrier before committing an authority result: ThreadPreparation only flushes an
 existing writer and is insufficient for cold recovery. Neither fix manufactures
 a user turn or promotes ephemeral helpers into persistent user conversations.
+
+
+The native shell route now carries an immutable execution UUID. Scoped cancel
+validates its durable intent against native thread/root, owner, epoch and host
+generation, then publishes a per-execution marker. Root revocation remains a
+separate owner-wide fence. The native task retains execution while its manager
+obtains kernel-stop state; the experimental profile's task supervisor allows a
+bounded six-second grace for the five-second drain. Ordinary profiles retain
+100 ms. Exact stopped records cannot be supplied by a frontend boolean, and none
+is a full handoff receipt. Controller generation at queue ingress is still missing.

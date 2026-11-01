@@ -25,6 +25,10 @@ def main():
     parser.add_argument("--app-server", type=Path, required=True)
     parser.add_argument("--manager", type=Path, required=True)
     parser.add_argument("--images", type=Path, required=True)
+    parser.add_argument("--interrupt", action="store_true", help="exercise actual native cancellation before revocation")
+    parser.add_argument("--stop-delay-ms", type=int, default=0, choices=range(0, 1001))
+    parser.add_argument("--require-stopped", action="store_true", help="fail if native cancellation does not obtain trusted kernel-stop evidence")
+    parser.add_argument("--foreground-exit", action="store_true", help="verify foreground completion closes detached guest descendants")
     args = parser.parse_args()
     if shutil.disk_usage(args.images).free < 4 * 1024**3:
         raise RuntimeError("unchanged 4 GiB integration entry guard")
@@ -54,6 +58,7 @@ def main():
               "fullParity": False, "handoffPermitted": False,
               "nativeServerSHA256": digest(args.app_server), "policy": policy,
               "configuredMemoryBytesPerRealm": 192 * 1024**2}
+    result["interruptExperiment"] = args.interrupt
     peers, process, log = [], None, None
     serial = 0
     started = time.monotonic()
@@ -79,16 +84,27 @@ def main():
 
     def runtimes():
         found = {}
-        for path in (authority / "realm-executions").glob("*/intent.json"):
-            intent = json.loads(path.read_text())
-            state = path.parent / "state.json"
-            if state.exists():
-                found[intent["thread"]] = (path.parent, intent, json.loads(state.read_text()))
+        for directory in (authority / "realm-executions").glob("*"):
+            if not directory.is_dir():
+                continue
+            intent = {"thread": "unknown:" + directory.name, "realmID": directory.name}
+            state = {"status": "UNKNOWN", "vmStopped": False}
+            try:
+                intent = json.loads((directory / "intent.json").read_text())
+                state = json.loads((directory / "state.json").read_text())
+            except (OSError, ValueError) as error:
+                state["observationError"] = str(error)
+            found[intent["thread"]] = (directory, intent, state)
         return found
 
     def pump(peer, thread):
         peer.turns(thread)
-        return json.dumps(peer.events)
+        # Input/started-item notifications contain the script itself. They
+        # cannot prove that the guest ever executed or emitted a heartbeat.
+        return "".join(event.get("params", {}).get("delta", "")
+                       for event in peer.events
+                       if event.get("method") == "item/commandExecution/outputDelta"
+                       and event.get("params", {}).get("threadId") == thread)
 
     def interrupted(signum, frame):
         raise InterruptedError("reserve guard; close exact owned execution realms")
@@ -114,10 +130,11 @@ def main():
         canary = root / "host-only-canary"
         canary.write_text("host-only-research-sentinel")
         for owner, peer in zip(owners, peers):
+            duration = 6 if args.foreground_exit and owner == "A" else 15
             script = (f"/bin/busybox cat {canary} 2>/dev/null || echo HOST_CANARY_UNAVAILABLE; "
                       f"/bin/busybox mkdir -p /work; /bin/busybox setsid /bin/sh -c '"
                       f"while :; do echo {owner} >>/work/effects; echo REALM_{owner}_EFFECT; "
-                      "/bin/busybox sleep .1; done' </dev/null & /bin/busybox sleep 15")
+                      f"/bin/busybox sleep .1; done' </dev/null & /bin/busybox sleep {duration}")
             call(peer, owner, "thread/shellCommand", {"threadId": bindings[owner],
                  "command": script, "timeoutMs": 25000})
         until(lambda: len(runtimes()) == 2 and all(v[2].get("vmRunning") for v in runtimes().values()),
@@ -138,16 +155,60 @@ def main():
                   all(state[key] == 0 for key in ("networkDevices", "storageDevices", "sharedDirectories", "socketDevices")))
         pids = [str(value[2]["managerPID"]) for value in running.values()]
         result["managerRSSSample"] = subprocess.check_output(["ps", "-o", "pid=,rss=", "-p", ",".join(pids)], text=True)
+        expected_unknown = False
+        if args.foreground_exit:
+            turns = peers[0].turns(bindings["A"])
+            check("foreground experiment observes exact native shell turn", len(turns) == 1)
+            turn = next(iter(turns))
+            until(lambda: peers[0].turns(bindings["A"]).get(turn) == "completed",
+                  "native foreground shell completes")
+            check("native foreground completion has trusted whole-kernel stop",
+                  runtimes()[bindings["A"]][2].get("vmStopped") is True)
+            check("foreground exit closes realm despite detached guest child",
+                  runtimes()[bindings["A"]][2].get("status") == "GUEST_STOPPED")
+        if args.interrupt:
+            if args.stop_delay_ms:
+                (running[bindings["A"]][0] / "test-stop-delay-ms").write_text(str(args.stop_delay_ms))
+            turns = peers[0].turns(bindings["A"])
+            active = [turn for turn, state in turns.items() if state == "inProgress"]
+            check("native A has one exact active shell turn before interrupt", len(active) == 1)
+            interrupt_started = time.monotonic()
+            call(peers[0], "A", "turn/interrupt", {"threadId": bindings["A"], "turnId": active[0]})
+            until(lambda: peers[0].turns(bindings["A"]).get(active[0]) == "interrupted",
+                  "native A cancellation completes")
+            result["nativeCancellationRealmState"] = runtimes()[bindings["A"]][2]
+            expected_unknown = not result["nativeCancellationRealmState"].get("vmStopped")
+            result["nativeCancellationQuiescence"] = "UNKNOWN" if expected_unknown else "KERNEL_STOPPED"
+            result["nativeInterruptSeconds"] = time.monotonic() - interrupt_started
+            result["injectedStopDelayMs"] = args.stop_delay_ms
+            if args.require_stopped:
+                check("native cancellation waits for exact trusted kernel-stop acknowledgement", not expected_unknown)
+                check("native stop waits beyond injected delay instead of 100 ms task teardown",
+                      result["nativeInterruptSeconds"] >= args.stop_delay_ms / 1000)
+            try:
+                call(peers[0], "A", "relay/authority", {"command": "handoff", "threadId": bindings["A"], "executionQuiescent": True})
+            except Refused as error:
+                check("native handoff refuses after cancellation regardless of caller quiescence assertion",
+                      "RELAY_NATIVE_AUTHORITY" in str(error))
+            else:
+                raise AssertionError("native cancellation incorrectly permitted handoff")
         revoke = call(peers[0], "A", "relay/authority", {"command": "revoke", "threadId": bindings["A"]})
         check("native revoke does not manufacture full quiescence or handoff", not revoke["executionQuiescent"] and not revoke["handoffPermitted"])
-        until(lambda: runtimes()[bindings["A"]][2].get("vmStopped"), "trusted A kernel stop")
-        state = runtimes()[bindings["A"]][2]
-        check("owner-specific native fence stops exact A kernel", state["status"] == "STOPPED" and state["admissionClosed"])
+        if expected_unknown:
+            check("native cancellation does not substitute turn completion for trusted kernel stop", True)
+            result["expectedUnknownThreads"] = [bindings["A"]]
+        else:
+            until(lambda: runtimes()[bindings["A"]][2].get("vmStopped"), "trusted A kernel stop")
+            state = runtimes()[bindings["A"]][2]
+            check("exact A kernel remains stopped before owner reuse" if args.foreground_exit else
+                  "owner-specific native fence stops exact A kernel",
+                  state["status"] in ("STOPPED", "GUEST_STOPPED") and state["admissionClosed"])
         count = pump(peers[1], bindings["B"]).count("REALM_B_EFFECT")
         until(lambda: runtimes()[bindings["B"]][2].get("vmRunning") and
               pump(peers[1], bindings["B"]).count("REALM_B_EFFECT") >= count + 3,
               "B continues after A revoke", timeout=4)
-        check("B detached execution continues after A kernel stop", True)
+        check("B detached execution continues after A cancellation" if args.interrupt else
+              "B detached execution continues after A kernel stop", True)
         check("guest scripts cannot alter host-only research canary", canary.read_text() == "host-only-research-sentinel")
         try:
             call(peers[0], "A", "thread/shellCommand", {"threadId": bindings["A"], "command": "true", "timeoutMs": 1000})
@@ -177,6 +238,8 @@ def main():
         result["finalRealms"] = {thread: {"intent": intent, "state": state}
                                   for thread, (_, intent, state) in runtimes().items()}
         result["realmCleanupProven"] = all(v["state"].get("vmStopped") for v in result["finalRealms"].values())
+        result["unprovenRealmThreads"] = [thread for thread, value in result["finalRealms"].items()
+                                         if not value["state"].get("vmStopped")]
         for peer in peers:
             try:
                 peer.close()
@@ -194,10 +257,24 @@ def main():
                                       "socketQuiet": socket_quiet(sock)}
         if log:
             log.close()
+        manager_ids = {str(value["state"].get("managerPID")) for value in result["finalRealms"].values()}
+        processes = subprocess.check_output(["ps", "-axo", "pid=,comm="], text=True).splitlines()
+        result["managerProcessesRemaining"] = [line.strip() for line in processes
+                                                if line.split() and line.split()[0] in manager_ids
+                                                and str(args.manager) in line]
+        # Evidence I/O may fail; all runtime cleanup above must still happen.
+        for index, peer in enumerate(peers):
+            try:
+                (root / f"native-events-{index}.json").write_text(json.dumps(peer.events, indent=2) + "\n")
+            except OSError as error:
+                result.setdefault("evidenceErrors", []).append(str(error))
         result["elapsedSeconds"] = time.monotonic() - started
         (root / "result.json").write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps(result, indent=2))
-    return 0 if result.get("passed") and result.get("realmCleanupProven") else 1
+    cleanup_matches = result.get("realmCleanupProven") or (
+        args.interrupt and not result.get("managerProcessesRemaining")
+        and set(result.get("unprovenRealmThreads", [])) <= set(result.get("expectedUnknownThreads", [])))
+    return 0 if result.get("passed") and cleanup_matches else 1
 
 
 if __name__ == "__main__":

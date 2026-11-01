@@ -4,10 +4,20 @@ use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 pub trait NativeAuthority: Send + Sync {
-    fn shell_route(&self, _thread: &str, _script: &str) -> Result<Option<Vec<String>>, String> {
+    fn cancellation_grace(&self, _thread: &str) -> Option<Duration> {
+        None
+    }
+    fn shell_route(&self, _thread: &str, _script: &str) -> Result<Option<ShellRoute>, String> {
         Ok(None)
+    }
+    fn cancel_shell(&self, _thread: &str, _execution: &str) -> Result<(), String> {
+        Err("scoped shell cancellation unavailable".into())
+    }
+    fn shell_stopped(&self, _thread: &str, _execution: &str) -> Result<bool, String> {
+        Err("scoped shell stop evidence unavailable".into())
     }
     fn check_home(&self, home: &Path) -> Result<(), String>;
     fn register(
@@ -17,6 +27,11 @@ pub trait NativeAuthority: Send + Sync {
         operation: Option<&str>,
     ) -> Result<(), String>;
     fn check(&self, thread: &str) -> Result<(), String>;
+}
+
+pub struct ShellRoute {
+    pub command: Vec<String>,
+    pub execution: String,
 }
 
 static HOST: OnceLock<Arc<dyn NativeAuthority>> = OnceLock::new();
@@ -50,11 +65,27 @@ pub fn check(thread: &str) -> Result<(), String> {
     }
 }
 
-pub fn shell_route(thread: &str, script: &str) -> Result<Option<Vec<String>>, String> {
+pub fn shell_route(thread: &str, script: &str) -> Result<Option<ShellRoute>, String> {
     match HOST.get() {
         Some(host) => host.shell_route(thread, script),
         None => Ok(None),
     }
+}
+
+pub fn cancel_shell(thread: &str, execution: &str) -> Result<(), String> {
+    HOST.get()
+        .ok_or("missing native execution authority")?
+        .cancel_shell(thread, execution)
+}
+
+pub fn cancellation_grace(thread: &str) -> Option<Duration> {
+    HOST.get().and_then(|host| host.cancellation_grace(thread))
+}
+
+pub fn shell_stopped(thread: &str, execution: &str) -> Result<bool, String> {
+    HOST.get()
+        .ok_or("missing native execution authority")?
+        .shell_stopped(thread, execution)
 }
 
 pub fn require_host(home: &Path) -> Result<(), String> {

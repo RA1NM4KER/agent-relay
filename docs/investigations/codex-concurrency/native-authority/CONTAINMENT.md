@@ -1,5 +1,11 @@
 # Executor authority boundary
 
+Update from 686d93f: actual native user-shell execution, revocation, delayed
+interruption and detached-child closure now pass within an enrolled RAM-only VM.
+See [current scope and evidence](EXECUTOR_INTEGRATION.md). This does not prove
+complete native/session/workspace quiescence or authorize handoff. Older generic
+limitations below remain applicable to capabilities outside that shell slice.
+
 Admission and quiescence are separate. The current research insertion can fence
 new classified native requests, recheck queued requests, and reject later tool
 dispatch from a revoked root. It cannot retract a process, syscall, mapped write,

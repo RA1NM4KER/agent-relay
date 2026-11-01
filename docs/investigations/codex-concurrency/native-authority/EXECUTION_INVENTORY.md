@@ -1,5 +1,10 @@
 # Execution authority audit and next implementation boundary
 
+Actual native user-shell execution is now contained in the opt-in RAM-only VM
+slice, with exact revoke, delayed interruption and foreground closure evidence.
+See [current integration scope](EXECUTOR_INTEGRATION.md). This does not certify
+the rest of this inventory or permit transfer.
+
 This is a source audit of pinned native 6ff1e1c, not a coverage pass. The
 app-server dispatcher and common tool router are useful enforcement points but
 cannot provide a complete execution or quiescence guarantee.
@@ -13,7 +18,7 @@ cannot provide a complete execution or quiescence guarantee.
 | `core/src/tools/router.rs` | Actual session-root check before common dispatch | Recheck after permission waits and at irrevocable effects/launches |
 | `core/src/exec.rs`, unified exec/process manager/oneshot | Normal native execution; not contained | Realm-bound launch broker, cancellation and outstanding-launch inventory |
 | Code mode delegate/workers, multi-agent spawn | Common dispatch and parent registration only | Preserve immutable authority across all spawned tasks and worker callbacks |
-| Direct shell RPC, snapshots, startup/maintenance helpers | Classified RPC admission; no complete per-root process inventory | Distinguish host maintenance from session execution; isolate session effects |
+| Direct user-shell RPC | O: native executor to session VM; scoped cancellation/drain, exact kernel stop; host snapshots skipped for VM route | Host workspace I/O, native macOS/exit/background behavior and other shell paths |
 | MCP, dynamic tools, exec-server, SSH/remote capabilities | No proven revocation adapters | Explicit capability inventory, deny unsafe transfer on unknown/irrevocable jobs |
 | Approval/error replies | Connection/root checks, host-unique reply IDs | Actual approval integration and revoke-vs-launch adversaries |
 | Host filesystem writes, mappings, broker I/O, shared directories | Not covered by the RAM-only VM experiment | Close admission and drain exact outstanding effects before issuing a receipt |
@@ -41,3 +46,7 @@ stand in for either foundation. Linux production testing requires a controlled
 outer cgroup authority inaccessible to the workload; native macOS Full Access
 requires an OS-enforced principal/capability design that preserves behavior.
 Neither deployment has been implemented or certified here.
+
+The direct user-shell row does not cover host startup/maintenance helpers, shell
+tools reached through other runtimes, or autonomous capability creation. Those
+still require accounting and fail-closed integration before full profile safety.

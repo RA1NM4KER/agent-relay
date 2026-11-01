@@ -1,0 +1,12 @@
+{
+  "scope": "FIRST_REAL_NATIVE_SHELL_SLICE_BEFORE_CANCELLATION_DRAIN_FIX",
+  "fullParity": false,
+  "sha256": {
+    "native-server-pre-cancel-drain": "14a4f28a5aaf5bf4df16a3eef743303589ca09bcc0d448ad6e0a4f5ee5d91715",
+    "vm-exec-pre-cancel-drain": "2e402ded41459fded57c4973730bbdbcc0e4512b42e400a669bf2bcc55bda03c",
+    "pre-cancel-core_authority.rs": "0482015be364068115bbdc457f917284ea01f51461f41d341a3a947ae95c6bc0",
+    "pre-cancel-host_authority.rs": "be9caa3ce4bc43e0f77d36fc5b5365cbb63cd3ef020651f1f2d76a6f85083bae",
+    "pre-cancel-user_shell.rs": "559a0a2dfb9eccfd39bac60f386a1d7cec2d62714e8a2511d3fc18529a72abbc",
+    "pre-cancel-vm_exec.swift": "9ab06a5998b51ea49d2fc18390af973704ef0e3ad62d53ce3b4581574fadb94b"
+  }
+}

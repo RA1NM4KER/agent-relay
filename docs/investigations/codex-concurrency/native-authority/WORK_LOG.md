@@ -1,8 +1,13 @@
 # Native authority increment from 60217b7
 
-Latest follow-up from 8614951: see [executor integration WIP](EXECUTOR_INTEGRATION.md).
-It adds a source-only native shell/VM route and passes 16 policy tests. Runtime
-validation remains capacity-blocked; earlier results below retain their exact scope.
+Current resume from 686d93f demonstrates actual native shell containment, scoped
+revocation, repaired delayed interruption and foreground descendant closure.
+See [the current executor integration evidence](EXECUTOR_INTEGRATION.md). Full
+native profile safety and handoff remain unproven; earlier WIP below is historical.
+
+Historical follow-up from 8614951: see [executor integration WIP](EXECUTOR_INTEGRATION.md).
+That checkpoint added a source-only native shell/VM route and passed 16 policy
+tests; runtime validation was capacity-blocked then. It is superseded above.
 
 This is a research checkpoint, not production acceptance or full safety parity.
 

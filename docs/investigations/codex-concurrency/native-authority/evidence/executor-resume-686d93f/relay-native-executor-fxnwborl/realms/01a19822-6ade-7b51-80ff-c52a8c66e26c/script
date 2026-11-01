@@ -1,0 +1,1 @@
+/bin/busybox cat /private/tmp/relay-native-executor-fxnwborl/host-only-canary 2>/dev/null || echo HOST_CANARY_UNAVAILABLE; /bin/busybox mkdir -p /work; /bin/busybox setsid /bin/sh -c 'while :; do echo B >>/work/effects; echo REALM_B_EFFECT; /bin/busybox sleep .1; done' </dev/null & /bin/busybox sleep 15

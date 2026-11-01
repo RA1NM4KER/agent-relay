@@ -1,0 +1,45 @@
+{
+  "nativePin": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+  "rust": "1.95.0",
+  "actualNativeShellIntegration": true,
+  "scope": "USER_SHELL_RAM_ONLY_LINUX_GUEST",
+  "fullParity": false,
+  "handoffPermitted": false,
+  "patchAppliesToPin": true,
+  "patchSHA256": "57f8fd5551429ac4622cc1b52a1318a29eaf7c64c5620954126e94ecbb57b530",
+  "sourceSHA256": {
+    "app-server/src/lib.rs": "4b29b565d42ee37763971e1e05e3741501741b90d6d9bb994eb9c74f1e0ba3ed",
+    "app-server/src/message_processor.rs": "4de88fdc0b9563b978962c8ceded83e8c804abe34ead4b55318898ae8f455f01",
+    "app-server/src/outgoing_message.rs": "ced09d5e24bfdb650b8ae7902f27189a78c3ee0018a0f06acc90f55f2be014e1",
+    "app-server/src/request_processors/thread_processor.rs": "0ab0b79d9e9b260d5c82dcdba097e3826f88f550106ebd8289f8719cc8ff5e04",
+    "app-server-protocol/src/protocol/common.rs": "6b6c27b7f34f3b0558dff649e688c00ed656e4fb693de0e236a56fe2724eb561",
+    "core/src/lib.rs": "e25425d36ec8275c41f64f95afa151b253512613a703e2f65483b4fecc58f40f",
+    "core/src/codex_thread.rs": "8fca46f46407a28bf39f7c36deb0767d780e43c01bf3d294979d386acecfa6b1",
+    "core/src/thread_manager.rs": "8739439c2fa3e316c6d9d31309cc5c1e29f5c606f420dd57097e3182fba79e3e",
+    "core/src/tools/router.rs": "2f3bc8d980df31cfd168e08887ec2ab8a482e958e0d65e05a316b2fac391de1c",
+    "core/src/tasks/user_shell.rs": "e0454892dd3450e0e09f0005903ba13bf8618d9d9cb436596ba40ec9077e74c8",
+    "core/src/tasks/mod.rs": "aa90a392450e742161f78358e7d3260fea67d20ac77f9586f99a1d50213013c7",
+    "app-server/src/relay_authority.rs": "e0ce9c028b51c71ab09068dec71ddc28558f10070af2317ba870b9511b3bd375",
+    "core/src/relay_authority.rs": "cc62e1744d2aa8a5e2728a8d1e449141694717dbc625bb1ae1c3128cbd5ebbc0"
+  },
+  "artifacts": {
+    "finalNativeServer": {
+      "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex-app-server",
+      "sha256": "324607d14e973ff2e4cdf33b6ec41ca820c185cba7bf5d42c54c5d53183aca06"
+    },
+    "finalVmManager": {
+      "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-exec",
+      "sha256": "67b8b0d35e9453617cc398d2e1178685e9f2304e39cd7f2efc9ff6e89edd05d0"
+    },
+    "executorInitramfs": {
+      "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-images/executor-initramfs",
+      "sha256": "01b42297754621a69cf42b161b32401cb4310c991cc9e989033fff5d6efd5242"
+    },
+    "preservedBaselineCli": {
+      "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/research-package/bin/codex",
+      "sha256": "dfc5fa0a2e9b3522665ad8d8db49dd98898f174f2306f8f6203ab3f2a2ee173e"
+    }
+  },
+  "hostServingSourceSHA256": "edb5ce85dfe5c3b343efc38bbcffa751fb3dacab701c4a301e8fce16cb868093",
+  "postLinkTestOnlyChange": "UUID temporary-directory fixture; serving-source prefix unchanged"
+}

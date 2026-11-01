@@ -1,0 +1,25 @@
+{
+  "stage": "executor-resume-drain-grace-native-build",
+  "argv": [
+    "python3",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/authority_native_cargo.py",
+    "build",
+    "-p",
+    "codex-cli",
+    "-p",
+    "codex-app-server",
+    "--bin",
+    "codex-app-server"
+  ],
+  "started": 1793554623.9876401,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 5598892032,
+  "pid": 96278,
+  "exit_code": 0,
+  "elapsed_s": 178.46363282203674,
+  "free_after": 5546156032
+}

@@ -1,0 +1,24 @@
+{
+  "stage": "executor-resume-native-integration",
+  "argv": [
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/check_executor.py",
+    "--app-server",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex-app-server",
+    "--manager",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-exec",
+    "--images",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-images"
+  ],
+  "started": 1793553747.042888,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 6557876224,
+  "pid": 72647,
+  "exit_code": 0,
+  "elapsed_s": 10.028623104095459,
+  "free_after": 6542557184
+}

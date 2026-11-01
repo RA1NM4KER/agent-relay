@@ -1,5 +1,36 @@
 # Continuation checkpoint
 
+## Actual native shell containment from 686d93f (2026-11-01)
+
+The immediate native shell slice is now experimentally demonstrated on this Mac.
+Only the explicitly approved, inactive Brave HTTP/code caches were removed;
+Brave was confirmed exited, no files were open, and the named updater cache was
+already absent. About 817 MiB was reclaimed and free space reached 6.13 GiB.
+The 4 GiB entry guard and 1.5 GiB runtime reserve remain unchanged.
+
+Actual native app-server/Core shell requests execute in separate enrolled RAM-only
+VM kernels. Initial revoke/isolation passes 11 checks. A real interruption exposed
+lost kernel-stop evidence; that UNKNOWN result remains retained. Scoped execution
+cancellation plus a bounded native drain now passes 15 checks with an injected
+300 ms stop delay: native interruption waits for exact kernel stop while B
+continues. Foreground exit with detached descendants passes 14 checks, including
+trusted whole-kernel stop before native completion is treated as contained.
+These counts overlap and are not full acceptance. No model inference or host
+workspace is shared with the guest. Ordinary protected-mode native regression
+passes 47 checks on the final server; 17 policy tests, strict Clippy and formatting
+pass. A test-only temporary-directory collision and its fix are retained.
+
+Read [EXECUTOR_INTEGRATION.md](native-authority/EXECUTOR_INTEGRATION.md) and
+`native-authority/evidence/executor-resume-686d93f/` for exact identities, failures,
+limits and measured observations. The previously successful eight-TUI feasibility
+suite was not repeated. VM-per-session has not been selected for production.
+Full queue/ingress authority, native frontend integration, host-workspace I/O,
+other execution capabilities, complete crash/recovery and full Relay handoff
+remain unproven. **Handoff stays disabled and ProfileSessionLock stays intact.**
+Production Relay, active profiles, credentials, installed binaries and releases
+remain untouched. Earlier WIP/capacity-only statements below are historical.
+
+
 ## Executor integration WIP from 8614951 (2026-11-01)
 
 The next native shell containment slice is implemented in source, **not yet

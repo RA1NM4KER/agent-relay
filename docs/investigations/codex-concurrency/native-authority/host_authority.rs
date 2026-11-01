@@ -1,6 +1,6 @@
 //! Research-only native request authority; no provider credentials are accessed.
 //! A FULL fsync-before-reply journal is held under one stable profile lock.
-use codex_core::relay_authority::NativeAuthority;
+use codex_core::relay_authority::{NativeAuthority, ShellRoute};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -824,6 +824,37 @@ impl Host {
         }
         Ok(())
     }
+    fn shell_intent_directory(
+        &self,
+        thread: &str,
+        execution: &str,
+    ) -> Result<(PathBuf, String), String> {
+        self.verify_profile()?;
+        uuid::Uuid::parse_str(execution).map_err(|_| "invalid execution identity")?;
+        let state = self.state.lock().map_err(|_| "authority poisoned")?;
+        let binding = state
+            .store
+            .roots
+            .get(thread)
+            .ok_or("unowned cancellation")?;
+        let directory = self.directory.join("realm-executions").join(execution);
+        let bytes = fs::read(directory.join("intent.json")).map_err(|e| e.to_string())?;
+        if bytes.len() > 16384 {
+            return Err("execution intent size limit".into());
+        }
+        let intent: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        if intent["thread"] != thread
+            || intent["root"] != binding.root
+            || intent["owner"] != binding.owner
+            || intent["epoch"] != binding.epoch
+            || intent["hostGeneration"] != self.generation
+            || intent["realmID"] != execution
+        {
+            return Err("execution cancellation identity mismatch".into());
+        }
+        Ok((directory, binding.root.clone()))
+    }
+
     pub(crate) fn response_allowed(
         &self,
         connection: u64,
@@ -855,7 +886,16 @@ impl Host {
     }
 }
 impl NativeAuthority for Host {
-    fn shell_route(&self, thread: &str, script: &str) -> Result<Option<Vec<String>>, String> {
+    fn cancellation_grace(&self, thread: &str) -> Option<std::time::Duration> {
+        if self.policy.shell_realm.is_some()
+            && self.state.lock().ok()?.store.roots.contains_key(thread)
+        {
+            Some(std::time::Duration::from_secs(6))
+        } else {
+            None
+        }
+    }
+    fn shell_route(&self, thread: &str, script: &str) -> Result<Option<ShellRoute>, String> {
         self.verify_profile()?;
         let state = self.state.lock().map_err(|_| "authority poisoned")?;
         if state.poisoned {
@@ -922,16 +962,43 @@ impl NativeAuthority for Host {
         File::open(&runtimes)
             .and_then(|f| f.sync_all())
             .map_err(|e| e.to_string())?;
-        Ok(Some(vec![
-            realm.manager.to_string_lossy().into_owned(),
-            realm.kernel.to_string_lossy().into_owned(),
-            realm.initramfs.to_string_lossy().into_owned(),
-            binding.root.clone(),
-            directory.join("state.json").to_string_lossy().into_owned(),
-            fence.to_string_lossy().into_owned(),
-            request.to_string_lossy().into_owned(),
-            id,
-        ]))
+        Ok(Some(ShellRoute {
+            execution: id.clone(),
+            command: vec![
+                realm.manager.to_string_lossy().into_owned(),
+                realm.kernel.to_string_lossy().into_owned(),
+                realm.initramfs.to_string_lossy().into_owned(),
+                binding.root.clone(),
+                directory.join("state.json").to_string_lossy().into_owned(),
+                fence.to_string_lossy().into_owned(),
+                request.to_string_lossy().into_owned(),
+                id,
+            ],
+        }))
+    }
+    fn cancel_shell(&self, thread: &str, execution: &str) -> Result<(), String> {
+        let (directory, _) = self.shell_intent_directory(thread, execution)?;
+        let file = File::create(directory.join("cancel")).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        File::open(directory)
+            .and_then(|f| f.sync_all())
+            .map_err(|e| e.to_string())
+    }
+    fn shell_stopped(&self, thread: &str, execution: &str) -> Result<bool, String> {
+        let (directory, root) = self.shell_intent_directory(thread, execution)?;
+        let Ok(bytes) = fs::read(directory.join("state.json")) else {
+            return Ok(false);
+        };
+        if bytes.len() > 16384 {
+            return Err("realm state size limit".into());
+        }
+        let state: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        Ok(state["realmID"] == execution
+            && state["label"] == root
+            && state["admissionClosed"] == true
+            && state["vmStopped"] == true
+            && state["vmRunning"] == false
+            && matches!(state["status"].as_str(), Some("STOPPED" | "GUEST_STOPPED")))
     }
     fn check_home(&self, home: &Path) -> Result<(), String> {
         self.verify_profile()?;
@@ -1047,10 +1114,9 @@ mod tests {
             }
         }
         pub fn tempdir() -> std::io::Result<TempDir> {
-            let nonce = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(std::io::Error::other)?
-                .as_nanos();
+            // Wall-clock nanoseconds collided between parallel test threads on
+            // macOS. Reuse the already-linked native UUID generator instead.
+            let nonce = uuid::Uuid::now_v7();
             let path = std::env::temp_dir().join(format!(
                 "relay-authority-unit-{}-{nonce}",
                 std::process::id()
@@ -1606,14 +1672,17 @@ mod tests {
             .is_err()
         );
         let route = host.shell_route("A", "echo research").unwrap().unwrap();
-        let directory = Path::new(&route[4]).parent().unwrap();
+        let directory = Path::new(&route.command[4]).parent().unwrap();
         let intent: Value =
             serde_json::from_slice(&fs::read(directory.join("intent.json")).unwrap()).unwrap();
         assert_eq!(intent["root"], "A");
         assert_eq!(intent["thread"], "A");
-        assert_eq!(intent["realmID"], route[7]);
+        assert_eq!(intent["realmID"], route.command[7]);
         assert_eq!(intent["hostGeneration"], host.generation);
-        assert_eq!(fs::read_to_string(&route[6]).unwrap(), "echo research");
+        assert_eq!(
+            fs::read_to_string(&route.command[6]).unwrap(),
+            "echo research"
+        );
         assert!(host.shell_route("foreign", "true").is_err());
         assert!(host.shell_route("A", &"x".repeat(1025)).is_err());
         host.admit(
@@ -1624,7 +1693,7 @@ mod tests {
             Some(&proof('a', "revoke")),
         )
         .unwrap();
-        assert!(Path::new(&route[5]).exists());
+        assert!(Path::new(&route.command[5]).exists());
         assert!(host.shell_route("A", "true").is_err());
         assert!(host.shell_route("B", "true").unwrap().is_some());
         fs::write(&host.policy.shell_realm.as_ref().unwrap().kernel, "changed").unwrap();
@@ -1646,5 +1715,32 @@ mod tests {
         )
         .unwrap();
         assert!(host.shell_route("A", "true").is_err());
+    }
+    #[test]
+    fn cancellation_and_stop_evidence_require_exact_native_execution_identity() {
+        let (_root, host) = fixture_config(true);
+        create(&host, 1, 'a', "A");
+        create(&host, 2, 'b', "B");
+        assert_eq!(
+            host.cancellation_grace("A"),
+            Some(std::time::Duration::from_secs(6))
+        );
+        assert_eq!(host.cancellation_grace("foreign"), None);
+        let route = host.shell_route("A", "echo research").unwrap().unwrap();
+        assert!(host.cancel_shell("B", &route.execution).is_err());
+        assert!(host.cancel_shell("A", "../foreign").is_err());
+        host.cancel_shell("A", &route.execution).unwrap();
+        assert!(host.check("A").is_ok()); // turn cancellation does not revoke the owner
+        assert!(!host.shell_stopped("A", &route.execution).unwrap());
+        let path = Path::new(&route.command[4]);
+        let mut state = json!({"realmID":route.execution,"label":"B","vmStopped":true,"vmRunning":false,"admissionClosed":true,"status":"STOPPED"});
+        fs::write(path, serde_json::to_vec(&state).unwrap()).unwrap();
+        assert!(!host.shell_stopped("A", &route.execution).unwrap());
+        state["label"] = json!("A");
+        fs::write(path, serde_json::to_vec(&state).unwrap()).unwrap();
+        assert!(host.shell_stopped("A", &route.execution).unwrap());
+        state["realmID"] = json!(uuid_generation());
+        fs::write(path, serde_json::to_vec(&state).unwrap()).unwrap();
+        assert!(!host.shell_stopped("A", &route.execution).unwrap());
     }
 }

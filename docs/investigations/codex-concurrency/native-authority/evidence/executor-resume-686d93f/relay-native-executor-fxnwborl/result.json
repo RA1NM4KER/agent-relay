@@ -1,0 +1,150 @@
+{
+  "root": "/private/tmp/relay-native-executor-fxnwborl",
+  "checks": [
+    "two real native shell requests launch distinct execution realms",
+    "A native identity matches trusted realm identity",
+    "A no host filesystem or external execution devices",
+    "B native identity matches trusted realm identity",
+    "B no host filesystem or external execution devices",
+    "native revoke does not manufacture full quiescence or handoff",
+    "owner-specific native fence stops exact A kernel",
+    "B detached execution continues after A kernel stop",
+    "guest scripts cannot alter host-only research canary",
+    "fenced native A cannot launch another executor",
+    "B stops independently through its own native fence"
+  ],
+  "scope": "NATIVE_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+  "fullParity": false,
+  "handoffPermitted": false,
+  "nativeServerSHA256": "14a4f28a5aaf5bf4df16a3eef743303589ca09bcc0d448ad6e0a4f5ee5d91715",
+  "policy": {
+    "version": 1,
+    "profile_identity": "16777233:914583720",
+    "enrollment_sha256": "16ec9c648eedbaaa675e46e973ead7b7dabc519d8b73d29d297d5c9c20a78d18",
+    "shell_realm": {
+      "manager": "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-exec",
+      "manager_sha256": "2e402ded41459fded57c4973730bbdbcc0e4512b42e400a669bf2bcc55bda03c",
+      "kernel": "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-images/kernel",
+      "kernel_sha256": "42a15047f7cfc785e008b43f48c090f6340f34ead8446d7568126bb5cb9bc9f1",
+      "initramfs": "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-images/executor-initramfs",
+      "initramfs_sha256": "01b42297754621a69cf42b161b32401cb4310c991cc9e989033fff5d6efd5242"
+    }
+  },
+  "configuredMemoryBytesPerRealm": 201326592,
+  "bindings": {
+    "A": "01a19822-5fae-7e70-b2cb-804fd32849c0",
+    "B": "01a19822-600a-7643-bbbe-4c8ec8034277"
+  },
+  "bootAndNativeDispatchSeconds": 7.632970832986757,
+  "runningRealms": {
+    "A": {
+      "admissionClosed": false,
+      "handoffPermitted": false,
+      "label": "01a19822-5fae-7e70-b2cb-804fd32849c0",
+      "managerPID": 72894,
+      "nativeExecutionIntegrated": true,
+      "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+      "networkDevices": 0,
+      "realmID": "01a19822-6583-76e3-9e96-e7f36c8b4314",
+      "scope": "KERNEL_REALM_WITHOUT_EXTERNAL_CAPABILITIES",
+      "sharedDirectories": 0,
+      "socketDevices": 0,
+      "status": "RUNNING",
+      "storageDevices": 0,
+      "ticks": 13,
+      "vmRunning": true,
+      "vmStopped": false
+    },
+    "B": {
+      "admissionClosed": false,
+      "handoffPermitted": false,
+      "label": "01a19822-600a-7643-bbbe-4c8ec8034277",
+      "managerPID": 72937,
+      "nativeExecutionIntegrated": true,
+      "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+      "networkDevices": 0,
+      "realmID": "01a19822-6ade-7b51-80ff-c52a8c66e26c",
+      "scope": "KERNEL_REALM_WITHOUT_EXTERNAL_CAPABILITIES",
+      "sharedDirectories": 0,
+      "socketDevices": 0,
+      "status": "RUNNING",
+      "storageDevices": 0,
+      "ticks": 3,
+      "vmRunning": true,
+      "vmStopped": false
+    }
+  },
+  "managerRSSSample": "72894  11312\n72937  11936\n",
+  "passed": true,
+  "finalRealms": {
+    "01a19822-600a-7643-bbbe-4c8ec8034277": {
+      "intent": {
+        "realmID": "01a19822-6ade-7b51-80ff-c52a8c66e26c",
+        "thread": "01a19822-600a-7643-bbbe-4c8ec8034277",
+        "root": "01a19822-600a-7643-bbbe-4c8ec8034277",
+        "owner": "3aab7349379c44a92633cd10cf9944572a439917677237385d353f5062879dbb",
+        "epoch": 1,
+        "controllerGeneration": 1,
+        "hostGeneration": "01a19822-5f51-73d2-a751-fc761addb24a",
+        "scope": "USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "handoffPermitted": false
+      },
+      "state": {
+        "admissionClosed": true,
+        "handoffPermitted": false,
+        "label": "01a19822-600a-7643-bbbe-4c8ec8034277",
+        "managerPID": 72937,
+        "nativeExecutionIntegrated": true,
+        "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "networkDevices": 0,
+        "realmID": "01a19822-6ade-7b51-80ff-c52a8c66e26c",
+        "scope": "KERNEL_REALM_WITHOUT_EXTERNAL_CAPABILITIES",
+        "sharedDirectories": 0,
+        "socketDevices": 0,
+        "status": "STOPPED",
+        "storageDevices": 0,
+        "ticks": 8,
+        "vmRunning": false,
+        "vmStopped": true
+      }
+    },
+    "01a19822-5fae-7e70-b2cb-804fd32849c0": {
+      "intent": {
+        "realmID": "01a19822-6583-76e3-9e96-e7f36c8b4314",
+        "thread": "01a19822-5fae-7e70-b2cb-804fd32849c0",
+        "root": "01a19822-5fae-7e70-b2cb-804fd32849c0",
+        "owner": "4eafdc156ea6178b199ac3fa07368fb91c4cfd0e187e083dd6d94a7ec55548c9",
+        "epoch": 1,
+        "controllerGeneration": 1,
+        "hostGeneration": "01a19822-5f51-73d2-a751-fc761addb24a",
+        "scope": "USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "handoffPermitted": false
+      },
+      "state": {
+        "admissionClosed": true,
+        "handoffPermitted": false,
+        "label": "01a19822-5fae-7e70-b2cb-804fd32849c0",
+        "managerPID": 72894,
+        "nativeExecutionIntegrated": true,
+        "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "networkDevices": 0,
+        "realmID": "01a19822-6583-76e3-9e96-e7f36c8b4314",
+        "scope": "KERNEL_REALM_WITHOUT_EXTERNAL_CAPABILITIES",
+        "sharedDirectories": 0,
+        "socketDevices": 0,
+        "status": "STOPPED",
+        "storageDevices": 0,
+        "ticks": 14,
+        "vmRunning": false,
+        "vmStopped": true
+      }
+    }
+  },
+  "realmCleanupProven": true,
+  "hostCleanup": {
+    "pid": 72661,
+    "exitCode": 0,
+    "socketQuiet": true
+  },
+  "elapsedSeconds": 8.194635207997635
+}

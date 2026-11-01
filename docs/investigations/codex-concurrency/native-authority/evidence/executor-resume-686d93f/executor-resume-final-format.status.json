@@ -1,0 +1,21 @@
+{
+  "stage": "executor-resume-final-format",
+  "argv": [
+    "cargo",
+    "fmt",
+    "--manifest-path",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/Cargo.toml",
+    "--check"
+  ],
+  "started": 1793554817.339596,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 5541691392,
+  "pid": 1963,
+  "exit_code": 0,
+  "elapsed_s": 2.0070700645446777,
+  "free_after": 5541728256
+}

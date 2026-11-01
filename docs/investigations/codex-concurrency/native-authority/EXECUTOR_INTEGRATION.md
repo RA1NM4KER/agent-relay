@@ -1,4 +1,123 @@
-# Executor integration from 8614951 — incomplete, 2026-11-01
+# Native executor integration: actual shell slice demonstrated
+
+## Resume from 686d93f (2026-11-01)
+
+Real pinned Codex now executes explicit native `thread/shellCommand` requests
+inside enrolled, session-specific Linux VM kernels on this Mac. This is an
+actual app-server -> native Core -> native executor -> VM -> guest shell path,
+not a standalone VM test or a cooperating external ownership wrapper.
+
+The immediate experimental shell milestone is demonstrated. **Full shared-profile
+safety, native macOS command parity, host-workspace quiescence and safe handoff
+are not demonstrated. Handoff remains disabled.** The guest workspace is RAM-only;
+no host directory, disk, network or VSOCK is exposed. No model inference was used.
+
+## Observed native integration
+
+| Experiment | Observed result |
+| --- | --- |
+| Initial native revocation (`relay-native-executor-fxnwborl`) | 11 checks pass: two exact native roots launch separate kernels, detached guest output is delivered through actual native output deltas, A's native revoke stops A's exact kernel, B continues, both close independently. |
+| Native interruption counterexample (`relay-native-executor-wq6jbn59`) | 13 fail-closed checks pass, but **A's kernel cleanup is UNPROVEN**. Native interruption killed the manager before its stop record; no manager process remains, which is not quiescence proof. Native handoff refuses. This remains a retained negative result. |
+| Delayed native cancellation after repair (`relay-native-executor-hdfqbif2`) | 15 checks pass. An injected 300 ms manager stop delay exceeds ordinary Core's 100 ms teardown grace. Native interruption waits 0.4144 s, observes the exact stopped kernel, records native `interrupted` turn and failed command exit -1, while B's detached output advances. Both exact kernels stop. |
+| Foreground completion (`relay-native-executor-f4qbpbaa`) | 14 checks pass: foreground shell exits while a setsid child is producing effects; native turn completion is accompanied by a trusted `GUEST_STOPPED` kernel record. B continues. No assumption that turn completion alone killed descendants. |
+| Ordinary protected native regression | Final server passes all 47 existing native checks; actual host crash, durable replay and independent-owner behavior remain covered to their original scope. |
+
+These counts overlap; they are not 40 distinct safety guarantees. Output progress
+uses only `item/commandExecution/outputDelta` for the exact native thread, never
+the command text present in started-item events. Kernel stop comes from trusted
+host VZ lifecycle state with the native execution's exact identity, not guest text
+or process disappearance. Host-only research canaries remain unchanged.
+
+Final tested native server SHA256:
+`324607d14e973ff2e4cdf33b6ec41ca820c185cba7bf5d42c54c5d53183aca06`.
+Final tested VM manager SHA256:
+`67b8b0d35e9453617cc398d2e1178685e9f2304e39cd7f2efc9ff6e89edd05d0`.
+The initial successful server/manager are preserved as verified APFS clones at
+`lab/native-server-pre-cancel-drain` and `lab/vm-exec-pre-cancel-drain`. All raw
+native events, drivers, results, execution intents, manager states and failed
+checks are retained in `evidence/executor-resume-686d93f/`. Generated supervisor
+capabilities remain in private lab vaults and are excluded from the research packet.
+
+## Cancellation repair
+
+Native Core previously dropped the execution future as soon as cancellation
+arrived, allowing process teardown to destroy the manager before VZ acknowledged
+stop. A typed native shell route now retains its immutable execution UUID.
+Cancellation writes a fsynced marker for that exact execution and retains the
+execution future for a bounded five-second drain. The manager watches that
+marker as well as its owner-wide revoke fence.
+
+Core's task supervisor normally aborts unfinished work after 100 ms. Only enrolled
+experimental shell sessions now receive a six-second grace, permitting the bounded
+drain; ordinary profiles keep their original grace. An explicit 300 ms stop-delay
+fault exercises this distinction. Stop evidence must match native thread/root,
+owner, epoch, host generation and execution identity; the trusted manager record
+must match the realm and root and show closed admission and a stopped kernel.
+A missing/malformed/mismatched result remains UNKNOWN and cannot permit handoff.
+
+Cancellation does not revoke the entire owner: it closes one execution. Owner
+revocation closes that owner's kernels through a separate persistent fence.
+No generic caller-supplied boolean or receipt is accepted as a handoff authority.
+
+Latest research Rust: **17 policy tests pass**, strict all-target Clippy and cargo
+formatting pass. One parallel test run failed before host creation because two
+wall-clock temporary-directory names collided. The fixture now reuses the already
+pinned UUID generator; the failure and corrected result are retained. This is a
+test-only change after native linking; the serving-source prefix is byte-identical.
+No native download or dependency change was needed. Original baseline package,
+production Relay, ProfileSessionLock, installed binaries and credentials are unchanged.
+
+## Capacity and resource observations
+
+Brave was verified absent from the process table; both existing approved cache
+paths had no open files. Only those HTTP/code caches were removed (856,604,672
+allocated bytes, about 817 MiB). The specifically approved updater path was
+already absent. Free space reached 6,586,413,056 bytes, and both original disk
+guards were preserved. No additional cleanup ran. Final free space is recorded
+in the evidence readback; no lab native host or VM manager remains.
+
+Each VM configures 192 MiB; two configure 384 MiB. The initial native run sampled
+manager RSS at 11,312 and 11,936 KiB; this **excludes unmeasured guest/helper and
+whole-runtime footprint**. Initial host startup plus two native dispatch/guest
+output observations took 7.633 s; the delayed-cancellation experiment took 7.929 s
+for the same broad setup interval. These are individual observations, not a
+latency distribution or a production performance acceptance.
+
+Eight per-session VMs would configure 1.5 GiB before other runtime costs.
+VM-per-session is **not selected for production**. A shared Linux VM with a trusted
+outer executor and nonprivileged session cgroups/namespaces remains a credible
+lighter candidate requiring actual escape/isolation tests. It still changes
+macOS command semantics. Deprecated macOS sandbox-exec or process groups alone
+provide no demonstrated equivalent dynamic revocation/quiescence guarantee.
+No privileged principal, filesystem extension or host security setting was changed.
+
+## Remaining proof obligations and next engineering
+
+- This proves closure of the explicit RAM-only user-shell execution realm. It
+  does not close every native execution sink, model/autonomous/subagent/MCP/remote
+  capability or host-side persistence/queue operation. Experimental mode refuses
+  unsupported mutations and startup overrides; this is not a full native UI mode.
+- Execution grants still snapshot controller generation at launch rather than
+  carrying immutable ingress operation authority through every queue. A delayed
+  old-controller launch across rotation still requires implementation and tests.
+- Host/backend/manager crashes beyond the retained interruption counterexample,
+  evidence loss, stopped-record replay and complete recovery need integrated tests.
+- Host workspace I/O is not shared, brokered or drained. No worktree continuation,
+  native macOS tool behavior, arbitrary exit-code/background UX or full session
+  quiescence guarantee follows from these kernel-only effects.
+- Native frontend capability plumbing, complete permission/quota/cross-provider
+  acceptance, eight protected TUIs and Relay's transactional handoff integration
+  remain future work. Do not enable any handoff transaction on these results.
+
+Next focus is immutable queue authority and a real workspace/capability boundary,
+not repeating the already demonstrated concurrency feasibility or claiming that
+these scoped kernel records are complete Relay handoff receipts.
+
+---
+
+## Historical implementation checkpoint before this resume
+
+### Executor integration from 8614951 — incomplete, historical
 
 No native executor containment acceptance result has passed in this increment.
 The combined test refused at its unchanged 4 GiB entry guard before creating a
