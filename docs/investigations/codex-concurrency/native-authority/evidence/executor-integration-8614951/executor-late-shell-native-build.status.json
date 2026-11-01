@@ -1,0 +1,26 @@
+{
+  "stage": "executor-late-shell-native-build",
+  "argv": [
+    "python3",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/authority_native_cargo.py",
+    "build",
+    "-p",
+    "codex-cli",
+    "-p",
+    "codex-app-server",
+    "--bin",
+    "codex-app-server"
+  ],
+  "started": 1793511781.2915342,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 3055828992,
+  "pid": 11041,
+  "stopped_for_disk_reserve": true,
+  "exit_code": -15,
+  "elapsed_s": 68.19966673851013,
+  "free_after": 1592381440
+}

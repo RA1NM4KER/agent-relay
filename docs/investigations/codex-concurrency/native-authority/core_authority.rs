@@ -6,6 +6,9 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 pub trait NativeAuthority: Send + Sync {
+    fn shell_route(&self, _thread: &str, _script: &str) -> Result<Option<Vec<String>>, String> {
+        Ok(None)
+    }
     fn check_home(&self, home: &Path) -> Result<(), String>;
     fn register(
         &self,
@@ -44,6 +47,13 @@ pub fn check(thread: &str) -> Result<(), String> {
     match HOST.get() {
         Some(host) => host.check(thread),
         None => Ok(()),
+    }
+}
+
+pub fn shell_route(thread: &str, script: &str) -> Result<Option<Vec<String>>, String> {
+    match HOST.get() {
+        Some(host) => host.shell_route(thread, script),
+        None => Ok(None),
     }
 }
 

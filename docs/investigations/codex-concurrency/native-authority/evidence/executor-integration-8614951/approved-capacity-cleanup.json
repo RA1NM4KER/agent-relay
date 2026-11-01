@@ -1,0 +1,22 @@
+{
+  "approval": "Explicit user approval after Brave closes; three exact paths only",
+  "freeBefore": 4750987264,
+  "removed": [
+    {
+      "path": "/Users/kefasmanda/Library/Caches/BraveSoftware/Brave-Browser/Default/Cache",
+      "allocatedBytesBefore": 792141824,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/kefasmanda/Library/Caches/BraveSoftware/Brave-Browser/Default/Code Cache",
+      "allocatedBytesBefore": 389627904,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/kefasmanda/Library/Caches/com.brave.Browser/org.sparkle-project.Sparkle/PersistentDownloads/DTp6zShMZ",
+      "allocatedBytesBefore": 0,
+      "absentAfter": true
+    }
+  ],
+  "freeAfter": 5953413120
+}

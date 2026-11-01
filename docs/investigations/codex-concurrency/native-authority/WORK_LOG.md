@@ -1,5 +1,9 @@
 # Native authority increment from 60217b7
 
+Latest follow-up from 8614951: see [executor integration WIP](EXECUTOR_INTEGRATION.md).
+It adds a source-only native shell/VM route and passes 16 policy tests. Runtime
+validation remains capacity-blocked; earlier results below retain their exact scope.
+
 This is a research checkpoint, not production acceptance or full safety parity.
 
 ## Implemented and measured

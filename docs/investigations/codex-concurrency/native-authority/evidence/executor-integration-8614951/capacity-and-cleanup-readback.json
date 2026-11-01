@@ -1,0 +1,10 @@
+{
+  "freeBytes": 1704095744,
+  "braveRunning": true,
+  "remainingLabManagers": [],
+  "swapUsage": "vm.swapusage: total = 7168.00M  used = 5819.50M  free = 1348.50M  (encrypted)",
+  "cleanupApprovedPathsOnly": true,
+  "pendingPrerequisite": "Brave closed before using previously approved cache paths, or separate provisioned development volume",
+  "nativeExecutorDemonstrated": false,
+  "handoffPermitted": false
+}

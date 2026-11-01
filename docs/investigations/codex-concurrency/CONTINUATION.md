@@ -1,5 +1,38 @@
 # Continuation checkpoint
 
+## Executor integration WIP from 8614951 (2026-11-01)
+
+The next native shell containment slice is implemented in source, **not yet
+experimentally demonstrated**. An explicit enrolled VM route checks native
+session ownership at actual shell execution, records a durable realm intent,
+clears the executor environment, and watches an owner-specific native revoke
+fence. Experimental VM mode refuses unsupported mutations/model execution and
+unclassified startup overrides. No protected host workspace is shared with the
+RAM-only guest. No handoff receipt or production functionality claim was added.
+
+Latest policy source passes **16 tests**, strict Clippy and formatting. An initial
+native shell-route build passed; later source refinements did not link because
+the unchanged 1.5 GiB reserve stopped the incremental build. The combined native
+executor driver refused at its unchanged 4 GiB entry gate before launching a
+runtime. The previous 47 native and 10 VM checks are retained historical evidence,
+not results for these changes. No successful baseline concurrency test was repeated.
+
+The user explicitly approved the named Brave HTTP/code/updater cache cleanup after
+Brave closes. Checked cleanup reclaimed about 1.10 GiB; free space reached 5.54
+GiB. After the pause, cache regrowth and swap pressure accompanied a drop below
+4 GiB. Lossless permitted artifact compression recovered another 234.7 MiB, but
+an incremental link reached the reserve. Current free space is about **1.6 GiB**;
+Brave is running and no lab host/VM managers remain. Closing Brave for the already
+approved paths, or a separately provisioned development volume, is required before
+more native builds/tests. No additional cleanup permission is inferred.
+
+Read [EXECUTOR_INTEGRATION.md](native-authority/EXECUTOR_INTEGRATION.md) for exact
+build/evidence limits, controller-ingress propagation gaps, VM resource evaluation,
+exit/cancellation UX gaps and the next executable test. The new source and manager
+must not be labeled a contained native executor until that test actually passes.
+Production Relay, installed binaries, active profiles and credentials are untouched.
+
+
 ## Native authority and kernel-realm increment from 60217b7 (2026-10-31)
 
 Research-only native changes now place durable admission inside the app-server

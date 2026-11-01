@@ -401,6 +401,88 @@ index 61400a1..b74f5e8 100644
  mod thread_manager;
  mod thread_spawn;
  pub use agent::host::HostThreadSpawnReservation;
+diff --git a/codex-rs/core/src/tasks/user_shell.rs b/codex-rs/core/src/tasks/user_shell.rs
+index f3915ed..ad4a00d 100644
+--- a/codex-rs/core/src/tasks/user_shell.rs
++++ b/codex-rs/core/src/tasks/user_shell.rs
+@@ -108,6 +108,19 @@ pub(crate) async fn execute_user_shell_command(
+     cancellation_token: CancellationToken,
+     mode: UserShellCommandMode,
+ ) {
++    let realm_route =
++        match crate::relay_authority::shell_route(&session.thread_id().to_string(), &command) {
++            Ok(route) => route,
++            Err(error) => {
++                send_user_shell_error(
++                    &session,
++                    turn_context.as_ref(),
++                    &format!("RELAY_NATIVE_AUTHORITY: {error}"),
++                )
++                .await;
++                return;
++            }
++        };
+     session
+         .services
+         .session_telemetry
+@@ -156,15 +169,19 @@ pub(crate) async fn execute_user_shell_command(
+         .await;
+         return;
+     };
+-    let shell_snapshot = turn_environment
+-        .shell_snapshot(
+-            &cwd,
+-            &display_command,
+-            environment_shell,
+-            &turn_context.config,
+-            /*sandbox*/ None,
+-        )
+-        .await;
++    let shell_snapshot = if realm_route.is_some() {
++        None
++    } else {
++        turn_environment
++            .shell_snapshot(
++                &cwd,
++                &display_command,
++                environment_shell,
++                &turn_context.config,
++                /*sandbox*/ None,
++            )
++            .await
++    };
+     let shell_snapshot_location = shell_snapshot.as_ref().map(|snapshot| snapshot.path());
+     let shell_environment_policy = turn_environment.shell_environment_policy();
+     let mut exec_env_map = create_env(shell_environment_policy, Some(session.thread_id));
+@@ -173,13 +190,21 @@ pub(crate) async fn execute_user_shell_command(
+     if exec_env_map.contains_key(PROXY_ACTIVE_ENV_KEY) {
+         strip_managed_proxy_env(&mut exec_env_map);
+     }
+-    let exec_command = prepare_user_shell_exec_command(
+-        &display_command,
+-        environment_shell,
+-        shell_snapshot_location.as_ref(),
+-        &shell_environment_policy.r#set,
+-        &mut exec_env_map,
+-    );
++    let exec_command = if let Some(route) = realm_route {
++        // Explicit research enrollment: never evaluate the guest script on the
++        // host, replay a host snapshot, or pass provider/profile environment.
++        exec_env_map.clear();
++        exec_env_map.insert("PATH".into(), "/usr/bin:/bin".into());
++        route
++    } else {
++        prepare_user_shell_exec_command(
++            &display_command,
++            environment_shell,
++            shell_snapshot_location.as_ref(),
++            &shell_environment_policy.r#set,
++            &mut exec_env_map,
++        )
++    };
+ 
+     let call_id = Uuid::new_v4().to_string();
+     let raw_command = command;
 diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
 index b56485d..3859778 100644
 --- a/codex-rs/core/src/thread_manager.rs

@@ -63,6 +63,18 @@ struct Policy {
     version: u32,
     profile_identity: String,
     enrollment_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shell_realm: Option<ShellRealm>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShellRealm {
+    manager: PathBuf,
+    manager_sha256: String,
+    kernel: PathBuf,
+    kernel_sha256: String,
+    initramfs: PathBuf,
+    initramfs_sha256: String,
 }
 pub(crate) struct Host {
     directory: PathBuf,
@@ -478,6 +490,39 @@ impl Host {
             .get("epoch")
             .and_then(Value::as_u64)
             .ok_or("missing native epoch")?;
+        if self.policy.shell_realm.is_some() {
+            // This is an explicit experimental capability envelope, never a
+            // claim that other native execution paths have been contained.
+            if !matches!(
+                method,
+                "thread/start"
+                    | "thread/resume"
+                    | "thread/shellCommand"
+                    | "turn/interrupt"
+                    | "thread/unsubscribe"
+                    | "relay/authority"
+            ) {
+                return Err("research shell realm: unsupported execution/mutation route".into());
+            }
+            if matches!(method, "thread/start" | "thread/resume")
+                && params.as_object().is_some_and(|object| {
+                    object.iter().any(|(field, value)| {
+                        !value.is_null()
+                            && !matches!(
+                                field.as_str(),
+                                "threadId"
+                                    | "model"
+                                    | "modelProvider"
+                                    | "cwd"
+                                    | "approvalPolicy"
+                                    | "sandbox"
+                            )
+                    })
+                })
+            {
+                return Err("research shell realm: unclassified startup override".into());
+            }
+        }
         if matches!(method, "thread/resume" | "thread/fork")
             && ["path", "history"]
                 .iter()
@@ -622,6 +667,18 @@ impl Host {
         if method == "relay/authority" {
             if command != Some("revoke") {
                 return Err("executor authority unavailable; native handoff refused".into());
+            }
+            if self.policy.shell_realm.is_some() {
+                // Fence is published before changing journal admission. Any
+                // partial failure can only close execution, never reopen it.
+                let directory = self.directory.join("realm-fences");
+                fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+                let fence = directory.join(&owner);
+                let file = File::create(fence).map_err(|e| e.to_string())?;
+                file.sync_all().map_err(|e| e.to_string())?;
+                File::open(directory)
+                    .and_then(|f| f.sync_all())
+                    .map_err(|e| e.to_string())?;
             }
             let root = state
                 .store
@@ -798,6 +855,84 @@ impl Host {
     }
 }
 impl NativeAuthority for Host {
+    fn shell_route(&self, thread: &str, script: &str) -> Result<Option<Vec<String>>, String> {
+        self.verify_profile()?;
+        let state = self.state.lock().map_err(|_| "authority poisoned")?;
+        if state.poisoned {
+            return Err("native authority poisoned".into());
+        }
+        let binding = state.store.roots.get(thread).ok_or("unowned execution")?;
+        Self::root(&state, thread, &binding.owner, binding.epoch, false)?;
+        let fence = self.directory.join("realm-fences").join(&binding.owner);
+        if fence.exists() {
+            return Err("native executor owner fenced".into());
+        }
+        let Some(realm) = &self.policy.shell_realm else {
+            return Ok(None);
+        };
+        if script.len() > 1024 {
+            return Err("research guest script limit is 1024 bytes".into());
+        }
+        for (path, expected) in [
+            (&realm.manager, &realm.manager_sha256),
+            (&realm.kernel, &realm.kernel_sha256),
+            (&realm.initramfs, &realm.initramfs_sha256),
+        ] {
+            if !path.is_absolute() || path.canonicalize().map_err(|e| e.to_string())? != *path {
+                return Err("canonical realm executable/image required".into());
+            }
+            if hash(&fs::read(path).map_err(|e| e.to_string())?) != *expected {
+                return Err("enrolled executor/image digest changed".into());
+            }
+        }
+        let id = uuid_generation();
+        let runtimes = self.directory.join("realm-executions");
+        fs::create_dir_all(&runtimes).map_err(|e| e.to_string())?;
+        let directory = runtimes.join(&id);
+        fs::create_dir(&directory).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
+                .map_err(|e| e.to_string())?;
+        }
+        let request = directory.join("script");
+        let mut file = File::create(&request).map_err(|e| e.to_string())?;
+        file.write_all(script.as_bytes())
+            .and_then(|()| file.sync_all())
+            .map_err(|e| e.to_string())?;
+        let generation = state
+            .store
+            .controllers
+            .get(&binding.owner)
+            .ok_or("missing controller")?
+            .generation;
+        let intent = json!({"realmID":id,"thread":thread,"root":binding.root,"owner":binding.owner,"epoch":binding.epoch,"controllerGeneration":generation,"hostGeneration":self.generation,"scope":"USER_SHELL_RAM_ONLY_LINUX_GUEST","handoffPermitted":false});
+        let mut file = File::create(directory.join("intent.json")).map_err(|e| e.to_string())?;
+        file.write_all(
+            serde_json::to_string(&intent)
+                .map_err(|e| e.to_string())?
+                .as_bytes(),
+        )
+        .and_then(|()| file.sync_all())
+        .map_err(|e| e.to_string())?;
+        File::open(&directory)
+            .and_then(|f| f.sync_all())
+            .map_err(|e| e.to_string())?;
+        File::open(&runtimes)
+            .and_then(|f| f.sync_all())
+            .map_err(|e| e.to_string())?;
+        Ok(Some(vec![
+            realm.manager.to_string_lossy().into_owned(),
+            realm.kernel.to_string_lossy().into_owned(),
+            realm.initramfs.to_string_lossy().into_owned(),
+            binding.root.clone(),
+            directory.join("state.json").to_string_lossy().into_owned(),
+            fence.to_string_lossy().into_owned(),
+            request.to_string_lossy().into_owned(),
+            id,
+        ]))
+    }
     fn check_home(&self, home: &Path) -> Result<(), String> {
         self.verify_profile()?;
         if Self::identity(home)? != self.policy.profile_identity {
@@ -881,6 +1016,14 @@ impl NativeAuthority for Host {
             .roots
             .get(thread)
             .ok_or("unowned core execution")?;
+        if self
+            .directory
+            .join("realm-fences")
+            .join(&binding.owner)
+            .exists()
+        {
+            return Err("native execution owner fenced".into());
+        }
         Self::root(&state, thread, &binding.owner, binding.epoch, false).map(|_| ())
     }
 }
@@ -930,9 +1073,22 @@ mod tests {
         ));
     }
     fn fixture() -> (tempfile::TempDir, Arc<Host>) {
+        fixture_config(false)
+    }
+    fn fixture_config(realm: bool) -> (tempfile::TempDir, Arc<Host>) {
         let root = tempfile::tempdir().expect("test directory");
         fs::create_dir(root.path().join("relay-authority-v1")).expect("marker");
-        let policy = json!({"version":1,"profile_identity":Host::identity(root.path()).expect("profile identity"),"enrollment_sha256":hash("e".repeat(64).as_bytes())});
+        let mut policy = json!({"version":1,"profile_identity":Host::identity(root.path()).expect("profile identity"),"enrollment_sha256":hash("e".repeat(64).as_bytes())});
+        if realm {
+            let mut spec = json!({});
+            for name in ["manager", "kernel", "initramfs"] {
+                let path = root.path().join(name);
+                fs::write(&path, name).unwrap();
+                spec[name] = json!(path.canonicalize().unwrap());
+                spec[format!("{name}_sha256")] = json!(hash(name.as_bytes()));
+            }
+            policy["shell_realm"] = spec;
+        }
         fs::write(
             root.path().join("relay-authority-v1/policy.json"),
             serde_json::to_vec(&policy).expect("policy bytes"),
@@ -1423,5 +1579,72 @@ mod tests {
         assert!(
             matches!(host.admit(9,"status","relay/authority",&json!({"command":"operationStatus","operationToken":"create"}),Some(&status)),Ok(Admission::Reply(value)) if value["state"]=="UNRESOLVED")
         );
+    }
+    #[test]
+    fn shell_execution_grant_is_durable_exact_and_owner_fenced() {
+        let (_root, host) = fixture_config(true);
+        create(&host, 1, 'a', "A");
+        create(&host, 2, 'b', "B");
+        assert!(
+            host.admit(
+                1,
+                "turn",
+                "turn/start",
+                &json!({"threadId":"A"}),
+                Some(&proof('a', "unsupported-turn"))
+            )
+            .is_err()
+        );
+        assert!(
+            host.admit(
+                1,
+                "config",
+                "thread/start",
+                &json!({"config":{"mcp_servers":{"uncontained":{}}}}),
+                Some(&proof('a', "unsupported-config"))
+            )
+            .is_err()
+        );
+        let route = host.shell_route("A", "echo research").unwrap().unwrap();
+        let directory = Path::new(&route[4]).parent().unwrap();
+        let intent: Value =
+            serde_json::from_slice(&fs::read(directory.join("intent.json")).unwrap()).unwrap();
+        assert_eq!(intent["root"], "A");
+        assert_eq!(intent["thread"], "A");
+        assert_eq!(intent["realmID"], route[7]);
+        assert_eq!(intent["hostGeneration"], host.generation);
+        assert_eq!(fs::read_to_string(&route[6]).unwrap(), "echo research");
+        assert!(host.shell_route("foreign", "true").is_err());
+        assert!(host.shell_route("A", &"x".repeat(1025)).is_err());
+        host.admit(
+            1,
+            "revoke",
+            "relay/authority",
+            &json!({"command":"revoke","threadId":"A"}),
+            Some(&proof('a', "revoke")),
+        )
+        .unwrap();
+        assert!(Path::new(&route[5]).exists());
+        assert!(host.shell_route("A", "true").is_err());
+        assert!(host.shell_route("B", "true").unwrap().is_some());
+        fs::write(&host.policy.shell_realm.as_ref().unwrap().kernel, "changed").unwrap();
+        assert!(host.shell_route("B", "true").is_err());
+    }
+
+    #[test]
+    fn legacy_shell_still_rechecks_core_ownership_before_launch() {
+        let (_root, host) = fixture();
+        assert!(host.shell_route("unowned", "true").is_err());
+        create(&host, 1, 'a', "A");
+        assert!(host.shell_route("A", "true").unwrap().is_none());
+        host.admit(
+            1,
+            "revoke",
+            "relay/authority",
+            &json!({"command":"revoke","threadId":"A"}),
+            Some(&proof('a', "revoke")),
+        )
+        .unwrap();
+        assert!(host.shell_route("A", "true").is_err());
     }
 }

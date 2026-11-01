@@ -1,5 +1,9 @@
 # Concurrent Codex sessions: investigation and decision record
 
+Latest: [native executor integration WIP](native-authority/EXECUTOR_INTEGRATION.md).
+The real native executor test has **not run**: capacity guard refused startup.
+Sixteen policy tests pass; final native linking remains reserve-blocked.
+
 Research update from 60217b7: a native authority prototype passes 47 real native
 adversarial checks plus two cross-home/store refusals; 14 Rust policy tests pass.
 A RAM-only two-kernel VZ containment experiment passes 10 checks. Complete native

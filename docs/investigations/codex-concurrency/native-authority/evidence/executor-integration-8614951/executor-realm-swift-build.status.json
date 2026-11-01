@@ -1,0 +1,25 @@
+{
+  "stage": "executor-realm-swift-build",
+  "argv": [
+    "xcrun",
+    "swiftc",
+    "-module-cache-path",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/swift-module-cache",
+    "-target",
+    "arm64-apple-macos13.0",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/vm_exec.swift",
+    "-o",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-exec"
+  ],
+  "started": 1793478255.06946,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 5843259392,
+  "pid": 78014,
+  "exit_code": 0,
+  "elapsed_s": 4.013178110122681,
+  "free_after": 5990313984
+}

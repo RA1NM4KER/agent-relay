@@ -1,0 +1,48 @@
+{
+  "nativePin": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+  "sourceFullyLinked": false,
+  "latestNativeBuild": "STOPPED_FOR_UNCHANGED_1_5_GIB_RESERVE",
+  "nativeExecutorIntegration": "NOT_RUN_4_GIB_ENTRY_GUARD_REFUSAL",
+  "fullParity": false,
+  "handoffPermitted": false,
+  "patchAppliesToPin": true,
+  "files": {
+    "app-server/src/lib.rs": "4b29b565d42ee37763971e1e05e3741501741b90d6d9bb994eb9c74f1e0ba3ed",
+    "app-server/src/message_processor.rs": "4de88fdc0b9563b978962c8ceded83e8c804abe34ead4b55318898ae8f455f01",
+    "app-server/src/outgoing_message.rs": "ced09d5e24bfdb650b8ae7902f27189a78c3ee0018a0f06acc90f55f2be014e1",
+    "app-server/src/request_processors/thread_processor.rs": "0ab0b79d9e9b260d5c82dcdba097e3826f88f550106ebd8289f8719cc8ff5e04",
+    "app-server-protocol/src/protocol/common.rs": "6b6c27b7f34f3b0558dff649e688c00ed656e4fb693de0e236a56fe2724eb561",
+    "core/src/lib.rs": "e25425d36ec8275c41f64f95afa151b253512613a703e2f65483b4fecc58f40f",
+    "core/src/codex_thread.rs": "8fca46f46407a28bf39f7c36deb0767d780e43c01bf3d294979d386acecfa6b1",
+    "core/src/thread_manager.rs": "8739439c2fa3e316c6d9d31309cc5c1e29f5c606f420dd57097e3182fba79e3e",
+    "core/src/tools/router.rs": "2f3bc8d980df31cfd168e08887ec2ab8a482e958e0d65e05a316b2fac391de1c",
+    "core/src/tasks/user_shell.rs": "559a0a2dfb9eccfd39bac60f386a1d7cec2d62714e8a2511d3fc18529a72abbc",
+    "app-server/src/relay_authority.rs": "be9caa3ce4bc43e0f77d36fc5b5365cbb63cd3ef020651f1f2d76a6f85083bae",
+    "core/src/relay_authority.rs": "0482015be364068115bbdc457f917284ea01f51461f41d341a3a947ae95c6bc0"
+  },
+  "artifacts": {
+    "lastLinkedServer": {
+      "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex-app-server",
+      "sha256": "31d8b61825c8ae86a87f0033e1f3d9bb836889264d66ccecd456e73d36bc218b"
+    },
+    "researchVmExecutor": {
+      "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-exec",
+      "sha256": "2e402ded41459fded57c4973730bbdbcc0e4512b42e400a669bf2bcc55bda03c"
+    },
+    "executorInitramfs": {
+      "path": "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-images/executor-initramfs",
+      "sha256": "01b42297754621a69cf42b161b32401cb4310c991cc9e989033fff5d6efd5242"
+    }
+  },
+  "patchSHA256": "4088b9669f5fd5d45419ead106ab69a56e89043d7a0cc18660570111b606741f",
+  "freeBytes": 1699868672,
+  "researchSourceSHA256": {
+    "vm_exec.swift": "9ab06a5998b51ea49d2fc18390af973704ef0e3ad62d53ce3b4581574fadb94b",
+    "guest_exec_init.sh": "49a88662fde637dccf9d8b70f1567ae94db9fe6e900bc508b7c5b94eb08c5a52",
+    "prepare_executor.py": "94eca4ac4b195f141069da9acd7915d205a9a4b1931ceda2afbf730affb35750",
+    "check_executor.py": "e4feb1d7fce66ce318eb6f038bf501cf5116637cf53e2d35832849e8083a8ea9"
+  },
+  "latestSourcePolicyTests": 16,
+  "latestSourceClippyWarningsDenied": "PASSED",
+  "latestSourceFormatting": "PASSED"
+}

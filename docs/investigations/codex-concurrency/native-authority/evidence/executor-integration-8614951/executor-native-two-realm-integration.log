@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/check_executor.py", line 204, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/check_executor.py", line 30, in main
+    raise RuntimeError("unchanged 4 GiB integration entry guard")
+RuntimeError: unchanged 4 GiB integration entry guard

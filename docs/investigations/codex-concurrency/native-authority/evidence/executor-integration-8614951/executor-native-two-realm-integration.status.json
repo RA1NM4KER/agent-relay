@@ -1,0 +1,24 @@
+{
+  "stage": "executor-native-two-realm-integration",
+  "argv": [
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/python-observer/bin/python",
+    "/private/tmp/agent-relay-native-validation/docs/investigations/codex-concurrency/native-authority/check_executor.py",
+    "--app-server",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/target/debug/codex-app-server",
+    "--manager",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-exec",
+    "--images",
+    "/private/tmp/relay-native-build-20261030-9fw2zv7w/vm-images"
+  ],
+  "started": 1793511555.5116851,
+  "build_settings": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "free_before": 2881699840,
+  "pid": 5191,
+  "exit_code": 1,
+  "elapsed_s": 2.0083818435668945,
+  "free_after": 2880827392
+}
