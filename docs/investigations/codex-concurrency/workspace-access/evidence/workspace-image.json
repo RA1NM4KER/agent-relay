@@ -1,0 +1,8 @@
+{
+  "probeSHA256": "f7353e99e8900d70be98f8664284371058812b81ee5bf64f8a59bc4cc0c69a41",
+  "initramfsSHA256": "4de8b2e11f7ac85759849a22bd2fc792cf3cbfb746f459016a2be7aa20be7477",
+  "probeBytes": 4432,
+  "initramfsBytes": 9711019,
+  "downloads": 0,
+  "probeABI": "Linux aarch64 direct syscalls; no libc; relocation-free ELF64"
+}

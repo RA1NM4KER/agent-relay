@@ -1,0 +1,80 @@
+{
+  "root": "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/projects/publisher-354ad398-f21b-41a7-9089-9d2fc7366018",
+  "checks": [
+    "captured real guest draft bytes",
+    "guest-created absolute symlink cannot cause host read outside draft",
+    "hard-linked input is unclassified and rejected",
+    "relative traversal is rejected",
+    "absolute pathname is rejected",
+    "revocation closes admission without claiming queued I/O drained",
+    "B publishes while A remains paused and fenced",
+    "queued old-epoch publication rejected before issue",
+    "A queued bytes never reached canonical file",
+    "publication drain requires zero pending and zero unresolved",
+    "scoped publisher receipt never authorizes Relay handoff",
+    "fenced old owner cannot publish fresh token",
+    "foreign capability cannot invent publication authority",
+    "wrong epoch cannot publish",
+    "committed bytes materialize in real project copy",
+    "lost committed reply recovers exact receipt without replay",
+    "operation token cannot substitute content",
+    "actual temporary-file write reaches fsync boundary",
+    "issued I/O blocks publication drain",
+    "B publishes while A waits at file fsync",
+    "same pending path reservation blocks another writer",
+    "admitted in-flight mutation resolves before drain",
+    "revoked authority cannot start another write after drain",
+    "after-intent actual publisher process death",
+    "after-intent uncertain outcome retains reservation",
+    "after-intent never repeats uncertain native filesystem mutation",
+    "after-intent case-alias path cannot bypass uncertain reservation",
+    "after-intent independent B recovery proceeds",
+    "after-replace actual publisher process death",
+    "after-replace uncertain outcome retains reservation",
+    "after-replace never repeats uncertain native filesystem mutation",
+    "after-replace case-alias path cannot bypass uncertain reservation",
+    "after-replace independent B recovery proceeds"
+  ],
+  "nativeCodexIntegrated": false,
+  "handoffPermitted": false,
+  "scope": "HOST_ONLY_BOUNDED_REGULAR_FILE_PUBLICATION",
+  "crashes": [
+    {
+      "point": "after-intent",
+      "exitCode": 86,
+      "receipt": {
+        "owner": "1628905f-66d9-4473-b739-8ea83442e423",
+        "epoch": 1,
+        "publicationAdmissionClosed": true,
+        "drained": false,
+        "pending": 0,
+        "unresolvedPaths": [
+          "README.md"
+        ],
+        "scope": "BOUNDED_REGULAR_FILE_PUBLICATION_ONLY",
+        "handoffPermitted": false
+      },
+      "canonicalDataAfterCrash": "initial",
+      "stderr": ""
+    },
+    {
+      "point": "after-replace",
+      "exitCode": 87,
+      "receipt": {
+        "owner": "04137035-2f2e-46d3-8761-01db2be193fa",
+        "epoch": 1,
+        "publicationAdmissionClosed": true,
+        "drained": false,
+        "pending": 0,
+        "unresolvedPaths": [
+          "README.md"
+        ],
+        "scope": "BOUNDED_REGULAR_FILE_PUBLICATION_ONLY",
+        "handoffPermitted": false
+      },
+      "canonicalDataAfterCrash": "crash-data",
+      "stderr": ""
+    }
+  ],
+  "passed": true
+}

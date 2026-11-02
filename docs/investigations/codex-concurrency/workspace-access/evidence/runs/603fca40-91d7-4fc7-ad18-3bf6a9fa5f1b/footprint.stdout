@@ -1,0 +1,132 @@
+================================================================================
+com.apple.Virtualization.VirtualMachine [14624]: 64-bit    Footprint: 201 MB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 201 MB
+    phys_footprint_peak: 201 MB
+
+================================================================================
+com.apple.Virtualization.VirtualMachine [14622]: 64-bit    Footprint: 201 MB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 201 MB
+    phys_footprint_peak: 201 MB
+
+================================================================================
+com.apple.Virtualization.VirtualMachine [14620]: 64-bit    Footprint: 201 MB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 201 MB
+    phys_footprint_peak: 201 MB
+
+================================================================================
+com.apple.Virtualization.VirtualMachine [14630]: 64-bit    Footprint: 201 MB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 201 MB
+    phys_footprint_peak: 201 MB
+
+================================================================================
+com.apple.Virtualization.VirtualMachine [14626]: 64-bit    Footprint: 200 MB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 201 MB
+    phys_footprint_peak: 201 MB
+
+================================================================================
+com.apple.Virtualization.VirtualMachine [14628]: 64-bit    Footprint: 200 MB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 200 MB
+    phys_footprint_peak: 200 MB
+
+================================================================================
+com.apple.Virtualization.VirtualMachine [14632]: 64-bit    Footprint: 200 MB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 200 MB
+    phys_footprint_peak: 200 MB
+
+================================================================================
+com.apple.Virtualization.VirtualMachine [14635]: 64-bit    Footprint: 200 MB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 200 MB
+    phys_footprint_peak: 200 MB
+
+================================================================================
+workspace-vm [14631]: 64-bit    Footprint: 3121 KB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 3153 KB
+    phys_footprint_peak: 3153 KB
+
+================================================================================
+workspace-vm [14633]: 64-bit    Footprint: 3105 KB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 3137 KB
+    phys_footprint_peak: 3137 KB
+
+================================================================================
+workspace-vm [14629]: 64-bit    Footprint: 3105 KB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 3137 KB
+    phys_footprint_peak: 3137 KB
+
+================================================================================
+workspace-vm [14627]: 64-bit    Footprint: 3105 KB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 3137 KB
+    phys_footprint_peak: 3137 KB
+
+================================================================================
+workspace-vm [14625]: 64-bit    Footprint: 3105 KB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 3137 KB
+    phys_footprint_peak: 3137 KB
+
+================================================================================
+workspace-vm [14621]: 64-bit    Footprint: 3105 KB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 3137 KB
+    phys_footprint_peak: 3137 KB
+
+================================================================================
+workspace-vm [14619]: 64-bit    Footprint: 3105 KB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 3137 KB
+    phys_footprint_peak: 3137 KB
+
+================================================================================
+workspace-vm [14623]: 64-bit    Footprint: 3089 KB (16384 bytes per page)
+================================================================================
+
+Auxiliary data:
+    phys_footprint: 3121 KB
+    phys_footprint_peak: 3121 KB
+
+================================================================================
+Summary Footprint: 1626 MB
+================================================================================
+

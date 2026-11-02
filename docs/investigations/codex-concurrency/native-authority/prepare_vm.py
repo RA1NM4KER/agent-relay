@@ -8,12 +8,13 @@ from pathlib import Path
 import gzip
 import hashlib
 import json
+import os
 import struct
 import urllib.request
 
-LAB=Path('/private/tmp/relay-native-build-20261030-9fw2zv7w')
+LAB=Path(os.environ.get('RELAY_NATIVE_LAB', '/private/tmp/relay-native-build-20261030-9fw2zv7w'))
 ROOT=LAB/'vm-images'
-ROOT.mkdir(exist_ok=True)
+ROOT.mkdir(parents=True, exist_ok=True)
 VERSION='3.22.7'
 NAME=f'alpine-virt-{VERSION}-aarch64.iso'
 BASE='https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64/'

@@ -1,0 +1,32 @@
+{
+  "root": "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/projects/native-sandbox-20a527ff-ed2d-44b6-a176-c3a1a73cb652",
+  "agents": 1,
+  "workingSetMiB": 0,
+  "handoffPermitted": false,
+  "executionQuiescence": "UNKNOWN",
+  "mechanism": "DEPRECATED_NATIVE_STATIC_FILESYSTEM_SANDBOX",
+  "startupAndFirstEffectsSeconds": 0.05773487499936891,
+  "telemetry": [
+    "15606 15593   1312   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15607 15606   1008   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe"
+  ],
+  "privateEffectsAfterParentDeath": [
+    true
+  ],
+  "attempts": [
+    {
+      "canonicalOpen": -1,
+      "openErrno": 1,
+      "inheritedWrite": 3,
+      "writeErrno": 0,
+      "pid": 15607,
+      "setsid": 15607
+    }
+  ],
+  "canonicalUnchanged": false,
+  "completed": true,
+  "exitCodes": [
+    -15
+  ],
+  "elapsedSeconds": 6.005075666998891
+}

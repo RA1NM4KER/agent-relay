@@ -1,0 +1,14 @@
+{
+  "root": "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/projects/native-sandbox-1a7a7f53-66b6-4830-9f56-e6c40580cb00",
+  "agents": 1,
+  "workingSetMiB": 0,
+  "handoffPermitted": false,
+  "executionQuiescence": "UNKNOWN",
+  "mechanism": "DEPRECATED_NATIVE_STATIC_FILESYSTEM_SANDBOX",
+  "completed": false,
+  "error": "RuntimeError('native sandbox wrapper exited before workload')",
+  "exitCodes": [
+    -6
+  ],
+  "elapsedSeconds": 6.005460792000122
+}

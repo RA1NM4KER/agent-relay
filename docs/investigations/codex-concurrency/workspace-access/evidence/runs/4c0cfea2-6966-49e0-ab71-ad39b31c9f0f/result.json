@@ -1,0 +1,219 @@
+{
+  "run": "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/runs/4c0cfea2-6966-49e0-ab71-ad39b31c9f0f",
+  "mode": "readonly-draft",
+  "action": "crash",
+  "agents": 2,
+  "memoryMiBPerVm": 192,
+  "nativeCodexIntegrated": false,
+  "workingSetMiBPerVm": 0,
+  "firstOnly": true,
+  "workspaceQuiescence": "UNPROVEN",
+  "handoffPermitted": false,
+  "samples": [
+    {
+      "phase": "before",
+      "elapsedSeconds": 0.03605791600057273,
+      "processTelemetry": [],
+      "vmStat": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     3980.\nPages active:                                 115632.\nPages inactive:                               113723.\nPages speculative:                              1205.\nPages throttled:                                   0.\nPages wired down:                              89501.\nPages purgeable:                                4686.\n\"Translation faults\":                       74110950.\nPages copy-on-write:                         1780308.\nPages zero filled:                          36609918.\nPages reactivated:                          18402954.\nPages purged:                                3153506.\nFile-backed pages:                             76389.\nAnonymous pages:                              154171.\nPages stored in compressor:                   492850.\nPages occupied by compressor:                 163299.\nDecompressions:                             13863554.\nCompressions:                               17475492.\nPageins:                                     9237055.\nPageouts:                                     327497.\nSwapins:                                       56340.\nSwapouts:                                     131504.\n",
+      "swap": "vm.swapusage: total = 2048.00M  used = 1174.69M  free = 873.31M  (encrypted)",
+      "memoryPressure": "1",
+      "freeBytes": 19421401088
+    },
+    {
+      "phase": "active",
+      "elapsedSeconds": 0.819891416000246,
+      "processTelemetry": [
+        "14091 14075  11104   0:00.03 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/workspace-vm",
+        "14092     1 190736   0:00.47 /System/Library/Frameworks/Virtualization.framework/Versions/A/XPCServices/com.apple.Virtualization.VirtualMachine.xpc/Contents/MacOS/com.apple.Virtualization.VirtualMachine",
+        "14094 14075  11152   0:00.02 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/workspace-vm",
+        "14097     1 183936   0:00.45 /System/Library/Frameworks/Virtualization.framework/Versions/A/XPCServices/com.apple.Virtualization.VirtualMachine.xpc/Contents/MacOS/com.apple.Virtualization.VirtualMachine"
+      ],
+      "vmStat": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     3600.\nPages active:                                 114164.\nPages inactive:                               109369.\nPages speculative:                              3928.\nPages throttled:                                   0.\nPages wired down:                              87236.\nPages purgeable:                                1669.\n\"Translation faults\":                       74173296.\nPages copy-on-write:                         1782874.\nPages zero filled:                          36631600.\nPages reactivated:                          18421616.\nPages purged:                                3154375.\nFile-backed pages:                             83325.\nAnonymous pages:                              144136.\nPages stored in compressor:                   518654.\nPages occupied by compressor:                 169043.\nDecompressions:                             13872454.\nCompressions:                               17512155.\nPageins:                                     9240848.\nPageouts:                                     327503.\nSwapins:                                       56340.\nSwapouts:                                     131504.\n",
+      "swap": "vm.swapusage: total = 2048.00M  used = 1174.69M  free = 873.31M  (encrypted)",
+      "memoryPressure": "1",
+      "freeBytes": 19375878144
+    },
+    {
+      "phase": "after",
+      "elapsedSeconds": 1.5615488749999713,
+      "processTelemetry": [],
+      "vmStat": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                    22633.\nPages active:                                 104356.\nPages inactive:                                97585.\nPages speculative:                              6217.\nPages throttled:                                   0.\nPages wired down:                              85356.\nPages purgeable:                                1509.\n\"Translation faults\":                       74188790.\nPages copy-on-write:                         1783609.\nPages zero filled:                          36634793.\nPages reactivated:                          18434013.\nPages purged:                                3154555.\nFile-backed pages:                             85231.\nAnonymous pages:                              122927.\nPages stored in compressor:                   523273.\nPages occupied by compressor:                 171179.\nDecompressions:                             13875226.\nCompressions:                               17520582.\nPageins:                                     9241075.\nPageouts:                                     327508.\nSwapins:                                       56340.\nSwapouts:                                     131504.\n",
+      "swap": "vm.swapusage: total = 2048.00M  used = 1174.69M  free = 873.31M  (encrypted)",
+      "memoryPressure": "1",
+      "freeBytes": 19347709952
+    }
+  ],
+  "vms": [
+    {
+      "fixture": "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/projects/4c0cfea2-6966-49e0-ab71-ad39b31c9f0f/0",
+      "beforeAction": {
+        "heldBytes": 528,
+        "mmapCounter": 27,
+        "burstBytes": 33554432
+      },
+      "stateBefore": {
+        "admissionClosed": false,
+        "handoffPermitted": false,
+        "label": "worker-0",
+        "managerPID": 14091,
+        "nativeExecutionIntegrated": false,
+        "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "networkDevices": 0,
+        "realmID": "dfa63de6-1454-4d28-9879-5a580af2ad23",
+        "scope": "DISPOSABLE_PROJECT_SHARING_EXPERIMENT",
+        "sharedDirectories": 2,
+        "shareMode": "readonly-draft",
+        "sharesDetached": false,
+        "socketDevices": 0,
+        "status": "RUNNING",
+        "storageDevices": 0,
+        "ticks": 12,
+        "vmRunning": true,
+        "vmStopped": false,
+        "workspaceQuiescence": "UNPROVEN_HOST_IO_DRAIN"
+      },
+      "sourceHashBefore": "177677c88f5b5e91c1941258ffe01fe2826fb68d2df7a02e6b4cdead2199431e",
+      "afterAction": {
+        "heldBytes": 539,
+        "mmapCounter": 28,
+        "burstBytes": 33554432
+      },
+      "stateAfter": {
+        "admissionClosed": false,
+        "handoffPermitted": false,
+        "label": "worker-0",
+        "managerPID": 14091,
+        "nativeExecutionIntegrated": false,
+        "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "networkDevices": 0,
+        "realmID": "dfa63de6-1454-4d28-9879-5a580af2ad23",
+        "scope": "DISPOSABLE_PROJECT_SHARING_EXPERIMENT",
+        "sharedDirectories": 2,
+        "shareMode": "readonly-draft",
+        "sharesDetached": false,
+        "socketDevices": 0,
+        "status": "CRASHING_UNKNOWN",
+        "storageDevices": 0,
+        "ticks": 13,
+        "vmRunning": true,
+        "vmStopped": false,
+        "workspaceQuiescence": "UNPROVEN_HOST_IO_DRAIN"
+      },
+      "sourceHashAfter": "177677c88f5b5e91c1941258ffe01fe2826fb68d2df7a02e6b4cdead2199431e"
+    },
+    {
+      "fixture": "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/projects/4c0cfea2-6966-49e0-ab71-ad39b31c9f0f/1",
+      "beforeAction": {
+        "heldBytes": 539,
+        "mmapCounter": 27,
+        "burstBytes": 33554432
+      },
+      "stateBefore": {
+        "admissionClosed": false,
+        "handoffPermitted": false,
+        "label": "worker-1",
+        "managerPID": 14094,
+        "nativeExecutionIntegrated": false,
+        "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "networkDevices": 0,
+        "realmID": "21749e0c-1e78-4d10-8c67-73d0c1cd95b2",
+        "scope": "DISPOSABLE_PROJECT_SHARING_EXPERIMENT",
+        "sharedDirectories": 2,
+        "shareMode": "readonly-draft",
+        "sharesDetached": false,
+        "socketDevices": 0,
+        "status": "RUNNING",
+        "storageDevices": 0,
+        "ticks": 12,
+        "vmRunning": true,
+        "vmStopped": false,
+        "workspaceQuiescence": "UNPROVEN_HOST_IO_DRAIN"
+      },
+      "sourceHashBefore": "177677c88f5b5e91c1941258ffe01fe2826fb68d2df7a02e6b4cdead2199431e",
+      "afterAction": {
+        "heldBytes": 627,
+        "mmapCounter": 32,
+        "burstBytes": 33554432
+      },
+      "stateAfter": {
+        "admissionClosed": false,
+        "handoffPermitted": false,
+        "label": "worker-1",
+        "managerPID": 14094,
+        "nativeExecutionIntegrated": false,
+        "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "networkDevices": 0,
+        "realmID": "21749e0c-1e78-4d10-8c67-73d0c1cd95b2",
+        "scope": "DISPOSABLE_PROJECT_SHARING_EXPERIMENT",
+        "sharedDirectories": 2,
+        "shareMode": "readonly-draft",
+        "sharesDetached": false,
+        "socketDevices": 0,
+        "status": "RUNNING",
+        "storageDevices": 0,
+        "ticks": 13,
+        "vmRunning": true,
+        "vmStopped": false,
+        "workspaceQuiescence": "UNPROVEN_HOST_IO_DRAIN"
+      },
+      "sourceHashAfter": "177677c88f5b5e91c1941258ffe01fe2826fb68d2df7a02e6b4cdead2199431e"
+    }
+  ],
+  "startupAndFirstEffectsSeconds": 0.7890036660000987,
+  "actionObservationSeconds": 0.06997225000031904,
+  "completed": true,
+  "cleanup": [
+    {
+      "pid": 14091,
+      "exitCode": -9,
+      "state": {
+        "admissionClosed": false,
+        "handoffPermitted": false,
+        "label": "worker-0",
+        "managerPID": 14091,
+        "nativeExecutionIntegrated": false,
+        "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "networkDevices": 0,
+        "realmID": "dfa63de6-1454-4d28-9879-5a580af2ad23",
+        "scope": "DISPOSABLE_PROJECT_SHARING_EXPERIMENT",
+        "sharedDirectories": 2,
+        "shareMode": "readonly-draft",
+        "sharesDetached": false,
+        "socketDevices": 0,
+        "status": "CRASHING_UNKNOWN",
+        "storageDevices": 0,
+        "ticks": 13,
+        "vmRunning": true,
+        "vmStopped": false,
+        "workspaceQuiescence": "UNPROVEN_HOST_IO_DRAIN"
+      }
+    },
+    {
+      "pid": 14094,
+      "exitCode": 0,
+      "state": {
+        "admissionClosed": true,
+        "handoffPermitted": false,
+        "label": "worker-1",
+        "managerPID": 14094,
+        "nativeExecutionIntegrated": false,
+        "nativeExecutionScope": "OPT_IN_USER_SHELL_RAM_ONLY_LINUX_GUEST",
+        "networkDevices": 0,
+        "realmID": "21749e0c-1e78-4d10-8c67-73d0c1cd95b2",
+        "scope": "DISPOSABLE_PROJECT_SHARING_EXPERIMENT",
+        "sharedDirectories": 2,
+        "shareMode": "readonly-draft",
+        "sharesDetached": false,
+        "socketDevices": 0,
+        "status": "STOPPED",
+        "storageDevices": 0,
+        "ticks": 14,
+        "vmRunning": false,
+        "vmStopped": true,
+        "workspaceQuiescence": "UNPROVEN_HOST_IO_DRAIN"
+      }
+    }
+  ],
+  "elapsedSeconds": 1.5721569160004947,
+  "freeByteDelta": -73691136
+}

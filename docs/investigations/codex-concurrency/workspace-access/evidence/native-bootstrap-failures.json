@@ -1,0 +1,96 @@
+{
+  "reports": [
+    {
+      "report": "native-probe-2026-11-02-103306.ips",
+      "exception": {
+        "codes": "0x0000000000000000, 0x0000000000000000",
+        "rawCodes": [
+          0,
+          0
+        ],
+        "type": "EXC_CRASH",
+        "signal": "SIGABRT"
+      },
+      "termination": {
+        "namespace": "<0x23>",
+        "flags": 582,
+        "code": 2
+      },
+      "frames": [
+        "__abort_with_payload",
+        "abort_with_payload_wrapper_internal",
+        "abort_with_reason",
+        "ignition_halt",
+        "boot_boot",
+        "ignite",
+        "dyld4::CacheFinder::CacheFinder(dyld4::ProcessConfig::Process const&, dyld4::ProcessConfig::Logging const&, dyld4::SyscallDelegate&)",
+        "dyld4::ProcessConfig::DyldCache::DyldCache(dyld4::ProcessConfig::Process&, dyld4::ProcessConfig::Security const&, dyld4::ProcessConfig::Logging const&, dyld4::SyscallDelegate&, lsl::Allocator&, dyld4::ProcessConfig const&)",
+        "dyld4::ProcessConfig::ProcessConfig(dyld4::KernelArgs const*, dyld4::SyscallDelegate&, lsl::Allocator&)",
+        "dyld4::start(dyld4::KernelArgs*, void*, void*, unsigned long long)::$_1::operator()() const",
+        "start"
+      ]
+    },
+    {
+      "report": "native-probe-2026-11-02-103719.ips",
+      "exception": {
+        "codes": "0x0000000000000000, 0x0000000000000000",
+        "rawCodes": [
+          0,
+          0
+        ],
+        "type": "EXC_CRASH",
+        "signal": "SIGABRT"
+      },
+      "termination": {
+        "namespace": "<0x23>",
+        "flags": 582,
+        "code": 2
+      },
+      "frames": [
+        "__abort_with_payload",
+        "abort_with_payload_wrapper_internal",
+        "abort_with_reason",
+        "ignition_halt",
+        "boot_boot",
+        "ignite",
+        "dyld4::CacheFinder::CacheFinder(dyld4::ProcessConfig::Process const&, dyld4::ProcessConfig::Logging const&, dyld4::SyscallDelegate&)",
+        "dyld4::ProcessConfig::DyldCache::DyldCache(dyld4::ProcessConfig::Process&, dyld4::ProcessConfig::Security const&, dyld4::ProcessConfig::Logging const&, dyld4::SyscallDelegate&, lsl::Allocator&, dyld4::ProcessConfig const&)",
+        "dyld4::ProcessConfig::ProcessConfig(dyld4::KernelArgs const*, dyld4::SyscallDelegate&, lsl::Allocator&)",
+        "dyld4::start(dyld4::KernelArgs*, void*, void*, unsigned long long)::$_1::operator()() const",
+        "start"
+      ]
+    },
+    {
+      "report": "native-probe-2026-11-02-104537.ips",
+      "exception": {
+        "codes": "0x0000000000000000, 0x0000000000000000",
+        "rawCodes": [
+          0,
+          0
+        ],
+        "type": "EXC_CRASH",
+        "signal": "SIGABRT"
+      },
+      "termination": {
+        "namespace": "<0x23>",
+        "flags": 582,
+        "code": 2
+      },
+      "frames": [
+        "__abort_with_payload",
+        "abort_with_payload_wrapper_internal",
+        "abort_with_reason",
+        "ignition_halt",
+        "boot_boot",
+        "ignite",
+        "dyld4::CacheFinder::CacheFinder(dyld4::ProcessConfig::Process const&, dyld4::ProcessConfig::Logging const&, dyld4::SyscallDelegate&)",
+        "dyld4::ProcessConfig::DyldCache::DyldCache(dyld4::ProcessConfig::Process&, dyld4::ProcessConfig::Security const&, dyld4::ProcessConfig::Logging const&, dyld4::SyscallDelegate&, lsl::Allocator&, dyld4::ProcessConfig const&)",
+        "dyld4::ProcessConfig::ProcessConfig(dyld4::KernelArgs const*, dyld4::SyscallDelegate&, lsl::Allocator&)",
+        "dyld4::start(dyld4::KernelArgs*, void*, void*, unsigned long long)::$_1::operator()() const",
+        "start"
+      ]
+    }
+  ],
+  "dyldSupportProfileSHA256": "06215a5d32689aefe395c29710e182eb54ba22162f50df8b4842290f8a19bf1c",
+  "rootCause": "loader bootstrap requires system profile rules; specific first denied resource unproven"
+}

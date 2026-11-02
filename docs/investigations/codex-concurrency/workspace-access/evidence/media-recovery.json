@@ -1,0 +1,19 @@
+{
+  "reason": "original temporary lab is absent; restore only required VM images",
+  "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64/alpine-virt-3.22.7-aarch64.iso",
+  "isoSHA256": "3e37f238f6317ef56a12f4cff5c4265f99d25785945f777b19d41b35a7fabbc7",
+  "outputs": [
+    {
+      "name": "kernel",
+      "bytes": 34734080,
+      "sha256": "42a15047f7cfc785e008b43f48c090f6340f34ead8446d7568126bb5cb9bc9f1"
+    },
+    {
+      "name": "base-initramfs",
+      "bytes": 9710184,
+      "sha256": "aee79b02c16c87fb0b6180a4d652d51b0115d2f2c8a69c20f8e917ff602fe26e"
+    }
+  ],
+  "nativeCodexRebuilt": false,
+  "historicalEvidenceReverified": true
+}

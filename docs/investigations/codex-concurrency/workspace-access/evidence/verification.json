@@ -1,0 +1,12 @@
+{
+  "capabilityLeakScan": "PASS",
+  "archivedFilesScanned": 228,
+  "nativeCodexRebuilt": false,
+  "productionRustChanged": false,
+  "fullParity": false,
+  "wholeWorkspaceRustChecks": "NOT_RERUN_NO_PRODUCTION_RUST_CHANGES",
+  "pythonCompile": "PASS",
+  "clangWarningsDenied": "PASS",
+  "swiftBuild": "PASS",
+  "diffCheck": "PASS"
+}

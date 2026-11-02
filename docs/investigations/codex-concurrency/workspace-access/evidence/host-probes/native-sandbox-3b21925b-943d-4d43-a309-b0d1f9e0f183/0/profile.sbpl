@@ -1,0 +1,7 @@
+(version 1)
+(deny default)
+(allow process*)
+(allow sysctl-read)
+(allow signal (target self))
+(allow file-read* (subpath "/System/Library") (subpath "/usr/lib") (literal "/dev/null") (literal "/dev/urandom") (literal "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe") (subpath "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/projects/native-sandbox-3b21925b-943d-4d43-a309-b0d1f9e0f183/0/draft") (subpath "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/projects/native-sandbox-3b21925b-943d-4d43-a309-b0d1f9e0f183/0/canonical"))
+(allow file-write* (subpath "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/projects/native-sandbox-3b21925b-943d-4d43-a309-b0d1f9e0f183/0/draft"))

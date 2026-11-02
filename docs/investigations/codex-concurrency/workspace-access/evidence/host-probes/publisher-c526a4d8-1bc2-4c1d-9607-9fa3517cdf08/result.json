@@ -1,0 +1,9 @@
+{
+  "root": "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/projects/publisher-c526a4d8-1bc2-4c1d-9607-9fa3517cdf08",
+  "checks": [],
+  "nativeCodexIntegrated": false,
+  "handoffPermitted": false,
+  "scope": "HOST_ONLY_BOUNDED_REGULAR_FILE_PUBLICATION",
+  "passed": false,
+  "error": "KeyError('mode')"
+}

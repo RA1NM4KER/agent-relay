@@ -1,0 +1,74 @@
+{
+  "root": "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/projects/publisher-86a1724d-4e33-41db-b3fa-81ad9816f352",
+  "checks": [
+    "captured real guest draft bytes",
+    "guest-created absolute symlink cannot cause host read outside draft",
+    "hard-linked input is unclassified and rejected",
+    "relative traversal is rejected",
+    "absolute pathname is rejected",
+    "revocation closes admission without claiming queued I/O drained",
+    "B publishes while A remains paused and fenced",
+    "queued old-epoch publication rejected before issue",
+    "A queued bytes never reached canonical file",
+    "publication drain requires zero pending and zero unresolved",
+    "scoped publisher receipt never authorizes Relay handoff",
+    "fenced old owner cannot publish fresh token",
+    "foreign capability cannot invent publication authority",
+    "wrong epoch cannot publish",
+    "committed bytes materialize in real project copy",
+    "lost committed reply recovers exact receipt without replay",
+    "operation token cannot substitute content",
+    "after-intent actual publisher process death",
+    "after-intent uncertain outcome retains reservation",
+    "after-intent never repeats uncertain native filesystem mutation",
+    "after-intent case-alias path cannot bypass uncertain reservation",
+    "after-intent independent B recovery proceeds",
+    "after-replace actual publisher process death",
+    "after-replace uncertain outcome retains reservation",
+    "after-replace never repeats uncertain native filesystem mutation",
+    "after-replace case-alias path cannot bypass uncertain reservation",
+    "after-replace independent B recovery proceeds"
+  ],
+  "nativeCodexIntegrated": false,
+  "handoffPermitted": false,
+  "scope": "HOST_ONLY_BOUNDED_REGULAR_FILE_PUBLICATION",
+  "crashes": [
+    {
+      "point": "after-intent",
+      "exitCode": 86,
+      "receipt": {
+        "owner": "cbc05cb4-89e5-4c70-8180-f46bd97b2930",
+        "epoch": 1,
+        "publicationAdmissionClosed": true,
+        "drained": false,
+        "pending": 0,
+        "unresolvedPaths": [
+          "README.md"
+        ],
+        "scope": "BOUNDED_REGULAR_FILE_PUBLICATION_ONLY",
+        "handoffPermitted": false
+      },
+      "canonicalDataAfterCrash": "initial",
+      "stderr": ""
+    },
+    {
+      "point": "after-replace",
+      "exitCode": 87,
+      "receipt": {
+        "owner": "8dd51720-957c-46bb-b891-5c1562225211",
+        "epoch": 1,
+        "publicationAdmissionClosed": true,
+        "drained": false,
+        "pending": 0,
+        "unresolvedPaths": [
+          "README.md"
+        ],
+        "scope": "BOUNDED_REGULAR_FILE_PUBLICATION_ONLY",
+        "handoffPermitted": false
+      },
+      "canonicalDataAfterCrash": "crash-data",
+      "stderr": ""
+    }
+  ],
+  "passed": true
+}

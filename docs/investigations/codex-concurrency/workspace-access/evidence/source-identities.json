@@ -1,0 +1,21 @@
+{
+  "sources": {
+    "mmap_probe.S": "284d892395a00612069480cc651b3823ba94fe53d4f88227ae43c37e75c4cc55",
+    "check_config.py": "998a431c157c9a770c7b00a4de5027f9b188a6682dd9ea60dd95d0a5aeb972f9",
+    "prepare_workspace.py": "b01280fde5b378374437dfa0a7d3e55bd0c2b38ffdf500cf625bf8a33ae2fe5d",
+    "guest_workspace_init.sh": "2e315a8fc0373a65aaf7d64e22b11063bc1ec029ce4ebf1052199d75d9a75c8d",
+    "workspace_vm.swift": "8a927d6a31687b9a5b426ce07b4ea31a1973165eef082ee0e0c4bd07dc07b341",
+    "archive_evidence.py": "91a8f74145181a7ca40d80575a56efb4e7f7cba465dde93361b1098aa9880d15",
+    "WORKSPACE_ACCESS.md": "878d047a3969b97b7183d001a8f8f002e13391d0681a59ad95d7de77e682634a",
+    "native_probe.c": "d1e2b91fe232f14c4410d6d18d5669bcebab5effc64b44dca020768a96bcc833",
+    "publisher.py": "45d2d057b86253ff9a52310fb39dafcacf7128b2f95138f85899a366b146a2c1",
+    "check_publisher.py": "cfb982ad637f83c4620b02050de64adabb1b8e6085035c27e82340be5ddb5deb",
+    "check_workspace.py": "db88795bd4c41a75bd2bf9ac39e7e6aa751e4483e04db750fd586c847ada987d",
+    "check_native_sandbox.py": "8b5e9ad04f636ed72a4726dc5da7c0ae5dd2e06468290ff73a3574971be3beda"
+  },
+  "binaries": {
+    "workspace-vm": "8d6fc38347d11e1678e365817517fc807f13dbc8856a80a6cda179c82059b745",
+    "native-probe": "8e33c791922850e6d5fd36a0ff377b6ee2ba48de4a7d1390d2b5d82388ac85e4"
+  },
+  "productionInstalledBinariesModified": false
+}

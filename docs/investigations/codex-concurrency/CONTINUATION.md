@@ -1,5 +1,37 @@
 # Continuation checkpoint
 
+## Workspace access increment from bb0c6ce (2026-11-02)
+
+Read [WORKSPACE_ACCESS.md](workspace-access/WORKSPACE_ACCESS.md) and its retained
+evidence before proceeding. Eight real guests now compose private drafts with a
+host-only bounded file publisher; A publication fencing precedes exact A kernel
+stop, while B–H continue execution and publication. The final publisher suite
+passes 33 narrow checks, including pending-publication fencing, two actual
+publisher process crashes and lost replies. Five unsafe VM configuration checks
+and the hardened helper positive smoke pass. These are **workspace primitives,
+not actual native Codex workspace integration or full POSIX functionality**.
+
+A native macOS static sandbox counterexample is retained: an inherited canonical
+FD permits a write despite read-only path policy; detached work survives parent
+termination. Closing descriptors prevents the tested canonical write, but does
+not establish execution quiescence. Eight 192 MiB microguests measured ~1.59 GiB
+combined physical footprint including XPC workers; full eight-agent workload
+performance is unproven on this 8 GiB Mac. No architecture is selected.
+
+Both old temporary labs are absent. The bb0c6ce bundle and all 881 mirrored files
+were verified and restored to the persistent sibling research checkout
+`/Users/kefasmanda/repos/agent-relay-concurrency-research`; current disposable lab
+is `.lab/workspace-access` there. Only missing, previously hash-pinned boot media
+was recovered. Native Codex binaries/toolchain were not rebuilt and their old
+hashes are historical. Disk guards remain 4 GiB entry / 1.5 GiB reserve. No
+additional user cache cleanup or production change was performed.
+
+**Handoff remains disabled.** Shared host-I/O drain, physical host-crash recovery,
+authenticated native publisher integration, filesystem compatibility and complete
+execution capability coverage remain unproven. Canonical project copies were
+never exported to guests. Do not expose real workspaces or weaken ProfileSessionLock.
+
+
 ## Actual native shell containment from 686d93f (2026-11-01)
 
 The immediate native shell slice is now experimentally demonstrated on this Mac.

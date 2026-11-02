@@ -1,0 +1,3 @@
+# Preserve raw console/profiling evidence byte for byte.
+evidence/**/console.log -text -diff -whitespace
+evidence/**/footprint.stdout -text -diff -whitespace

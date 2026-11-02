@@ -1,0 +1,31 @@
+{
+  "checks": [
+    {
+      "name": "seed-symlink",
+      "exitCode": 2,
+      "stderr": "workspace VM configuration failed: Error Domain=unsafe-export-directory Code=1 \"(null)\"\n"
+    },
+    {
+      "name": "draft-symlink",
+      "exitCode": 2,
+      "stderr": "workspace VM configuration failed: Error Domain=unsafe-export-directory Code=1 \"(null)\"\n"
+    },
+    {
+      "name": "control-under-export",
+      "exitCode": 2,
+      "stderr": "workspace VM configuration failed: Error Domain=unsafe-control-directory Code=1 \"(null)\"\n"
+    },
+    {
+      "name": "script-outside-control",
+      "exitCode": 2,
+      "stderr": "workspace VM configuration failed: Error Domain=unsafe-script-directory Code=1 \"(null)\"\n"
+    },
+    {
+      "name": "kernel-commandline-injection",
+      "exitCode": 2,
+      "stderr": "workspace VM configuration failed: Error Domain=unsafe-label Code=1 \"(null)\"\n"
+    }
+  ],
+  "passed": true,
+  "handoffPermitted": false
+}

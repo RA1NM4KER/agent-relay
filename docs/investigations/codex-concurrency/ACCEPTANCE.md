@@ -1,5 +1,51 @@
 # Acceptance matrix and proof obligations
 
+## Workspace access increment from bb0c6ce (2026-11-02)
+
+Read [WORKSPACE_ACCESS.md](workspace-access/WORKSPACE_ACCESS.md) and its retained
+evidence before proceeding. Eight real guests now compose private drafts with a
+host-only bounded file publisher; A publication fencing precedes exact A kernel
+stop, while B–H continue execution and publication. The final publisher suite
+passes 33 narrow checks, including pending-publication fencing, two actual
+publisher process crashes and lost replies. Five unsafe VM configuration checks
+and the hardened helper positive smoke pass. These are **workspace primitives,
+not actual native Codex workspace integration or full POSIX functionality**.
+
+A native macOS static sandbox counterexample is retained: an inherited canonical
+FD permits a write despite read-only path policy; detached work survives parent
+termination. Closing descriptors prevents the tested canonical write, but does
+not establish execution quiescence. Eight 192 MiB microguests measured ~1.59 GiB
+combined physical footprint including XPC workers; full eight-agent workload
+performance is unproven on this 8 GiB Mac. No architecture is selected.
+
+Both old temporary labs are absent. The bb0c6ce bundle and all 881 mirrored files
+were verified and restored to the persistent sibling research checkout
+`/Users/kefasmanda/repos/agent-relay-concurrency-research`; current disposable lab
+is `.lab/workspace-access` there. Only missing, previously hash-pinned boot media
+was recovered. Native Codex binaries/toolchain were not rebuilt and their old
+hashes are historical. Disk guards remain 4 GiB entry / 1.5 GiB reserve. No
+additional user cache cleanup or production change was performed.
+
+**Handoff remains disabled.** Shared host-I/O drain, physical host-crash recovery,
+authenticated native publisher integration, filesystem compatibility and complete
+execution capability coverage remain unproven. Canonical project copies were
+never exported to guests. Do not expose real workspaces or weaken ProfileSessionLock.
+
+
+| Workspace obligation | Current evidence / limit |
+| --- | --- |
+| Disposable workspace I/O in real contained guests | O: held FD, mmap/msync, detached child, burst writes in direct export and private drafts |
+| Read-only source integrity | O: source hashes unchanged, fake symlink escape fails; no real user workspace exported |
+| Native authoritative workspace publisher | I/O: host-only owner/epoch prototype, 33 checks; U: authenticated native adapter |
+| Integrated workspace publication isolation | O: eight real guests, A publication fenced before stop, exact kernel stop, B–H publish afterward; NOT native Codex integration |
+| Shared host filesystem quiescence | U: detach observation and kernel stop do not prove pending host-I/O drain |
+| Pending publication safety | O: paused real tempfile write at userspace fsync boundary blocks drain, independent B path progresses; U: blocked kernel I/O and physical host failure |
+| Crash recovery | O: real publisher deaths after intent and rename preserve uncertain reservations, exact committed replay; U: physical host/storage crash |
+| Native lighter alternative | F: inherited FD bypass and detached survivors demonstrated; descriptor hygiene only fixes tested canonical write |
+| Eight-agent performance | O: eight VM microprobe ~1.59 GiB footprint, 1.150 s first effects; U: eight full development workloads/native macOS parity |
+| Configuration export boundary | O: five negative checks + positive boot; trusted host-owned fixture parents required |
+| Transactional Relay handoff / full parity | U: unchanged disabled gate; all execution capabilities, native workspace lifecycle and full compatibility missing |
+
 ## Actual native shell containment from 686d93f (2026-11-01)
 
 The immediate native shell slice is now experimentally demonstrated on this Mac.

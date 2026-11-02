@@ -1,0 +1,14 @@
+{
+  "vmRun": "603fca40-91d7-4fc7-ad18-3bf6a9fa5f1b",
+  "vmFootprintBytes": 1707092504,
+  "vmWorkerFootprintBytes": 1681660120,
+  "vmStartupSeconds": 1.149516209000467,
+  "nativeRun": "native-sandbox-ddf33eb5-4ddb-4ee2-8dda-34872a442af3",
+  "nativeStartupSeconds": 0.12247358400054509,
+  "nativeRSSKiB": 543136,
+  "memoryBytes": 8589934592,
+  "logicalCPUs": 8,
+  "freeBytes": 18389045248,
+  "physicalHostCrashTested": false,
+  "fullNativeCodexWorkspaceIntegrated": false
+}

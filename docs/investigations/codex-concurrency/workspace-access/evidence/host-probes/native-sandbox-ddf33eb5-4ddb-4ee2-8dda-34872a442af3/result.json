@@ -1,0 +1,117 @@
+{
+  "root": "/Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/projects/native-sandbox-ddf33eb5-4ddb-4ee2-8dda-34872a442af3",
+  "agents": 8,
+  "canonicalFDInherited": false,
+  "workingSetMiB": 64,
+  "handoffPermitted": false,
+  "executionQuiescence": "UNKNOWN",
+  "mechanism": "DEPRECATED_NATIVE_STATIC_FILESYSTEM_SANDBOX",
+  "startupAndFirstEffectsSeconds": 0.12247358400054509,
+  "telemetry": [
+    "15669 15658   1328   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15670 15658   1312   0:00.02 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15671 15658   1312   0:00.02 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15672 15658   1312   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15673 15658   1312   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15674 15658   1312   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15675 15658   1312   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15676 15669  66592   0:00.02 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15677 15658   1312   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15678 15672  66576   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15679 15670  66576   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15680 15674  66576   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15681 15671  66576   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15682 15673  66576   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15683 15675  66576   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe",
+    "15684 15677  66576   0:00.01 /Users/kefasmanda/repos/agent-relay-concurrency-research/.lab/workspace-access/native-probe"
+  ],
+  "privateEffectsAfterParentDeath": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "attempts": [
+    {
+      "canonicalOpen": -1,
+      "openErrno": 1,
+      "inheritedWrite": -1,
+      "writeErrno": 9,
+      "pid": 15676,
+      "setsid": 15676
+    },
+    {
+      "canonicalOpen": -1,
+      "openErrno": 1,
+      "inheritedWrite": -1,
+      "writeErrno": 9,
+      "pid": 15679,
+      "setsid": 15679
+    },
+    {
+      "canonicalOpen": -1,
+      "openErrno": 1,
+      "inheritedWrite": -1,
+      "writeErrno": 9,
+      "pid": 15681,
+      "setsid": 15681
+    },
+    {
+      "canonicalOpen": -1,
+      "openErrno": 1,
+      "inheritedWrite": -1,
+      "writeErrno": 9,
+      "pid": 15678,
+      "setsid": 15678
+    },
+    {
+      "canonicalOpen": -1,
+      "openErrno": 1,
+      "inheritedWrite": -1,
+      "writeErrno": 9,
+      "pid": 15682,
+      "setsid": 15682
+    },
+    {
+      "canonicalOpen": -1,
+      "openErrno": 1,
+      "inheritedWrite": -1,
+      "writeErrno": 9,
+      "pid": 15680,
+      "setsid": 15680
+    },
+    {
+      "canonicalOpen": -1,
+      "openErrno": 1,
+      "inheritedWrite": -1,
+      "writeErrno": 9,
+      "pid": 15683,
+      "setsid": 15683
+    },
+    {
+      "canonicalOpen": -1,
+      "openErrno": 1,
+      "inheritedWrite": -1,
+      "writeErrno": 9,
+      "pid": 15684,
+      "setsid": 15684
+    }
+  ],
+  "canonicalUnchanged": true,
+  "completed": true,
+  "exitCodes": [
+    -15,
+    -15,
+    -15,
+    -15,
+    -15,
+    -15,
+    -15,
+    -15
+  ],
+  "elapsedSeconds": 6.005083542000648
+}
