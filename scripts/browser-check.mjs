@@ -149,7 +149,7 @@ try {
   assert((await page.locator(".cli-output").first().textContent()).includes("relay status --live"));
   assert(await page.locator('.terminal-screen').isHidden());
   assert.equal(await page.locator('.motion-toggle, .terminal-playback').count(), 0);
-  assert(await page.locator('.relay-particles').isHidden());
+  assert.equal(await page.locator('.relay-art img').count(), 0, 'No raster fallback can flash before particle startup');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.locator('.relay-art').scrollIntoViewIfNeeded();

@@ -99,15 +99,13 @@ meta-row markers live in the footer so release updates retain their existing con
 
 ## Homepage art and motion
 
-The homepage uses a neutral charcoal and amber palette, distinct section surfaces, and a
-locally served transparent sculpture at `assets/relay-sculpture-v1.png`. It was generated
-with the built-in image tool from this direction: two interlocked capsule links, amber
-anodized metal and smoked graphite glass, realistic studio lighting, transparent background,
-no text, no green. The asset is decorative and conveys connection rather than provider state.
-The hero uses a local canvas particle sculpture: two linked forms gather, turn, and flow
-into a continuous loop. Pointer movement gently displaces nearby particles. It stops rendering
-offscreen or in a hidden tab. The generated studio render is the fallback for reduced motion
-and no JavaScript. There are no visible pause controls. Scroll entrances run once and all content stays
+The homepage uses a neutral charcoal and amber palette and distinct section surfaces.
+The hero draws a particle sculpture directly to a local canvas: linked forms gather, turn,
+and flow into a continuous loop. Pointer movement gently displaces nearby particles.
+There is no raster image fallback or image request in the hero, including during startup.
+Reduced motion draws a single still particle frame, and no JavaScript omits the decorative
+scene. Phones hide the scene and caption entirely. Rendering stops offscreen or in a hidden
+tab. There are no visible pause controls. Scroll entrances run once and all content stays
 available without JavaScript. The handbook shares the charcoal and amber palette, Geist typography, and header. It uses
 a reading layout with an active section rail, native mobile navigation, syntax-colored
 copyable examples, and quieter callouts and tables. Reference text remains static.
@@ -124,7 +122,9 @@ The sitemap includes only canonical HTML URLs, using the project root for the ho
 JSON-LD describes the website and software on the homepage, and versioned technical articles
 and breadcrumbs in the handbook. Titles, descriptions, Open Graph, and social card metadata
 are emitted by the shared shell. Regenerate `assets/social-card.png` after changing its brand
-assets with `node scripts/social-card.mjs`; its dimensions are 1200 by 630.
+assets with `node scripts/social-card.mjs`; its dimensions are 1200 by 630. The generated chain render at
+`assets/relay-sculpture-v1.png` is retained only as a social-card source asset; it is not
+loaded by the website hero.
 
 GitHub Pages serves this project beneath `/agent-relay/`. Root-domain robots policy is outside
 this project's path; this change does not create or change crawler permissions. Markdown

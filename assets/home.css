@@ -146,8 +146,6 @@
 .front-install { max-width: 520px; margin: 0; }
 .front-install-note { max-width: 520px; margin: 16px 0 0; }
 .relay-art { position: absolute; z-index: 1; top: -24px; right: -96px; width: 600px; pointer-events: none; perspective: 1000px; }
-.relay-sculpture { width: 100%; display: block; overflow: visible; transform: rotateY(var(--art-y, -8deg)) rotateX(var(--art-x, 5deg)); transition: transform 800ms cubic-bezier(.22,1,.36,1); }
-.relay-links { transform-origin: 320px 340px; }
 .art-caption { display: block; text-align: center; color: var(--muted); font: 400 12px/16px var(--mono); letter-spacing: .02em; transform: translateY(-24px); }
 .front-preview { position: relative; z-index: 2; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 48px; max-width: var(--front-width); margin: 32px auto 0; }
 .front-console { padding: 24px 32px; border: 1px solid var(--line); box-shadow: 0 24px 80px #00000026; }
@@ -178,15 +176,11 @@
 .front-start .front-button { margin: 0; flex-shrink: 0; padding: 16px 24px; }
 .front-start .section-kicker { margin-bottom: 16px; }
 @media (prefers-reduced-motion: no-preference) {
-  .js .relay-links { animation: relay-turn 18s cubic-bezier(.45,0,.55,1) infinite; }
-  .js .art-aura { animation: relay-breathe 7s cubic-bezier(.45,0,.55,1) infinite; }
   .js .front-hero-copy { animation: relay-enter 1000ms cubic-bezier(.22,1,.36,1) both; }
   .js .relay-art { animation: relay-enter 1400ms cubic-bezier(.22,1,.36,1) both; }
   .reveal-ready { transition: opacity 800ms cubic-bezier(.22,1,.36,1), transform 800ms cubic-bezier(.22,1,.36,1); }
   .reveal-pending { opacity: 0; transform: translateY(24px); }
 }
-@keyframes relay-turn { 0%,100% { transform: perspective(900px) rotateY(-8deg) rotateZ(-2deg); } 50% { transform: perspective(900px) rotateY(8deg) rotateZ(2deg); } }
-@keyframes relay-breathe { 0%,100% { opacity: .05; } 50% { opacity: .14; } }
 @keyframes relay-enter { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 1250px) {
   .relay-home { --front-width: calc(100% - 96px); }
@@ -217,7 +211,6 @@
   .front-intro { max-width: 480px; }
   .front-install, .front-install-note { max-width: 520px; }
   .relay-art { position: relative; width: 400px; max-width: 100%; right: auto; top: auto; margin: 0 auto; opacity: 1; }
-  .relay-sculpture { margin-top: -8px; }
   .art-caption { transform: translateY(-16px); }
   .front-stage { padding-bottom: 48px; }
   .front-preview { grid-template-columns: 1fr; gap: 24px; margin-top: 48px; }
@@ -249,13 +242,10 @@
   .front-answers summary { font-size: 14px !important; line-height: 20px !important; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .relay-sculpture { transform: none; transition: none; }
-  .relay-links, .art-aura, .front-hero-copy, .relay-art { animation: none; }
   .reveal-pending { opacity: 1; transform: none; }
 }
 
-/* The hero artwork is a local, transparent studio render. */
-.relay-sculpture img { width: 100%; height: auto; display: block; filter: drop-shadow(0 32px 32px #0000004d); transform-origin: center; }
+/* Reserve the particle scene dimensions without an image fallback. */
 .relay-art { width: 560px; top: 32px; right: -64px; }
 .art-caption { margin-top: 32px; transform: none; }
 @media (max-width: 1250px) { .relay-art { width: 480px; top: 48px; right: -48px; } }
@@ -288,10 +278,8 @@
 .relay-art { pointer-events: auto; }
 .relay-particles { position: absolute; inset: 0; width: 100%; opacity: 0; transition: opacity 800ms cubic-bezier(.22,1,.36,1); }
 .relay-art.particles-ready .relay-particles { opacity: 1; }
-.relay-art.particles-ready .relay-sculpture { opacity: 0; pointer-events: none; }
-.relay-art.particles-ready .relay-links { animation: none; }
 .relay-art .art-caption { pointer-events: none; }
-@media (prefers-reduced-motion: reduce) { .relay-particles { display: none; } }
+@media (prefers-reduced-motion: reduce) { .relay-particles { transition: none; } }
 
 /* Familiar terminal syntax; animation follows a command, a beat, then response lines. */
 .front-console .front-command { color: var(--text); font-weight: 500; }
@@ -318,3 +306,6 @@
   .front-hero { padding-bottom: 0; }
   .front-preview { margin-top: 40px; }
 }
+
+.relay-art-space { aspect-ratio: 1254 / 1280; }
+html:not(.js) .relay-art { display: none; }

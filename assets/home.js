@@ -1,32 +1,6 @@
 "use strict";
-// Homepage art and entrances are optional; every section is visible without JS.
+// Section entrances are optional; every section is visible without JS.
 if (document.body.classList.contains('relay-home')) {
-  const motion = matchMedia('(prefers-reduced-motion: reduce)');
-  const hero = document.querySelector('.front-hero');
-  const sculpture = document.querySelector('.relay-sculpture');
-  motion.addEventListener('change', () => {
-    sculpture.style.removeProperty('--art-x');
-    sculpture.style.removeProperty('--art-y');
-  });
-  if (matchMedia('(hover: hover) and (pointer: fine)').matches) {
-    let pendingFrame;
-    hero.addEventListener('pointermove', (event) => {
-      if (motion.matches) return;
-      const bounds = hero.getBoundingClientRect();
-      const x = (event.clientX - bounds.left) / bounds.width - .5;
-      const y = (event.clientY - bounds.top) / bounds.height - .5;
-      cancelAnimationFrame(pendingFrame);
-      pendingFrame = requestAnimationFrame(() => {
-        sculpture.style.setProperty('--art-y', `${x * 10}deg`);
-        sculpture.style.setProperty('--art-x', `${-y * 7}deg`);
-      });
-    });
-    hero.addEventListener('pointerleave', () => {
-      cancelAnimationFrame(pendingFrame);
-      sculpture.style.removeProperty('--art-x');
-      sculpture.style.removeProperty('--art-y');
-    });
-  }
   const entrances = document.querySelectorAll('.front-preview, .front-section-intro, .front-steps li, .front-boundary-intro, .front-principles > div, .front-questions, .front-start');
   const observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {

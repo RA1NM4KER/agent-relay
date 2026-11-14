@@ -52,14 +52,17 @@
     canvas.width = Math.round(width * ratio);
     canvas.height = Math.round(height * ratio);
     canvas.style.height = `${height}px`;
+    sync();
   }
-  function draw(now) {
-    if (!running) return;
-    request = requestAnimationFrame(draw);
-    if (now - lastFrame < 32) return;
-    const delta = lastFrame ? Math.min(now - lastFrame, 80) : 32;
-    elapsed += delta / 1000;
-    lastFrame = now;
+  function draw(now, still = false) {
+    if ((!running && !still) || !width || !height) return;
+    if (!still) {
+      request = requestAnimationFrame(draw);
+      if (now - lastFrame < 32) return;
+      const delta = lastFrame ? Math.min(now - lastFrame, 80) : 32;
+      elapsed += delta / 1000;
+      lastFrame = now;
+    }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
     const light = theme.dataset.theme === 'light';
@@ -111,12 +114,18 @@
   }
   function sync() {
     const next = inView && !phone.matches && !motion.matches && !document.hidden;
+    if (inView && !phone.matches && motion.matches && !document.hidden) {
+      running = false;
+      cancelAnimationFrame(request);
+      lastFrame = 0;
+      draw(performance.now(), true);
+      return;
+    }
     if (next === running) return;
     running = next;
     cancelAnimationFrame(request);
     lastFrame = 0;
     if (running) request = requestAnimationFrame(draw);
-    else if (motion.matches) art.classList.remove('particles-ready');
   }
   canvas.addEventListener('pointermove', event => {
     const bounds = canvas.getBoundingClientRect();
@@ -128,5 +137,8 @@
   motion.addEventListener('change', sync);
   phone.addEventListener('change', sync);
   document.addEventListener('visibilitychange', sync);
+  new MutationObserver(() => {
+    if (!running && inView && !phone.matches && !document.hidden) draw(performance.now(), true);
+  }).observe(theme, { attributes: true, attributeFilter: ['data-theme'] });
   resize();
 })();
