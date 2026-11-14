@@ -1,0 +1,137 @@
+/* A reading layout for the same product: charcoal, warm type, and useful syntax color. */
+.relay-docs { font: 400 16px/24px var(--sans); }
+.relay-docs .site-header { border: 0; background: var(--bg); }
+.relay-docs .header-inner { max-width: 1360px; min-height: 88px; padding: 24px 40px; gap: 24px; }
+.relay-docs .brand { font-size: 18px; line-height: 28px; font-weight: 600; gap: 12px; }
+.relay-docs .brand-mark { width: 32px; height: 32px; border-radius: 8px; }
+.relay-docs .front-nav { display: flex; align-items: center; gap: 32px; margin-left: auto; font-size: 14px; line-height: 20px; color: var(--muted); }
+.relay-docs .front-nav [aria-current] { color: var(--text); }
+.relay-docs .theme-button { width: 40px; height: 40px; padding: 0; font-size: 24px; border-radius: 8px; }
+.relay-docs .theme-button:hover { color: var(--accent); }
+.relay-docs a, .relay-docs button { transition: opacity 300ms cubic-bezier(.22,1,.36,1); }
+.relay-docs a:active, .relay-docs button:active { opacity: .75; }
+.relay-docs .docs-layout { max-width: 1360px; padding: 0 40px; grid-template-columns: 200px minmax(0, 1fr) 160px; gap: 48px; }
+.relay-docs .docs-sidebar, .relay-docs .page-toc { top: 112px; margin-top: 40px; max-height: calc(100vh - 144px); padding-top: 0; }
+.relay-docs .nav-label { color: var(--text); font: 500 14px/20px var(--sans); text-transform: none; letter-spacing: 0; margin: 0 0 16px 12px; }
+.relay-docs .docs-sidebar nav > a, .relay-docs .mobile-doc-nav nav > a { border: 0; border-radius: 8px; font-size: 14px; line-height: 20px; padding: 12px; color: var(--muted); }
+.relay-docs .docs-sidebar nav > a[aria-current], .relay-docs .mobile-doc-nav nav > a[aria-current] { background: var(--soft); color: var(--accent); }
+.relay-docs .docs-sidebar nav > a:hover, .relay-docs .mobile-doc-nav nav > a:hover { background: var(--panel); color: var(--text); }
+.relay-docs .docs-sidebar nav > .handbook-home, .relay-docs .mobile-doc-nav nav > .handbook-home { padding-top: 0; margin-bottom: 32px; font-size: 12px; line-height: 16px; }
+.relay-docs .sidebar-meta { font: 400 12px/20px var(--sans); padding: 32px 12px; }
+.relay-docs .doc-main { max-width: 760px; padding: 40px 0 64px; }
+.relay-docs .search-area { margin-bottom: 48px; }
+.relay-docs .search-input-wrap { border: 1px solid var(--line); border-radius: 12px; gap: 12px; padding: 0 16px; background: var(--panel); }
+.relay-docs .search-input-wrap:focus-within { border-color: var(--accent); }
+.relay-docs .search-input-wrap input { padding: 12px 0; font-size: 14px; line-height: 24px; }
+.relay-docs .search-input-wrap > span { font-size: 24px; line-height: 24px; }
+.relay-docs .search-input-wrap kbd { font-size: 12px; line-height: 20px; border-radius: 4px; }
+.relay-docs #search-results { top: calc(100% + 8px); border-radius: 12px; padding: 8px; box-shadow: 0 16px 48px #00000033; }
+.relay-docs #search-results a { padding: 16px; border: 0; border-radius: 4px; }
+.relay-docs #search-results small { font: 400 12px/16px var(--sans); margin-bottom: 4px; }
+.relay-docs #search-results strong { font-size: 16px; line-height: 24px; }
+.relay-docs #search-results p { font-size: 14px; line-height: 20px; margin-top: 8px; }
+.relay-docs #search-status { font-size: 12px; line-height: 16px; margin-top: 8px; }
+.relay-docs .doc-eyebrow { margin-bottom: 24px; color: var(--muted); font: 400 14px/20px var(--sans); letter-spacing: 0; text-transform: none; }
+.relay-docs .doc-eyebrow a { font-size: 12px; line-height: 16px; padding: 4px 8px; border-radius: 4px; }
+.relay-docs .doc-main h1 { font-size: 48px; line-height: 1; letter-spacing: -.045em; font-weight: 600; }
+.relay-docs .doc-lead { font-size: 18px; line-height: 28px; margin: 24px 0 40px; max-width: 600px; }
+.relay-docs .doc-content { font-size: 16px; line-height: 24px; }
+.relay-docs .doc-content > p:first-child { margin-top: 0; }
+.relay-docs .doc-content p { margin: 16px 0; }
+.relay-docs .doc-content h2 { font-size: 30px; line-height: 36px; font-weight: 500; letter-spacing: -.035em; border: 0; margin: 64px 0 24px; padding: 0; scroll-margin-top: 120px; }
+.relay-docs .doc-content h3 { font-size: 20px; line-height: 28px; font-weight: 500; margin: 32px 0 16px; }
+.relay-docs .doc-content strong { font-weight: 600; }
+.relay-docs .doc-content ul, .relay-docs .doc-content ol { padding-left: 24px; margin: 24px 0; }
+.relay-docs .doc-content li { margin: 12px 0; padding-left: 4px; }
+.relay-docs .doc-content li::marker { color: var(--muted); }
+.relay-docs .doc-content p code, .relay-docs .doc-content li code { font-size: 14px; line-height: 20px; padding: 2px 4px; border-radius: 4px; }
+.relay-docs .doc-content .code-block { margin: 24px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.relay-docs .doc-content .code-block pre { padding: 24px 80px 24px 24px; font-size: 14px; line-height: 24px; }
+.relay-docs .copy-button { padding: 8px 12px; top: 16px; right: 12px; font: 500 12px/16px var(--sans); border: 0; border-radius: 4px; background: var(--raised); color: var(--muted); }
+.relay-docs .copy-button:hover { color: var(--text); }
+.relay-docs .copy-button:disabled { color: var(--accent); }
+.relay-docs .doc-content .callout { padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); margin: 32px 0; }
+.relay-docs .doc-content .callout strong { font-size: 16px; line-height: 24px; margin-bottom: 8px; }
+.relay-docs .doc-content .callout p { font-size: 14px; line-height: 24px; margin: 0; }
+.relay-docs .doc-content .command-syntax { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin: 24px 0; font-size: 12px; line-height: 20px; color: var(--muted); }
+.relay-docs .doc-content .table-wrap { margin: 24px 0; border-radius: 12px; }
+.relay-docs .doc-content table { font-size: 14px; line-height: 20px; }
+.relay-docs .doc-content th { font-size: 12px; line-height: 20px; font-weight: 600; }
+.relay-docs .doc-content th, .relay-docs .doc-content td { padding: 16px; line-height: 24px; }
+.relay-docs .doc-content table code { font-size: 12px; line-height: 20px; }
+.relay-docs .doc-content tbody tr:hover { background: var(--panel); }
+.relay-docs .guide-path { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 32px 0; padding: 16px; border: 0; border-radius: 8px; background: var(--panel); }
+.relay-docs .doc-content .guide-path a { font-size: 14px; line-height: 20px; padding: 4px 0; }
+.relay-docs .guide-path span { font-size: 12px; line-height: 16px; }
+.relay-docs .doc-content details { border-radius: 12px; padding: 24px; margin: 24px 0; background: var(--panel); }
+.relay-docs .doc-content summary { font-size: 16px; line-height: 24px; }
+.relay-docs .doc-content details[open] summary { margin-bottom: 24px; }
+.relay-docs .doc-content .command-directory { background: transparent; }
+.relay-docs .doc-content .command-index { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 16px; margin: 0; }
+.relay-docs .doc-content .command-index a { background: transparent; border: 0; font-size: 14px; line-height: 20px; padding: 8px 0; }
+.relay-docs .page-toc .nav-label { margin-left: 0; font-size: 12px; line-height: 16px; }
+.relay-docs .page-toc nav a { font-size: 12px; line-height: 16px; padding: 8px 0; }
+.relay-docs .page-toc nav a[aria-current="location"] { color: var(--accent); }
+.relay-docs .source-link { font: 400 12px/16px var(--sans); border: 0; padding: 0; margin-top: 32px; }
+.relay-docs .page-pagination { border: 0; padding: 0; gap: 16px; margin-top: 64px; }
+.relay-docs .page-pagination a { flex: 1; background: var(--panel); padding: 24px; border-radius: 12px; font-size: 16px; line-height: 24px; }
+.relay-docs .page-pagination a:hover { background: var(--raised); }
+.relay-docs .page-pagination span { font: 400 12px/16px var(--sans); margin-bottom: 8px; }
+.relay-docs .site-footer { max-width: 1360px; padding: 32px 40px; border: 0; }
+.relay-docs .site-footer .brand { font-size: 16px; line-height: 24px; font-weight: 500; }
+.relay-docs .site-footer p { margin-top: 8px; font-size: 12px; line-height: 16px; }
+.relay-docs .footer-links { gap: 24px; font-size: 14px; line-height: 20px; }
+@media (prefers-reduced-motion: no-preference) {
+  .relay-docs .doc-eyebrow, .relay-docs .doc-main h1, .relay-docs .doc-lead { animation: doc-arrive 650ms cubic-bezier(.22,1,.36,1) both; }
+  .relay-docs .doc-main h1 { animation-delay: 60ms; }
+  .relay-docs .doc-lead { animation-delay: 120ms; }
+}
+@keyframes doc-arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 1150px) {
+  .relay-docs .docs-layout { grid-template-columns: 184px minmax(0, 1fr); padding-inline: 32px; gap: 40px; }
+  .relay-docs .header-inner, .relay-docs .site-footer { padding-inline: 32px; }
+  .relay-docs .mobile-page-toc { border: 0; margin: 0 0 40px; padding: 16px; background: var(--panel); border-radius: 8px; font-size: 14px; line-height: 20px; }
+  .relay-docs .mobile-page-toc summary { color: var(--text); }
+  .relay-docs .mobile-page-toc nav { margin-top: 16px; gap: 0 24px; }
+  .relay-docs .mobile-page-toc nav a { padding: 8px 0; font-size: 14px; line-height: 20px; }
+}
+@media (max-width: 900px) {
+  .relay-docs .docs-layout { display: block; max-width: 760px; }
+  .relay-docs .doc-main { padding-top: 24px; }
+  .relay-docs .mobile-doc-nav { border: 0; padding: 16px; margin-bottom: 24px; background: var(--panel); border-radius: 8px; font-size: 14px; line-height: 20px; }
+  .relay-docs .mobile-doc-nav nav { margin-top: 16px; padding-top: 0; gap: 0 16px; }
+  .relay-docs .mobile-doc-nav nav > .handbook-home { grid-column: 1 / -1; margin-bottom: 16px; }
+  .relay-docs .mobile-doc-nav .sidebar-meta { padding: 24px 12px 0; }
+  .relay-docs .search-area { margin-bottom: 32px; }
+}
+@media (max-width: 650px) {
+  .relay-docs .header-inner { min-height: 80px; padding: 16px 24px; gap: 16px; }
+  .relay-docs .front-nav { font-size: 12px; line-height: 16px; gap: 16px; }
+  .relay-docs .front-nav a:last-child { display: none; }
+  .relay-docs .theme-button { width: 32px; height: 32px; }
+  .relay-docs .brand { font-size: 16px; line-height: 24px; gap: 8px; }
+  .relay-docs .brand-mark { width: 24px; height: 24px; border-radius: 4px; font-size: 20px; }
+  .relay-docs .docs-layout { padding-inline: 24px; }
+  .relay-docs .doc-main { padding-top: 16px; padding-bottom: 48px; }
+  .relay-docs .doc-eyebrow { font-size: 12px; line-height: 16px; margin-bottom: 24px; }
+  .relay-docs .doc-main h1 { font-size: 36px; line-height: 40px; }
+  .relay-docs .doc-lead { font-size: 16px; line-height: 24px; margin-top: 24px; margin-bottom: 32px; }
+  .relay-docs .doc-content h2 { font-size: 24px; line-height: 32px; margin-top: 48px; scroll-margin-top: 104px; }
+  .relay-docs .doc-content h3 { font-size: 18px; line-height: 28px; }
+  .relay-docs .doc-content .code-block pre { font-size: 12px; line-height: 24px; padding: 24px 72px 24px 16px; }
+  .relay-docs .copy-button { right: 8px; top: 16px; padding: 8px; }
+  .relay-docs .doc-content .callout, .relay-docs .doc-content details { padding: 16px; }
+  .relay-docs .doc-content .table-wrap { margin-inline: 0; }
+  .relay-docs .doc-content th, .relay-docs .doc-content td { padding: 12px; }
+  .relay-docs .page-pagination { gap: 12px; margin-top: 48px; }
+  .relay-docs .page-pagination a { padding: 16px; font-size: 14px; line-height: 20px; }
+  .relay-docs .site-footer { padding: 32px 24px; gap: 24px; }
+  .relay-docs .footer-links { font-size: 12px; line-height: 16px; }
+}
+@media (max-width: 360px) {
+  .relay-docs .header-inner { gap: 8px; }
+  .relay-docs .front-nav { margin-left: auto; }
+  .relay-docs .doc-content .command-index { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Section margins already account for the sticky header. */
+html:has(.relay-docs) { scroll-padding-top: 0; }

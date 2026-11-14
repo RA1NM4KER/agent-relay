@@ -58,6 +58,7 @@ try {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
     permissions: ["clipboard-read", "clipboard-write"],
+    reducedMotion: "reduce",
   });
   const page = await context.newPage();
   page.on("pageerror", (error) => errors.push(error.message));
@@ -76,6 +77,15 @@ try {
       if (path !== "index.html") {
         assert.equal(await page.locator(".doc-eyebrow a").textContent(), "v0.5.2");
         assert((await page.locator(".source-link").getAttribute("href")).includes("/v0.5.2/"));
+      }
+      const canonical = 'https://ra1nm4ker.github.io/agent-relay/' + (path === 'index.html' ? '' : path);
+      assert.equal(await page.locator('link[rel="canonical"]').getAttribute('href'), canonical);
+      const schema = await page.locator('script[type="application/ld+json"]').evaluate(el => JSON.parse(el.textContent));
+      assert(schema['@graph'].some(node => node.url === canonical));
+      if (path === 'index.html' && width <= 390) {
+        assert(await page.locator('.relay-art').isHidden(), 'Particle artwork is hidden on phones');
+        const install = await page.locator('.front-install .code-block').boundingBox();
+        assert(install.height <= 64, 'Mobile install stays on one compact row');
       }
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth > innerWidth,
@@ -130,15 +140,33 @@ try {
     const target = await page.locator("#status").boundingBox();
     const header = await page.locator(".site-header").boundingBox();
     assert(target.y >= header.height && target.y < 900, "Section target is visible below the sticky header");
+    await page.waitForFunction(() => document.querySelector('.mobile-page-toc a[href="#status"]').getAttribute('aria-current') === 'location');
   }
-  // Static CLI evidence remains readable with reduced motion and without JS.
+  // The complete transcript stays static under reduced motion; the visual demo cycles otherwise.
   await page.goto(base + "index.html");
   await page.emulateMedia({ reducedMotion: "reduce" });
   assert(await page.locator(".cli-output").first().isVisible());
   assert((await page.locator(".cli-output").first().textContent()).includes("relay status --live"));
-  await page.locator(".terminal-screen").waitFor({ state: "hidden" });
-  assert(await page.locator(".terminal-playback").isHidden());
+  assert(await page.locator('.terminal-screen').isHidden());
+  assert.equal(await page.locator('.motion-toggle, .terminal-playback').count(), 0);
+  assert(await page.locator('.relay-particles').isHidden());
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.locator('.relay-art').scrollIntoViewIfNeeded();
+  await page.locator('.relay-art.particles-ready').waitFor();
+  assert(await page.locator('.relay-particles').evaluate(canvas => canvas.width > 0 && canvas.height > 0));
+  await page.locator('.front-console').scrollIntoViewIfNeeded();
+  assert.equal(await page.locator('.front-console .cli-output').count(), 1);
+  await page.locator('.cli-output').focus();
+  await page.locator('.front-console').hover();
+  await page.waitForFunction(() => document.querySelector('.front-console').dataset.command === 'relay doctor' && document.querySelector('.front-console').dataset.phase === 'holding', null, { timeout: 16000 });
+  assert.equal(await page.locator('.terminal-screen .cli-success').count(), 4);
+  await page.waitForFunction(() => document.querySelector('.front-console').dataset.command === 'relay profile list' && document.querySelector('.front-console').dataset.phase === 'holding', null, { timeout: 16000 });
+  assert.equal(await page.locator('.terminal-screen .cli-path').count(), 3);
+  assert.equal(await page.locator('.front-console').evaluate(el => el.innerText.split('$ relay').length - 1), 1);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.locator('.terminal-screen').waitFor({ state: 'hidden' });
+  await page.goto(base + "index.html");
   await page.keyboard.press("Tab");
   assert.equal(await page.evaluate(() => document.activeElement.className), "skip-link");
   await page.keyboard.press("Enter");
@@ -289,10 +317,11 @@ try {
   await staticPage.goto(base + "index.html");
   assert(await staticPage.locator(".cli-output").isVisible());
   assert((await staticPage.locator(".cli-output").textContent()).includes("Configured fallback chain"));
-  await staticPage.getByRole("link", { name: "Install with Homebrew" }).click();
-  assert(staticPage.url().endsWith("#install"));
   assert(await staticPage.locator("#install").isVisible());
-  assert(await staticPage.locator(".copy-button").isHidden());
+  assert((await staticPage.locator("#install code").textContent()).includes("brew install"));
+  await staticPage.getByRole("link", { name: "Setup guide" }).click();
+  assert(staticPage.url().endsWith("docs/getting-started.html"));
+  assert(await staticPage.locator(".copy-button").first().isHidden());
   await noJs.close();
   console.log(
     "Copy, denied clipboard, search, failed-search retry, theme persistence, keyboard, mobile navigation, no-JS content, and screenshots passed.",

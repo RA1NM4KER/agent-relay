@@ -1,0 +1,35 @@
+/* Shared identity for the product page and handbook. All assets are served locally. */
+@font-face { font-family: Geist; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/geist-regular.ttf') format('truetype'); }
+@font-face { font-family: Geist; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/geist-medium.ttf') format('truetype'); }
+@font-face { font-family: Geist; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/geist-semibold.ttf') format('truetype'); }
+:root {
+  --bg: #0b0b0c;
+  --panel: #151516;
+  --raised: #242425;
+  --text: #f0eee9;
+  --muted: #aaa6a0;
+  --line: #333231;
+  --soft: #25211d;
+  --ink: #18130d;
+}
+:root[data-theme="light"] {
+  --bg: #f7f5f0;
+  --panel: #eeebe4;
+  --raised: #e0dbd2;
+  --text: #28231e;
+  --muted: #655e54;
+  --line: #d4cec4;
+  --soft: #e8dfd1;
+  --ink: #fff;
+}
+
+:root { --sans: Geist, sans-serif; }
+body { font-family: var(--sans); }
+h1, h2, h3 { text-wrap: balance; }
+p { text-wrap: pretty; }
+.syntax-command { color: #9bd6a9; }
+.syntax-flag { color: var(--accent); }
+.syntax-string { color: #b4cbe1; }
+.syntax-comment { color: var(--muted); }
+:root[data-theme="light"] .syntax-command { color: #27643a; }
+:root[data-theme="light"] .syntax-string { color: #345875; }

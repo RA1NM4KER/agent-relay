@@ -1,0 +1,25 @@
+# Agent Relay
+
+> A local supervisor for Claude Code and Codex conversations.
+
+Canonical website: https://ra1nm4ker.github.io/agent-relay/
+
+Handbook examples are verified against stable v0.5.2. Read the handoff guide for continuity limits and the security model for ownership and authentication boundaries.
+
+## Public pages
+
+- [Product overview](https://ra1nm4ker.github.io/agent-relay/index.md): What Relay does, installation, and common questions.
+- [Get started](https://ra1nm4ker.github.io/agent-relay/docs/getting-started.md): Install Relay, set up profiles, and start your first managed conversation.
+- [Everyday workflows](https://ra1nm4ker.github.io/agent-relay/docs/workflows.md): Start, resume, switch, and adopt coding-agent conversations.
+- [Command reference](https://ra1nm4ker.github.io/agent-relay/docs/commands.md): Find Agent Relay commands, options, and copyable examples.
+- [Profiles & accounts](https://ra1nm4ker.github.io/agent-relay/docs/profiles.md): Manage isolated accounts and choose your fallback order.
+- [Handoffs & capabilities](https://ra1nm4ker.github.io/agent-relay/docs/handoffs.md): Understand automatic handoff, session continuity, and current limits.
+- [Inside your agent](https://ra1nm4ker.github.io/agent-relay/docs/integrations.md): Use Relay inside Claude Code, Codex, and optional Herdr sessions.
+- [Troubleshooting](https://ra1nm4ker.github.io/agent-relay/docs/troubleshooting.md): Diagnose readiness, unavailable profiles, and interrupted handoffs.
+- [Advanced use](https://ra1nm4ker.github.io/agent-relay/docs/advanced.md): Inspect transactions, script Relay, and work with development builds.
+
+## Source and releases
+
+- [Source repository](https://github.com/RA1NM4KER/agent-relay): Code, license, and project history.
+- [Stable handbook source](https://github.com/RA1NM4KER/agent-relay/tree/v0.5.2): Version used to verify documentation examples.
+- [Releases](https://github.com/RA1NM4KER/agent-relay/releases): Release notes and downloads.

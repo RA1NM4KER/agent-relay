@@ -3,7 +3,8 @@
 The public product introduction and CLI handbook at
 [ra1nm4ker.github.io/agent-relay](https://ra1nm4ker.github.io/agent-relay/).
 GitHub Pages serves the committed static files from the root of `gh-pages`.
-There is no application server, runtime framework, third-party font, analytics, or CDN dependency.
+There is no application server, runtime framework, analytics, or CDN dependency.
+The site serves Geist locally from `assets/fonts/`, with its SIL Open Font License alongside it.
 
 ## Edit and build
 
@@ -17,8 +18,9 @@ python3 scripts/check.py
 ```
 
 The builder owns `index.html`, `docs/*.html`, `assets/search-index.json`, and
-`sitemap.xml`. Commit generated output alongside its source. Shared layout lives in
-`scripts/build.py`; styles and browser behaviour live in `assets/`. Styles use solid
+`sitemap.xml`, `index.md`, `docs/*.md`, and `llms.txt`. Commit generated output alongside its source. Shared layout lives in
+`scripts/build.py`; styles and browser behaviour live in `assets/`. Shared identity and fonts live in `assets/brand.css`; the homepage uses `assets/home.css`
+and the handbook uses `assets/docs.css`. `assets/site.css` keeps the base primitives. Styles use solid
 colours only, with dark and light themes. All core content and navigation work without
 JavaScript; search, theme persistence, and copying are progressive enhancements.
 
@@ -83,9 +85,54 @@ Rust source branch or to Pages settings are required. Never force-push over a co
 release badge update; rebase onto the latest `origin/gh-pages` and preserve its badge.
 
 The public `#top`, `#how-it-works`, `#security`, and `#handoff-demo` anchors remain
-available. The homepage terminal types three representative v0.5.2 commands, then reveals
-bounded output line by line: `relay status --live`, `relay doctor`, and `relay profile list`.
-Example profiles, paths, and session IDs are fictional. The complete status excerpt remains
-available to assistive technology and without JavaScript. Reduced motion shows the static
-excerpt; a pause button stops playback, and animation pauses offscreen or in a hidden tab.
-The terminal reserves its original dimensions so shorter examples do not shift the layout.
+available. The homepage cycles through representative v0.5.2 status, doctor, and profile-list excerpts
+with fictional profiles and session ID. A complete static status excerpt remains readable
+without JavaScript and with reduced motion. Commands, profile names, and successful checks
+use distinct colors. Each command types character by character, followed by a short beat
+and a smooth line-by-line response. Successful checks and the executable use green,
+profile names use blue, flags use amber, and paths stay muted. Playback continues while hovered or focused, and holds only offscreen or in a hidden tab.
+A single output element serves both playback and the accessible static fallback, so copied
+text never contains a second hidden transcript. Homepage asset URLs include content hashes
+to pick up script and stylesheet changes when refreshing a preview. Installation is near the top; conversation-continuity details sit in native
+expandable questions. The homepage and handbook share the same header and brand treatment; the release badge and
+meta-row markers live in the footer so release updates retain their existing contract.
+
+## Homepage art and motion
+
+The homepage uses a neutral charcoal and amber palette, distinct section surfaces, and a
+locally served transparent sculpture at `assets/relay-sculpture-v1.png`. It was generated
+with the built-in image tool from this direction: two interlocked capsule links, amber
+anodized metal and smoked graphite glass, realistic studio lighting, transparent background,
+no text, no green. The asset is decorative and conveys connection rather than provider state.
+The hero uses a local canvas particle sculpture: two linked forms gather, turn, and flow
+into a continuous loop. Pointer movement gently displaces nearby particles. It stops rendering
+offscreen or in a hidden tab. The generated studio render is the fallback for reduced motion
+and no JavaScript. There are no visible pause controls. Scroll entrances run once and all content stays
+available without JavaScript. The handbook shares the charcoal and amber palette, Geist typography, and header. It uses
+a reading layout with an active section rail, native mobile navigation, syntax-colored
+copyable examples, and quieter callouts and tables. Reference text remains static.
+
+## Public discovery and SEO
+
+The homepage and the eight handbook pages are the explicit public content allowlist.
+`scripts/public_content.py` converts their source fragments to Markdown during the normal
+build, preserving command examples, continuation limits, platform limitations, and absolute
+source links. No filesystem-wide export or private/authenticated mirror is created.
+HTML advertises its own Markdown alternate and the project-scoped `llms.txt`.
+
+The sitemap includes only canonical HTML URLs, using the project root for the homepage.
+JSON-LD describes the website and software on the homepage, and versioned technical articles
+and breadcrumbs in the handbook. Titles, descriptions, Open Graph, and social card metadata
+are emitted by the shared shell. Regenerate `assets/social-card.png` after changing its brand
+assets with `node scripts/social-card.mjs`; its dimensions are 1200 by 630.
+
+GitHub Pages serves this project beneath `/agent-relay/`. Root-domain robots policy is outside
+this project's path; this change does not create or change crawler permissions. Markdown
+HTTP MIME types and canonical Link headers depend on the host. Each Markdown body identifies
+its canonical HTML source even when custom response headers are unavailable. Production
+URLs stay canonical during local preview; there is no new global indexing directive.
+
+`npm run check` verifies discovery, canonical/sitemap agreement, JSON-LD page identities,
+explicit mirror coverage, social image dimensions, and exact command parity across source,
+HTML, and Markdown. These checks do not measure rankings, citations, real visitor performance,
+or Search Console indexing. Publish and verify production responses separately.
